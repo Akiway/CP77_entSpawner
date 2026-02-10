@@ -32,39 +32,6 @@ function dynamicMesh:new()
    	return o
 end
 
-function dynamicMesh:drawConversionWarning()
-    if ImGui.BeginPopupModal("Lossy Conversion##dynamicMeshSingle", true, ImGuiWindowFlags.AlwaysAutoResize) then
-        style.mutedText("Warning")
-        ImGui.Text("This conversion is lossy.")
-        ImGui.Text(self.dataType .. " specific properties will be removed.")
-        ImGui.Text("Do you want to continue?")
-        ImGui.Dummy(0, 8 * style.viewSize)
-        local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
-        if changed then
-            settings.skipLossyConversionWarning = skipWarning
-            settings.save()
-        end
-        ImGui.Dummy(0, 8 * style.viewSize)
-
-        if ImGui.Button("Convert") then
-            history.addAction(history.getElementChange(self.object))
-            if self.convertTarget == 1 then
-                self:convertToRotatingMesh()
-            else
-                self:convertToStaticMesh()
-            end
-            ImGui.CloseCurrentPopup()
-        end
-
-        ImGui.SameLine()
-        if ImGui.Button("Cancel") then
-            ImGui.CloseCurrentPopup()
-        end
-
-        ImGui.EndPopup()
-    end
-end
-
 function dynamicMesh:onAssemble(entity)
     spawnable.onAssemble(self, entity)
     local component = PhysicalMeshComponent.new()
@@ -133,6 +100,14 @@ function dynamicMesh:draw()
         IconGlyphs.CubeOutline .. " Static Mesh",
         IconGlyphs.FormatRotate90 .. " Rotating Mesh"
     }
+    local convertActions = { "static", "rotating" }
+
+    if self:canConvertToClothMesh() then
+        table.insert(options, IconGlyphs.ReceiptOutline .. " Cloth Mesh")
+        table.insert(convertActions, "cloth")
+    end
+
+    self.convertTarget = math.max(0, math.min(self.convertTarget, #options - 1))
     self.convertTarget, _ = style.trackedCombo(self.object, "##converterType", self.convertTarget, options, 150)
     style.tooltip("Select the mesh type to convert into")
         
@@ -142,8 +117,11 @@ function dynamicMesh:draw()
     if ImGui.Button("Convert") then
         if settings.skipLossyConversionWarning then
             history.addAction(history.getElementChange(self.object))
-            if self.convertTarget == 1 then
+            local target = convertActions[self.convertTarget + 1]
+            if target == "rotating" then
                 self:convertToRotatingMesh()
+            elseif target == "cloth" then
+                self:convertToClothMesh()
             else
                 self:convertToStaticMesh()
             end
@@ -152,7 +130,39 @@ function dynamicMesh:draw()
         end
     end
 
-    self:drawConversionWarning()
+    if ImGui.BeginPopupModal("Lossy Conversion##dynamicMeshSingle", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        style.mutedText("Warning")
+        ImGui.Text("This conversion is lossy.")
+        ImGui.Text("Dynamic mesh specific properties will be removed.")
+        ImGui.Text("Do you want to continue?")
+        ImGui.Dummy(0, 8 * style.viewSize)
+        local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
+        if changed then
+            settings.skipLossyConversionWarning = skipWarning
+            settings.save()
+        end
+        ImGui.Dummy(0, 8 * style.viewSize)
+
+        if ImGui.Button("Convert") then
+            history.addAction(history.getElementChange(self.object))
+            local target = convertActions[self.convertTarget + 1]
+            if target == "rotating" then
+                self:convertToRotatingMesh()
+            elseif target == "cloth" then
+                self:convertToClothMesh()
+            else
+                self:convertToStaticMesh()
+            end
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel") then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
 end
 
 function dynamicMesh:convertToRotatingMesh()
@@ -237,105 +247,7 @@ function dynamicMesh:getProperties()
 end
 
 function dynamicMesh:getGroupedProperties()
-    local properties = spawnable.getGroupedProperties(self)
-
-    properties["dynamicMesh"] = {
-        name = "Dynamic Mesh",
-        id = "dynamicMesh",
-        data = {
-            convertTarget = 0
-        },
-        draw = function(element, entries)
-            style.mutedText("Convert all to")
-            ImGui.SameLine()
-            ImGui.SetCursorPosX(200 * style.viewSize)
-
-            local options = {
-                IconGlyphs.CubeOutline .. " Static Mesh",
-                IconGlyphs.FormatRotate90 .. " Rotating Mesh"
-            }
-            ImGui.SetNextItemWidth(150 * style.viewSize)
-            element.groupOperationData["dynamicMesh"].convertTarget, _ = ImGui.Combo("##groupDynamicMeshConvertTarget", element.groupOperationData["dynamicMesh"].convertTarget, options, #options)
-            style.tooltip("Select the mesh type to convert all dynamic mesh(es) into")
-
-            ImGui.SameLine()
-            if ImGui.Button("Convert") then
-                if settings.skipLossyConversionWarning then
-                    history.addAction(history.getMultiSelectChange(entries))
-                    local nApplied = 0
-                    local convertToRotating = element.groupOperationData["dynamicMesh"].convertTarget == 1
-
-                    for _, entry in ipairs(entries) do
-                        if entry.spawnable.node == "worldDynamicMeshNode" then
-                            if convertToRotating then
-                                entry.spawnable:convertToRotatingMesh()
-                            else
-                                entry.spawnable:convertToStaticMesh()
-                            end
-                            nApplied = nApplied + 1
-                        end
-                    end
-
-                    local targetName = convertToRotating and "rotating meshes" or "static meshes"
-                    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Converted %s dynamic meshes to %s", nApplied, targetName)))
-                else
-                    ImGui.OpenPopup("Lossy Conversion##dynamicMeshGroup")
-                end
-            end
-
-            if ImGui.BeginPopupModal("Lossy Conversion##dynamicMeshGroup", true, ImGuiWindowFlags.AlwaysAutoResize) then
-                local nPending = 0
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == "worldDynamicMeshNode" then
-                        nPending = nPending + 1
-                    end
-                end
-
-                style.mutedText("Warning")
-                ImGui.Text("This conversion is lossy.")
-                ImGui.Text("Dynamic mesh specific properties will be removed.")
-                ImGui.Text(string.format("Affected dynamic mesh(es): %d", nPending))
-                ImGui.Text("Do you want to continue?")
-                ImGui.Dummy(0, 8 * style.viewSize)
-                local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
-                if changed then
-                    settings.skipLossyConversionWarning = skipWarning
-                    settings.save()
-                end
-                ImGui.Dummy(0, 8 * style.viewSize)
-
-                if ImGui.Button("Convert") then
-                    history.addAction(history.getMultiSelectChange(entries))
-                    local nApplied = 0
-                    local convertToRotating = element.groupOperationData["dynamicMesh"].convertTarget == 1
-
-                    for _, entry in ipairs(entries) do
-                        if entry.spawnable.node == "worldDynamicMeshNode" then
-                            if convertToRotating then
-                                entry.spawnable:convertToRotatingMesh()
-                            else
-                                entry.spawnable:convertToStaticMesh()
-                            end
-                            nApplied = nApplied + 1
-                        end
-                    end
-
-                    local targetName = convertToRotating and "rotating meshes" or "static meshes"
-                    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Converted %s dynamic meshes to %s", nApplied, targetName)))
-                    ImGui.CloseCurrentPopup()
-                end
-
-                ImGui.SameLine()
-                if ImGui.Button("Cancel") then
-                    ImGui.CloseCurrentPopup()
-                end
-
-                ImGui.EndPopup()
-            end
-        end
-    }
-
-    return properties
+    return spawnable.getGroupedProperties(self)
 end
 
 function dynamicMesh:export()
