@@ -17,6 +17,7 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field rotationUIDragStartQuat Quaternion?
 ---@field rotationUIDragValue table
 ---@field originInitialized boolean
+---@field originMode string
 ---@field supportsSaving boolean
 local positionableGroup = setmetatable({}, { __index = positionable })
 
@@ -34,6 +35,7 @@ function positionableGroup:new(sUI)
 	o.rotationUIDragStartQuat = nil
 	o.rotationUIDragValue = { roll = nil, pitch = nil }
 	o.originInitialized = false
+	o.originMode = "autoCenter"
 	o.class = utils.combine(o.class, { "positionableGroup" })
 	o.quickOperations = {
 		[IconGlyphs.ContentSaveOutline] = {
@@ -54,11 +56,13 @@ function positionableGroup:load(data, silent)
 	positionable.load(self, data, silent)
 
 	-- load default values to support previous implementations
+	data.originMode = data.originMode or "manual"
 	data.origin = data.origin or self:getPosition()
 	data.originInitialized = data.originInitialized or (#self.childs > 0)
 	data.rotation = data.rotation or EulerAngles.new(0, 0, 0)
 
 	self.origin = Vector4.new(data.origin.x, data.origin.y, data.origin.z, 0)
+	self.originMode = data.originMode
 	self.originInitialized = true
 
 	self.rotation = EulerAngles.new(data.rotation.roll, data.rotation.pitch, data.rotation.yaw)
@@ -72,9 +76,11 @@ function positionableGroup:serialize()
 	self.rotation = self.rotation or EulerAngles.new(0, 0, 0)
 	self.rotationQuat = self.rotationQuat or self.rotation:ToQuat()
 	self.originInitialized = self.originInitialized or (#self.childs > 0)
+	self.originMode = self.originMode or "autoCenter"
 
 	data.origin = { x = self.origin.x, y = self.origin.y, z = self.origin.z }
 	data.originInitialized = self.originInitialized
+	data.originMode = self.originMode
 	data.rotation = { roll = self.rotation.roll, pitch = self.rotation.pitch, yaw = self.rotation.yaw }
 
 	return data
@@ -82,11 +88,6 @@ end
 
 function positionableGroup:addChild(child)
 	positionable.addChild(self, child)
-
-	if not self.originInitialized then
-		self.origin = child:getPosition()
-		self.originInitialized = true
-	end
 end
 
 function positionableGroup:getDirection(direction)
@@ -158,23 +159,38 @@ function positionableGroup:getCenter()
 end
 
 function positionableGroup:setOriginToCenter()
-	if #self.childs == 0 then return end
-	self.origin = self:getCenter()
+	self.originMode = "autoCenter"
+	if #self.childs == 0 then
+		self.origin = Vector4.new(0, 0, 0, 1)
+	else
+		self.origin = self:getCenter()
+	end
 	self.originInitialized = true
 end
 
 function positionableGroup:setOrigin(v)
 	self.origin = v
+	self.originMode = "manual"
 	self.originInitialized = true
 end
 
 function positionableGroup:getPosition()
+	self.originMode = self.originMode or "autoCenter"
+
+	if self.originMode == "autoCenter" then
+		if #self.childs == 0 then
+			return Vector4.new(0, 0, 0, 1)
+		end
+		return self:getCenter()
+	end
+
 	if self.origin == nil then
 		if #self.childs == 0 then
 			self.origin = Vector4.new(0, 0, 0, 1)
 		else
-			self:setOriginToCenter()
+			self.origin = self:getCenter()
 		end
+		self.originInitialized = true
 	end
 	return self.origin
 end
@@ -185,7 +201,9 @@ function positionableGroup:setPosition(position)
 end
 
 function positionableGroup:setPositionDelta(delta)
-	self.origin = utils.addVector(self.origin, delta)
+	if self.originMode ~= "autoCenter" then
+		self.origin = utils.addVector(self:getPosition(), delta)
+	end
 	local leafs = self:getPositionableLeafs()
 
 	for _, entry in pairs(leafs) do
