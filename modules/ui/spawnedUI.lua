@@ -1147,16 +1147,19 @@ function spawnedUI.drawTop()
             end
         end
     end
+    style.tooltip("Save all root groups")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.CollapseAllOutline) then
         for _, child in pairs(spawnedUI.root.childs) do
             child:setHeaderStateRecursive(false)
         end
     end
+    style.tooltip("Fold all groups")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.ExpandAllOutline) then
         spawnedUI.root:setHeaderStateRecursive(true)
     end
+    style.tooltip("Expand all groups")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.EyeMinusOutline) then
         if spawnedUI.filter ~= "" then
@@ -1167,6 +1170,7 @@ function spawnedUI.drawTop()
             spawnedUI.root:setVisibleRecursive(false)
         end
     end
+    style.tooltip("Hide all elements (or filtered elements)")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.EyePlusOutline) then
         if spawnedUI.filter ~= "" then
@@ -1177,6 +1181,7 @@ function spawnedUI.drawTop()
             spawnedUI.root:setVisibleRecursive(true)
         end
     end
+    style.tooltip("Show all elements (or filtered elements)")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.Undo) then
         history.undo()
