@@ -10,6 +10,45 @@ local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
 
 local colliderShapes = { "Box", "Capsule", "Sphere" }
+local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
+local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
+local clothMeshSet = nil
+local dynamicMeshSet = nil
+
+local function normalizeSpawnPath(path)
+    if not path then return "" end
+
+    local normalized = path:gsub("/", "\\")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    return string.lower(normalized)
+end
+
+local function loadSpawnSet(path)
+    local set = {}
+    local file = io.open(path, "r")
+    if not file then return set end
+
+    for line in file:lines() do
+        if line and line ~= "" then
+            set[normalizeSpawnPath(line)] = true
+        end
+    end
+    file:close()
+
+    return set
+end
+
+local function isSpawnDataInSet(spawnData, path)
+    if path == clothListPath and not clothMeshSet then
+        clothMeshSet = loadSpawnSet(path)
+    elseif path == dynamicListPath and not dynamicMeshSet then
+        dynamicMeshSet = loadSpawnSet(path)
+    end
+
+    local set = path == clothListPath and clothMeshSet or dynamicMeshSet
+    return set and set[normalizeSpawnPath(spawnData)] == true
+end
 
 ---Class for worldMeshNode
 ---@class mesh : spawnable
@@ -441,6 +480,19 @@ function mesh:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         local options = { IconGlyphs.FormatRotate90 .. " Rotating Mesh" }
+        local convertActions = { "rotating" }
+
+        if self:canConvertToClothMesh() then
+            table.insert(options, IconGlyphs.ReceiptOutline .. " Cloth Mesh")
+            table.insert(convertActions, "cloth")
+        end
+
+        if self:canConvertToDynamicMesh() then
+            table.insert(options, IconGlyphs.CubeSend .. " Dynamic Mesh")
+            table.insert(convertActions, "dynamic")
+        end
+
+        self.convertTarget = math.max(0, math.min(self.convertTarget, #options - 1))
         self.convertTarget, _ = style.trackedCombo(self.object, "##meshConverterType", self.convertTarget, options, 150)
         style.tooltip("Select the mesh type to convert into")
 
@@ -449,7 +501,14 @@ function mesh:draw()
         style.pushButtonNoBG(false)
         if ImGui.Button("Convert") then
             history.addAction(history.getElementChange(self.object))
-            self:convertToRotatingMesh()
+            local target = convertActions[self.convertTarget + 1]
+            if target == "cloth" then
+                self:convertToClothMesh()
+            elseif target == "dynamic" then
+                self:convertToDynamicMesh()
+            else
+                self:convertToRotatingMesh()
+            end
         end
     end
 end
@@ -506,6 +565,80 @@ function mesh:convertToRotatingMesh()
     self:respawn()
 end
 
+function mesh:canConvertToClothMesh()
+    return isSpawnDataInSet(self.spawnData, clothListPath)
+end
+
+function mesh:canConvertToDynamicMesh()
+    return isSpawnDataInSet(self.spawnData, dynamicListPath)
+end
+
+function mesh:convertToClothMesh()
+    self:despawn()
+
+    local clothMesh = require("modules/classes/spawn/mesh/clothMesh")
+    local clothInstance = clothMesh:new()
+    setmetatable(self, { __index = clothMesh })
+
+    self.dataType = clothInstance.dataType
+    self.modulePath = clothInstance.modulePath
+    self.node = clothInstance.node
+    self.description = clothInstance.description
+    self.icon = clothInstance.icon
+
+    self.affectedByWind = clothInstance.affectedByWind
+    self.collisionType = clothInstance.collisionType
+    self.hideGenerate = clothInstance.hideGenerate
+
+    self.duration = nil
+    self.axis = nil
+    self.reverse = nil
+    self.axisTypes = nil
+    self.cronID = nil
+    self.startAsleep = nil
+    self.forceAutoHideDistance = nil
+    self.convertTarget = 0
+
+    if self.object then
+        self.object.icon = self.icon
+    end
+
+    self:respawn()
+end
+
+function mesh:convertToDynamicMesh()
+    self:despawn()
+
+    local dynamicMesh = require("modules/classes/spawn/physics/dynamicMesh")
+    local dynamicInstance = dynamicMesh:new()
+    setmetatable(self, { __index = dynamicMesh })
+
+    self.dataType = dynamicInstance.dataType
+    self.modulePath = dynamicInstance.modulePath
+    self.node = dynamicInstance.node
+    self.description = dynamicInstance.description
+    self.icon = dynamicInstance.icon
+
+    self.startAsleep = dynamicInstance.startAsleep
+    self.forceAutoHideDistance = dynamicInstance.forceAutoHideDistance
+    self.hideGenerate = dynamicInstance.hideGenerate
+
+    self.duration = nil
+    self.axis = nil
+    self.reverse = nil
+    self.axisTypes = nil
+    self.cronID = nil
+    self.affectedByWind = nil
+    self.collisionType = nil
+    self.convertTarget = 0
+
+    if self.object then
+        self.object.icon = self.icon
+    end
+
+    self:respawn()
+end
+
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
@@ -515,8 +648,7 @@ function mesh:getGroupedProperties()
 		name = "Static Mesh",
         id = "mesh",
 		data = {
-            shape = 0,
-            convertTarget = 0
+            shape = 0
         },
 		draw = function(element, entries)
             style.mutedText("Collider Shape")
@@ -541,31 +673,6 @@ function mesh:getGroupedProperties()
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Generated colliders for %s nodes", nApplied)))
             end
             style.tooltip("Generate Colliders for all selected meshes.")
-
-            
-            style.mutedText("Convert all to")
-            ImGui.SameLine()
-            ImGui.SetCursorPosX(200 * style.viewSize)
-            local options = { IconGlyphs.FormatRotate90 .. " Rotating Mesh" }
-            ImGui.SetNextItemWidth(150 * style.viewSize)
-            element.groupOperationData["mesh"].convertTarget, _ = ImGui.Combo("##groupMeshConvertTarget", element.groupOperationData["mesh"].convertTarget, options, #options)
-            style.tooltip("Select the mesh type to convert all static mesh(es) into")
-
-            ImGui.SameLine()
-            if ImGui.Button("Convert " .. IconGlyphs.FormatRotate90) then
-                history.addAction(history.getMultiSelectChange(entries))
-                local nApplied = 0
-
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == "worldMeshNode" then
-                        entry.spawnable:convertToRotatingMesh()
-                        nApplied = nApplied + 1
-                    end
-                end
-
-                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Converted %s static meshes to rotating meshes", nApplied)))
-            end
-            style.tooltip("Convert selected static meshes to rotating meshes")
         end,
 		entries = { self.object }
 	}
