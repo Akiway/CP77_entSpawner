@@ -23,7 +23,12 @@ exportUI = {
         missingInitialPhase = {}
     },
     sectorPropertiesWidth = nil,
-    mainPropertiesWidth = nil
+    mainPropertiesWidth = nil,
+    missingGroupsOnRefresh = {},
+    groupsDividerHovered = false,
+    groupsDividerDragging = false,
+    templatesDividerHovered = false,
+    templatesDividerDragging = false
 }
 
 function exportUI.init(spawner)
@@ -73,14 +78,42 @@ local function drawVariantsTooltip()
     style.tooltip("All objects placed within the root of the group will be part of the default variant\nYou can assign to each group what variant they should belong to")
 end
 
+local function refreshGroupVariants(group)
+    if not config.fileExists("data/objects/" .. group.name .. ".json") then
+        return false
+    end
+
+    local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
+    g:load(config.loadFile("data/objects/" .. group.name .. ".json"), true)
+
+    local variants = {}
+    for _, child in pairs(g.childs) do
+        if child.expandable then
+            if group.variantData and group.variantData[child.name] then
+                variants[child.name] = group.variantData[child.name]
+            else
+                variants[child.name] = { name = "default", ref = "", defaultOn = true }
+            end
+        end
+    end
+
+    group.variantData = variants
+    return true
+end
+
 function exportUI.drawGroups()
+    local defaultSize = 260
+    local minSize = 120 * style.viewSize
+    local maxSize = 800 * style.viewSize
+    settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight or 260))
+
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
+
+    ImGui.BeginChildFrame(1, 0, settings.exportGroupsHeight)
+
     if #exportUI.groups > 0 then
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-        ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
-
-        ImGui.BeginChildFrame(1, 0, math.min(15, math.max(#exportUI.groups, 10)) * ImGui.GetFrameHeightWithSpacing())
-
         for key, group in ipairs(exportUI.groups) do
             ImGui.BeginGroup()
 
@@ -214,15 +247,52 @@ function exportUI.drawGroups()
             end
             ImGui.EndGroup()
         end
-
-        ImGui.EndChildFrame()
-        ImGui.PopStyleColor()
-        ImGui.PopStyleVar(2)
     else
         ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
         ImGui.TextWrapped("No groups yet added, add them from the \"Saved\" tab!")
         ImGui.PopStyleColor()
     end
+
+    ImGui.EndChildFrame()
+    ImGui.PopStyleColor()
+    ImGui.PopStyleVar(2)
+
+    if exportUI.groupsDividerHovered then
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
+    else
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
+    end
+
+    ImGui.BeginChild("##groupsDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
+    local wx, wy = ImGui.GetContentRegionAvail()
+    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
+    ImGui.SetCursorPosX((wx - textWidth) / 2)
+    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
+    ImGui.Text(IconGlyphs.DragHorizontalVariant)
+    ImGui.EndChild()
+    if exportUI.groupsDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+        settings.exportGroupsHeight = defaultSize
+        settings.save()
+    end
+    exportUI.groupsDividerHovered = ImGui.IsItemHovered()
+
+    if exportUI.groupsDividerHovered and ImGui.IsMouseDragging(0, 0) then
+        exportUI.groupsDividerDragging = true
+    end
+    if exportUI.groupsDividerDragging and not ImGui.IsMouseDragging(0, 0) then
+        exportUI.groupsDividerDragging = false
+        settings.save()
+    end
+    if exportUI.groupsDividerDragging then
+        local _, dy = ImGui.GetMouseDragDelta(0, 0)
+        settings.exportGroupsHeight = settings.exportGroupsHeight + dy
+        settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight))
+        ImGui.ResetMouseDragDelta()
+    end
+    if exportUI.groupsDividerHovered or exportUI.groupsDividerDragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
+    end
+    ImGui.PopStyleColor()
 end
 
 function exportUI.loadTemplate(data)
@@ -266,12 +336,17 @@ function exportUI.loadTemplate(data)
 end
 
 function exportUI.drawTemplates()
+    local defaultSize = 160
+    local minSize = 80 * style.viewSize
+    local maxSize = 500 * style.viewSize
+    settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight or 160))
+
     if utils.tableLength(exportUI.templates) > 0 then
         ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
         ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
 
-        ImGui.BeginChildFrame(2, 0, math.min(5, math.max(utils.tableLength(exportUI.templates), 3)) * ImGui.GetFrameHeightWithSpacing())
+        ImGui.BeginChildFrame(2, 0, settings.exportTemplatesHeight)
 
         for key, data in pairs(exportUI.templates) do
             ImGui.BeginGroup()
@@ -305,10 +380,54 @@ function exportUI.drawTemplates()
         ImGui.PopStyleColor()
         ImGui.PopStyleVar(2)
     else
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
+        ImGui.BeginChildFrame(2, 0, settings.exportTemplatesHeight)
         ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
         ImGui.TextWrapped("No templates created yet.")
         ImGui.PopStyleColor()
+        ImGui.EndChildFrame()
+        ImGui.PopStyleColor()
+        ImGui.PopStyleVar(2)
     end
+
+    if exportUI.templatesDividerHovered then
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
+    else
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
+    end
+
+    ImGui.BeginChild("##templatesDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
+    local wx, wy = ImGui.GetContentRegionAvail()
+    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
+    ImGui.SetCursorPosX((wx - textWidth) / 2)
+    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
+    ImGui.Text(IconGlyphs.DragHorizontalVariant)
+    ImGui.EndChild()
+    if exportUI.templatesDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+        settings.exportTemplatesHeight = defaultSize
+        settings.save()
+    end
+    exportUI.templatesDividerHovered = ImGui.IsItemHovered()
+
+    if exportUI.templatesDividerHovered and ImGui.IsMouseDragging(0, 0) then
+        exportUI.templatesDividerDragging = true
+    end
+    if exportUI.templatesDividerDragging and not ImGui.IsMouseDragging(0, 0) then
+        exportUI.templatesDividerDragging = false
+        settings.save()
+    end
+    if exportUI.templatesDividerDragging then
+        local _, dy = ImGui.GetMouseDragDelta(0, 0)
+        settings.exportTemplatesHeight = settings.exportTemplatesHeight + dy
+        settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight))
+        ImGui.ResetMouseDragDelta()
+    end
+    if exportUI.templatesDividerHovered or exportUI.templatesDividerDragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
+    end
+    ImGui.PopStyleColor()
 end
 
 function exportUI.getCurrentIssue()
@@ -558,13 +677,95 @@ function exportUI.draw()
     exportUI.xlFormat, _ = ImGui.Combo("##xlFormat", exportUI.xlFormat, { "JSON", "YAML" }, 2)
     style.tooltip("Select the format in which the contents of the generated .xl file should be.")
 
+    style.pushGreyedOut(#exportUI.groups == 0)
+    if ImGui.Button("Clear group list") then
+        exportUI.groups = {}
+    end
+    style.popGreyedOut(#exportUI.groups == 0)
+    style.tooltip("Remove all groups from the current export list")
+    ImGui.SameLine()
+    style.pushGreyedOut(#exportUI.groups == 0)
+    if ImGui.Button("Refresh group variants") then
+        exportUI.missingGroupsOnRefresh = {}
+        local seenMissing = {}
+
+        for _, group in ipairs(exportUI.groups) do
+            if not refreshGroupVariants(group) then
+                if not seenMissing[group.name] then
+                    seenMissing[group.name] = true
+                    table.insert(exportUI.missingGroupsOnRefresh, group.name)
+                end
+            end
+        end
+
+        if #exportUI.missingGroupsOnRefresh > 0 then
+            table.sort(exportUI.missingGroupsOnRefresh)
+            ImGui.OpenPopup("Missing Groups On Refresh")
+        end
+    end
+    style.popGreyedOut(#exportUI.groups == 0)
+    style.tooltip("Refresh variants from saved group files")
+
+    if ImGui.BeginPopupModal("Missing Groups On Refresh", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        style.mutedText("Missing groups were found during refresh:")
+        for _, name in ipairs(exportUI.missingGroupsOnRefresh) do
+            ImGui.Text("- " .. name)
+        end
+
+        ImGui.Spacing()
+        style.mutedText("Do you want to remove the missing groups from the export list? (Recommended)")
+        ImGui.Spacing()
+        if ImGui.Button("Confirm") then
+            local missing = {}
+            for _, name in ipairs(exportUI.missingGroupsOnRefresh) do
+                missing[name] = true
+            end
+
+            for i = #exportUI.groups, 1, -1 do
+                if missing[exportUI.groups[i].name] then
+                    table.remove(exportUI.groups, i)
+                end
+            end
+
+            exportUI.missingGroupsOnRefresh = {}
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel") then
+            exportUI.missingGroupsOnRefresh = {}
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
+
     style.sectionHeaderEnd()
-    style.sectionHeaderStart("GROUPS")
+    style.sectionHeaderStart(string.format("GROUPS (%d)", #exportUI.groups))
 
     exportUI.drawGroups()
 
     style.sectionHeaderEnd()
     style.sectionHeaderStart("EXPORT AND SAVE")
+
+    local groupNameCounts = {}
+    local duplicateGroupNames = {}
+    for _, group in ipairs(exportUI.groups) do
+        local name = group.name or ""
+        groupNameCounts[name] = (groupNameCounts[name] or 0) + 1
+    end
+    for name, count in pairs(groupNameCounts) do
+        if name ~= "" and count > 1 then
+            table.insert(duplicateGroupNames, name)
+        end
+    end
+
+    if #duplicateGroupNames > 0 then
+        table.sort(duplicateGroupNames)
+        style.styledText(IconGlyphs.AlertOutline .. " Duplicate group names detected", 0xFF0088FF)
+        style.tooltip("Duplicated group names:\n- " .. table.concat(duplicateGroupNames, "\n- "))
+        ImGui.Spacing()
+    end
 
     style.pushGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "")
     if ImGui.Button("Export") and #exportUI.groups > 0  and exportUI.projectName ~= "" then

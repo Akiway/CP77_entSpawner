@@ -42,6 +42,8 @@ local config = require("modules/utils/config")
 ---@field public cameraRotateSpeed number
 ---@field public cameraZoomSpeed number
 ---@field public setLoadedGroupAsSpawnNew boolean
+---@field public exportGroupsHeight number
+---@field public exportTemplatesHeight number
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -82,6 +84,8 @@ local settingsData = {
     cameraRotateSpeed = 0.4,
     cameraZoomSpeed = 2.75,
     setLoadedGroupAsSpawnNew = false,
+    exportGroupsHeight = 260,
+    exportTemplatesHeight = 160,
 
     filterTags = {},
     favoritesFilter = "",
