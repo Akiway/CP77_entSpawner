@@ -1,6 +1,6 @@
 local CodewareVersion = "1.16.0"
 local ArchiveXLVersion = "1.23.0"
-local ModVersion = "1.0.8"
+local ModVersion = "a.1.0.9"
 local ignoreRequirements = false
 
 local settings = require("modules/utils/settings")
