@@ -69,6 +69,7 @@ function mesh:new()
     o.colliderShape = 0
     o.hideGenerate = false
     o.maxPropertyWidth = nil
+    o.convertTarget = 0
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.1
@@ -434,6 +435,23 @@ function mesh:draw()
 
         ImGui.TreePop()
     end
+    
+    if self.node == "worldMeshNode" then
+        style.mutedText("Convert to")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        local options = { IconGlyphs.FormatRotate90 .. " Rotating Mesh" }
+        self.convertTarget, _ = style.trackedCombo(self.object, "##meshConverterType", self.convertTarget, options, 150)
+        style.tooltip("Select the mesh type to convert into")
+
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth + 150 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+        style.pushButtonNoBG(false)
+        if ImGui.Button("Convert") then
+            history.addAction(history.getElementChange(self.object))
+            self:convertToRotatingMesh()
+        end
+    end
 end
 
 function mesh:getProperties()
@@ -449,6 +467,45 @@ function mesh:getProperties()
     return properties
 end
 
+function mesh:convertToRotatingMesh()
+    -- Despawn current mesh
+    self:despawn()
+
+    -- Get defaults from rotating mesh (lazy require to avoid circular dependency)
+    local rotatingMesh = require("modules/classes/spawn/mesh/rotatingMesh")
+    local rotInstance = rotatingMesh:new()
+
+    -- Change metatable to rotatingMesh
+    setmetatable(self, { __index = rotatingMesh })
+
+    -- Update properties
+    self.dataType = rotInstance.dataType
+    self.modulePath = rotInstance.modulePath
+    self.node = rotInstance.node
+    self.description = rotInstance.description
+    self.icon = rotInstance.icon
+
+    -- Apply rotating defaults
+    self.duration = rotInstance.duration
+    self.axis = rotInstance.axis
+    self.reverse = rotInstance.reverse
+    self.axisTypes = rotInstance.axisTypes
+    self.cronID = rotInstance.cronID
+    self.hideGenerate = rotInstance.hideGenerate
+
+    if self.object then
+        self.object.icon = self.icon
+    end
+
+    -- Remove mesh-specific dynamic properties if present
+    self.startAsleep = nil
+    self.forceAutoHideDistance = nil
+    self.convertTarget = 0
+
+    -- Respawn as rotating mesh
+    self:respawn()
+end
+
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
@@ -458,7 +515,8 @@ function mesh:getGroupedProperties()
 		name = "Static Mesh",
         id = "mesh",
 		data = {
-            shape = 0
+            shape = 0,
+            convertTarget = 0
         },
 		draw = function(element, entries)
             style.mutedText("Collider Shape")
@@ -483,6 +541,31 @@ function mesh:getGroupedProperties()
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Generated colliders for %s nodes", nApplied)))
             end
             style.tooltip("Generate Colliders for all selected meshes.")
+
+            
+            style.mutedText("Convert all to")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(200 * style.viewSize)
+            local options = { IconGlyphs.FormatRotate90 .. " Rotating Mesh" }
+            ImGui.SetNextItemWidth(150 * style.viewSize)
+            element.groupOperationData["mesh"].convertTarget, _ = ImGui.Combo("##groupMeshConvertTarget", element.groupOperationData["mesh"].convertTarget, options, #options)
+            style.tooltip("Select the mesh type to convert all static mesh(es) into")
+
+            ImGui.SameLine()
+            if ImGui.Button("Convert " .. IconGlyphs.FormatRotate90) then
+                history.addAction(history.getMultiSelectChange(entries))
+                local nApplied = 0
+
+                for _, entry in ipairs(entries) do
+                    if entry.spawnable.node == "worldMeshNode" then
+                        entry.spawnable:convertToRotatingMesh()
+                        nApplied = nApplied + 1
+                    end
+                end
+
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Converted %s static meshes to rotating meshes", nApplied)))
+            end
+            style.tooltip("Convert selected static meshes to rotating meshes")
         end,
 		entries = { self.object }
 	}
