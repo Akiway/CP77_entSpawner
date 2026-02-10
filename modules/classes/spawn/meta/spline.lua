@@ -127,14 +127,8 @@ function spline:getInterpolatedPosition(t)
     end
 
     local points = {}
-    if self.reverse then
-        for i = #self.points, 1, -1 do
-            table.insert(points, self.points[i])
-        end
-    else
-        for i = 1, #self.points do
-            table.insert(points, self.points[i])
-        end
+    for i = 1, #self.points do
+        table.insert(points, self.points[i])
     end
 
     -- Calculate which segment t falls into
@@ -172,14 +166,8 @@ function spline:getOrderedPoints()
     end
 
     local ordered = {}
-    if self.reverse then
-        for i = #self.points, 1, -1 do
-            table.insert(ordered, self.points[i])
-        end
-    else
-        for i = 1, #self.points do
-            table.insert(ordered, self.points[i])
-        end
+    for i = 1, #self.points do
+        table.insert(ordered, self.points[i])
     end
 
     return ordered
@@ -214,10 +202,27 @@ function spline:hasCurveTangents(pointDefs)
 end
 
 function spline:getFollowerPathPoints()
-    local pointDefs = self:getPreviewSplineMarkerDefs()
+    local pointDefs = self:getFollowerPreviewSplineMarkerDefs()
+    local function applyPreviewDirection(points)
+        if not self.reverse then
+            return points
+        end
+
+        local reversed = {}
+        for i = #points, 1, -1 do
+            table.insert(reversed, points[i])
+        end
+
+        return reversed
+    end
+
     if #pointDefs == 0 then
         self:loadSplinePoints()
-        return self:getOrderedPoints()
+        local points = {}
+        for i = 1, #self.points do
+            table.insert(points, self.points[i])
+        end
+        return applyPreviewDirection(points)
     end
 
     if not self:hasCurveTangents(pointDefs) then
@@ -225,7 +230,7 @@ function spline:getFollowerPathPoints()
         for _, pointDef in ipairs(pointDefs) do
             table.insert(points, utils.fromVector(pointDef.position))
         end
-        return points
+        return applyPreviewDirection(points)
     end
 
     local pathPoints = {}
@@ -255,7 +260,7 @@ function spline:getFollowerPathPoints()
         sampleSegment(pointDefs[#pointDefs], pointDefs[1])
     end
 
-    return pathPoints
+    return applyPreviewDirection(pathPoints)
 end
 
 function spline:refreshLinkedMarkerTangents(refreshEdgeTangents)
@@ -372,19 +377,20 @@ function spline:collectSplineMarkerDefs()
         end
     end
 
-    if self.reverse then
-        local reversed = {}
-        for i = #defs, 1, -1 do
-            table.insert(reversed, defs[i])
-        end
-        defs = reversed
-    end
-
     return defs
 end
 
 function spline:getSplineMarkerDefs()
     return self:collectSplineMarkerDefs()
+end
+
+function spline:getFollowerPreviewSplineMarkerDefs()
+    local defs = self:collectSplineMarkerDefs()
+    if #defs == 0 then
+        return defs
+    end
+
+    return self:buildPreviewSplineMarkerDefs(defs)
 end
 
 function spline:buildPreviewSplineMarkerDefs(defs)

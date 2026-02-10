@@ -2,6 +2,7 @@ local connectedMarker = require("modules/classes/spawn/connectedMarker")
 local spawnable = require("modules/classes/spawn/spawnable")
 local utils = require("modules/utils/utils")
 local style = require("modules/ui/style")
+local Cron = require("modules/utils/Cron")
 
 ---Class for spline markers
 ---@class splineMarker : connectedMarker
@@ -18,7 +19,7 @@ function splineMarker:new()
     o.description = "Places a point of a spline. Automatically connects with other spline points in the same group, to form a path. The parent group can be used to reference the contained spline, and use it in worldSplineNode's"
     o.icon = IconGlyphs.MapMarkerPath
 
-    o.connectorApp = "violet"
+    o.connectorApp = "lavender"
     o.markerApp = "yellow"
     o.previewText = "Preview Spline Points"
     o.tangentIn = { x = 0, y = 0, z = 0 }
@@ -40,6 +41,11 @@ function splineMarker:loadSpawnData(data, position, rotation)
         self.automaticTangents = true
     end
     self.symmetricTangents = self.symmetricTangents or false
+
+    -- History undo/redo reloads marker data via load(); refresh linked spline curve preview after load.
+    Cron.After(0.1, function()
+        self:refreshLinkedSplinesPreview()
+    end)
 end
 
 function splineMarker:save()
@@ -228,17 +234,6 @@ function splineMarker:updateTangentMarkers()
     updateTangent(tangentOutLine, tangentOut, self.tangentOut)
 end
 
-function splineMarker:updateConnectorAppearance()
-    local entity = self:getEntity()
-    if not entity then return end
-
-    local mesh = entity:FindComponentByName("mesh")
-    if not mesh then return end
-
-    mesh.meshAppearance = "lavender"
-    mesh:RefreshAppearance()
-end
-
 function splineMarker:setPreview(state)
     connectedMarker.setPreview(self, state)
 
@@ -318,7 +313,6 @@ function splineMarker:updateTransform(parent)
     end
 
     self:updateStraightSegmentMesh(parent)
-    self:updateConnectorAppearance()
     self:updateTangentMarkers()
 end
 
@@ -352,7 +346,6 @@ function splineMarker:draw()
     style.tooltip("When enabled, the tangent is automatically smoothed from neighbor points.")
     if changed then
         self:notifyLinkedSplinePreviewChanged()
-        self:updateConnectorAppearance()
     end
 
     if self.automaticTangents then
@@ -385,7 +378,6 @@ function splineMarker:draw()
             self:applyAutoTangents(self.object.parent, distanceIn, nil)
         end
         self:updateTangentMarkers()
-        self:updateConnectorAppearance()
         self:notifyLinkedSplinePreviewChanged()
     end
     ImGui.SameLine()
@@ -401,7 +393,6 @@ function splineMarker:draw()
     if changed and self.symmetricTangents then
         self:applyAutoTangents(self.object.parent)
         self:updateTangentMarkers()
-        self:updateConnectorAppearance()
     end
     if changed then
         self:notifyLinkedSplinePreviewChanged()
@@ -433,7 +424,6 @@ function splineMarker:draw()
             self:applyAutoTangents(self.object.parent, nil, distanceOut)
         end
         self:updateTangentMarkers()
-        self:updateConnectorAppearance()
         self:notifyLinkedSplinePreviewChanged()
     end
 end
