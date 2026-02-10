@@ -277,7 +277,7 @@ function positionableGroup:drawRotation(rotation)
 	self:handleRightAngleChange("yaw", shiftActive and not finished)
 	style.popGreyedOut(locked)
 	ImGui.SameLine()
-	style.mutedText(IconGlyphs.InformationOutline)
+	style.mutedText(IconGlyphs.AlertOutline)
 	style.tooltip("Experimental Roll/Pitch\nUnreliable between -3.60° and 3.60°\nUse with caution")
 end
 
