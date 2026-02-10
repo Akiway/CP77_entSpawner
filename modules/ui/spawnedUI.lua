@@ -721,9 +721,6 @@ function spawnedUI.drawContextMenu(element, path)
             if ImGui.MenuItem("Set Player Position as Origin") then
                 element:setOrigin(GetPlayer():GetWorldPosition())
             end
-            if ImGui.MenuItem("Set Current Rotation as Identity") then
-                element:setRotationIdentity()
-            end
         end
         if element.parent ~= nil and utils.isA(element.parent, "positionableGroup") and not element.parent:isRoot(true) then
             if ImGui.MenuItem("Set Parent Origin to Element") then

@@ -275,6 +275,13 @@ function positionableGroup:drawRotation(rotation)
     ImGui.SameLine()
 	finished = self:drawProp(rotation.yaw, "Yaw", "yaw")
 	self:handleRightAngleChange("yaw", shiftActive and not finished)
+	ImGui.SameLine()
+	style.pushButtonNoBG(true)
+	if ImGui.Button(IconGlyphs.Numeric0BoxMultipleOutline) then
+		self:setRotationIdentity()
+	end
+	style.pushButtonNoBG(false)
+	style.tooltip("Set current group rotation as identity\nKeeps current rotation, but treats it as the new zero.")
 	style.popGreyedOut(locked)
 	ImGui.SameLine()
 	style.mutedText(IconGlyphs.InformationOutline)
