@@ -44,6 +44,7 @@ local config = require("modules/utils/config")
 ---@field public setLoadedGroupAsSpawnNew boolean
 ---@field public exportGroupsHeight number
 ---@field public exportTemplatesHeight number
+---@field public skipLossyConversionWarning boolean
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -86,6 +87,7 @@ local settingsData = {
     setLoadedGroupAsSpawnNew = false,
     exportGroupsHeight = 260,
     exportTemplatesHeight = 160,
+    skipLossyConversionWarning = false,
 
     filterTags = {},
     favoritesFilter = "",
