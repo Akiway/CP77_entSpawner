@@ -313,8 +313,10 @@ function miscUtils.log(...)
 end
 
 function miscUtils.getFileName(path)
-    if string.match(path, "\\") then -- Workaround to avoid stripping records
-        return path:match("([^/\\]+)%..*$") or path
+    -- Only strip extension when this is an actual path.
+    -- Record IDs (e.g. Character.xxx) are dot-separated but have no path separators.
+    if string.match(path, "[/\\]") then
+        return path:match("([^/\\]+)%..*$") or path:match("([^/\\]+)$") or path
     end
 
     return path
