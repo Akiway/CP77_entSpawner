@@ -29,6 +29,7 @@ local config = require("modules/utils/config")
 ---@field public defaultAISpotNPC string
 ---@field public tabSizes table
 ---@field public defaultAISpotSpeed number
+---@field public defaultSplineCurveQuality number
 ---@field public nodeRefPrefix string
 ---@field public cacheExlusions table
 ---@field public assetPreviewEnabled table
@@ -72,6 +73,7 @@ local settingsData = {
     spawnAtCursor = true,
     defaultAISpotNPC = "Character.Judy",
     defaultAISpotSpeed = 3,
+    defaultSplineCurveQuality = 12,
     nodeRefPrefix = "mod",
     cacheExlusions = {},
     assetPreviewEnabled = {},

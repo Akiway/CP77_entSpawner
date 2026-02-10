@@ -176,12 +176,7 @@ function connectedMarker:getGroupedProperties()
 			if ImGui.Button("Off") then
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == self.node then
-                        entry.spawnable.previewed = false
-                        local entity = entry.spawnable:getEntity()
-                        if entity then
-                            entity:FindComponentByName("mesh"):Toggle(false)
-                            entity:FindComponentByName("marker"):Toggle(false)
-                        end
+                        entry.spawnable:setPreview(false)
                     end
 				end
 			end
@@ -191,12 +186,7 @@ function connectedMarker:getGroupedProperties()
             if ImGui.Button("On") then
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == self.node then
-                        entry.spawnable.previewed = true
-                        local entity = entry.spawnable:getEntity()
-                        if entity then
-                            entity:FindComponentByName("mesh"):Toggle(true)
-                            entity:FindComponentByName("marker"):Toggle(true)
-                        end
+                        entry.spawnable:setPreview(true)
                     end
 				end
 			end
