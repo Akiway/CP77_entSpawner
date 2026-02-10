@@ -284,7 +284,7 @@ function positionableGroup:drawRotation(rotation)
 	style.tooltip("Set current group rotation as identity\nKeeps current rotation, but treats it as the new zero.")
 	style.popGreyedOut(locked)
 	ImGui.SameLine()
-	style.mutedText(IconGlyphs.InformationOutline)
+	style.mutedText(IconGlyphs.AlertOutline)
 	style.tooltip("Experimental Roll/Pitch\nUnreliable between -3.60° and 3.60°\nUse with caution")
 end
 
