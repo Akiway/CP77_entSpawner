@@ -1,7 +1,6 @@
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
-local groupMeshConverter = require("modules/utils/groupMeshConverter")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
@@ -267,20 +266,6 @@ function element:drawProperties()
 		end
 	end
 
-	local recursivePaths = self:getPathsRecursive(true)
-	local meshGroupedProperty = groupMeshConverter.getGroupedProperty(recursivePaths)
-	if meshGroupedProperty then
-		groupedProperties["meshConverter"] = {
-			name = meshGroupedProperty.name,
-			draw = { [meshGroupedProperty.id] = meshGroupedProperty.draw },
-			entries = meshGroupedProperty.entries
-		}
-
-		if not self.groupOperationData["meshConverter"] then
-			self.groupOperationData["meshConverter"] = meshGroupedProperty.data
-		end
-	end
-
 	if utils.tableLength(groupedProperties) > 0 then
 		if self.propertyHeaderStates["groupedProperties"] == nil then
 			self.propertyHeaderStates["groupedProperties"] = false
@@ -306,14 +291,8 @@ function element:drawProperties()
 				end
 			end
 
-			if groupedProperties["meshConverter"] then
-				drawGroupedProperty("meshConverter", groupedProperties["meshConverter"])
-			end
-
 			for key, property in pairs(groupedProperties) do
-				if key ~= "meshConverter" then
-					drawGroupedProperty(key, property)
-				end
+				drawGroupedProperty(key, property)
 			end
 		end
 	end

@@ -8,47 +8,28 @@ local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
+local settings = require("modules/utils/settings")
 
 local colliderShapes = { "Box", "Capsule", "Sphere" }
 local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
 local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
-local clothMeshSet = nil
-local dynamicMeshSet = nil
-
-local function normalizeSpawnPath(path)
-    if not path then return "" end
-
-    local normalized = path:gsub("/", "\\")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
-
-    return string.lower(normalized)
-end
-
-local function loadSpawnSet(path)
-    local set = {}
-    local file = io.open(path, "r")
-    if not file then return set end
-
-    for line in file:lines() do
-        if line and line ~= "" then
-            set[normalizeSpawnPath(line)] = true
-        end
-    end
-    file:close()
-
-    return set
-end
-
-local function isSpawnDataInSet(spawnData, path)
-    if path == clothListPath and not clothMeshSet then
-        clothMeshSet = loadSpawnSet(path)
-    elseif path == dynamicListPath and not dynamicMeshSet then
-        dynamicMeshSet = loadSpawnSet(path)
-    end
-
-    local set = path == clothListPath and clothMeshSet or dynamicMeshSet
-    return set and set[normalizeSpawnPath(spawnData)] == true
-end
+local conversionTargets = {
+    { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
+    { modulePath = "mesh/rotatingMesh", label = IconGlyphs.FormatRotate90 .. " Rotating Mesh", plural = "rotating meshes" },
+    { modulePath = "mesh/clothMesh", label = IconGlyphs.ReceiptOutline .. " Cloth Mesh", plural = "cloth meshes" },
+    { modulePath = "physics/dynamicMesh", label = IconGlyphs.CubeSend .. " Dynamic Mesh", plural = "dynamic meshes" }
+}
+local lossyConversionPairs = {
+    ["mesh/rotatingMesh>mesh/mesh"] = true,
+    ["mesh/rotatingMesh>mesh/clothMesh"] = true,
+    ["mesh/rotatingMesh>physics/dynamicMesh"] = true,
+    ["mesh/clothMesh>mesh/mesh"] = true,
+    ["mesh/clothMesh>mesh/rotatingMesh"] = true,
+    ["mesh/clothMesh>physics/dynamicMesh"] = true,
+    ["physics/dynamicMesh>mesh/mesh"] = true,
+    ["physics/dynamicMesh>mesh/rotatingMesh"] = true,
+    ["physics/dynamicMesh>mesh/clothMesh"] = true
+}
 
 ---Class for worldMeshNode
 ---@class mesh : spawnable
@@ -476,40 +457,7 @@ function mesh:draw()
     end
     
     if self.node == "worldMeshNode" then
-        style.mutedText("Convert to")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxPropertyWidth)
-        local options = { IconGlyphs.FormatRotate90 .. " Rotating Mesh" }
-        local convertActions = { "rotating" }
-
-        if self:canConvertToClothMesh() then
-            table.insert(options, IconGlyphs.ReceiptOutline .. " Cloth Mesh")
-            table.insert(convertActions, "cloth")
-        end
-
-        if self:canConvertToDynamicMesh() then
-            table.insert(options, IconGlyphs.CubeSend .. " Dynamic Mesh")
-            table.insert(convertActions, "dynamic")
-        end
-
-        self.convertTarget = math.max(0, math.min(self.convertTarget, #options - 1))
-        self.convertTarget, _ = style.trackedCombo(self.object, "##meshConverterType", self.convertTarget, options, 150)
-        style.tooltip("Select the mesh type to convert into")
-
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxPropertyWidth + 150 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
-        style.pushButtonNoBG(false)
-        if ImGui.Button("Convert") then
-            history.addAction(history.getElementChange(self.object))
-            local target = convertActions[self.convertTarget + 1]
-            if target == "cloth" then
-                self:convertToClothMesh()
-            elseif target == "dynamic" then
-                self:convertToDynamicMesh()
-            else
-                self:convertToRotatingMesh()
-            end
-        end
+        self:drawConversionSelector("##meshConverterType", "Lossy Conversion##meshSingle")
     end
 end
 
@@ -526,121 +474,323 @@ function mesh:getProperties()
     return properties
 end
 
-function mesh:convertToRotatingMesh()
-    -- Despawn current mesh
-    self:despawn()
-
-    -- Get defaults from rotating mesh (lazy require to avoid circular dependency)
-    local rotatingMesh = require("modules/classes/spawn/mesh/rotatingMesh")
-    local rotInstance = rotatingMesh:new()
-
-    -- Change metatable to rotatingMesh
-    setmetatable(self, { __index = rotatingMesh })
-
-    -- Update properties
-    self.dataType = rotInstance.dataType
-    self.modulePath = rotInstance.modulePath
-    self.node = rotInstance.node
-    self.description = rotInstance.description
-    self.icon = rotInstance.icon
-
-    -- Apply rotating defaults
-    self.duration = rotInstance.duration
-    self.axis = rotInstance.axis
-    self.reverse = rotInstance.reverse
-    self.axisTypes = rotInstance.axisTypes
-    self.cronID = rotInstance.cronID
-    self.hideGenerate = rotInstance.hideGenerate
-
-    if self.object then
-        self.object.icon = self.icon
-    end
-
-    -- Remove mesh-specific dynamic properties if present
-    self.startAsleep = nil
-    self.forceAutoHideDistance = nil
-    self.convertTarget = 0
-
-    -- Respawn as rotating mesh
-    self:respawn()
-end
-
 function mesh:canConvertToClothMesh()
-    return isSpawnDataInSet(self.spawnData, clothListPath)
+    return cache.isSpawnDataInSet(self.spawnData, clothListPath)
 end
 
 function mesh:canConvertToDynamicMesh()
-    return isSpawnDataInSet(self.spawnData, dynamicListPath)
+    return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
+end
+
+---@param targetModulePath string
+---@return boolean
+function mesh:isMeshConversionAllowed(targetModulePath)
+    if targetModulePath == self.modulePath then
+        return false
+    end
+
+    if targetModulePath == "mesh/clothMesh" then
+        return self:canConvertToClothMesh()
+    end
+
+    if targetModulePath == "physics/dynamicMesh" then
+        return self:canConvertToDynamicMesh()
+    end
+
+    return true
+end
+
+---@return table, table
+function mesh:getConversionTargets()
+    local options = {}
+    local actions = {}
+
+    for _, target in ipairs(conversionTargets) do
+        if self:isMeshConversionAllowed(target.modulePath) then
+            table.insert(options, target.label)
+            table.insert(actions, target.modulePath)
+        end
+    end
+
+    return options, actions
+end
+
+---@param targetModulePath string
+---@return boolean
+function mesh:isLossyConversion(targetModulePath)
+    return lossyConversionPairs[self.modulePath .. ">" .. targetModulePath] == true
+end
+
+---@param fromModulePath string
+---@param targetModulePath string
+---@return boolean
+function mesh:isLossyConversionFrom(fromModulePath, targetModulePath)
+    return lossyConversionPairs[fromModulePath .. ">" .. targetModulePath] == true
+end
+
+---@param targetModulePath string
+---@param skipHistory boolean?
+function mesh:convertToModule(targetModulePath, skipHistory)
+    if not targetModulePath then return end
+
+    if not skipHistory then
+        history.addAction(history.getElementChange(self.object))
+    end
+    self.convertTarget = 0
+    self:convertSpawnableTo(targetModulePath)
+end
+
+---@param comboId string?
+---@param popupId string?
+function mesh:drawConversionSelector(comboId, popupId)
+    local options, actions = self:getConversionTargets()
+    if #options == 0 then return end
+
+    comboId = comboId or "##meshConverterType"
+    popupId = popupId or "Lossy Conversion##meshConversion"
+
+    style.mutedText("Convert to")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.convertTarget = math.max(0, math.min(self.convertTarget, #options - 1))
+    self.convertTarget, _ = style.trackedCombo(self.object, comboId, self.convertTarget, options, 150)
+    style.tooltip("Select the mesh type to convert into")
+
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth + 150 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+    style.pushButtonNoBG(false)
+    if ImGui.Button("Convert") then
+        local target = actions[self.convertTarget + 1]
+        if target and self:isLossyConversion(target) and not settings.skipLossyConversionWarning then
+            ImGui.OpenPopup(popupId)
+        else
+            self:convertToModule(target)
+        end
+    end
+
+    if ImGui.BeginPopupModal(popupId, true, ImGuiWindowFlags.AlwaysAutoResize) then
+        style.mutedText("Warning")
+        ImGui.Text("This conversion is lossy.")
+        ImGui.Text("Type-specific properties will be removed.")
+        ImGui.Text("Do you want to continue?")
+        ImGui.Dummy(0, 8 * style.viewSize)
+        local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
+        if changed then
+            settings.skipLossyConversionWarning = skipWarning
+            settings.save()
+        end
+        ImGui.Dummy(0, 8 * style.viewSize)
+
+        if ImGui.Button("Convert") then
+            local target = actions[self.convertTarget + 1]
+            self:convertToModule(target)
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel") then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
+end
+
+function mesh:convertToStaticMesh()
+    self:convertToModule("mesh/mesh")
 end
 
 function mesh:convertToClothMesh()
-    self:despawn()
-
-    local clothMesh = require("modules/classes/spawn/mesh/clothMesh")
-    local clothInstance = clothMesh:new()
-    setmetatable(self, { __index = clothMesh })
-
-    self.dataType = clothInstance.dataType
-    self.modulePath = clothInstance.modulePath
-    self.node = clothInstance.node
-    self.description = clothInstance.description
-    self.icon = clothInstance.icon
-
-    self.affectedByWind = clothInstance.affectedByWind
-    self.collisionType = clothInstance.collisionType
-    self.hideGenerate = clothInstance.hideGenerate
-
-    self.duration = nil
-    self.axis = nil
-    self.reverse = nil
-    self.axisTypes = nil
-    self.cronID = nil
-    self.startAsleep = nil
-    self.forceAutoHideDistance = nil
-    self.convertTarget = 0
-
-    if self.object then
-        self.object.icon = self.icon
-    end
-
-    self:respawn()
+    self:convertToModule("mesh/clothMesh")
 end
 
 function mesh:convertToDynamicMesh()
-    self:despawn()
+    self:convertToModule("physics/dynamicMesh")
+end
 
-    local dynamicMesh = require("modules/classes/spawn/physics/dynamicMesh")
-    local dynamicInstance = dynamicMesh:new()
-    setmetatable(self, { __index = dynamicMesh })
-
-    self.dataType = dynamicInstance.dataType
-    self.modulePath = dynamicInstance.modulePath
-    self.node = dynamicInstance.node
-    self.description = dynamicInstance.description
-    self.icon = dynamicInstance.icon
-
-    self.startAsleep = dynamicInstance.startAsleep
-    self.forceAutoHideDistance = dynamicInstance.forceAutoHideDistance
-    self.hideGenerate = dynamicInstance.hideGenerate
-
-    self.duration = nil
-    self.axis = nil
-    self.reverse = nil
-    self.axisTypes = nil
-    self.cronID = nil
-    self.affectedByWind = nil
-    self.collisionType = nil
-    self.convertTarget = 0
-
-    if self.object then
-        self.object.icon = self.icon
-    end
-
-    self:respawn()
+function mesh:convertToRotatingMesh()
+    self:convertToModule("mesh/rotatingMesh")
 end
 
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
+
+    properties["meshConverter"] = {
+        name = "Mesh",
+        id = "meshConverter",
+        data = {
+            fromIndex = 0,
+            toIndex = 0,
+            pendingFromModulePath = nil,
+            pendingTargetModulePath = nil
+        },
+        draw = function(element, entries)
+            local converterData = element.groupOperationData["meshConverter"]
+            local availableFromTypes = {}
+            local availableFromCounts = {}
+            local targetDefsByPath = {}
+            for _, target in ipairs(conversionTargets) do
+                targetDefsByPath[target.modulePath] = target
+            end
+
+            for _, target in ipairs(conversionTargets) do
+                availableFromCounts[target.modulePath] = 0
+            end
+
+            for _, entry in ipairs(entries) do
+                local spawnableEntry = entry.spawnable
+                if spawnableEntry and availableFromCounts[spawnableEntry.modulePath] ~= nil then
+                    availableFromCounts[spawnableEntry.modulePath] = availableFromCounts[spawnableEntry.modulePath] + 1
+                end
+            end
+
+            for _, target in ipairs(conversionTargets) do
+                if availableFromCounts[target.modulePath] and availableFromCounts[target.modulePath] > 0 then
+                    table.insert(availableFromTypes, target.modulePath)
+                end
+            end
+
+            if #availableFromTypes == 0 then return end
+
+            converterData.fromIndex = math.max(0, math.min(converterData.fromIndex, #availableFromTypes - 1))
+            local fromOptions = {}
+            for _, modulePath in ipairs(availableFromTypes) do
+                table.insert(fromOptions, targetDefsByPath[modulePath].label)
+            end
+
+            local lineStartX = ImGui.GetCursorPosX()
+            local relationLabelX = lineStartX + ImGui.CalcTextSize("Convert") + 4
+            local allLabelWidth = ImGui.CalcTextSize("all")
+            local toLabelWidth = ImGui.CalcTextSize("to")
+            local relationWidth = math.max(allLabelWidth, toLabelWidth) + ImGui.GetStyle().ItemSpacing.x
+            local selectorX = relationLabelX + relationWidth
+            local selectorWidth = 165 * style.viewSize
+
+            style.mutedText("Convert")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(relationLabelX)
+            style.mutedText("all")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(selectorX)
+            ImGui.SetNextItemWidth(selectorWidth)
+            local fromIndex, fromChanged = ImGui.Combo("##groupMeshConvertFrom", converterData.fromIndex, fromOptions, #fromOptions)
+            if fromChanged then
+                converterData.fromIndex = fromIndex
+                converterData.toIndex = 0
+            end
+
+            local fromModulePath = availableFromTypes[converterData.fromIndex + 1]
+            local toOptions = {}
+            local toModulePaths = {}
+
+            for _, target in ipairs(conversionTargets) do
+                if target.modulePath ~= fromModulePath then
+                    local hasConvertibleEntry = false
+                    for _, entry in ipairs(entries) do
+                        local spawnableEntry = entry.spawnable
+                        if spawnableEntry and spawnableEntry.modulePath == fromModulePath and spawnableEntry:isMeshConversionAllowed(target.modulePath) then
+                            hasConvertibleEntry = true
+                            break
+                        end
+                    end
+
+                    if hasConvertibleEntry then
+                        table.insert(toOptions, target.label)
+                        table.insert(toModulePaths, target.modulePath)
+                    end
+                end
+            end
+
+            if #toOptions == 0 then
+                return
+            end
+
+            ImGui.SetCursorPosX(relationLabelX)
+            style.mutedText("to")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(selectorX)
+            ImGui.SetNextItemWidth(selectorWidth)
+            converterData.toIndex = math.max(0, math.min(converterData.toIndex, #toOptions - 1))
+            converterData.toIndex, _ = ImGui.Combo("##groupMeshConvertTo", converterData.toIndex, toOptions, #toOptions)
+            local targetModulePath = toModulePaths[converterData.toIndex + 1]
+
+            local function applyGroupConversion(sourceModulePath, targetPath)
+                history.addAction(history.getMultiSelectChange(entries))
+
+                local nApplied = 0
+                for _, entry in ipairs(entries) do
+                    local spawnableEntry = entry.spawnable
+                    if spawnableEntry and spawnableEntry.modulePath == sourceModulePath and spawnableEntry:isMeshConversionAllowed(targetPath) then
+                        spawnableEntry:convertToModule(targetPath, true)
+                        nApplied = nApplied + 1
+                    end
+                end
+
+                local sourcePlural = targetDefsByPath[sourceModulePath] and targetDefsByPath[sourceModulePath].plural or "mesh entries"
+                local targetPlural = targetDefsByPath[targetPath] and targetDefsByPath[targetPath].plural or "mesh entries"
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Converted %s %s to %s", nApplied, sourcePlural, targetPlural)))
+            end
+
+            ImGui.SameLine()
+            if ImGui.Button("Convert") then
+                if self:isLossyConversionFrom(fromModulePath, targetModulePath) and not settings.skipLossyConversionWarning then
+                    converterData.pendingFromModulePath = fromModulePath
+                    converterData.pendingTargetModulePath = targetModulePath
+                    ImGui.OpenPopup("Lossy Conversion##groupMeshConverter")
+                else
+                    applyGroupConversion(fromModulePath, targetModulePath)
+                end
+            end
+            style.tooltip("Convert selected mesh subtype entries to the selected target type")
+
+            if ImGui.BeginPopupModal("Lossy Conversion##groupMeshConverter", true, ImGuiWindowFlags.AlwaysAutoResize) then
+                local pendingFromModulePath = converterData.pendingFromModulePath
+                local pendingTargetModulePath = converterData.pendingTargetModulePath
+                local nPending = 0
+
+                if pendingFromModulePath and pendingTargetModulePath then
+                    for _, entry in ipairs(entries) do
+                        local spawnableEntry = entry.spawnable
+                        if spawnableEntry and spawnableEntry.modulePath == pendingFromModulePath and spawnableEntry:isMeshConversionAllowed(pendingTargetModulePath) then
+                            nPending = nPending + 1
+                        end
+                    end
+                end
+
+                style.mutedText("Warning")
+                ImGui.Text("This conversion is lossy.")
+                ImGui.Text("Type-specific properties will be removed.")
+                ImGui.Text(string.format("Affected entries: %d", nPending))
+                ImGui.Text("Do you want to continue?")
+                ImGui.Dummy(0, 8 * style.viewSize)
+                local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
+                if changed then
+                    settings.skipLossyConversionWarning = skipWarning
+                    settings.save()
+                end
+                ImGui.Dummy(0, 8 * style.viewSize)
+
+                if ImGui.Button("Convert") then
+                    if pendingFromModulePath and pendingTargetModulePath then
+                        applyGroupConversion(pendingFromModulePath, pendingTargetModulePath)
+                    end
+                    converterData.pendingFromModulePath = nil
+                    converterData.pendingTargetModulePath = nil
+                    ImGui.CloseCurrentPopup()
+                end
+
+                ImGui.SameLine()
+                if ImGui.Button("Cancel") then
+                    converterData.pendingFromModulePath = nil
+                    converterData.pendingTargetModulePath = nil
+                    ImGui.CloseCurrentPopup()
+                end
+
+                ImGui.EndPopup()
+            end
+        end,
+        entries = { self.object }
+    }
 
     if self.hideGenerate then return properties end
 
