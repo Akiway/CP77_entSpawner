@@ -1018,7 +1018,6 @@ function spawnedUI.drawSideButtons(element)
         style.tooltip(elementLocked and "Unlock element" or "Lock element")
     end
     ImGui.SameLine()
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
 
     local visible = element.visible
     style.pushStyleColor(not visible, ImGuiCol.Text, style.mutedColor)
@@ -1051,6 +1050,12 @@ function spawnedUI.drawElementChilds(element)
 end
 
 ---@protected
+---@return number
+function spawnedUI.getRowHeight()
+    return ImGui.GetFrameHeight() + (spawnedUI.cellPadding - style.viewSize) * 2
+end
+
+---@protected
 ---@param element element
 ---@param dummy boolean
 function spawnedUI.drawElement(element, dummy)
@@ -1062,7 +1067,7 @@ function spawnedUI.drawElement(element, dummy)
 
         ImGui.PushID(spawnedUI.elementCount)
 
-        ImGui.TableNextRow(ImGuiTableRowFlags.None, ImGui.GetFrameHeight() + spawnedUI.cellPadding * 2 - style.viewSize * 2)
+        ImGui.TableNextRow(ImGuiTableRowFlags.None, spawnedUI.getRowHeight())
         if spawnedUI.elementCount % 2 == 0 then
             ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.2, 0.2, 0.2, 0.3)
         else
@@ -1233,7 +1238,7 @@ function spawnedUI.drawHierarchy()
     if ySpace - settings.editorBottomSize < 75 * style.viewSize and not spawnedUI.spawner.baseUI.loadTabSize then
         settings.editorBottomSize = ySpace - 75 * style.viewSize
     end
-    local nRows = math.floor((ySpace - settings.editorBottomSize) / (ImGui.GetFrameHeight() + spawnedUI.cellPadding * 2 - style.viewSize * 2))
+    local nRows = math.floor((ySpace - settings.editorBottomSize) / spawnedUI.getRowHeight())
 
     ImGui.BeginChild("##hierarchy", 0, ySpace - settings.editorBottomSize, false, ImGuiWindowFlags.NoMove)
     input.updateContext("hierarchy")
@@ -1254,7 +1259,7 @@ function spawnedUI.drawHierarchy()
             else
                 spawnedUI.clipper = ImGuiListClipper.new()
                 spawnedUI.clipperIndex = 1
-                spawnedUI.clipper:Begin(spawnedUI.getNumVisibleElements(), ImGui.GetFrameHeight() + spawnedUI.cellPadding * 2 - style.viewSize * 2)
+                spawnedUI.clipper:Begin(spawnedUI.getNumVisibleElements(), spawnedUI.getRowHeight())
 
                 while (spawnedUI.clipper:Step()) do
                     spawnedUI.clipperIndex = 1
@@ -1266,7 +1271,7 @@ function spawnedUI.drawHierarchy()
         else
             spawnedUI.clipper = ImGuiListClipper.new()
             spawnedUI.clipperIndex = 1
-            spawnedUI.clipper:Begin(#spawnedUI.filteredPaths, ImGui.GetFrameHeight() + spawnedUI.cellPadding * 2 - style.viewSize * 2)
+            spawnedUI.clipper:Begin(#spawnedUI.filteredPaths, spawnedUI.getRowHeight())
 
             while (spawnedUI.clipper:Step()) do
                 spawnedUI.clipperIndex = 1
