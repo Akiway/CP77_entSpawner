@@ -591,9 +591,7 @@ end
 ---@param rotation EulerAngles
 function spawnable:loadSpawnData(data, position, rotation)
     for key, value in pairs(data) do
-        if self[key] ~= nil then
-            self[key] = value
-        end
+        self[key] = value
     end
 
     self.position = position
