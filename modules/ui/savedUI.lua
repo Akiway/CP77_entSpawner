@@ -13,6 +13,7 @@ savedUI = {
     spawner = nil,
     popup = false,
     deleteFile = nil,
+    popupDontAskAgain = false,
     spawned = {},
     maxTextWidth = nil
 }
@@ -206,7 +207,7 @@ function savedUI.drawGroup(group, spawner)
 end
 
 function savedUI.drawObject(obj, spawner)
-    if ImGui.TreeNodeEx(group.name) then
+    if ImGui.TreeNodeEx(obj.name) then
         local pPos = Vector4.new(0, 0, 0, 0)
         if spawner.player then
             pPos = spawner.player:GetWorldPosition()
@@ -259,6 +260,7 @@ function savedUI.deleteData(data)
     if settings.deleteConfirm then
         savedUI.popup = true
         savedUI.deleteFile = data
+        savedUI.popupDontAskAgain = not settings.deleteConfirm
     else
         os.remove("data/objects/" .. data.name .. ".json")
         savedUI.files[data.name .. ".json"] = nil
@@ -269,24 +271,31 @@ function savedUI.handlePopUp()
     if savedUI.popup then
         ImGui.OpenPopup("Delete Data?")
         if ImGui.BeginPopupModal("Delete Data?", true, ImGuiWindowFlags.AlwaysAutoResize) then
-            local again, changed = ImGui.Checkbox("Dont ask again", not settings.deleteConfirm)
-            if changed then
-                settings.deleteConfirm = not again
-                settings.save()
-            end
+            local targetName = savedUI.deleteFile and savedUI.deleteFile.name or "Unknown"
+            ImGui.Text("Delete \"" .. targetName .. "\"?")
+            style.mutedText("This action cannot be undone.")
+            ImGui.Dummy(0, 8 * style.viewSize)
+            savedUI.popupDontAskAgain = ImGui.Checkbox("Don't ask again", savedUI.popupDontAskAgain)
+            ImGui.Dummy(0, 8 * style.viewSize)
 
             if ImGui.Button("Cancel") then
                 ImGui.CloseCurrentPopup()
                 savedUI.popup = false
+                savedUI.deleteFile = nil
             end
 
             ImGui.SameLine()
 
             if ImGui.Button("Confirm") then
                 ImGui.CloseCurrentPopup()
+                -- Store user preference
+                settings.deleteConfirm = not savedUI.popupDontAskAgain
+                settings.save()
+                -- Delete the file
                 os.remove("data/objects/" .. savedUI.deleteFile.name .. ".json")
                 savedUI.files[savedUI.deleteFile.name .. ".json"] = nil
                 savedUI.popup = false
+                savedUI.deleteFile = nil
             end
             ImGui.EndPopup()
         end
