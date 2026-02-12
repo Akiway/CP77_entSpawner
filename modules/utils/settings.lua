@@ -47,6 +47,7 @@ local config = require("modules/utils/config")
 ---@field public exportGroupsHeight number
 ---@field public exportTemplatesHeight number
 ---@field public skipLossyConversionWarning boolean
+---@field public editorDockLeft boolean
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -92,6 +93,7 @@ local settingsData = {
     exportGroupsHeight = 260,
     exportTemplatesHeight = 160,
     skipLossyConversionWarning = false,
+    editorDockLeft = false,
 
     filterTags = {},
     favoritesFilter = "",

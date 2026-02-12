@@ -680,7 +680,8 @@ function editor.getForward(distance)
 
     if editor.active then
         local screenWidth, _ = GetDisplayResolution()
-        local x = (screenWidth - settings.editorWidth) / 2
+        local viewportStart = settings.editorDockLeft and settings.editorWidth or 0
+        local x = viewportStart + ((screenWidth - settings.editorWidth) / 2)
 
         relativeForward, adjusted = editor.camera.screenToWorld((x / screenWidth * 2) - 1, 0)
         adjusted = adjusted:Normalize()

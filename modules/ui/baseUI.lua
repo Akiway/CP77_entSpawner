@@ -24,6 +24,7 @@ baseUI = {
 }
 
 local menuButtonHovered = false
+local dockButtonHovered = false
 
 local tabs = {
     {
@@ -79,8 +80,33 @@ end
 local function drawMenuButton()
     ImGui.SameLine()
 
+    local dockLeftIcon = IconGlyphs.DockLeft or "<"
+    local dockRightIcon = IconGlyphs.DockRight or ">"
+    local dockIcon = settings.editorDockLeft and dockRightIcon or dockLeftIcon
+    local dockIconWidth = 0
+    if editor.active then
+        dockIconWidth, _ = ImGui.CalcTextSize(dockIcon)
+    end
     local iconWidth, _ = ImGui.CalcTextSize(IconGlyphs.DotsHorizontal)
-    ImGui.SetCursorPos(ImGui.GetWindowWidth() - iconWidth - ImGui.GetStyle().WindowPadding.x - 5, (editor.active and 0 or ImGui.GetFrameHeight()) + ImGui.GetStyle().WindowPadding.y)
+    local iconY = (editor.active and 0 or ImGui.GetFrameHeight()) + ImGui.GetStyle().WindowPadding.y
+    local iconX = ImGui.GetWindowWidth() - iconWidth - ImGui.GetStyle().WindowPadding.x - 5
+
+    if editor.active then
+        local dockX = iconX - ImGui.GetStyle().ItemSpacing.x - dockIconWidth
+        ImGui.SetCursorPos(dockX, iconY - 4)
+        style.pushStyleColor(dockButtonHovered, ImGuiCol.Text, style.mutedColor)
+        ImGui.SetItemAllowOverlap()
+        ImGui.Text(dockIcon)
+        style.popStyleColor(dockButtonHovered)
+        dockButtonHovered = ImGui.IsItemHovered()
+        if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
+            settings.editorDockLeft = not settings.editorDockLeft
+            settings.save()
+        end
+        style.tooltip(settings.editorDockLeft and "Dock panel to the right" or "Dock panel to the left")
+    end
+
+    ImGui.SetCursorPos(iconX, iconY)
 
     style.pushStyleColor(menuButtonHovered, ImGuiCol.Text, style.mutedColor)
     ImGui.SetItemAllowOverlap()
@@ -160,7 +186,11 @@ function baseUI.draw(spawner)
     end
     if editorActive then
         ImGui.SetNextWindowSizeConstraints(screenWidth / 8, screenHeight, screenWidth / 2, screenHeight)
-        ImGui.SetNextWindowPos(screenWidth, 0, ImGuiCond.Always, 1, 0)
+        if settings.editorDockLeft then
+            ImGui.SetNextWindowPos(0, 0, ImGuiCond.Always, 0, 0)
+        else
+            ImGui.SetNextWindowPos(screenWidth, 0, ImGuiCond.Always, 1, 0)
+        end
         if baseUI.loadTabSize then
             if settings.editorWidth == 0 then
                 settings.editorWidth = settings.tabSizes.spawned[1]
@@ -199,7 +229,8 @@ function baseUI.draw(spawner)
             settings.save()
         end
 
-        editor.camera.updateXOffset(- (x / screenWidth))
+        local xOffset = (settings.editorDockLeft and 1 or -1) * (x / screenWidth)
+        editor.camera.updateXOffset(xOffset)
 
         if ImGui.BeginTabBar("Tabbar", ImGuiTabItemFlags.NoTooltip) then
             for key, tab in ipairs(tabs) do
