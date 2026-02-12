@@ -49,48 +49,40 @@ function cache.loadStaticData()
     cache.staticData.ambientMetadataAll = config.loadFile("data/audio/ambientMetadataAll.json")
     cache.staticData.staticMetadataAll = config.loadFile("data/audio/staticMetadataAll.json")
     cache.staticData.signposts = config.loadFile("data/audio/signpostsData.json")
-    cache.staticData.spawnSets = cache.staticData.spawnSets or {}
+
+    cache.staticData.spawnSets = {}
+    cache.staticData.spawnSets["cloth"] = cache.loadSpawnSet("data/spawnables/mesh/cloth/")
+    cache.staticData.spawnSets["dynamic"] = cache.loadSpawnSet("data/spawnables/mesh/physics/")
 end
 
-local function normalizeSpawnPath(path)
-    if not path then return "" end
+function cache.loadSpawnSet(path, paths)
+    local paths = paths or {}
+    for _, file in pairs(dir(path)) do
+        local extension = file.name:match("^.+(%..+)$")
 
-    local normalized = path:gsub("/", "\\")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
-
-    return string.lower(normalized)
-end
-
----@param path string
----@return table
-function cache.getSpawnSet(path)
-    cache.staticData.spawnSets = cache.staticData.spawnSets or {}
-
-    if cache.staticData.spawnSets[path] then
-        return cache.staticData.spawnSets[path]
-    end
-
-    local set = {}
-    local file = io.open(path, "r")
-    if file then
-        for line in file:lines() do
-            if line and line ~= "" then
-                set[normalizeSpawnPath(line)] = true
+        if extension and extension:lower() == ".txt" then
+            local data = io.open(path .. file.name)
+            for line in data:lines() do
+                paths[line] = true
             end
+
+            data:close()
+        elseif file.type == "directory" then
+            cache.loadSpawnSet(path .. file.name .. "/", paths)
         end
-        file:close()
     end
 
-    cache.staticData.spawnSets[path] = set
-    return set
+    return paths
 end
 
 ---@param spawnData string
 ---@param path string
 ---@return boolean
 function cache.isSpawnDataInSet(spawnData, path)
-    local set = cache.getSpawnSet(path)
-    return set[normalizeSpawnPath(spawnData)] == true
+    local entry = cache.staticData.spawnSets[path]
+    if not entry then return false end
+
+    return entry[spawnData]
 end
 
 function cache.addValue(key, value)

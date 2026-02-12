@@ -11,8 +11,7 @@ local preview = require("modules/utils/previewUtils")
 local settings = require("modules/utils/settings")
 
 local colliderShapes = { "Box", "Capsule", "Sphere" }
-local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
-local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
+
 local conversionTargets = {
     { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
     { modulePath = "mesh/rotatingMesh", label = IconGlyphs.FormatRotate90 .. " Rotating Mesh", plural = "rotating meshes" },
@@ -474,14 +473,6 @@ function mesh:getProperties()
     return properties
 end
 
-function mesh:canConvertToClothMesh()
-    return cache.isSpawnDataInSet(self.spawnData, clothListPath)
-end
-
-function mesh:canConvertToDynamicMesh()
-    return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
-end
-
 ---@param targetModulePath string
 ---@return boolean
 function mesh:isMeshConversionAllowed(targetModulePath)
@@ -490,11 +481,11 @@ function mesh:isMeshConversionAllowed(targetModulePath)
     end
 
     if targetModulePath == "mesh/clothMesh" then
-        return self:canConvertToClothMesh()
+        return cache.isSpawnDataInSet(self.spawnData, "cloth")
     end
 
     if targetModulePath == "physics/dynamicMesh" then
-        return self:canConvertToDynamicMesh()
+        return cache.isSpawnDataInSet(self.spawnData, "dynamic")
     end
 
     return true
@@ -616,7 +607,7 @@ function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
     properties["meshConverter"] = {
-        name = "Mesh",
+        name = "Mesh Conversion",
         id = "meshConverter",
         data = {
             fromIndex = 0,
