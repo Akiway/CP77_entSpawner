@@ -59,8 +59,65 @@ spawnedUI = {
     infoWindowSize = { x = 0, y = 0 },
 
     clipper = nil,
-    clipperIndex = 1
+    clipperIndex = 1,
+
+    lockedChildrenCache = {}
 }
+
+---@param element element?
+---@return boolean
+function spawnedUI.canToggleVisibility(element)
+    return element ~= nil
+end
+
+---@param element element?
+---@return boolean
+function spawnedUI.canMutateLockedState(element)
+    return element ~= nil and not element.lockedByParent
+end
+
+---@param elements element[]
+---@param apply fun(PARAM: element)
+---@return boolean
+local function applyElementChangesBatched(elements, apply)
+    local normalized = history.normalizeElements(elements)
+    local allChanges = history.getElementChanges(normalized)
+    local changedActions = {}
+
+    for idx, entry in ipairs(normalized) do
+        local before = entry:serialize()
+        apply(entry)
+        local after = entry:serialize()
+
+        if not utils.deepcompare(before, after, true) then
+            table.insert(changedActions, allChanges[idx])
+        end
+    end
+
+    if #changedActions == 0 then
+        return false
+    end
+
+    history.addAction(history.getComposite(changedActions))
+
+    return true
+end
+
+---@param root element
+---@return boolean
+local function cacheLockedChildrenRecursive(root)
+    local hasLockedDescendant = false
+
+    for _, child in pairs(root.childs) do
+        local childSubtreeHasLocked = cacheLockedChildrenRecursive(child)
+        if child:isLocked() or childSubtreeHasLocked then
+            hasLockedDescendant = true
+        end
+    end
+
+    spawnedUI.lockedChildrenCache[root.id] = hasLockedDescendant
+    return hasLockedDescendant
+end
 
 ---Populates paths, containerPaths, selectedPaths and filteredPaths, must be updated each frame
 function spawnedUI.cachePaths()
@@ -68,6 +125,7 @@ function spawnedUI.cachePaths()
     spawnedUI.containerPaths = {}
     spawnedUI.selectedPaths = {}
     spawnedUI.filteredPaths = {}
+    spawnedUI.lockedChildrenCache = {}
     spawnedUI.filteredWidestName = 0
     spawnedUI.nameBeingEdited = false
 
@@ -88,6 +146,8 @@ function spawnedUI.cachePaths()
             spawnedUI.nameBeingEdited = true
         end
     end
+
+    cacheLockedChildrenRecursive(spawnedUI.root)
 end
 
 ---@param path string
@@ -124,12 +184,18 @@ function spawnedUI.getRoots(elements)
     local roots = {}
 
     for _, entry in pairs(elements) do
-        if entry.ref.parent ~= nil and not entry.ref.parent:isParentOrSelfSelected() then -- Check on parent
+        if entry.ref.parent ~= nil and not entry.ref.parent:isParentOrSelfSelected() and not entry.ref:isLocked() then -- Check on parent
             table.insert(roots, entry)
         end
     end
 
     return roots
+end
+
+---@param element element?
+---@return boolean
+function spawnedUI.isElementLocked(element)
+    return element and element:isLocked()
 end
 
 ---@param element element
@@ -227,7 +293,9 @@ function spawnedUI.registerHotkeys()
         if spawnedUI.nameBeingEdited then return end
 
         for _, entry in pairs(spawnedUI.paths) do
-            entry.ref:setSelected(true)
+            if not entry.ref:isLocked() then
+                entry.ref:setSelected(true)
+            end
         end
     end, hotkeyRunConditionGlobal)
     input.registerImGuiHotkey({ ImGuiKey.S, ImGuiKey.LeftCtrl }, function()
@@ -289,9 +357,13 @@ function spawnedUI.registerHotkeys()
 
         local changes = {}
         for _, entry in pairs(spawnedUI.selectedPaths) do
+            if not spawnedUI.canToggleVisibility(entry.ref) then goto continue end
 		    table.insert(changes, history.getElementChange(entry.ref))
             entry.ref:setVisible(not entry.ref.visible, true)
+            ::continue::
         end
+
+        if #changes == 0 then return end
 
         history.addAction({
             undo = function()
@@ -377,7 +449,9 @@ function spawnedUI.handleRangeSelect(element)
             if entry.ref == element then
                 break
             end
-            entry.ref:setSelected(true)
+            if not entry.ref:isLocked() then
+                entry.ref:setSelected(true)
+            end
         end
     else
         local inRange = false
@@ -390,7 +464,9 @@ function spawnedUI.handleRangeSelect(element)
                     inRange = true
                 end
                 if inRange then
-                    paths[i].ref:setSelected(true)
+                    if not paths[i].ref:isLocked() then
+                        paths[i].ref:setSelected(true)
+                    end
                 end
             end
         end
@@ -412,7 +488,9 @@ function spawnedUI.handleRangeSelect(element)
                 end
             end
             if inRange then
-                entry.ref:setSelected(true)
+                if not entry.ref:isLocked() then
+                    entry.ref:setSelected(true)
+                end
             end
         end
     end
@@ -443,6 +521,13 @@ end
 ---@protected
 ---@param element element
 function spawnedUI.handleDrag(element)
+    if element:isLocked() then
+        if ImGui.IsItemHovered() and spawnedUI.draggingSelected then
+            ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
+        end
+        return
+    end
+
     if ImGui.IsItemHovered() and ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnedUI.draggingSelected then -- Start dragging
         if not element.selected then
             spawnedUI.unselectAll()
@@ -508,6 +593,9 @@ function spawnedUI.paste(elements, element)
     local index = #parent.childs + 1
 
     if element then
+        if element:isLocked() then
+            return pasted
+        end
         parent = element.parent
         index = utils.indexValue(parent.childs, element) + 1
         if element.expandable then
@@ -543,17 +631,18 @@ function spawnedUI.moveToRoot(isMulti, element)
     if isMulti then
         local elements = {}
         for _, entry in pairs(spawnedUI.selectedPaths) do
-            if not entry.ref:isRoot(false) and not entry.ref.parent:isParentOrSelfSelected() then
+            if not entry.ref:isRoot(false) and not entry.ref.parent:isParentOrSelfSelected() and not entry.ref:isLocked() then
                 table.insert(elements, entry.ref)
             end
         end
+        if #elements == 0 then return end
         local remove = history.getRemove(elements)
         for _, entry in pairs(elements) do
             entry:setParent(spawnedUI.root)
         end
         local insert = history.getInsert(elements)
         history.addAction(history.getMove(remove, insert))
-    elseif element then
+    elseif element and not element:isLocked() then
         spawnedUI.unselectAll()
 
         local remove = history.getRemove({ element })
@@ -574,6 +663,7 @@ function spawnedUI.moveToNewGroup(isMulti, element)
 
     if isMulti then
         local parents = spawnedUI.getRoots(spawnedUI.selectedPaths)
+        if #parents == 0 then return end
         local common = spawnedUI.findCommonParent(parents)
 
         -- Find lowest index of element in common parent
@@ -599,7 +689,7 @@ function spawnedUI.moveToNewGroup(isMulti, element)
 
         local insertElements = history.getInsert(parents)
         history.addAction(history.getMoveToNewGroup(insert, remove, insertElements))
-    elseif element then
+    elseif element and not element:isLocked() then
         group:setParent(element.parent, utils.indexValue(element.parent.childs, element))
         local insert = history.getInsert({ group }) -- Insertion of group
         local remove = history.getRemove({ element }) -- Removal of element
@@ -622,12 +712,14 @@ function spawnedUI.cut(isMulti, element)
     spawnedUI.clipboard = {}
 
     if isMulti then
-        history.addAction(history.getRemove(spawnedUI.getRoots(spawnedUI.selectedPaths)))
-        for _, entry in pairs(spawnedUI.getRoots(spawnedUI.selectedPaths)) do
+        local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
+        if #roots == 0 then return end
+        history.addAction(history.getRemove(roots))
+        for _, entry in pairs(roots) do
             table.insert(spawnedUI.clipboard, entry.ref:serialize())
             entry.ref:remove()
         end
-    elseif element then
+    elseif element and not element:isLocked() then
         history.addAction(history.getRemove({ element }))
         table.insert(spawnedUI.clipboard, element:serialize())
         element:remove()
@@ -657,10 +749,16 @@ function spawnedUI.drawContextMenu(element, path)
 
     if ImGui.BeginPopupContextItem("##contextMenu" .. path, ImGuiPopupFlags.MouseButtonRight) then
         local isMulti = #spawnedUI.selectedPaths > 1 and element.selected
+        local isLocked = element:isLocked()
 
         style.mutedText(isMulti and #spawnedUI.selectedPaths .. " elements" or element.name)
+        if isLocked then
+            ImGui.SameLine()
+            style.mutedText("(Locked)")
+        end
         ImGui.Separator()
 
+        ImGui.BeginDisabled(isLocked)
         if ImGui.MenuItem("Delete", "DEL") then
             if isMulti then
                 history.addAction(history.getRemove(spawnedUI.getRoots(spawnedUI.selectedPaths)))
@@ -672,9 +770,13 @@ function spawnedUI.drawContextMenu(element, path)
                 element:remove()
             end
         end
+        ImGui.EndDisabled()
+
         if ImGui.MenuItem("Copy", "CTRL-C") then
             spawnedUI.clipboard = spawnedUI.copy(isMulti, element)
         end
+
+        ImGui.BeginDisabled(isLocked)
         if ImGui.MenuItem("Paste", "CTRL-V") then
             history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, element)))
         end
@@ -684,6 +786,20 @@ function spawnedUI.drawContextMenu(element, path)
         if ImGui.MenuItem("Duplicate", "CTRL-D") then
             local data = spawnedUI.copy(isMulti, element)
             history.addAction(history.getInsert(spawnedUI.paste(data, element)))
+        end
+        if utils.isA(element, "positionableGroup") then
+            ImGui.EndDisabled()
+            if ImGui.MenuItem("Unlock all children") then
+                applyElementChangesBatched({ element }, function(entry)
+                    entry:unlockDescendants(true)
+                end)
+            end
+            if ImGui.MenuItem("Show all children") then
+                applyElementChangesBatched({ element }, function(entry)
+                    entry:showDescendants(true)
+                end)
+            end
+            ImGui.BeginDisabled(isLocked)
         end
         if ImGui.MenuItem("Move to Root", "BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
@@ -723,10 +839,14 @@ function spawnedUI.drawContextMenu(element, path)
             end
         end
         if element.parent ~= nil and utils.isA(element.parent, "positionableGroup") and not element.parent:isRoot(true) then
+            ImGui.EndDisabled()
             if ImGui.MenuItem("Set Parent Origin to Element") then
                 element.parent:setOrigin(element:getPosition())
             end
+            ImGui.BeginDisabled(isLocked)
         end
+        ImGui.EndDisabled()
+
         if ImGui.MenuItem(not utils.isA(element, "positionableGroup") and "Make Favorite" or "Make Prefab", "CTRL-F") then
             local icon = element.icon
             if icon == "" then
@@ -748,40 +868,113 @@ end
 
 ---@protected
 ---@param element element
-function spawnedUI.drawSideButtons(element)
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
+---@return number
+function spawnedUI.getSideButtonsWidth(element)
+    local sideButtonPadding = 1 * style.viewSize
+    local function getButtonWidth(icon)
+        local iconWidth, _ = ImGui.CalcTextSize(icon)
+        return iconWidth + sideButtonPadding * 2
+    end
 
-    -- Right side buttons
-    local totalX, _ = ImGui.CalcTextSize(IconGlyphs.EyeOutline)
-    local gotoX, _ = ImGui.CalcTextSize(IconGlyphs.ArrowTopRight)
+    local lockWidth = math.max(
+        getButtonWidth(IconGlyphs.LockOutline),
+        getButtonWidth(IconGlyphs.LockOpenVariantOutline),
+        getButtonWidth(IconGlyphs.LockOpenAlertOutline)
+    )
+
+    local totalX = getButtonWidth(IconGlyphs.EyeOutline) + lockWidth + ImGui.GetStyle().ItemSpacing.x
+    local gotoX = getButtonWidth(IconGlyphs.ArrowTopRight)
+
     if spawnedUI.filter ~= "" then
         totalX = totalX + gotoX + ImGui.GetStyle().ItemSpacing.x
     end
 
     for icon, data in pairs(element.quickOperations) do
         if data.condition(element) then
-            totalX = totalX + ImGui.CalcTextSize(icon) + ImGui.GetStyle().ItemSpacing.x
+            totalX = totalX + getButtonWidth(icon) + ImGui.GetStyle().ItemSpacing.x
         end
     end
+
+    return totalX
+end
+
+---@protected
+---@param text string
+---@param maxWidth number
+---@return string, boolean
+function spawnedUI.fitTextWithEllipsis(text, maxWidth)
+    local textWidth, _ = ImGui.CalcTextSize(text)
+    if textWidth <= maxWidth then
+        return text, false
+    end
+
+    local ellipsis = "..."
+    local ellipsisWidth, _ = ImGui.CalcTextSize(ellipsis)
+    if ellipsisWidth >= maxWidth then
+        return ellipsis, true
+    end
+
+    local low = 0
+    local high = #text
+
+    while low < high do
+        local mid = math.floor((low + high + 1) / 2)
+        local candidate = string.sub(text, 1, mid) .. ellipsis
+        local candidateWidth, _ = ImGui.CalcTextSize(candidate)
+
+        if candidateWidth <= maxWidth then
+            low = mid
+        else
+            high = mid - 1
+        end
+    end
+
+    return string.sub(text, 1, low) .. ellipsis, true
+end
+
+---@protected
+---@param element element
+---@return boolean
+function spawnedUI.hasLockedChildren(element)
+    if not utils.isA(element, "positionableGroup") then return false end
+    return spawnedUI.lockedChildrenCache[element.id] == true
+end
+
+---@protected
+---@param element element
+function spawnedUI.drawSideButtons(element)
+    -- Right side buttons
+    local totalX = spawnedUI.getSideButtonsWidth(element)
 
     local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
 
     local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+    local rowY = ImGui.GetCursorPosY()
     ImGui.SetCursorPosX(cursorX)
+    ImGui.SetCursorPosY(rowY)
+
+    local elementLocked = element:isLocked()
+    local hoveredLocked = elementLocked and element.hovered
+    local sideButtonPadding = 1 * style.viewSize
 
     for icon, data in pairs(element.quickOperations) do
         if data.condition(element) then
             ImGui.SetNextItemAllowOverlap()
+            local disableQuickOp = elementLocked and icon ~= IconGlyphs.ContentSaveOutline
+            ImGui.BeginDisabled(disableQuickOp)
+            ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
             if ImGui.Button(icon) then
                 data.operation(element)
             end
+            ImGui.PopStyleVar()
+            ImGui.EndDisabled()
             ImGui.SameLine()
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
         end
     end
 
     if spawnedUI.filter ~= "" then
         ImGui.SetNextItemAllowOverlap()
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
         if ImGui.Button(IconGlyphs.ArrowTopRight) then
             spawnedUI.unselectAll()
             element:setSelected(true)
@@ -789,22 +982,59 @@ function spawnedUI.drawSideButtons(element)
             spawnedUI.scrollToSelected = true
             spawnedUI.filter = ""
         end
+        ImGui.PopStyleVar()
         ImGui.SameLine()
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
     end
 
-    local visible = element.visible and not isGettingDragged
+    local icon = elementLocked and IconGlyphs.LockOutline or IconGlyphs.LockOpenVariantOutline
+    local canToggleLock = spawnedUI.canMutateLockedState(element)
+    local hasLockedChildren = spawnedUI.hasLockedChildren(element) and not elementLocked
+    if hasLockedChildren then
+        icon = IconGlyphs.LockOpenAlertOutline
+    end
+    style.pushStyleColor(not elementLocked, ImGuiCol.Text, style.mutedColor)
+    style.pushStyleColor(hasLockedChildren, ImGuiCol.Text, 1.0, 0.55, 0.0, 0.6)
+    style.pushStyleColor(hoveredLocked, ImGuiCol.Text, 1.0, 0.84, 0.2, 1.0)
+    ImGui.SetNextItemAllowOverlap()
+    ImGui.BeginDisabled(not canToggleLock)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
+    if ImGui.Button(icon) then
+        if spawnedUI.multiSelectActive() then
+            element:setLockedRecursive(not element.locked, false)
+        else
+            element:setLocked(not element.locked, false)
+        end
+    end
+    ImGui.PopStyleVar()
+    ImGui.EndDisabled()
+    style.popStyleColor(hoveredLocked)
+    style.popStyleColor(hasLockedChildren)
+    style.popStyleColor(not elementLocked)
+    if element.lockedByParent then
+        style.tooltip("Locked by parent")
+    elseif hasLockedChildren then
+        style.tooltip("Contains locked children")
+    else
+        style.tooltip(elementLocked and "Unlock element" or "Lock element")
+    end
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
+
+    local visible = element.visible
     style.pushStyleColor(not visible, ImGuiCol.Text, style.mutedColor)
 
     ImGui.SetNextItemAllowOverlap()
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
     if ImGui.Button(IconGlyphs.EyeOutline) then
-        if spawnedUI.multiSelectActive() then
+        if spawnedUI.multiSelectActive() and spawnedUI.canToggleVisibility(element) then
             element:setVisibleRecursive(not element.visible)
-        else
+        elseif spawnedUI.canToggleVisibility(element) then
             element:setVisible(not element.visible)
         end
     end
+    ImGui.PopStyleVar()
     style.popStyleColor(not visible)
+
 end
 
 ---@protected
@@ -828,6 +1058,7 @@ function spawnedUI.drawElement(element, dummy)
 
     if (spawnedUI.clipperIndex - 1 >= spawnedUI.clipper.DisplayStart and spawnedUI.clipperIndex - 1 < spawnedUI.clipper.DisplayEnd) or dummy then
         local isGettingDragged = element and element.selected and spawnedUI.draggingSelected
+        local rowLocked = element and element:isLocked()
 
         ImGui.PushID(spawnedUI.elementCount)
 
@@ -850,14 +1081,19 @@ function spawnedUI.drawElement(element, dummy)
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 15, spawnedUI.cellPadding * 2 + style.viewSize) -- + style.viewSize is a ugly fix to make the gaps smaller
 
         -- Grey out if getting dragged
-        style.pushStyleColor(isGettingDragged, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
-        style.pushStyleColor(isGettingDragged, ImGuiCol.HeaderActive, 0, 0, 0, 0)
-        style.pushStyleColor(isGettingDragged, ImGuiCol.Header, 0, 0, 0, 0)
+        local suppressHeaderState = isGettingDragged or rowLocked
+        style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
+        style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
+        style.pushStyleColor(suppressHeaderState, ImGuiCol.Header, 0, 0, 0, 0)
 
         local previous = element.selected
         local newState = ImGui.Selectable("##item" .. spawnedUI.elementCount, element.selected, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap)
         element:setSelected(newState)
         element:setHovered(ImGui.IsItemHovered())
+        if element:isLocked() then
+            element:setSelected(false)
+            newState = false
+        end
 
         if element.selected then
             if spawnedUI.scrollToSelected then
@@ -884,7 +1120,7 @@ function spawnedUI.drawElement(element, dummy)
         local elementPath = element:getPath()
         spawnedUI.drawContextMenu(element, elementPath)
 
-        style.popStyleColor(isGettingDragged, 3)
+        style.popStyleColor(suppressHeaderState, 3)
         ImGui.PopStyleVar()
 
         -- Styles
@@ -897,6 +1133,8 @@ function spawnedUI.drawElement(element, dummy)
         style.pushStyleColor(isGettingDragged, ImGuiCol.Text, style.extraMutedColor)
 
         local leftOffset = 25 * style.viewSize -- Accounts for icon
+        local hiddenText = not element.visible
+        style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
 
         -- Icon or expand button
         if not element.expandable and element.icon ~= "" then
@@ -926,7 +1164,8 @@ function spawnedUI.drawElement(element, dummy)
 
         ImGui.SameLine()
 
-        ImGui.SetCursorPosX((spawnedUI.depth) * 17 * style.viewSize + leftOffset)
+        local nameStartX = (spawnedUI.depth) * 17 * style.viewSize + leftOffset
+        ImGui.SetCursorPosX(nameStartX)
         ImGui.AlignTextToFramePadding()
         if element.editName then
             input.windowHovered = false
@@ -936,14 +1175,26 @@ function spawnedUI.drawElement(element, dummy)
             end
             element:drawName()
         else
+            local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
+            local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
+            local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+            local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x)
+
+            local fittedName, wasClipped = spawnedUI.fitTextWithEllipsis(element.name, maxNameWidth)
             ImGui.SetNextItemAllowOverlap()
-            ImGui.Text(element.name)
+            ImGui.Text(fittedName)
+            if wasClipped then
+                style.tooltip(element.name)
+            end
         end
+        style.popStyleColor(hiddenText)
 
         if element.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
-            element.editName = true
-            element.focusNameEdit = 1
-            element:setSelected(true)
+            if not element:isLocked() then
+                element.editName = true
+                element.focusNameEdit = 1
+                element:setSelected(true)
+            end
         end
 
         if spawnedUI.filter ~= "" then
@@ -1145,6 +1396,7 @@ function spawnedUI.drawTop()
         end
     end
     style.tooltip("Save all root groups")
+    
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.CollapseAllOutline) then
         for _, child in pairs(spawnedUI.root.childs) do
@@ -1152,33 +1404,101 @@ function spawnedUI.drawTop()
         end
     end
     style.tooltip("Fold all groups")
+
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.ExpandAllOutline) then
         spawnedUI.root:setHeaderStateRecursive(true)
     end
     style.tooltip("Expand all groups")
+
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.EyeMinusOutline) then
         if spawnedUI.filter ~= "" then
+            local targets = {}
             for _, entry in pairs(spawnedUI.filteredPaths) do
-                entry.ref:setVisible(false)
+                if spawnedUI.canToggleVisibility(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
             end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisible(false, true)
+            end)
         else
             spawnedUI.root:setVisibleRecursive(false)
         end
     end
     style.tooltip("Hide all elements (or filtered elements)")
+
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.EyePlusOutline) then
         if spawnedUI.filter ~= "" then
+            local targets = {}
             for _, entry in pairs(spawnedUI.filteredPaths) do
-                entry.ref:setVisible(true)
+                if spawnedUI.canToggleVisibility(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
             end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisible(true, true)
+            end)
         else
             spawnedUI.root:setVisibleRecursive(true)
         end
     end
     style.tooltip("Show all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.LockPlusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canMutateLockedState(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLocked(true, true)
+            end)
+        else
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canMutateLockedState(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLockedRecursive(true, true)
+            end)
+        end
+    end
+    style.tooltip("Lock all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.LockOpenMinusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canMutateLockedState(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLocked(false, true)
+            end)
+        else
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canMutateLockedState(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLockedRecursive(false, true)
+            end)
+        end
+    end
+    style.tooltip("Unlock all elements (or filtered elements)")
+
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.Undo) then
         history.undo()

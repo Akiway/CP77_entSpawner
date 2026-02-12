@@ -18,6 +18,8 @@ local history = require("modules/utils/history")
 ---@field hideable boolean
 ---@field visible boolean
 ---@field hiddenByParent boolean
+---@field locked boolean
+---@field lockedByParent boolean
 ---@field icon string
 ---@field class string[]
 ---@field hovered boolean
@@ -39,6 +41,8 @@ function element:new(sUI)
     o.childs = {}
 	o.visible = true
 	o.hiddenByParent = false
+	o.locked = false
+	o.lockedByParent = false
 
 	o.expandable = true
 	o.hideable = true
@@ -74,7 +78,7 @@ function element:getModulePathByType(data)
 end
 
 ---Loads the data from a given table, containing the same data as exported during save()
----@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, selected : boolean, hiddenByParent : boolean, propertyHeaderStates: table}
+---@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, selected : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
 ---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function element:load(data, silent)
 	while self.childs[1] do -- Ensure any children get removed, important for undoing spawnables so that they despawn
@@ -88,12 +92,17 @@ function element:load(data, silent)
 	self.visible = data.visible
 	self.selected = data.selected
 	self.hiddenByParent = data.hiddenByParent
+	self.locked = data.locked
+	self.lockedByParent = data.lockedByParent
 	self.propertyHeaderStates = data.propertyHeaderStates
 	if self.propertyHeaderStates == nil then self.propertyHeaderStates = {} end
 	if self.visible == nil then self.visible = true end
 	if self.headerOpen == nil then self.headerOpen = settings.headerState end
 	if self.selected == nil then self.selected = false end
 	if self.hiddenByParent == nil then self.hiddenByParent = false end
+	if self.locked == nil then self.locked = false end
+	if self.lockedByParent == nil then self.lockedByParent = false end
+	if self:isLocked() then self.selected = false end
 
 	self.modulePath = self.modulePath or self:getModulePathByType(data)
 
@@ -131,6 +140,8 @@ end
 ---Update file name to new given
 ---@param name string
 function element:rename(name)
+	if self:isLocked() then return end
+
 	local oldPath = self:getPath()
 	local oldState = self:serialize()
 
@@ -149,6 +160,7 @@ function element:addChild(new, index)
 	generateUniqueName(new, self.childs)
 	table.insert(self.childs, index, new)
 	new:setHiddenByParent(not self.visible or self.hiddenByParent)
+	new:setLockedByParent(self.locked or self.lockedByParent)
 end
 
 function element:removeChild(child)
@@ -252,7 +264,8 @@ function element:drawProperties()
 	local groupedProperties = {}
 
 	for _, child in pairs(self:getPathsRecursive(true)) do
-		for key, property in pairs(child.ref:getGroupedProperties()) do
+		if not child.ref:isLocked() then
+			for key, property in pairs(child.ref:getGroupedProperties()) do
 			if not groupedProperties[key] then
 				groupedProperties[key] = { name = property.name, draw = { [property.id] = property.draw }, entries = {} }
 			elseif not groupedProperties[key].draw[property.id] then
@@ -262,6 +275,7 @@ function element:drawProperties()
 
 			if not self.groupOperationData[key] then
 				self.groupOperationData[key] = property.data
+			end
 			end
 		end
 	end
@@ -307,6 +321,11 @@ function element:getGroupedProperties()
 end
 
 function element:drawName()
+	if self:isLocked() then
+		self.editName = false
+		return
+	end
+
 	if not self.newName then self.newName = self.name end
 
 	ImGui.SetNextItemAllowOverlap()
@@ -336,6 +355,37 @@ function element:getPathsRecursive(isRoot)
 	end
 
 	return paths
+end
+
+---Returns all descendants of self (excluding self).
+---@return element[]
+function element:getDescendants()
+	local descendants = {}
+
+	for _, child in pairs(self.childs) do
+		table.insert(descendants, child)
+		for _, descendant in pairs(child:getDescendants()) do
+			table.insert(descendants, descendant)
+		end
+	end
+
+	return descendants
+end
+
+---Unlocks all descendants of self (excluding self).
+---@param fromRecursive boolean? Indicates this call is part of a batched/multi operation.
+function element:unlockDescendants(fromRecursive)
+	for _, descendant in pairs(self:getDescendants()) do
+		descendant:setLocked(false, fromRecursive)
+	end
+end
+
+---Shows all descendants of self (excluding self).
+---@param fromRecursive boolean? Indicates this call is part of a batched/multi operation.
+function element:showDescendants(fromRecursive)
+	for _, descendant in pairs(self:getDescendants()) do
+		descendant:setVisible(true, fromRecursive)
+	end
 end
 
 function element:setHeaderStateRecursive(state)
@@ -380,6 +430,48 @@ function element:setHiddenByParent(state)
 	end
 end
 
+---Sets lock state of self and all children
+---@param state boolean
+---@param fromRecursive boolean? Indicates that this is not the first call, and should not be added to history
+function element:setLockedRecursive(state, fromRecursive)
+	self:setLocked(state, fromRecursive)
+
+	for _, child in pairs(self.childs) do
+		child:setLockedRecursive(state, true)
+	end
+end
+
+function element:setLocked(state, fromRecursive)
+	if not fromRecursive then
+		history.addAction(history.getElementChange(self))
+	end
+	self.locked = state
+	if state then
+		self:setSelected(false)
+		self.editName = false
+	end
+
+	if self.lockedByParent then return end
+
+	for _, child in pairs(self.childs) do
+		child:setLockedByParent(state)
+	end
+end
+
+function element:setLockedByParent(state)
+	self.lockedByParent = state
+	if state then
+		self:setSelected(false)
+		self.editName = false
+	end
+
+	if self.locked then return end
+
+	for _, child in pairs(self.childs) do
+		child:setLockedByParent(state)
+	end
+end
+
 function element:setSilent(state)
 	self.silent = state
 
@@ -400,7 +492,13 @@ function element:setHovered(state)
 end
 
 function element:setSelected(state)
+	if state and self:isLocked() then return end
 	self.selected = state
+end
+
+---@return boolean
+function element:isLocked()
+	return self.locked or self.lockedByParent
 end
 
 function element:getPath()
@@ -418,6 +516,8 @@ function element:serialize()
 		propertyHeaderStates = self.propertyHeaderStates,
 		visible = self.visible,
 		hiddenByParent = self.hiddenByParent,
+		locked = self.locked,
+		lockedByParent = self.lockedByParent,
 		expandable = self.expandable,
 		selected = self.selected,
 		isUsingSpawnables = true,

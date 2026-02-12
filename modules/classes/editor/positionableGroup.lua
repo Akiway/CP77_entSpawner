@@ -110,7 +110,9 @@ function positionableGroup:getPositionableLeafs()
 	local objects = {}
 
 	for _, entry in pairs(self.childs) do
-		if utils.isA(entry, "spawnableElement") then
+		if entry:isLocked() then
+			-- Locked entries are excluded from group-level transforms and batch operations.
+		elseif utils.isA(entry, "spawnableElement") then
 			table.insert(objects, entry)
 		elseif utils.isA(entry, "positionableGroup") then
 			objects = utils.combine(objects, entry:getPositionableLeafs())

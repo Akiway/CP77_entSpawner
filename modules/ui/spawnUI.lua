@@ -88,6 +88,7 @@ local spawnData = {}
 local typeNames = {}
 local variantNames = {}
 local modulePathToSpawnList = {}
+
 local AMM = nil
 
 local function tooltip(text)
@@ -695,6 +696,11 @@ function spawnUI.spawnNew(entry, class, isFavorite)
     end
 
     local data = utils.deepcopy(entry.data)
+    if isFavorite then
+        -- Favorites should always load unlocked so initial placement is never blocked.
+        utils.clearLockStateRecursive(data)
+    end
+
     if not isFavorite then
         data.modulePath = class:new().modulePath
         data.position = { x = pos.x, y = pos.y, z = pos.z, w = 0 }

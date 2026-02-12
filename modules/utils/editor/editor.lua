@@ -241,6 +241,9 @@ function editor.getSelected()
     if #editor.spawnedUI.selectedPaths == 0 then return end
 
     if #editor.spawnedUI.selectedPaths == 1 then
+        if editor.spawnedUI.selectedPaths[1].ref:isLocked() then
+            return
+        end
         if utils.isA(editor.spawnedUI.selectedPaths[1].ref, "positionable") then
             return editor.spawnedUI.selectedPaths[1].ref
         end
@@ -314,7 +317,7 @@ function editor.getRaySceneIntersection(ray, origin, excludeIds, usePhysical)
     local hits = {}
 
     for _, element in pairs(editor.spawnedUI.paths) do
-        if element.ref.visible and utils.isA(element.ref, "spawnableElement") then
+        if element.ref.visible and not element.ref:isLocked() and utils.isA(element.ref, "spawnableElement") then
             local hit = element.ref.spawnable:calculateIntersection(origin, ray)
 
             if hit.hit and (not excludeIds or (excludeIds and not excludeIds[element.ref.id])) then
@@ -383,6 +386,7 @@ function editor.setTarget()
     if not hit.hit or (not hit.isNode and #hit.allHits == 0) then return end -- or not hit.isNode | for now allow selecing through physical objects
 
     hit = hit.result
+    if hit.element:isLocked() then return end
 
     if not editor.spawnedUI.multiSelectActive() then
         editor.spawnedUI.unselectAll()
@@ -706,12 +710,14 @@ function editor.drawDepthSelect()
 
             ImGui.SameLine(editor.depthElementsMaxWidth + 10 * style.viewSize)
 
+            ImGui.BeginDisabled(hit.element:isLocked())
             if ImGui.Selectable(hit.element.name, false) then
                 editor.spawnedUI.unselectAll()
                 hit.element:setSelected(true)
                 editor.depthSelectOpen = false
                 editor.spawnedUI.scrollToSelected = true
             end
+            ImGui.EndDisabled()
         end
 
         ImGui.End()
@@ -756,7 +762,7 @@ function editor.handleBoxSelect()
         local max = { x = math.max(editor.boxSelectStart.x, x), y = math.max(editor.boxSelectStart.y, y) }
 
         for _, element in pairs(editor.spawnedUI.paths) do
-            if element.ref.visible and not element.ref.hiddenByParent and utils.isA(element.ref, "spawnableElement") then
+            if element.ref.visible and not element.ref.hiddenByParent and not element.ref:isLocked() and utils.isA(element.ref, "spawnableElement") then
                 local inside = true
                 for _, corner in pairs(calculateSpawnableCorners(element.ref.spawnable)) do
                     local xCorner, yCorner = editor.camera.worldToScreen(corner)

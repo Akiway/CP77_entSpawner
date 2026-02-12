@@ -63,6 +63,21 @@ function miscUtils.tableLength(table)
     return count
 end
 
+---Clears lock flags recursively on serialized element/group data.
+---@param data table
+function miscUtils.clearLockStateRecursive(data)
+    if type(data) ~= "table" then return end
+
+    data.locked = false
+    data.lockedByParent = false
+
+    if data.childs then
+        for _, child in pairs(data.childs) do
+            miscUtils.clearLockStateRecursive(child)
+        end
+    end
+end
+
 ---@param tab table
 ---@param val any
 function miscUtils.removeItem(tab, val)

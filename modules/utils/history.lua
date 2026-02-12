@@ -13,6 +13,38 @@ local history = {
     propBeingEdited = false
 }
 
+---@param elements element[]|{ path : string, ref : element }[]
+---@return element[]
+function history.normalizeElements(elements)
+    local normalized = {}
+
+    for _, element in ipairs(elements) do
+        if element.ref then
+            element = element.ref
+        end
+        table.insert(normalized, element)
+    end
+
+    return normalized
+end
+
+---@param actions table[]
+---@return table
+function history.getComposite(actions)
+    return {
+        undo = function()
+            for _, action in ipairs(actions) do
+                action.undo()
+            end
+        end,
+        redo = function()
+            for _, action in ipairs(actions) do
+                action.redo()
+            end
+        end
+    }
+end
+
 function history.getMoveToNewGroup(insert, remove, insertElement)
     local move = history.getMove(remove, insertElement)
 
@@ -67,25 +99,19 @@ function history.getElementChange(element)
 end
 
 function history.getMultiSelectChange(elements)
-    local action = {}
-    action.actions = {}
+    return history.getComposite(history.getElementChanges(elements))
+end
 
-    for _, element in pairs(elements) do
-        table.insert(action.actions, history.getElementChange(element))
+---@param elements element[]|{ path : string, ref : element }[]
+---@return table[]
+function history.getElementChanges(elements)
+    local changes = {}
+
+    for _, element in ipairs(history.normalizeElements(elements)) do
+        table.insert(changes, history.getElementChange(element))
     end
 
-    action.undo = function ()
-        for _, action in pairs(action.actions) do
-            action.undo()
-        end
-    end
-    action.redo = function ()
-        for _, action in pairs(action.actions) do
-            action.redo()
-        end
-    end
-
-    return action
+    return changes
 end
 
 function history.getRename(data, current, new)
@@ -125,8 +151,7 @@ end
 ---@return table
 function history.getRemove(elements)
     local data = {}
-    for _, element in pairs(elements) do
-        if element.ref then element = element.ref end
+    for _, element in ipairs(history.normalizeElements(elements)) do
         local parentPath = element.parent:getPath()
         table.insert(data, { index = utils.indexValue(element.parent.childs, element), parentPath = parentPath, path = element:getPath(), data = element:serialize() })
     end
