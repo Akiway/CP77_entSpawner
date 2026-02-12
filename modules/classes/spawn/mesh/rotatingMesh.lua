@@ -27,6 +27,7 @@ function rotatingMesh:new()
     o.reverse = false
     o.axisTypes = utils.enumTable("gameTransformAnimation_RotateOnAxisAxis")
     o.hideGenerate = true
+    o.convertTarget = 0
 
     o.cronID = nil
 
@@ -96,6 +97,8 @@ function rotatingMesh:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.reverse = style.trackedCheckbox(self.object, "##reverse", self.reverse)
+
+    self:drawConversionSelector("##rotatingMeshConverterType", "Lossy Conversion##rotatingMeshSingle")
 end
 
 function rotatingMesh:export()

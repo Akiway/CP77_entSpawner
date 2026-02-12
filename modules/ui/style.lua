@@ -222,7 +222,7 @@ function style.trackedDragFloat(element, text, value, step, min, max, format, wi
 	if finished then
 		dragBeingEdited = false
 	end
-	if changed and not dragBeingEdited then
+	if changed and element and not dragBeingEdited then
 		history.addAction(history.getElementChange(element))
 		dragBeingEdited = true
 	end
@@ -297,7 +297,7 @@ function style.trackedColor(element, name, color, width)
 	if finished then
 		dragBeingEdited = false
 	end
-	if changed and not dragBeingEdited then
+	if changed and element and not dragBeingEdited then
 		history.addAction(history.getElementChange(element))
 		dragBeingEdited = true
 	end

@@ -49,6 +49,48 @@ function cache.loadStaticData()
     cache.staticData.ambientMetadataAll = config.loadFile("data/audio/ambientMetadataAll.json")
     cache.staticData.staticMetadataAll = config.loadFile("data/audio/staticMetadataAll.json")
     cache.staticData.signposts = config.loadFile("data/audio/signpostsData.json")
+    cache.staticData.spawnSets = cache.staticData.spawnSets or {}
+end
+
+local function normalizeSpawnPath(path)
+    if not path then return "" end
+
+    local normalized = path:gsub("/", "\\")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    return string.lower(normalized)
+end
+
+---@param path string
+---@return table
+function cache.getSpawnSet(path)
+    cache.staticData.spawnSets = cache.staticData.spawnSets or {}
+
+    if cache.staticData.spawnSets[path] then
+        return cache.staticData.spawnSets[path]
+    end
+
+    local set = {}
+    local file = io.open(path, "r")
+    if file then
+        for line in file:lines() do
+            if line and line ~= "" then
+                set[normalizeSpawnPath(line)] = true
+            end
+        end
+        file:close()
+    end
+
+    cache.staticData.spawnSets[path] = set
+    return set
+end
+
+---@param spawnData string
+---@param path string
+---@return boolean
+function cache.isSpawnDataInSet(spawnData, path)
+    local set = cache.getSpawnSet(path)
+    return set[normalizeSpawnPath(spawnData)] == true
 end
 
 function cache.addValue(key, value)

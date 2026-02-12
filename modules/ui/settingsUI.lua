@@ -173,6 +173,13 @@ function settingsUI.draw(spawner)
     settings.deleteConfirm, changed = ImGui.Checkbox("Show confirm to delete popup", settings.deleteConfirm)
     if changed then settings.save() end
 
+    local showConvertConfirm = not settings.skipLossyConversionWarning
+    showConvertConfirm, changed = ImGui.Checkbox("Show confirm to convert popup", showConvertConfirm)
+    if changed then
+        settings.skipLossyConversionWarning = not showConvertConfirm
+        settings.save()
+    end
+
     settings.despawnOnReload, changed = ImGui.Checkbox("Despawn everything on \"Reload all mods\"", settings.despawnOnReload)
     if changed then settings.save() end
 

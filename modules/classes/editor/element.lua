@@ -266,7 +266,6 @@ function element:drawProperties()
 		end
 	end
 
-	-- Draw grouped properties
 	if utils.tableLength(groupedProperties) > 0 then
 		if self.propertyHeaderStates["groupedProperties"] == nil then
 			self.propertyHeaderStates["groupedProperties"] = false
@@ -276,7 +275,7 @@ function element:drawProperties()
 		self.propertyHeaderStates["groupedProperties"] = ImGui.TreeNodeEx("Group Properties", ImGuiTreeNodeFlags.SpanFullWidth)
 
 		if self.propertyHeaderStates["groupedProperties"] then
-			for key, property in pairs(groupedProperties) do
+			local function drawGroupedProperty(key, property)
 				if self.propertyHeaderStates[key] == nil then
 					self.propertyHeaderStates[key] = false
 				end
@@ -290,6 +289,10 @@ function element:drawProperties()
 					end
 					ImGui.TreePop()
 				end
+			end
+
+			for key, property in pairs(groupedProperties) do
+				drawGroupedProperty(key, property)
 			end
 		end
 	end

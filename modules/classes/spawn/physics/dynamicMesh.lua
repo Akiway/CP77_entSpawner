@@ -23,6 +23,7 @@ function dynamicMesh:new()
     o.startAsleep = true
     o.hideGenerate = true
     o.forceAutoHideDistance = 150
+    o.convertTarget = 0
 
     setmetatable(o, { __index = self })
    	return o
@@ -87,6 +88,8 @@ function dynamicMesh:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.forceAutoHideDistance = style.trackedDragFloat(self.object, "##forceAutoHideDistance", self.forceAutoHideDistance, 0.1, 0, 1000, "%.1f")
+    
+    self:drawConversionSelector("##dynamicMeshConverterType", "Lossy Conversion##dynamicMeshSingle")
 end
 
 function dynamicMesh:export()
