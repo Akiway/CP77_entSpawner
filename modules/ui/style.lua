@@ -18,6 +18,40 @@ local style = {
 
 local initialized = false
 
+local function clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(value, maxValue))
+end
+
+local function getDisplaySize()
+    local width, height = GetDisplayResolution()
+    return width, height
+end
+
+local function setNextWindowPosClamped(x, y, width, height, cond)
+    local screenWidth, screenHeight = getDisplaySize()
+    local margin = 8
+
+    local maxX = math.max(margin, screenWidth - width - margin)
+    local maxY = math.max(margin, screenHeight - height - margin)
+
+    ImGui.SetNextWindowPos(clamp(x, margin, maxX), clamp(y, margin, maxY), cond or ImGuiCond.Always)
+end
+
+local function getTooltipSize(text)
+    local textWidth, textHeight = ImGui.CalcTextSize(text or "")
+    local padding = ImGui.GetStyle().WindowPadding
+
+    return textWidth + (padding.x * 2), textHeight + (padding.y * 2)
+end
+
+local function placeTooltipNearCursor(text, offsetX, offsetY, cond)
+    local scale = style.viewSize or 1
+    local mouseX, mouseY = ImGui.GetMousePos()
+    local tooltipWidth, tooltipHeight = getTooltipSize(text)
+
+    setNextWindowPosClamped(mouseX + offsetX * scale, mouseY + offsetY * scale, tooltipWidth, tooltipHeight, cond)
+end
+
 function style.initialize(force)
     if not force and initialized then return end
     style.viewSize = ImGui.GetFontSize() / 15
@@ -77,36 +111,29 @@ end
 
 function style.tooltip(text)
     if ImGui.IsItemHovered() then
-        style.setCursorRelative(8, 8)
-
-        ImGui.SetTooltip(text)
+        placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
+        ImGui.BeginTooltip()
+        ImGui.Text(text)
+        ImGui.EndTooltip()
     end
 end
 
 function style.setCursorRelative(x, y)
     local xC, yC = ImGui.GetMousePos()
-    ImGui.SetNextWindowPos(xC + x * style.viewSize, yC + y * style.viewSize, ImGuiCond.Always)
+    setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Always)
 end
 
 function style.setCursorRelativeAppearing(x, y)
     local xC, yC = ImGui.GetMousePos()
-    ImGui.SetNextWindowPos(xC + x * style.viewSize, yC + y * style.viewSize, ImGuiCond.Appearing)
+    setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Appearing)
 end
 
-function style.lightToolTip(text)
-    if ImGui.IsItemHovered() then
-        local x, y = ImGui.GetMousePos()
-        ImGui.SetNextWindowPos(x + 5 * style.viewSize, y + 5 * style.viewSize, ImGuiCond.Always)
-        if ImGui.Begin("##tooltip", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground) then
-            style.mutedText(text)
-            ImGui.End()
-        end
-    end
+function style.setNextWindowPosClamped(x, y, width, height, cond)
+    setNextWindowPosClamped(x, y, width or 1, height or 1, cond)
 end
 
 function style.spawnableInfo(info)
     if ImGui.IsItemHovered() then
-        style.setCursorRelative(8, 8)
 
         ImGui.BeginTooltip()
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 20)
@@ -461,3 +488,4 @@ function style.drawLightChannelsSelector(object, lightChannels)
 end
 
 return style
+

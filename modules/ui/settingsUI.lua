@@ -60,7 +60,11 @@ function settingsUI.draw(spawner)
 
     settings.precisionMultiplier, changed = ImGui.InputFloat("Precision multiplier", settings.precisionMultiplier, 0, 10, "%.3f")
     if changed then settings.save() end
-    style.tooltip("When holding shift, the step size will be multiplied by this value")
+    style.tooltip("When holding SHIFT while dragging transform values, the step size will be multiplied by this value")
+
+    settings.coarsePrecisionMultiplier, changed = ImGui.InputFloat("Coarse precision multiplier", settings.coarsePrecisionMultiplier, 0, 100, "%.3f")
+    if changed then settings.save() end
+    style.tooltip("When holding CTRL while dragging transform values, the step size will be multiplied by this value")
 
     settings.draggingThreshold, changed = ImGui.InputFloat("Dragging Threshold", settings.draggingThreshold, 0, 100, "%.1f")
     if changed then

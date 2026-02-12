@@ -91,12 +91,6 @@ local modulePathToSpawnList = {}
 
 local AMM = nil
 
-local function tooltip(text)
-    if ImGui.IsItemHovered() then
-        ImGui.SetTooltip(text)
-    end
-end
-
 ---@class spawnUI
 ---@field filter string
 ---@field selectedGroup number
@@ -411,7 +405,7 @@ function spawnUI.drawTargetGroupSelector()
     ImGui.Text("Target group")
     ImGui.SameLine()
 	spawnUI.selectedGroup = ImGui.Combo("##newSpawnGroup", spawnUI.selectedGroup, groups, #groups)
-    tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned UI\" to set this selector to the currently selected group.")
+    style.tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned UI\" to set this selector to the currently selected group.")
 	ImGui.PopItemWidth()
 end
 

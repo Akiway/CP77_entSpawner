@@ -5,6 +5,7 @@ local config = require("modules/utils/config")
 ---@field public spawnDist number
 ---@field public posSteps number
 ---@field public precisionMultiplier number
+---@field public coarsePrecisionMultiplier number
 ---@field public rotSteps number
 ---@field public despawnOnReload boolean
 ---@field public headerState boolean
@@ -51,6 +52,7 @@ local settingsData = {
     spawnDist = 4,
     posSteps = 0.002,
     precisionMultiplier = 0.2,
+    coarsePrecisionMultiplier = 5,
     rotSteps = 0.050,
     despawnOnReload = true,
     headerState = true,

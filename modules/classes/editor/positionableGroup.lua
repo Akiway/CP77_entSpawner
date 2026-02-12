@@ -221,10 +221,14 @@ function positionableGroup:drawRotation(rotation)
 	local function drawLiveAngleFromStart(value, name, axis)
 		local steps = settings.rotSteps
 		local formatText = "%.2f"
+		local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
+		local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
 
-		if ImGui.IsKeyDown(ImGuiKey.LeftShift) then
+		if shiftDown then
 			steps = steps * 0.1 * settings.precisionMultiplier
 			formatText = "%.3f"
+		elseif ctrlDown then
+			steps = steps * settings.coarsePrecisionMultiplier
 		end
 
 		local displayValue = self.rotationUIDragValue[axis] or value

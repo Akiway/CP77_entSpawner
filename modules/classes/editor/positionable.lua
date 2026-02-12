@@ -251,10 +251,14 @@ end
 function positionable:drawProp(prop, name, axis, disableInput)
 	local steps = (axis == "roll" or axis == "pitch" or axis == "yaw") and settings.rotSteps or settings.posSteps
 	local formatText = "%.2f"
+	local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
+	local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
 
-	if ImGui.IsKeyDown(ImGuiKey.LeftShift) then
+	if shiftDown then
 		steps = steps * 0.1 * settings.precisionMultiplier -- Shift usually is a x10 multiplier, so get rid of that first
 		formatText = "%.3f"
+	elseif ctrlDown then
+		steps = steps * settings.coarsePrecisionMultiplier
 	end
 
 	local flags = ImGuiSliderFlags.NoRoundToFormat
