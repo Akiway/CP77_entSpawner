@@ -66,7 +66,7 @@ local tabs = {
         id = "settings",
         name = "Settings",
         icon = IconGlyphs.CogOutline,
-        flags = ImGuiWindowFlags.AlwaysAutoResize,
+        flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 1200 },
         draw = baseUI.settingsUI.draw
     }

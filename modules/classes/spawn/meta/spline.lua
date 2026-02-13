@@ -7,6 +7,9 @@ local Cron = require("modules/utils/Cron")
 local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
 
+local minCurvePreviewSamples = 8
+local maxCurvePreviewSamples = 24
+
 ---Class for worldSplineNode
 ---@class spline : visualized
 ---@field splinePath string
@@ -57,7 +60,7 @@ function spline:new()
     o.splineMoveType = "Walk"
     o.splineReachDistance = 0.85
     o._currentPointIndex = nil
-    o.curvePreviewSamples = settings.defaultSplineCurveQuality or 12
+    o.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, settings.defaultSplineCurveQuality or 12)))
     o.maxCurvePreviewComponents = 256
     o._curvePreviewComponentCount = 0
 
@@ -69,7 +72,7 @@ function spline:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
     self.previewCharacter = string.gsub(self.previewCharacter, "[\128-\255]", "")
-    self.curvePreviewSamples = math.floor(math.max(8, math.min(24, self.curvePreviewSamples or 12)))
+    self.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
 
     self.pointDefs = {}
     if data.pointDefs and #data.pointDefs > 0 then
@@ -234,7 +237,7 @@ function spline:getFollowerPathPoints()
     end
 
     local pathPoints = {}
-    local samples = math.max(8, math.min(24, self.curvePreviewSamples or 12))
+    local samples = math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12))
 
     local function sampleSegment(defA, defB)
         local p0 = defA.position
@@ -489,7 +492,7 @@ function spline:getCurvePreviewSampling(pointDefs)
         segmentCount = segmentCount + 1
     end
 
-    local requestedSamples = math.floor(math.max(8, math.min(24, self.curvePreviewSamples or 12)))
+    local requestedSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
     local maxComponents = math.max(1, self.maxCurvePreviewComponents or 256)
     local maxSamplesPerSegment = math.max(1, math.floor(maxComponents / math.max(1, segmentCount)))
     local samples = math.max(1, math.min(requestedSamples, maxSamplesPerSegment))
@@ -846,7 +849,7 @@ function spline:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(previewPropertyWidth)
         local finished
-        self.curvePreviewSamples, changed, finished = style.trackedDragInt(self.object, "##curvePreviewSamples", self.curvePreviewSamples, 8, 24, 60)
+        self.curvePreviewSamples, changed, finished = style.trackedDragInt(self.object, "##curvePreviewSamples", self.curvePreviewSamples, minCurvePreviewSamples, maxCurvePreviewSamples, 60)
         style.tooltip("Number of curve samples per segment for preview drawing.")
         if changed then
             self:updateCurvePreview()
@@ -858,7 +861,7 @@ function spline:draw()
         style.pushButtonNoBG(true)
         ImGui.PushID("saveCurveQuality")
         if ImGui.Button(IconGlyphs.ContentSaveSettingsOutline) then
-            settings.defaultSplineCurveQuality = self.curvePreviewSamples
+            settings.defaultSplineCurveQuality = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
             settings.save()
         end
         ImGui.PopID()
