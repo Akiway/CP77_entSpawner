@@ -30,6 +30,7 @@ local tabs = {
     {
         id = "spawn",
         name = "Spawn New",
+        icon = IconGlyphs.PlusBoxOutline,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 750, 1000 },
         draw = function ()
@@ -40,6 +41,7 @@ local tabs = {
     {
         id = "spawned",
         name = "Spawned",
+        icon = IconGlyphs.FormatListBulletedType,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 1200 },
         draw = baseUI.spawnedUI.draw
@@ -47,6 +49,7 @@ local tabs = {
     {
         id = "saved",
         name = "Saved",
+        icon = IconGlyphs.ContentSaveCogOutline,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 700 },
         draw = baseUI.savedUI.draw
@@ -54,6 +57,7 @@ local tabs = {
     {
         id = "export",
         name = "Export",
+        icon = IconGlyphs.Export,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 700 },
         draw = baseUI.exportUI.draw
@@ -61,11 +65,21 @@ local tabs = {
     {
         id = "settings",
         name = "Settings",
+        icon = IconGlyphs.CogOutline,
         flags = ImGuiWindowFlags.AlwaysAutoResize,
         defaultSize = { 600, 1200 },
         draw = baseUI.settingsUI.draw
     }
 }
+
+---@param tab {name: string, icon: string?}
+---@return string
+local function getTabLabel(tab)
+    if tab.icon and tab.icon ~= "" then
+        return tab.icon .. " " .. tab.name
+    end
+    return tab.name
+end
 
 local function isOnlyTab(id)
     for tid, tab in pairs(settings.windowStates) do
@@ -118,7 +132,7 @@ local function drawMenuButton()
         style.styledText("Separated Tabs:", style.mutedColor, 0.85)
 
         for _, tab in pairs(tabs) do
-            local _, clicked = ImGui.MenuItem(tab.name, '', settings.windowStates[tab.id])
+            local _, clicked = ImGui.MenuItem(getTabLabel(tab), '', settings.windowStates[tab.id])
             if clicked and not isOnlyTab(tab.id) then
                 settings.windowStates[tab.id] = not settings.windowStates[tab.id]
                 settings.save()
@@ -240,7 +254,7 @@ function baseUI.draw(spawner)
                 end
 
                 if not settings.windowStates[tab.id] then
-                    if ImGui.BeginTabItem(tab.name) then
+                    if ImGui.BeginTabItem(getTabLabel(tab)) then
                         if baseUI.activeTab ~= key then
                             baseUI.activeTab = key
                             baseUI.loadTabSize = true
@@ -250,7 +264,7 @@ function baseUI.draw(spawner)
                         ImGui.EndTabItem()
                     end
                 else
-                    ImGui.SetTabItemClosed(tab.name)
+                    ImGui.SetTabItemClosed(getTabLabel(tab))
                 end
             end
             ImGui.EndTabBar()
@@ -271,7 +285,7 @@ function baseUI.draw(spawner)
                 baseUI.loadWindowSize = nil
             end
 
-            settings.windowStates[tab.id] = ImGui.Begin(tab.name, true, tabs[key].flags)
+            settings.windowStates[tab.id] = ImGui.Begin(getTabLabel(tab), true, tabs[key].flags)
             input.updateContext("main")
 
             local x, y = ImGui.GetWindowSize()

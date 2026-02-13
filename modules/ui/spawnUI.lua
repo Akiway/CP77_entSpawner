@@ -601,11 +601,11 @@ function spawnUI.draw()
     spawnUI.updateAssetPreview()
 
     if ImGui.BeginTabBar("##spawnUITabbar", ImGuiTabItemFlags.NoTooltip) then
-        if ImGui.BeginTabItem("All") then
+        if ImGui.BeginTabItem(string.format("%s All", IconGlyphs.TextBoxSearchOutline)) then
             spawnUI.drawAll()
             ImGui.EndTabItem()
         end
-        if ImGui.BeginTabItem("Favorites") then
+        if ImGui.BeginTabItem(string.format("%s Favorites", IconGlyphs.HeartBoxOutline)) then
             spawnUI.favoritesUI.draw()
             ImGui.EndTabItem()
         end
