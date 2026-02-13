@@ -5,6 +5,7 @@ local settings = require("modules/utils/settings")
 local visualizer = require("modules/utils/visualizer")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
+local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 
 ---@class editor
 ---@field active boolean
@@ -747,6 +748,154 @@ local function calculateSpawnableCorners(entry)
     return corners
 end
 
+---@param value number?
+---@return boolean
+local function isFinite(value)
+    return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
+
+---@param leafs spawnableElement[]
+---@param origin Vector4
+---@param groupQuat Quaternion
+---@return Vector4?, Vector4?, Quaternion?
+local function getLocalBoundsFromLeafs(leafs, origin, groupQuat)
+    local minLocal = Vector4.new(math.huge, math.huge, math.huge, 0)
+    local maxLocal = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
+    local anyCorner = false
+
+    for _, leaf in pairs(leafs) do
+        local spawnable = leaf.spawnable
+        local bbox = spawnable and spawnable.getBBox and spawnable:getBBox() or nil
+        local leafPos = leaf:getPosition()
+        local leafQuat = leaf:getRotation():ToQuat()
+
+        if bbox and leafPos and leafQuat then
+            local corners = {
+                Vector4.new(bbox.min.x, bbox.min.y, bbox.min.z, 0),
+                Vector4.new(bbox.min.x, bbox.min.y, bbox.max.z, 0),
+                Vector4.new(bbox.min.x, bbox.max.y, bbox.min.z, 0),
+                Vector4.new(bbox.min.x, bbox.max.y, bbox.max.z, 0),
+                Vector4.new(bbox.max.x, bbox.min.y, bbox.min.z, 0),
+                Vector4.new(bbox.max.x, bbox.min.y, bbox.max.z, 0),
+                Vector4.new(bbox.max.x, bbox.max.y, bbox.min.z, 0),
+                Vector4.new(bbox.max.x, bbox.max.y, bbox.max.z, 0)
+            }
+
+            for _, corner in ipairs(corners) do
+                local worldPoint = utils.addVector(leafPos, leafQuat:Transform(corner))
+                local localPoint = groupQuat:TransformInverse(utils.subVector(worldPoint, origin))
+
+                if isFinite(localPoint.x) and isFinite(localPoint.y) and isFinite(localPoint.z) then
+                    minLocal = Vector4.new(math.min(minLocal.x, localPoint.x), math.min(minLocal.y, localPoint.y), math.min(minLocal.z, localPoint.z), 0)
+                    maxLocal = Vector4.new(math.max(maxLocal.x, localPoint.x), math.max(maxLocal.y, localPoint.y), math.max(maxLocal.z, localPoint.z), 0)
+                    anyCorner = true
+                end
+            end
+        end
+    end
+
+    if not anyCorner then
+        return nil, nil, nil
+    end
+
+    return minLocal, maxLocal, groupQuat
+end
+
+---@return table[]
+local function getOverlayTargets()
+    local selectedGroupRoots = {}
+    if #editor.spawnedUI.selectedPaths > 1 then
+        for _, entry in pairs(editor.spawnedUI.getRoots(editor.spawnedUI.selectedPaths)) do
+            if entry.ref and utils.isA(entry.ref, "positionableGroup") then
+                table.insert(selectedGroupRoots, entry.ref)
+            end
+        end
+    end
+
+    if #selectedGroupRoots > 1 then
+        local multi = editor.spawnedUI.multiSelectGroup
+        multi.childs = {}
+        for _, group in ipairs(selectedGroupRoots) do
+            table.insert(multi.childs, group)
+        end
+
+        local leafs = {}
+        for _, group in ipairs(selectedGroupRoots) do
+            leafs = utils.combine(leafs, group:getPositionableLeafs())
+        end
+
+        return {
+            {
+                origin = multi:getPosition(),
+                quat = multi:getRotation():ToQuat(),
+                leafs = leafs
+            }
+        }
+    end
+
+    local targets = {}
+    local seen = {}
+    for _, entry in pairs(editor.spawnedUI.paths) do
+        if entry.ref and entry.ref.parent ~= nil and utils.isA(entry.ref, "positionableGroup") then
+            if (entry.ref.hovered or entry.ref.selected) and not seen[entry.ref.id] then
+                seen[entry.ref.id] = true
+                table.insert(targets, {
+                    origin = entry.ref:getPosition(),
+                    quat = entry.ref:getRotation():ToQuat(),
+                    leafs = entry.ref:getPositionableLeafs()
+                })
+            end
+        end
+    end
+
+    return targets
+end
+
+---@param target table
+---@param screen table
+---@param drawList any
+local function drawGroupBounds(target, screen, drawList)
+    local minLocal, maxLocal, groupQuat = getLocalBoundsFromLeafs(target.leafs, target.origin, target.quat)
+    if not minLocal or not maxLocal or not groupQuat then return end
+
+    local origin = target.origin
+    if not origin then return end
+
+    projectedWireframe.drawOrientedBox(
+        drawList,
+        screen,
+        origin,
+        groupQuat,
+        minLocal,
+        maxLocal,
+        {
+            frontColor = 0xFF0000FF,
+            backColor = 0x550000FF,
+            frontThickness = 1.5 * style.viewSize,
+            backThickness = 1.2 * style.viewSize,
+            fadeNear = 45,
+            fadeFar = 175,
+            fadeLimit = 0.8
+        }
+    )
+end
+
+local function drawHoveredGroupBounds()
+    if not editor.active or not editor.camera then return end
+    if not settings.groupWireframeEnabled then return end
+
+    local targets = getOverlayTargets()
+    if #targets == 0 then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##groupBoundsOverlay")
+    if not screen then return end
+
+    for _, target in ipairs(targets) do
+        drawGroupBounds(target, screen, drawList)
+    end
+    projectedWireframe.endOverlay()
+end
+
 function editor.handleBoxSelect()
     if not editor.active then return end
 
@@ -798,6 +947,8 @@ function editor.onDraw()
     if editor.camera then
         editor.camera.update()
     end
+
+    drawHoveredGroupBounds()
 
     if editor.active and input.context.viewport.hovered then
         editor.checkArrow()

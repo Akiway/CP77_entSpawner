@@ -48,6 +48,7 @@ local config = require("modules/utils/config")
 ---@field public exportTemplatesHeight number
 ---@field public skipLossyConversionWarning boolean
 ---@field public editorDockLeft boolean
+---@field public groupWireframeEnabled boolean
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -94,6 +95,7 @@ local settingsData = {
     exportTemplatesHeight = 160,
     skipLossyConversionWarning = false,
     editorDockLeft = false,
+    groupWireframeEnabled = false,
 
     filterTags = {},
     favoritesFilter = "",

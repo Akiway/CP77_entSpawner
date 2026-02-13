@@ -122,6 +122,13 @@ function positionableGroup:getPositionableLeafs()
 	return objects
 end
 
+function positionableGroup:drawGeneralProperties()
+	positionable.drawGeneralProperties(self)
+	style.mutedText("Show Group Wireframe")
+	ImGui.SameLine()
+	settings.groupWireframeEnabled, _ = style.trackedCheckbox(self, "##showGroupWireframe", settings.groupWireframeEnabled)
+end
+
 function positionableGroup:getWorldMinMax()
 	local min = Vector4.new(math.huge, math.huge, math.huge, 0)
 	local max = Vector4.new(-math.huge, -math.huge, -math.huge, 0)

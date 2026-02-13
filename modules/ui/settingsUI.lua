@@ -116,6 +116,10 @@ function settingsUI.draw(spawner)
         settings.outlineColor, changed = ImGui.Combo("Outline color", settings.outlineColor, outlineColors, #outlineColors)
         if changed then settings.save() end
 
+        settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
+        if changed then settings.save() end
+        style.tooltip("In editor mode, show boundaries and origin of selected group with a colored outline.")
+
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("AI SPOT PREVIEW")
         settings.defaultAISpotNPC, changed = ImGui.InputTextWithHint("Default AI Spot NPC", "Character.", settings.defaultAISpotNPC, 128)
