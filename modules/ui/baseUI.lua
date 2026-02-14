@@ -7,6 +7,7 @@ local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
 local input = require("modules/utils/input")
+local groupLoadManager = require("modules/utils/groupLoadManager")
 
 ---@class baseUI
 baseUI = {
@@ -228,6 +229,7 @@ function baseUI.draw(spawner)
 
     if ImGui.Begin(settings.mainWindowName .. " " .. ModVersion, flags) then
         input.updateContext("main")
+        groupLoadManager.drawToasts()
 
         if not editorActive then
             baseUI.mainWindowPosition = { ImGui.GetWindowPos() }

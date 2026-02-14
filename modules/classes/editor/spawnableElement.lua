@@ -92,6 +92,8 @@ function spawnableElement:setParent(parent, index)
 	local oldParent = self.parent
 	positionable.setParent(self, parent, index)
 
+	if self.silent then return end
+
 	self.spawnable:onParentChanged(oldParent)
 end
 

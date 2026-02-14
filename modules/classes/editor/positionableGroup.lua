@@ -55,15 +55,46 @@ end
 function positionableGroup:load(data, silent)
 	positionable.load(self, data, silent)
 
-	-- load default values to support previous implementations
-	data.originMode = data.originMode or "manual"
-	data.origin = data.origin or self:getPosition()
-	data.originInitialized = data.originInitialized or (#self.childs > 0)
-	data.rotation = data.rotation or EulerAngles.new(0, 0, 0)
+	-- Backward compatibility:
+	-- Legacy data may only have `pos` (and often 0,0,0 for nested groups).
+	-- Prefer explicit origin when present, otherwise fallback to legacy pos
+	-- only when it is meaningful, or auto-center when it is zero.
+	local legacyPos = data.pos
+	local hasLegacyPos = legacyPos ~= nil
+	local legacyPosIsZero = true
+	if hasLegacyPos then
+		local x = legacyPos.x or 0
+		local y = legacyPos.y or 0
+		local z = legacyPos.z or 0
+		legacyPosIsZero = x == 0 and y == 0 and z == 0
+	end
+
+	if data.origin == nil then
+		if hasLegacyPos and not legacyPosIsZero then
+			data.origin = legacyPos
+			data.originMode = data.originMode or "manual"
+			if data.originInitialized == nil then
+				data.originInitialized = true
+			end
+		else
+			data.originMode = data.originMode or "autoCenter"
+			data.origin = { x = 0, y = 0, z = 0 }
+			if data.originInitialized == nil then
+				data.originInitialized = false
+			end
+		end
+	else
+		data.originMode = data.originMode or "manual"
+		if data.originInitialized == nil then
+			data.originInitialized = true
+		end
+	end
+
+	data.rotation = data.rotation or { roll = 0, pitch = 0, yaw = 0 }
 
 	self.origin = Vector4.new(data.origin.x, data.origin.y, data.origin.z, 0)
 	self.originMode = data.originMode
-	self.originInitialized = true
+	self.originInitialized = data.originMode ~= "autoCenter" or data.originInitialized == true
 
 	self.rotation = EulerAngles.new(data.rotation.roll, data.rotation.pitch, data.rotation.yaw)
 	self.rotationQuat = self.rotation:ToQuat()
