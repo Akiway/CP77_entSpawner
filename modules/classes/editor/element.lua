@@ -109,8 +109,8 @@ function element:load(data, silent)
 	self.childs = {}
 	if data.childs then
 		for _, child in pairs(data.childs) do
-			child.modulePath = child.modulePath or self:getModulePathByType(child)
-			local new = require(child.modulePath):new(self.sUI)
+			local modulePath = child.modulePath or self:getModulePathByType(child)
+			local new = require(modulePath):new(self.sUI)
 			new:load(child, silent)
 			new:setParent(self)
 		end

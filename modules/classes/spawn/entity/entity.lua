@@ -194,7 +194,12 @@ function entity:onAssemble(entRef)
         fixInstanceData(component, {})
     end
 
-    self:loadInstanceData(entRef, false)
+    local loadOk, loadErr = pcall(function ()
+        self:loadInstanceData(entRef, false)
+    end)
+    if not loadOk then
+        print(string.format("[entSpawner] [entity] Failed to apply instance data for \"%s\": %s", self.spawnData or "unknown", tostring(loadErr)))
+    end
 
     for _, component in pairs(entRef:GetComponents()) do
         if component:IsA("gameDeviceComponent") then

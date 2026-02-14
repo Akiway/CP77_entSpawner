@@ -4,6 +4,7 @@ local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
 local amm = require("modules/utils/ammUtils")
 local history = require("modules/utils/history")
+local groupLoadManager = require("modules/utils/groupLoadManager")
 
 savedUI = {
     filter = "",
@@ -17,6 +18,17 @@ savedUI = {
     spawned = {},
     maxTextWidth = nil
 }
+
+---@param group table
+---@param spawner spawner
+function savedUI.startQueuedGroupLoad(group, spawner)
+    groupLoadManager.start({
+        spawner = spawner,
+        data = group,
+        targetParent = spawner.baseUI.spawnedUI.root,
+        setAsSpawnNew = settings.setLoadedGroupAsSpawnNew
+    })
+end
 
 function savedUI.convertObject(object, getState)
     local spawnable = require("modules/classes/spawn/entity/entityTemplate"):new()
@@ -110,15 +122,26 @@ function savedUI.draw(spawner)
     style.spacedSeparator()
 
     if not amm.importing then
-        if ImGui.Button("Import AMM Presets") then
+        local blockImport = groupLoadManager.isActive()
+
+        style.pushGreyedOut(blockImport)
+        if ImGui.Button("Import AMM Presets") and not blockImport then
             savedUI.importAMMPresets()
         end
-        style.tooltip("Imports all presets from the AMMImport folder.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised.")
+        style.popGreyedOut(blockImport)
+
+        if blockImport then
+            style.tooltip("Import is disabled while a group is loading.")
+        else
+            style.tooltip("Imports all presets from the AMMImport folder.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised.")
+        end
     else
         ImGui.ProgressBar(amm.progress / amm.total, 200, 30, string.format("%.2f%%", (amm.progress / amm.total) * 100))
     end
 
     style.spacedSeparator()
+
+    groupLoadManager.drawProgress(style)
 
     ImGui.BeginChild("savedUI")
 
@@ -177,16 +200,14 @@ function savedUI.drawGroup(group, spawner)
         ImGui.SetCursorPosX(savedUI.maxTextWidth)
         ImGui.Text(posString)
 
-        if ImGui.Button("Load") then
-            local g = require("modules/classes/editor/positionableGroup"):new(spawner.baseUI.spawnedUI)
-            g:load(utils.deepcopy(group))
-            spawner.baseUI.spawnedUI.addRootElement(g)
-            history.addAction(history.getInsert({ g }))
-
-            if settings.setLoadedGroupAsSpawnNew then
-                spawner.baseUI.spawnedUI.cachePaths()
-                spawner.baseUI.spawnedUI.setElementSpawnNewTarget(g)
-            end
+        local groupLoadActive = groupLoadManager.isActive()
+        style.pushGreyedOut(groupLoadActive)
+        if ImGui.Button("Load") and not groupLoadActive then
+            savedUI.startQueuedGroupLoad(group, spawner)
+        end
+        style.popGreyedOut(groupLoadActive)
+        if groupLoadActive then
+            style.tooltip("Another group is currently loading.")
         end
         ImGui.SameLine()
         if ImGui.Button("TP to pos") then

@@ -6,6 +6,7 @@ local amm = require("modules/utils/ammUtils")
 local history = require("modules/utils/history")
 local editor = require("modules/utils/editor/editor")
 local Cron = require("modules/utils/Cron")
+local groupLoadManager = require("modules/utils/groupLoadManager")
 
 local types = {
     ["Entity"] = {
@@ -599,6 +600,7 @@ end
 function spawnUI.draw()
     spawnUI.drawDragWindow()
     spawnUI.updateAssetPreview()
+    groupLoadManager.drawProgress(style)
 
     if ImGui.BeginTabBar("##spawnUITabbar", ImGuiTabItemFlags.NoTooltip) then
         if ImGui.BeginTabItem(string.format("%s All", IconGlyphs.TextBoxSearchOutline)) then
@@ -653,7 +655,31 @@ function spawnUI.getSpawnNewPosition()
     return pos, rot
 end
 
+---@param data table?
+---@return boolean
+local function isFavoriteGroupData(data)
+    if not data then return false end
+
+    if data.modulePath == "modules/classes/editor/positionableGroup" then
+        return true
+    end
+
+    if data.modulePath == "modules/classes/editor/randomizedGroup" then
+        return true
+    end
+
+    if data.type == "group" then
+        return true
+    end
+
+    return data.childs ~= nil
+end
+
 function spawnUI.spawnNew(entry, class, isFavorite)
+    if groupLoadManager.isActive() then
+        return nil
+    end
+
     spawnUI.lastSpawnedClass = class
     spawnUI.lastSpawnedEntry = entry
     spawnUI.lastSpawnedIsFavorite = isFavorite
@@ -689,7 +715,23 @@ function spawnUI.spawnNew(entry, class, isFavorite)
         end
     end
 
-    local data = utils.deepcopy(entry.data)
+    local favoriteIsGroup = isFavorite and isFavoriteGroupData(entry.data)
+    local data = favoriteIsGroup and entry.data or utils.deepcopy(entry.data)
+
+    if favoriteIsGroup then
+        groupLoadManager.start({
+            spawner = spawnUI.spawner,
+            data = data,
+            targetParent = parent,
+            clearLocks = true,
+            selectLoaded = true,
+            initialPosition = pos,
+            initialRotation = rot
+        })
+
+        return nil
+    end
+
     if isFavorite then
         -- Favorites should always load unlocked so initial placement is never blocked.
         utils.clearLockStateRecursive(data)
