@@ -8,6 +8,7 @@ local style = require("modules/ui/style")
 ---Class for entity records spawned via worldPopulationSpawnerNode
 ---@class record : entity
 ---@field public spawnOnStart boolean
+---@field public alwaysSpawned boolean
 local record = setmetatable({}, { __index = entity })
 
 function record:new()
@@ -23,6 +24,7 @@ function record:new()
     o.assetPreviewType = "none"
 
     o.spawnOnStart = true
+    o.alwaysSpawned = false
 
     setmetatable(o, { __index = self })
    	return o
@@ -58,6 +60,7 @@ function record:save()
     local data = entity.save(self)
     data.spawnOnStart = self.spawnOnStart
     if data.spawnOnStart == nil then data.spawnOnStart = true end
+    data.alwaysSpawned = self.alwaysSpawned
 
     return data
 end
@@ -119,6 +122,11 @@ function record:draw()
     style.mutedText("Spawn on start")
     ImGui.SameLine()
     self.spawnOnStart, _ = style.trackedCheckbox(self.object, "##spawnOnStart", self.spawnOnStart)
+
+    style.mutedText("Always spawned")
+    ImGui.SameLine()
+    self.alwaysSpawned, _ = style.trackedCheckbox(self.object, "##alwaysSpawned", self.alwaysSpawned)
+    style.tooltip("Will prevent the entity from despawning when far away from the player.")
 end
 
 function record:export()
@@ -133,7 +141,8 @@ function record:export()
             ["$storage"] = "string",
             ["$value"] = self.spawnData
         },
-        spawnOnStart = self.spawnOnStart and 1 or 0
+        spawnOnStart = self.spawnOnStart and 1 or 0,
+        alwaysSpawned = self.alwaysSpawned and "true_" or "false_"
     }
 
     return data

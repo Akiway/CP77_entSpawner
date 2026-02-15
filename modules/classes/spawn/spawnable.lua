@@ -177,6 +177,20 @@ function spawnable:respawn()
     self:spawn()
 end
 
+---@param target string
+---@return boolean converted
+function spawnable:convertSpawnableTo(target)
+    if not self.object then return false end
+
+    local data = self.object:serialize()
+    if not data or not data.spawnable then return false end
+
+    data.spawnable.modulePath = target
+    self.object:load(data, self.object.silent)
+
+    return true
+end
+
 ---Update the position and rotation of the spawnable
 function spawnable:update()
     if not self:isSpawned() then return end

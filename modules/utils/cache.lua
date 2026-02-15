@@ -49,6 +49,40 @@ function cache.loadStaticData()
     cache.staticData.ambientMetadataAll = config.loadFile("data/audio/ambientMetadataAll.json")
     cache.staticData.staticMetadataAll = config.loadFile("data/audio/staticMetadataAll.json")
     cache.staticData.signposts = config.loadFile("data/audio/signpostsData.json")
+
+    cache.staticData.spawnSets = {}
+    cache.staticData.spawnSets["cloth"] = cache.loadSpawnSet("data/spawnables/mesh/cloth/")
+    cache.staticData.spawnSets["dynamic"] = cache.loadSpawnSet("data/spawnables/mesh/physics/")
+end
+
+function cache.loadSpawnSet(path, paths)
+    local paths = paths or {}
+    for _, file in pairs(dir(path)) do
+        local extension = file.name:match("^.+(%..+)$")
+
+        if extension and extension:lower() == ".txt" then
+            local data = io.open(path .. file.name)
+            for line in data:lines() do
+                paths[line] = true
+            end
+
+            data:close()
+        elseif file.type == "directory" then
+            cache.loadSpawnSet(path .. file.name .. "/", paths)
+        end
+    end
+
+    return paths
+end
+
+---@param spawnData string
+---@param path string
+---@return boolean
+function cache.isSpawnDataInSet(spawnData, path)
+    local entry = cache.staticData.spawnSets[path]
+    if not entry then return false end
+
+    return entry[spawnData]
 end
 
 function cache.addValue(key, value)

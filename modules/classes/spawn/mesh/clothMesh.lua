@@ -24,6 +24,7 @@ function clothMesh:new()
     o.affectedByWind = false
     o.collisionType = 4
     o.hideGenerate = true
+    o.convertTarget = 0
 
     setmetatable(o, { __index = self })
    	return o
@@ -57,6 +58,8 @@ function clothMesh:draw()
     self.collisionType = style.trackedCombo(self.object, "##collisionMask", self.collisionType, collisionTypes)
 
     ImGui.PopItemWidth()
+
+    self:drawConversionSelector("##clothConverterType", "Lossy Conversion##clothMeshSingle")
 end
 
 function clothMesh:export()
