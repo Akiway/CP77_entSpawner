@@ -128,10 +128,6 @@ function style.setCursorRelativeAppearing(x, y)
     setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Appearing)
 end
 
-function style.setNextWindowPosClamped(x, y, width, height, cond)
-    setNextWindowPosClamped(x, y, width or 1, height or 1, cond)
-end
-
 function style.spawnableInfo(info)
     if ImGui.IsItemHovered() then
 

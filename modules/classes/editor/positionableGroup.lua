@@ -490,7 +490,7 @@ end
 function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 	if isMulti then self:dropChildrenToSurface(isMulti, direction); return end
 
-	local excludeDict = {}
+	local excludeDict = excludeDict or {}
 	local leafs = self:getPositionableLeafs()
 	for _, entry in pairs(leafs) do
 		excludeDict[entry.id] = true
@@ -519,7 +519,7 @@ function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 	local angle = Vector4.GetAngleBetween(current, target)
 	local diff = Quaternion.SetAxisAngle(self:getRotation():ToQuat():TransformInverse(axis):Normalize(), math.rad(angle))
 
-	if not grouped then
+	if not isMulti then
 		history.addAction(history.getElementChange(self))
 	end
 

@@ -123,14 +123,6 @@ function collider:save()
     return data
 end
 
-function collider:getPresetIndexByName(preset)
-    return utils.indexValue(presets, preset) - 1
-end
-
-function collider:getMaterialIndexByName(material)
-    return utils.indexValue(materials, material) - 1
-end
-
 function collider:getSize()
     if self.shape == 1 then
         return { x = self.scale.x * 2, y = self.scale.x * 2, z = self.scale.z + self.scale.x * 2 }

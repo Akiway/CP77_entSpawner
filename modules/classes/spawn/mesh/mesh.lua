@@ -596,22 +596,6 @@ function mesh:drawConversionSelector(comboId, popupId)
     end
 end
 
-function mesh:convertToStaticMesh()
-    self:convertToModule("mesh/mesh")
-end
-
-function mesh:convertToClothMesh()
-    self:convertToModule("mesh/clothMesh")
-end
-
-function mesh:convertToDynamicMesh()
-    self:convertToModule("physics/dynamicMesh")
-end
-
-function mesh:convertToRotatingMesh()
-    self:convertToModule("mesh/rotatingMesh")
-end
-
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 

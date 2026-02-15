@@ -97,7 +97,6 @@ local AMM = nil
 ---@field selectedGroup number
 ---@field selectedType number
 ---@field selectedVariant number
----@field sizeX number
 ---@field spawnedUI? spawnedUI
 ---@field spawner? spawner
 ---@field filteredList table
@@ -121,7 +120,6 @@ spawnUI = {
     selectedGroup = 0,
     selectedType = 0,
     selectedVariant = 0,
-    sizeX = 0,
     spawnedUI = nil,
     spawner = nil,
     filteredList = {},
@@ -480,8 +478,6 @@ function spawnUI.drawAll()
 
     ImGui.BeginChild("list")
 
-    spawnUI.sizeX = 800
-
     local clipper = ImGuiListClipper.new()
     clipper:Begin(#spawnUI.filteredList, -1)
 
@@ -502,9 +498,6 @@ function spawnUI.drawAll()
                 isSpawned = true
             end
 
-            local x, _ = ImGui.GetItemRectSize()
-            spawnUI.sizeX = math.max(x + 14, spawnUI.sizeX)
-
             if entry.lastSpawned ~= nil and entry.lastSpawned.parent == nil then entry.lastSpawned = nil end
 
             if entry.lastSpawned ~= nil then
@@ -514,9 +507,6 @@ function spawnUI.drawAll()
                     entry.lastSpawned = nil
                 end
                 ImGui.SameLine()
-
-                local deleteX, _ = ImGui.GetItemRectSize()
-                spawnUI.sizeX = math.max(x + deleteX + 14, spawnUI.sizeX)
             end
 
             local buttonText = entry.name
