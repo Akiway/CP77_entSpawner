@@ -49,6 +49,8 @@ local config = require("modules/utils/config")
 ---@field public skipLossyConversionWarning boolean
 ---@field public editorDockLeft boolean
 ---@field public groupWireframeEnabled boolean
+---@field public spawnedUIPerfEnabled boolean
+---@field public spawnedUIPerfShowPanel boolean
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -94,6 +96,8 @@ local settingsData = {
     skipLossyConversionWarning = false,
     editorDockLeft = false,
     groupWireframeEnabled = false,
+    spawnedUIPerfEnabled = false,
+    spawnedUIPerfShowPanel = false,
 
     filterTags = {},
     favoritesFilter = "",

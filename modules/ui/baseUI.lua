@@ -35,7 +35,7 @@ local tabs = {
         flags = ImGuiWindowFlags.None,
         defaultSize = { 750, 1000 },
         draw = function ()
-            baseUI.spawnedUI.cachePaths()
+            baseUI.spawnedUI.ensureCache()
             baseUI.spawnUI.draw()
         end
     },
