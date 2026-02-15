@@ -323,6 +323,25 @@ local function hotkeyRunConditionGlobal()
     return input.context.hierarchy.hovered or input.context.viewport.hovered
 end
 
+function spawnedUI.saveAllRootGroups()
+    local saved = 0
+    local updatedInExport = 0
+
+    for _, entry in pairs(spawnedUI.paths) do
+        if utils.isA(entry.ref, "positionableGroup") and entry.ref.supportsSaving and entry.ref.parent ~= nil and entry.ref.parent:isRoot(true) then
+            updatedInExport = updatedInExport + (entry.ref:save(false) or 0)
+            saved = saved + 1
+        end
+    end
+
+    local msg = string.format("Saved %s root group%s", saved, saved == 1 and "" or "s")
+    if updatedInExport > 0 then
+        msg = msg .. string.format(" and updated %s export list entr%s", updatedInExport, updatedInExport == 1 and "y" or "ies")
+    end
+
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, msg))
+end
+
 function spawnedUI.registerHotkeys()
     input.registerImGuiHotkey({ ImGuiKey.Z, ImGuiKey.LeftCtrl }, function()
         history.undo()
@@ -340,11 +359,7 @@ function spawnedUI.registerHotkeys()
         end
     end, hotkeyRunConditionGlobal)
     input.registerImGuiHotkey({ ImGuiKey.S, ImGuiKey.LeftCtrl }, function()
-        for _, entry in pairs(spawnedUI.paths) do
-            if utils.isA(entry.ref, "positionableGroup") and entry.ref.supportsSaving and entry.ref.parent ~= nil and entry.ref.parent:isRoot(true) then
-                entry.ref:save()
-            end
-        end
+        spawnedUI.saveAllRootGroups()
     end)
     input.registerImGuiHotkey({ ImGuiKey.C, ImGuiKey.LeftCtrl }, function()
         if #spawnedUI.selectedPaths == 0 or spawnedUI.nameBeingEdited then return end
@@ -1454,11 +1469,7 @@ function spawnedUI.drawTop()
     style.tooltip("Toggle 3D-Editor mode")
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.ContentSaveAllOutline) then
-        for _, entry in pairs(spawnedUI.paths) do
-            if utils.isA(entry.ref, "positionableGroup") and entry.ref.supportsSaving and entry.ref.parent ~= nil and entry.ref.parent:isRoot(true) then
-                entry.ref:save()
-            end
-        end
+        spawnedUI.saveAllRootGroups()
     end
     style.tooltip("Save all root groups")
     
@@ -1736,4 +1747,3 @@ function spawnedUI.draw()
 end
 
 return spawnedUI
-

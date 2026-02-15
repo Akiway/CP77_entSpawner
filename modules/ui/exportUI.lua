@@ -24,7 +24,6 @@ exportUI = {
     },
     sectorPropertiesWidth = nil,
     mainPropertiesWidth = nil,
-    missingGroupsOnRefresh = {},
     groupsDividerHovered = false,
     groupsDividerDragging = false,
     templatesDividerHovered = false,
@@ -76,29 +75,6 @@ local function drawVariantsTooltip()
     ImGui.SameLine()
     ImGui.Text(IconGlyphs.InformationOutline)
     style.tooltip("All objects placed within the root of the group will be part of the default variant\nYou can assign to each group what variant they should belong to")
-end
-
-local function refreshGroupVariants(group)
-    if not config.fileExists("data/objects/" .. group.name .. ".json") then
-        return false
-    end
-
-    local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
-    g:load(config.loadFile("data/objects/" .. group.name .. ".json"), true)
-
-    local variants = {}
-    for _, child in pairs(g.childs) do
-        if child.expandable then
-            if group.variantData and group.variantData[child.name] then
-                variants[child.name] = group.variantData[child.name]
-            else
-                variants[child.name] = { name = "default", ref = "", defaultOn = true }
-            end
-        end
-    end
-
-    group.variantData = variants
-    return true
 end
 
 function exportUI.drawGroups()
@@ -683,62 +659,6 @@ function exportUI.draw()
     end
     style.popGreyedOut(#exportUI.groups == 0)
     style.tooltip("Remove all groups from the current export list")
-    ImGui.SameLine()
-    style.pushGreyedOut(#exportUI.groups == 0)
-    if ImGui.Button("Refresh group variants") then
-        exportUI.missingGroupsOnRefresh = {}
-        local seenMissing = {}
-
-        for _, group in ipairs(exportUI.groups) do
-            if not refreshGroupVariants(group) then
-                if not seenMissing[group.name] then
-                    seenMissing[group.name] = true
-                    table.insert(exportUI.missingGroupsOnRefresh, group.name)
-                end
-            end
-        end
-
-        if #exportUI.missingGroupsOnRefresh > 0 then
-            table.sort(exportUI.missingGroupsOnRefresh)
-            ImGui.OpenPopup("Missing Groups On Refresh")
-        end
-    end
-    style.popGreyedOut(#exportUI.groups == 0)
-    style.tooltip("Refresh variants from saved group files")
-
-    if ImGui.BeginPopupModal("Missing Groups On Refresh", true, ImGuiWindowFlags.AlwaysAutoResize) then
-        style.mutedText("Missing groups were found during refresh:")
-        for _, name in ipairs(exportUI.missingGroupsOnRefresh) do
-            ImGui.Text("- " .. name)
-        end
-
-        ImGui.Spacing()
-        style.mutedText("Do you want to remove the missing groups from the export list? (Recommended)")
-        ImGui.Spacing()
-        if ImGui.Button("Confirm") then
-            local missing = {}
-            for _, name in ipairs(exportUI.missingGroupsOnRefresh) do
-                missing[name] = true
-            end
-
-            for i = #exportUI.groups, 1, -1 do
-                if missing[exportUI.groups[i].name] then
-                    table.remove(exportUI.groups, i)
-                end
-            end
-
-            exportUI.missingGroupsOnRefresh = {}
-            ImGui.CloseCurrentPopup()
-        end
-
-        ImGui.SameLine()
-        if ImGui.Button("Cancel") then
-            exportUI.missingGroupsOnRefresh = {}
-            ImGui.CloseCurrentPopup()
-        end
-
-        ImGui.EndPopup()
-    end
 
     style.sectionHeaderEnd()
     style.sectionHeaderStart(string.format("GROUPS (%d)", #exportUI.groups))
@@ -825,6 +745,60 @@ function exportUI.addGroup(name)
 
     local center = group:getPosition()
     data.center = utils.fromVector(center)
+end
+
+---Remove groups from export list by group name
+---@param name string
+---@return integer
+function exportUI.removeGroupByName(name)
+    local removed = 0
+
+    for i = #exportUI.groups, 1, -1 do
+        if exportUI.groups[i].name == name then
+            table.remove(exportUI.groups, i)
+            removed = removed + 1
+        end
+    end
+
+    return removed
+end
+
+---Sync group data in export list from saved group file
+---Keeps export-specific settings (streaming/category/level/refs) while refreshing center + variants
+---@param name string
+---@return integer
+function exportUI.syncGroup(name)
+    if not config.fileExists("data/objects/" .. name .. ".json") then
+        return 0
+    end
+
+    local blob = config.loadFile("data/objects/" .. name .. ".json")
+    local loadedGroup = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
+    loadedGroup:load(blob, true)
+    local center = loadedGroup:getPosition()
+
+    local updated = 0
+
+    for _, group in ipairs(exportUI.groups) do
+        if group.name == name then
+            local variants = {}
+            for _, child in pairs(loadedGroup.childs) do
+                if child.expandable then
+                    if group.variantData and group.variantData[child.name] then
+                        variants[child.name] = group.variantData[child.name]
+                    else
+                        variants[child.name] = { name = "default", ref = "", defaultOn = true }
+                    end
+                end
+            end
+
+            group.variantData = variants
+            group.center = utils.fromVector(center)
+            updated = updated + 1
+        end
+    end
+
+    return updated
 end
 
 function exportUI.getSpawnableByNodeRef(nodes, nodeRef)
