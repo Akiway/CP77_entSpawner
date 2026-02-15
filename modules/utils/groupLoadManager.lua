@@ -40,6 +40,7 @@ local function createLoadState(previous)
         groupName = "",
         targetParent = nil,
         setAsSpawnNew = false,
+        loadHidden = false,
         selectLoaded = false,
         clearLocks = false,
         initialPosition = nil,
@@ -239,7 +240,11 @@ local function beginSpawnPhase()
     end
 
     if state.total == 0 then
-        queueToast("info", 5000, string.format("\"%s\": 0/0 elements spawned", state.groupName))
+        if state.loadHidden then
+            queueToast("info", 5000, string.format("\"%s\": 0/0 elements loaded hidden", state.groupName))
+        else
+            queueToast("info", 5000, string.format("\"%s\": 0/0 elements spawned", state.groupName))
+        end
         finishQueuedGroupLoad()
         return
     end
@@ -260,7 +265,9 @@ local function beginSpawnPhase()
             local entry = current.entries[current.index]
             local ok, err = pcall(function ()
                 entry:setSilent(false)
-                entry:setVisible(entry.visible, true)
+                if not current.loadHidden then
+                    entry:setVisible(entry.visible, true)
+                end
             end)
             if not ok then
                 current.spawnFailed = current.spawnFailed + 1
@@ -279,7 +286,13 @@ local function beginSpawnPhase()
         if current.index > current.total then
             timer:Halt()
 
-            if current.spawnFailed > 0 then
+            if current.loadHidden then
+                if current.spawnFailed > 0 then
+                    queueToast("warning", 5000, string.format("\"%s\": %d/%d elements loaded hidden (%d failures)", current.groupName, current.loaded, current.total, current.spawnFailed))
+                else
+                    queueToast("info", 5000, string.format("\"%s\": %d/%d elements loaded hidden", current.groupName, current.loaded, current.total))
+                end
+            elseif current.spawnFailed > 0 then
                 queueToast("warning", 5000, string.format("\"%s\": %d/%d elements spawned (%d failures)", current.groupName, current.loaded, current.total, current.spawnFailed))
             else
                 queueToast("info", 5000, string.format("\"%s\": %d/%d elements spawned", current.groupName, current.loaded, current.total))
@@ -411,6 +424,7 @@ end
 ---@field data table
 ---@field targetParent element?
 ---@field setAsSpawnNew boolean?
+---@field loadHidden boolean?
 ---@field selectLoaded boolean?
 ---@field clearLocks boolean?
 ---@field initialPosition Vector4?
@@ -433,7 +447,8 @@ function groupLoadManager.start(request)
     state.spawner = request.spawner
     state.groupName = request.data.name or "Group"
     state.targetParent = request.targetParent or request.spawner.baseUI.spawnedUI.root
-    state.setAsSpawnNew = request.setAsSpawnNew == true
+    state.loadHidden = request.loadHidden == true
+    state.setAsSpawnNew = request.setAsSpawnNew == true and not state.loadHidden
     state.selectLoaded = request.selectLoaded == true
     state.clearLocks = request.clearLocks == true
     state.initialPosition = request.initialPosition
@@ -479,6 +494,9 @@ function groupLoadManager.start(request)
             local loadedGroup = require(rootModulePath):new(request.spawner.baseUI.spawnedUI)
             loadedGroup:load(copyNodeDataWithoutChildren(rootData, current.clearLocks), true)
             loadedGroup:setParent(current.targetParent)
+            if current.loadHidden then
+                loadedGroup:setVisible(false, true)
+            end
 
             current.group = loadedGroup
             current.groupName = loadedGroup.name
@@ -576,9 +594,14 @@ function groupLoadManager.drawProgress(style)
     else
         local totalSpawn = math.max(1, state.total)
         progress = state.loaded / totalSpawn
-        phaseText = string.format("Spawning \"%s\"", state.groupName)
+        if state.loadHidden then
+            phaseText = string.format("Finalizing hidden load \"%s\"", state.groupName)
+            helpText = "Finalizing loaded entries without spawning entities."
+        else
+            phaseText = string.format("Spawning \"%s\"", state.groupName)
+            helpText = "Spawning entities in chunks to reduce frame spikes."
+        end
         counterText = string.format("%d/%d", state.loaded, state.total)
-        helpText = "Spawning entities in chunks to reduce frame spikes."
     end
 
     ImGui.BeginGroup()
