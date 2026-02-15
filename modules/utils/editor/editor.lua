@@ -944,6 +944,10 @@ function editor.handleBoxSelect()
 end
 
 function editor.onDraw()
+    if editor.spawnedUI and editor.spawnedUI.updateModifierState then
+        editor.spawnedUI.updateModifierState()
+    end
+
     if editor.camera then
         editor.camera.update()
     end

@@ -5,6 +5,7 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local input = require("modules/utils/input")
 local registry = require("modules/utils/nodeRefRegistry")
+local perf = require("modules/utils/perf")
 
 ---@class spawnedUI
 ---@field root element
@@ -16,11 +17,11 @@ local registry = require("modules/utils/nodeRefRegistry")
 ---@field containerPaths {path : string, ref : element}[]
 ---@field selectedPaths {path : string, ref : element}[]
 ---@field filteredPaths {path : string, ref : element}[]
+---@field visiblePaths {path : string, ref : element, depth : number}[]
 ---@field scrollToSelected boolean
 ---@field openContextMenu {state : boolean, path : string}
 ---@field clipboard table Serialized elements
 ---@field elementCount number
----@field depth number
 ---@field dividerHovered boolean
 ---@field dividerDragging boolean
 ---@field filteredWidestName number
@@ -28,7 +29,8 @@ local registry = require("modules/utils/nodeRefRegistry")
 ---@field infoWindowSize table
 ---@field nameBeingEdited boolean
 ---@field clipper any
----@field clipperIndex number
+---@field visiblePathIndexById table<number, number>
+---@field hoveredEntries element[]
 spawnedUI = {
     root = require("modules/classes/editor/element"):new(spawnedUI),
     multiSelectGroup = require("modules/classes/editor/positionableGroup"):new(spawnedUI),
@@ -41,6 +43,7 @@ spawnedUI = {
     containerPaths = {},
     selectedPaths = {},
     filteredPaths = {},
+    visiblePaths = {},
     scrollToSelected = false,
     openContextMenu = {
         state = false,
@@ -51,7 +54,6 @@ spawnedUI = {
     clipboard = {},
 
     elementCount = 0,
-    depth = 0,
     dividerHovered = false,
     dividerDragging = false,
     filteredWidestName = 0,
@@ -59,9 +61,17 @@ spawnedUI = {
     infoWindowSize = { x = 0, y = 0 },
 
     clipper = nil,
-    clipperIndex = 1,
+    visiblePathIndexById = {},
+    hoveredEntries = {},
 
-    lockedChildrenCache = {}
+    lockedChildrenCache = {},
+    cacheDirty = true,
+    lastCachedFilter = nil,
+    cacheEpoch = 0,
+    modifierState = {
+        ctrl = false,
+        shift = false
+    }
 }
 
 ---@param element element?
@@ -119,27 +129,63 @@ local function cacheLockedChildrenRecursive(root)
     return hasLockedDescendant
 end
 
----Populates paths, containerPaths, selectedPaths and filteredPaths, must be updated each frame
+---@param parent element
+---@param depth number
+---@param pathById table<number, string>
+local function cacheVisiblePathsRecursive(parent, depth, pathById)
+    for _, child in pairs(parent.childs) do
+        local entryPath = pathById[child.id] or child:getPath()
+        table.insert(spawnedUI.visiblePaths, {
+            path = entryPath,
+            ref = child,
+            depth = depth
+        })
+        spawnedUI.visiblePathIndexById[child.id] = #spawnedUI.visiblePaths
+
+        if child.expandable and child.headerOpen then
+            cacheVisiblePathsRecursive(child, depth + 1, pathById)
+        end
+    end
+end
+
+---Rebuilds hierarchy cache state (paths, selections, filters, lock-descendant cache).
 function spawnedUI.cachePaths()
     spawnedUI.paths = {}
     spawnedUI.containerPaths = {}
     spawnedUI.selectedPaths = {}
     spawnedUI.filteredPaths = {}
+    spawnedUI.visiblePaths = {}
+    spawnedUI.visiblePathIndexById = {}
     spawnedUI.lockedChildrenCache = {}
     spawnedUI.filteredWidestName = 0
     spawnedUI.nameBeingEdited = false
+    local pathById = {}
 
     for _, path in pairs(spawnedUI.root:getPathsRecursive(true)) do
-        table.insert(spawnedUI.paths, path)
+        table.insert(spawnedUI.paths, {
+            path = path.path,
+            ref = path.ref
+        })
+        pathById[path.ref.id] = path.path
 
         if path.ref.expandable then
-            table.insert(spawnedUI.containerPaths, path)
+            table.insert(spawnedUI.containerPaths, {
+                path = path.path,
+                ref = path.ref
+            })
         end
         if path.ref.selected then
-            table.insert(spawnedUI.selectedPaths, path)
+            table.insert(spawnedUI.selectedPaths, {
+                path = path.path,
+                ref = path.ref
+            })
         end
         if spawnedUI.filter ~= "" and not path.ref.expandable and utils.matchSearch(path.ref.name, spawnedUI.filter) then
-            table.insert(spawnedUI.filteredPaths, path)
+            table.insert(spawnedUI.filteredPaths, {
+                path = path.path,
+                ref = path.ref,
+                depth = 0
+            })
             spawnedUI.filteredWidestName = math.max(spawnedUI.filteredWidestName, ImGui.CalcTextSize(path.ref.name))
         end
         if path.ref.editName then
@@ -147,13 +193,43 @@ function spawnedUI.cachePaths()
         end
     end
 
+    cacheVisiblePathsRecursive(spawnedUI.root, 0, pathById)
     cacheLockedChildrenRecursive(spawnedUI.root)
+
+    spawnedUI.cacheDirty = false
+    spawnedUI.lastCachedFilter = spawnedUI.filter
+    spawnedUI.cacheEpoch = spawnedUI.cacheEpoch + 1
+end
+
+---@param registryAffected boolean?
+function spawnedUI.invalidateCache(registryAffected)
+    spawnedUI.cacheDirty = true
+
+    if registryAffected then
+        registry.invalidate()
+    end
+end
+
+---@return boolean rebuilt
+function spawnedUI.ensureCache()
+    if spawnedUI.filter ~= spawnedUI.lastCachedFilter then
+        spawnedUI.cacheDirty = true
+    end
+
+    if not spawnedUI.cacheDirty then
+        return false
+    end
+
+    spawnedUI.cachePaths()
+
+    return true
 end
 
 ---@param path string
 ---@return element?
 function spawnedUI.getElementByPath(path)
     if path == "" then return spawnedUI.root end
+    spawnedUI.ensureCache()
 
     for _, element in pairs(spawnedUI.paths) do
         if element.path == path then
@@ -183,30 +259,10 @@ function spawnedUI.getRoots(elements)
     return roots
 end
 
----@param element element
----@return number
-local function getNumVisibleElementsRecursive(element)
-    local num = 1
-
-    if not element.expandable then
-        return num
-    end
-
-    if element.headerOpen then
-        for _, child in pairs(element.childs) do
-            num = num + getNumVisibleElementsRecursive(child)
-        end
-    end
-
-    return num
-end
-
 ---Returns the total number of elements which should be rendered in the hierarchy
 ---@return number
 function spawnedUI.getNumVisibleElements()
-    local num = getNumVisibleElementsRecursive(spawnedUI.root) - 1
-
-    return num
+    return #spawnedUI.visiblePaths
 end
 
 ---@protected
@@ -410,12 +466,18 @@ function spawnedUI.registerHotkeys()
 end
 
 function spawnedUI.multiSelectActive()
-    return ImGui.IsKeyDown(ImGuiKey.LeftCtrl)
+    return spawnedUI.modifierState and spawnedUI.modifierState.ctrl or false
 end
 
 ---@protected
 function spawnedUI.rangeSelectActive()
-    return ImGui.IsKeyDown(ImGuiKey.LeftShift)
+    return spawnedUI.modifierState and spawnedUI.modifierState.shift or false
+end
+
+---Updates cached modifier state while in draw context.
+function spawnedUI.updateModifierState()
+    spawnedUI.modifierState.ctrl = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
+    spawnedUI.modifierState.shift = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
 end
 
 function spawnedUI.unselectAll()
@@ -1024,14 +1086,7 @@ end
 ---@protected
 ---@param element element
 function spawnedUI.drawElementChilds(element)
-    -- Draw childs
-    if element.expandable and element.headerOpen then
-        if spawnedUI.filter == "" then spawnedUI.depth = spawnedUI.depth + 1 end
-        for _, child in pairs(element.childs) do
-            spawnedUI.drawElement(child, false)
-        end
-        if spawnedUI.filter == "" then spawnedUI.depth = spawnedUI.depth - 1 end
-    end
+    -- Legacy hook kept for compatibility with older call sites.
 end
 
 ---@protected
@@ -1041,180 +1096,186 @@ function spawnedUI.getRowHeight()
 end
 
 ---@protected
----@param element element
+---@param entry {path : string, ref : element, depth : number}?
 ---@param dummy boolean
-function spawnedUI.drawElement(element, dummy)
+---@param rowIndex number?
+function spawnedUI.drawElement(entry, dummy, rowIndex)
     spawnedUI.elementCount = spawnedUI.elementCount + 1
+    local element = entry and entry.ref or nil
+    local elementPath = entry and entry.path or ""
+    local rowDepth = entry and (entry.depth or 0) or 0
 
-    if (spawnedUI.clipperIndex - 1 >= spawnedUI.clipper.DisplayStart and spawnedUI.clipperIndex - 1 < spawnedUI.clipper.DisplayEnd) or dummy then
-        local isGettingDragged = element and element.selected and spawnedUI.draggingSelected
-        local rowLocked = element and element:isLocked()
+    local isGettingDragged = element and element.selected and spawnedUI.draggingSelected
+    local rowLocked = element and element:isLocked()
 
-        ImGui.PushID(spawnedUI.elementCount)
+    ImGui.PushID(spawnedUI.elementCount)
 
-        ImGui.TableNextRow(ImGuiTableRowFlags.None, spawnedUI.getRowHeight())
-        if spawnedUI.elementCount % 2 == 0 then
-            ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.2, 0.2, 0.2, 0.3)
-        else
-            ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.3, 0.3, 0.3, 0.3)
-        end
-
-        ImGui.TableNextColumn()
-
-        if dummy then
-            ImGui.PopID()
-            return
-        end
-
-        -- Base selectable
-        ImGui.SetCursorPosX((spawnedUI.depth) * 17 * style.viewSize) -- Indent element
-        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 15, spawnedUI.cellPadding * 2 + style.viewSize) -- + style.viewSize is a ugly fix to make the gaps smaller
-
-        -- Grey out if getting dragged
-        local suppressHeaderState = isGettingDragged or rowLocked
-        style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
-        style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
-        style.pushStyleColor(suppressHeaderState, ImGuiCol.Header, 0, 0, 0, 0)
-
-        local previous = element.selected
-        local newState = ImGui.Selectable("##item" .. spawnedUI.elementCount, element.selected, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap)
-        element:setSelected(newState)
-        element:setHovered(ImGui.IsItemHovered())
-        if element:isLocked() then
-            element:setSelected(false)
-            newState = false
-        end
-
-        if element.selected then
-            if spawnedUI.scrollToSelected then
-                ImGui.SetScrollHereY(0.5)
-                spawnedUI.scrollToSelected = false
-            elseif element.selected ~= previous and spawnedUI.rangeSelectActive() then
-                spawnedUI.handleRangeSelect(element)
-            end
-        end
-
-        if not spawnedUI.multiSelectActive() and not spawnedUI.rangeSelectActive() and previous ~= element.selected and not spawnedUI.draggingSelected then
-            for _, entry in pairs(spawnedUI.selectedPaths) do
-                if entry.ref ~= element then
-                    entry.ref:setSelected(false)
-                end
-            end
-            if previous == true and #spawnedUI.selectedPaths > 1 then element:setSelected(true) end
-        elseif spawnedUI.draggingSelected and previous ~= element.selected then -- Disregard any changes due to dragging
-            element:setSelected(previous)
-        end
-
-        spawnedUI.handleDrag(element)
-
-        local elementPath = element:getPath()
-        spawnedUI.drawContextMenu(element, elementPath)
-
-        style.popStyleColor(suppressHeaderState, 3)
-        ImGui.PopStyleVar()
-
-        -- Styles
-        ImGui.SameLine()
-        ImGui.PushStyleColor(ImGuiCol.Button, 0)
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
-        ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-        style.pushStyleColor(isGettingDragged, ImGuiCol.Text, style.extraMutedColor)
-
-        local leftOffset = 25 * style.viewSize -- Accounts for icon
-        local hiddenText = not element.visible
-        style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
-
-        -- Icon or expand button
-        if not element.expandable and element.icon ~= "" then
-            ImGui.AlignTextToFramePadding()
-            ImGui.Text(element.icon)
-        elseif element.expandable then
-            ImGui.PushID(element.name)
-            local text = element.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline
-            ImGui.SetNextItemAllowOverlap()
-            if ImGui.Button(text) then
-                if spawnedUI.multiSelectActive() then
-                    element:setHeaderStateRecursive(not element.headerOpen)
-                else
-                    element.headerOpen = not element.headerOpen
-                end
-            end
-
-            if element.icon ~= "" then
-                ImGui.SameLine()
-                ImGui.AlignTextToFramePadding()
-                ImGui.Text(element.icon)
-                leftOffset = 45 * style.viewSize
-            end
-
-            ImGui.PopID()
-        end
-
-        ImGui.SameLine()
-
-        local nameStartX = (spawnedUI.depth) * 17 * style.viewSize + leftOffset
-        ImGui.SetCursorPosX(nameStartX)
-        ImGui.AlignTextToFramePadding()
-        if element.editName then
-            input.windowHovered = false
-            if element.focusNameEdit > 0 then
-                ImGui.SetKeyboardFocusHere()
-                element.focusNameEdit = element.focusNameEdit - 1
-            end
-            element:drawName()
-        else
-            local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
-            local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
-            local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-            local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x)
-
-            local fittedName, wasClipped = spawnedUI.fitTextWithEllipsis(element.name, maxNameWidth)
-            ImGui.SetNextItemAllowOverlap()
-            ImGui.Text(fittedName)
-            if wasClipped then
-                style.tooltip(element.name)
-            end
-        end
-        style.popStyleColor(hiddenText)
-
-        if element.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
-            if not element:isLocked() then
-                element.editName = true
-                element.focusNameEdit = 1
-                element:setSelected(true)
-            end
-        end
-
-        if spawnedUI.filter ~= "" then
-            ImGui.SameLine()
-            ImGui.SetCursorPosX(spawnedUI.filteredWidestName + 25 * style.viewSize + 5 * style.viewSize)
-            style.mutedText("[" .. elementPath .. "]")
-        end
-
-        ImGui.SameLine()
-
-        spawnedUI.drawSideButtons(element)
-
-        ImGui.PopStyleColor(2)
-        ImGui.PopStyleVar(2)
-        style.popStyleColor(isGettingDragged)
-
-        ImGui.PopID()
-    elseif not dummy then
-        element:setHovered(false)
+    ImGui.TableNextRow(ImGuiTableRowFlags.None, spawnedUI.getRowHeight())
+    if (rowIndex or spawnedUI.elementCount) % 2 == 0 then
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.2, 0.2, 0.2, 0.3)
+    else
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.3, 0.3, 0.3, 0.3)
     end
 
-    spawnedUI.clipperIndex = spawnedUI.clipperIndex + 1
+    ImGui.TableNextColumn()
 
-    spawnedUI.drawElementChilds(element)
+    if dummy then
+        ImGui.PopID()
+        return
+    end
+
+    -- Base selectable
+    ImGui.SetCursorPosX(rowDepth * 17 * style.viewSize) -- Indent element
+    ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 15, spawnedUI.cellPadding * 2 + style.viewSize) -- + style.viewSize is a ugly fix to make the gaps smaller
+
+    -- Grey out if getting dragged
+    local suppressHeaderState = isGettingDragged or rowLocked
+    style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
+    style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
+    style.pushStyleColor(suppressHeaderState, ImGuiCol.Header, 0, 0, 0, 0)
+
+    local previous = element.selected
+    local newState = ImGui.Selectable("##item" .. spawnedUI.elementCount, element.selected, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap)
+    element:setSelected(newState)
+    local isHovered = ImGui.IsItemHovered()
+    element:setHovered(isHovered)
+    if isHovered then
+        table.insert(spawnedUI.hoveredEntries, element)
+    end
+    if element:isLocked() then
+        element:setSelected(false)
+        newState = false
+    end
+
+    if element.selected then
+        if spawnedUI.scrollToSelected then
+            ImGui.SetScrollHereY(0.5)
+            spawnedUI.scrollToSelected = false
+        elseif element.selected ~= previous and spawnedUI.rangeSelectActive() then
+            spawnedUI.handleRangeSelect(element)
+        end
+    end
+
+    if not spawnedUI.multiSelectActive() and not spawnedUI.rangeSelectActive() and previous ~= element.selected and not spawnedUI.draggingSelected then
+        for _, selectedEntry in pairs(spawnedUI.selectedPaths) do
+            if selectedEntry.ref ~= element then
+                selectedEntry.ref:setSelected(false)
+            end
+        end
+        if previous == true and #spawnedUI.selectedPaths > 1 then element:setSelected(true) end
+    elseif spawnedUI.draggingSelected and previous ~= element.selected then -- Disregard any changes due to dragging
+        element:setSelected(previous)
+    end
+
+    spawnedUI.handleDrag(element)
+
+    spawnedUI.drawContextMenu(element, elementPath)
+
+    style.popStyleColor(suppressHeaderState, 3)
+    ImGui.PopStyleVar()
+
+    -- Styles
+    ImGui.SameLine()
+    ImGui.PushStyleColor(ImGuiCol.Button, 0)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+    ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
+    style.pushStyleColor(isGettingDragged, ImGuiCol.Text, style.extraMutedColor)
+
+    local leftOffset = 25 * style.viewSize -- Accounts for icon
+    local hiddenText = not element.visible
+    style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
+
+    -- Icon or expand button
+    if not element.expandable and element.icon ~= "" then
+        ImGui.AlignTextToFramePadding()
+        ImGui.Text(element.icon)
+    elseif element.expandable then
+        ImGui.PushID(element.name)
+        local text = element.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline
+        ImGui.SetNextItemAllowOverlap()
+        if ImGui.Button(text) then
+            if spawnedUI.multiSelectActive() then
+                element:setHeaderStateRecursive(not element.headerOpen)
+            else
+                element.headerOpen = not element.headerOpen
+                spawnedUI.invalidateCache(false)
+            end
+        end
+
+        if element.icon ~= "" then
+            ImGui.SameLine()
+            ImGui.AlignTextToFramePadding()
+            ImGui.Text(element.icon)
+            leftOffset = 45 * style.viewSize
+        end
+
+        ImGui.PopID()
+    end
+
+    ImGui.SameLine()
+
+    local nameStartX = rowDepth * 17 * style.viewSize + leftOffset
+    ImGui.SetCursorPosX(nameStartX)
+    ImGui.AlignTextToFramePadding()
+    if element.editName then
+        input.windowHovered = false
+        if element.focusNameEdit > 0 then
+            ImGui.SetKeyboardFocusHere()
+            element.focusNameEdit = element.focusNameEdit - 1
+        end
+        element:drawName()
+    else
+        local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
+        local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
+        local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+        local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x)
+
+        local fittedName, wasClipped = spawnedUI.fitTextWithEllipsis(element.name, maxNameWidth)
+        ImGui.SetNextItemAllowOverlap()
+        ImGui.Text(fittedName)
+        if wasClipped then
+            style.tooltip(element.name)
+        end
+    end
+    style.popStyleColor(hiddenText)
+
+    if element.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+        if not element:isLocked() then
+            element.editName = true
+            element.focusNameEdit = 1
+            element:setSelected(true)
+        end
+    end
+
+    if spawnedUI.filter ~= "" then
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(spawnedUI.filteredWidestName + 25 * style.viewSize + 5 * style.viewSize)
+        style.mutedText("[" .. elementPath .. "]")
+    end
+
+    ImGui.SameLine()
+
+    spawnedUI.drawSideButtons(element)
+
+    ImGui.PopStyleColor(2)
+    ImGui.PopStyleVar(2)
+    style.popStyleColor(isGettingDragged)
+
+    ImGui.PopID()
 end
 
 function spawnedUI.drawHierarchy()
     spawnedUI.elementCount = 0
-    spawnedUI.depth = 0
     spawnedUI.cellPadding = 3 * style.viewSize
+
+    for _, entry in pairs(spawnedUI.hoveredEntries) do
+        if entry.hovered then
+            entry:setHovered(false)
+        end
+    end
+    spawnedUI.hoveredEntries = {}
 
     local _, ySpace = ImGui.GetContentRegionAvail()
 
@@ -1223,52 +1284,61 @@ function spawnedUI.drawHierarchy()
     if ySpace - settings.editorBottomSize < 75 * style.viewSize and not spawnedUI.spawner.baseUI.loadTabSize then
         settings.editorBottomSize = ySpace - 75 * style.viewSize
     end
-    local nRows = math.floor((ySpace - settings.editorBottomSize) / spawnedUI.getRowHeight())
+    local rowHeight = spawnedUI.getRowHeight()
+    local childHeight = ySpace - settings.editorBottomSize
+    local nRows = math.floor(childHeight / rowHeight)
+    local entries = spawnedUI.filter == "" and spawnedUI.visiblePaths or spawnedUI.filteredPaths
 
-    ImGui.BeginChild("##hierarchy", 0, ySpace - settings.editorBottomSize, false, ImGuiWindowFlags.NoMove)
+    ImGui.BeginChild("##hierarchy", 0, childHeight, false, ImGuiWindowFlags.NoMove)
     input.updateContext("hierarchy")
+
+    if spawnedUI.scrollToSelected and #spawnedUI.selectedPaths > 0 then
+        local selectedRef = spawnedUI.selectedPaths[1].ref
+        local targetIndex = nil
+
+        if spawnedUI.filter == "" then
+            targetIndex = spawnedUI.visiblePathIndexById[selectedRef.id]
+        end
+
+        if not targetIndex then
+            for idx, entry in ipairs(entries) do
+                if entry.ref == selectedRef then
+                    targetIndex = idx
+                    break
+                end
+            end
+        end
+
+        if targetIndex then
+            local targetY = math.max(0, (targetIndex - 1) * rowHeight - (childHeight * 0.5) + (rowHeight * 0.5))
+            ImGui.SetScrollY(targetY)
+        end
+
+        spawnedUI.scrollToSelected = false
+    end
 
     -- Start the table
     ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
     ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
     if ImGui.BeginTable("##hierarchyTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
-        if spawnedUI.filter == "" then
-            if spawnedUI.scrollToSelected then
-                -- Temporarily render everything, so that SetScrollHereY works
-                spawnedUI.clipperIndex = 1
-                spawnedUI.clipper = { DisplayStart = -1, DisplayEnd = spawnedUI.getNumVisibleElements() }
+        spawnedUI.clipper = ImGuiListClipper.new()
+        spawnedUI.clipper:Begin(#entries, rowHeight)
 
-                for _, child in pairs(spawnedUI.root.childs) do
-                    spawnedUI.drawElement(child, false)
-                end
-            else
-                spawnedUI.clipper = ImGuiListClipper.new()
-                spawnedUI.clipperIndex = 1
-                spawnedUI.clipper:Begin(spawnedUI.getNumVisibleElements(), spawnedUI.getRowHeight())
+        while spawnedUI.clipper:Step() do
+            local startIndex = spawnedUI.clipper.DisplayStart + 1
+            local endIndex = spawnedUI.clipper.DisplayEnd
 
-                while (spawnedUI.clipper:Step()) do
-                    spawnedUI.clipperIndex = 1
-                    for _, child in pairs(spawnedUI.root.childs) do
-                        spawnedUI.drawElement(child, false)
-                    end
-                end
-            end
-        else
-            spawnedUI.clipper = ImGuiListClipper.new()
-            spawnedUI.clipperIndex = 1
-            spawnedUI.clipper:Begin(#spawnedUI.filteredPaths, spawnedUI.getRowHeight())
-
-            while (spawnedUI.clipper:Step()) do
-                spawnedUI.clipperIndex = 1
-                for _, entry in pairs(spawnedUI.filteredPaths) do
-                    spawnedUI.drawElement(entry.ref, false)
+            for idx = startIndex, endIndex do
+                local entry = entries[idx]
+                if entry then
+                    spawnedUI.drawElement(entry, false, idx)
                 end
             end
         end
 
         if spawnedUI.elementCount < nRows then
             for _ = 1, nRows - spawnedUI.elementCount do
-                spawnedUI.drawElement(nil, true)
+                spawnedUI.drawElement(nil, true, #entries + spawnedUI.elementCount + 1)
             end
         end
 
@@ -1324,15 +1394,20 @@ end
 
 ---@protected
 function spawnedUI.drawTop()
+    local previousFilter = spawnedUI.filter
     ImGui.PushItemWidth(200 * style.viewSize)
     spawnedUI.filter = ImGui.InputTextWithHint('##Filter', 'Search for element...', spawnedUI.filter, 100)
     ImGui.PopItemWidth()
+    if spawnedUI.filter ~= previousFilter then
+        spawnedUI.invalidateCache(false)
+    end
 
     if spawnedUI.filter ~= '' then
         ImGui.SameLine()
         style.pushButtonNoBG(true)
         if ImGui.Button(IconGlyphs.Close) then
             spawnedUI.filter = ''
+            spawnedUI.invalidateCache(false)
             if #spawnedUI.selectedPaths == 1 then
                 spawnedUI.selectedPaths[1].ref:expandAllParents()
                 spawnedUI.scrollToSelected = true
@@ -1612,25 +1687,52 @@ function spawnedUI.drawProperties()
 end
 
 function spawnedUI.draw()
-    spawnedUI.cachePaths()
-    registry.update()
+    perf.measure("spawned.total", function ()
+        spawnedUI.updateModifierState()
+        
+        perf.measure("spawned.cachePaths", function ()
+            spawnedUI.ensureCache()
+        end)
+        perf.measure("spawned.registryUpdate", function ()
+            registry.update()
+        end)
 
-    spawnedUI.drawTop()
+        perf.measure("spawned.drawTop", function ()
+            spawnedUI.drawTop()
+        end)
 
-    ImGui.Separator()
-    ImGui.Spacing()
+        ImGui.Separator()
+        ImGui.Spacing()
 
-    ImGui.AlignTextToFramePadding()
+        ImGui.AlignTextToFramePadding()
 
-    spawnedUI.drawDragWindow()
-    spawnedUI.drawHierarchy()
-    spawnedUI.drawDivider()
-    spawnedUI.drawProperties()
+        perf.measure("spawned.cachePathsPostTop", function ()
+            spawnedUI.ensureCache()
+        end)
+        perf.measure("spawned.registryUpdatePostTop", function ()
+            registry.update()
+        end)
 
-    -- Dropped on not a valid target
-    if spawnedUI.draggingSelected and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
-        spawnedUI.draggingSelected = false
-    end
+        perf.measure("spawned.drawDragWindow", function ()
+            spawnedUI.drawDragWindow()
+        end)
+        perf.measure("spawned.drawHierarchy", function ()
+            spawnedUI.drawHierarchy()
+        end)
+        perf.measure("spawned.drawDivider", function ()
+            spawnedUI.drawDivider()
+        end)
+        perf.measure("spawned.drawProperties", function ()
+            spawnedUI.drawProperties()
+        end)
+
+        -- Dropped on not a valid target
+        if spawnedUI.draggingSelected and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
+            spawnedUI.draggingSelected = false
+        end
+    end)
+
+    perf.drawPanel()
 end
 
 return spawnedUI

@@ -276,7 +276,11 @@ function spawnable:getProperties()
             style.mutedText("Node Ref")
             ImGui.SameLine()
             ImGui.SetCursorPosX(self.worldNodePropertyWidth)
-            self.nodeRef, _, _ = style.trackedTextField(self.object, "##noderef", self.nodeRef, "$/#foobar", style.getMaxWidth(250) - 30 - (refDuplicate and 25 or 0))
+            local nodeRefValue, nodeRefChanged, _ = style.trackedTextField(self.object, "##noderef", self.nodeRef, "$/#foobar", style.getMaxWidth(250) - 30 - (refDuplicate and 25 or 0))
+            self.nodeRef = nodeRefValue
+            if nodeRefChanged then
+                registry.invalidate()
+            end
             style.pushButtonNoBG(true)
             ImGui.SameLine()
             if ImGui.Button(IconGlyphs.ReloadAlert) then
@@ -285,6 +289,7 @@ function spawnable:getProperties()
                 if generated ~= self.nodeRef then
                     history.addAction(history.getElementChange(self.object))
                     self.nodeRef = generated
+                    registry.invalidate()
                 end
             end
             style.pushButtonNoBG(false)
@@ -403,6 +408,7 @@ function spawnable:getGroupedProperties()
                     local generated = registry.generate(entry.spawnable.object)
                     entry.spawnable.nodeRef = generated
                 end
+                registry.invalidate()
 
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Auto-Generated NodeRef's for %s nodes", #entries)))
             end

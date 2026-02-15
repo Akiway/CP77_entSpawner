@@ -8,15 +8,29 @@ local history = require("modules/utils/history")
 ---@field refs table
 local registry = {
     spawnedUI = nil,
-    refs = {}
+    refs = {},
+    dirty = true
 }
 
 ---@param spawner spawner
 function registry.init(spawner)
     registry.spawnedUI = spawner.baseUI.spawnedUI
+    registry.dirty = true
+end
+
+function registry.invalidate()
+    registry.dirty = true
 end
 
 function registry.update()
+    if not registry.spawnedUI then
+        return
+    end
+
+    if not registry.dirty then
+        return
+    end
+
     registry.refs = {}
 
     for _, node in pairs(registry.spawnedUI.paths) do
@@ -33,9 +47,13 @@ function registry.update()
             end
         end
     end
+
+    registry.dirty = false
 end
 
 function registry.generate(object)
+    registry.update()
+
     local generated = "$/"
     if #settings.nodeRefPrefix > 0 then
         generated = generated .. settings.nodeRefPrefix .. "/"

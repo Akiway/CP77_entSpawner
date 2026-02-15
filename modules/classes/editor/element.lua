@@ -30,6 +30,14 @@ local history = require("modules/utils/history")
 ---@field selected boolean
 element = {}
 
+---@param instance element
+---@param registryAffected boolean?
+local function invalidateSUI(instance, registryAffected)
+	if instance and instance.sUI and instance.sUI.invalidateCache then
+		instance.sUI.invalidateCache(registryAffected)
+	end
+end
+
 function element:new(sUI)
 	local o = {}
 
@@ -150,6 +158,7 @@ function element:rename(name)
 	self.newName = self.name
 
 	history.addAction(history.getRename(oldState, oldPath, self:getPath()))
+	invalidateSUI(self, true)
 end
 
 ---@param new element
@@ -161,10 +170,12 @@ function element:addChild(new, index)
 	table.insert(self.childs, index, new)
 	new:setHiddenByParent(not self.visible or self.hiddenByParent)
 	new:setLockedByParent(self.locked or self.lockedByParent)
+	invalidateSUI(self, true)
 end
 
 function element:removeChild(child)
 	utils.removeItem(self.childs, child)
+	invalidateSUI(self, true)
 end
 
 ---Sets the parent, removes it from previous parent and adds self to new one
@@ -177,6 +188,7 @@ function element:setParent(parent, index)
 
 	self.parent = parent
 	parent:addChild(self, index)
+	invalidateSUI(self, true)
 end
 
 ---Removes self from parent
@@ -190,6 +202,7 @@ function element:remove()
 	end
 
 	self.parent = nil
+	invalidateSUI(self, true)
 end
 
 ---Checks if the element is a visual root, or true root of hierarchy
@@ -261,23 +274,34 @@ function element:drawProperties()
 	end
 
 	-- Collect and reduce any potential grouped properties, store data for group operations
-	local groupedProperties = {}
+	local epoch = self.sUI and self.sUI.cacheEpoch or 0
+	local groupedProperties = nil
+	if self.groupedPropertiesCache and self.groupedPropertiesCache.epoch == epoch then
+		groupedProperties = self.groupedPropertiesCache.data
+	else
+		groupedProperties = {}
 
-	for _, child in pairs(self:getPathsRecursive(true)) do
-		if not child.ref:isLocked() then
-			for key, property in pairs(child.ref:getGroupedProperties()) do
-			if not groupedProperties[key] then
-				groupedProperties[key] = { name = property.name, draw = { [property.id] = property.draw }, entries = {} }
-			elseif not groupedProperties[key].draw[property.id] then
-				groupedProperties[key].draw[property.id] = property.draw
-			end
-			table.insert(groupedProperties[key].entries, child.ref)
+		for _, child in pairs(self:getPathsRecursive(true)) do
+			if not child.ref:isLocked() then
+				for key, property in pairs(child.ref:getGroupedProperties()) do
+				if not groupedProperties[key] then
+					groupedProperties[key] = { name = property.name, draw = { [property.id] = property.draw }, entries = {} }
+				elseif not groupedProperties[key].draw[property.id] then
+					groupedProperties[key].draw[property.id] = property.draw
+				end
+				table.insert(groupedProperties[key].entries, child.ref)
 
-			if not self.groupOperationData[key] then
-				self.groupOperationData[key] = property.data
-			end
+				if not self.groupOperationData[key] then
+					self.groupOperationData[key] = property.data
+				end
+				end
 			end
 		end
+
+		self.groupedPropertiesCache = {
+			epoch = epoch,
+			data = groupedProperties
+		}
 	end
 
 	if utils.tableLength(groupedProperties) > 0 then
@@ -388,11 +412,15 @@ function element:showDescendants(fromRecursive)
 	end
 end
 
-function element:setHeaderStateRecursive(state)
+function element:setHeaderStateRecursive(state, fromRecursive)
 	self.headerOpen = state
 
 	for _, child in pairs(self.childs) do
-		child:setHeaderStateRecursive(state)
+		child:setHeaderStateRecursive(state, true)
+	end
+
+	if not fromRecursive then
+		invalidateSUI(self, false)
 	end
 end
 
@@ -456,6 +484,8 @@ function element:setLocked(state, fromRecursive)
 	for _, child in pairs(self.childs) do
 		child:setLockedByParent(state)
 	end
+
+	invalidateSUI(self, false)
 end
 
 function element:setLockedByParent(state)
@@ -470,6 +500,8 @@ function element:setLockedByParent(state)
 	for _, child in pairs(self.childs) do
 		child:setLockedByParent(state)
 	end
+
+	invalidateSUI(self, false)
 end
 
 function element:setSilent(state)
@@ -484,6 +516,7 @@ function element:expandAllParents()
 	if self.parent ~= nil then
 		self.parent.headerOpen = true
 		self.parent:expandAllParents()
+		invalidateSUI(self, false)
 	end
 end
 
@@ -493,7 +526,9 @@ end
 
 function element:setSelected(state)
 	if state and self:isLocked() then return end
+	if self.selected == state then return end
 	self.selected = state
+	invalidateSUI(self, false)
 end
 
 ---@return boolean

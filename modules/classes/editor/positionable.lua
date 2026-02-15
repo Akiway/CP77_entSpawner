@@ -132,17 +132,43 @@ end
 
 function positionable:setSelected(state)
 	local updated = state ~= self.selected
+	local isBatchSelection = self.sUI.multiSelectActive() or self.sUI.rangeSelectActive()
 	if updated and not self.hovered and (settings.gizmoOnSelected or editor.active) then
-		self:setVisualizerState(state)
+		if isBatchSelection and state then
+			self:setVisualizerState(false)
+		else
+			self:setVisualizerState(state)
+		end
 	end
 
+	local previousState = self.selected
 	element.setSelected(self, state)
 
 	if updated then
-		self.sUI.cachePaths()
+		-- Avoid forcing a full hierarchy cache rebuild for every selection toggle.
+		-- Range/multi select can trigger hundreds of toggles in a single frame.
+		local selectedCount = #self.sUI.selectedPaths
+		if state and not previousState then
+			selectedCount = selectedCount + 1
+		elseif not state and previousState then
+			selectedCount = math.max(0, selectedCount - 1)
+		end
+
+		if isBatchSelection then
+			if selectedCount > 1 then
+				self:setVisualizerState(false)
+			elseif not state and selectedCount == 1 then
+				for _, entry in ipairs(self.sUI.selectedPaths) do
+					if entry and entry.ref ~= self then
+						entry.ref:setVisualizerState(true)
+					end
+				end
+			end
+			return
+		end
 
 		if state then
-			if #self.sUI.selectedPaths > 1 then
+			if selectedCount > 1 then
 				for _, entry in ipairs(self.sUI.selectedPaths) do
 					if entry and entry.ref ~= self then
 						entry.ref:setVisualizerState(false)
@@ -151,7 +177,7 @@ function positionable:setSelected(state)
 
 				self:setVisualizerState(false)
 			end
-		elseif #self.sUI.selectedPaths == 1 then
+		elseif selectedCount == 1 then
 			for _, entry in ipairs(self.sUI.selectedPaths) do
 				if entry and entry.ref ~= self then
 					entry.ref:setVisualizerState(true)

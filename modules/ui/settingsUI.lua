@@ -2,6 +2,7 @@ local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
 local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
+local perf = require("modules/utils/perf")
 
 local colliderColors = { "Red", "Green", "Blue" }
 local outlineColors = { "Green", "Red", "Blue", "Orange", "Yellow", "Light Blue", "White", "Black" }
@@ -191,7 +192,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Cache", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx("Debug", ImGuiTreeNodeFlags.SpanFullWidth) then
         if ImGui.TreeNodeEx("Cache Exlusions", ImGuiTreeNodeFlags.SpanFullWidth) then
             style.tooltip("List of resource paths for which properties (E.g. Appearances, BBOX) should not be cached")
 
@@ -231,6 +232,31 @@ function settingsUI.draw(spawner)
             ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Cleared cache"))
         end
         style.tooltip("Clears the cache")
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("PERFORMANCES")
+        settings.spawnedUIPerfEnabled, changed = ImGui.Checkbox("Enable Spawned UI profiler", settings.spawnedUIPerfEnabled)
+        if changed then
+            settings.save()
+
+            if not settings.spawnedUIPerfEnabled then
+                settings.spawnedUIPerfShowPanel = false
+                settings.save()
+            end
+        end
+        style.tooltip("Track timing for Spawned UI stages such as cache rebuild, hierarchy draw, and properties draw.")
+
+        ImGui.BeginDisabled(not settings.spawnedUIPerfEnabled)
+        settings.spawnedUIPerfShowPanel, changed = ImGui.Checkbox("Show Spawned UI profiler window", settings.spawnedUIPerfShowPanel)
+        if changed then settings.save() end
+        ImGui.EndDisabled()
+
+        ImGui.BeginDisabled(not settings.spawnedUIPerfEnabled)
+        if ImGui.Button("Reset Spawned UI profiler metrics") then
+            perf.reset()
+        end
+        ImGui.EndDisabled()
+        style.sectionHeaderEnd()
 
         ImGui.TreePop()
     end
