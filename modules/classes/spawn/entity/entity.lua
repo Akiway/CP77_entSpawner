@@ -51,7 +51,6 @@ function entity:new()
     o.typeInfo = {}
     o.enumInfo = {}
     o.deviceClassName = ""
-    o.propertiesMaxWidth = nil
     o.instanceDataSearch = ""
     o.psControllerID = ""
 
@@ -59,7 +58,6 @@ function entity:new()
     o.assetPreviewDelay = 0.15
     o.assetPreviewTimer = 0
     o.assetPreviewBackplane = nil
-    o.assetPreviewIsCharacter = false
 
     o.uk10 = 1056
 
@@ -738,29 +736,6 @@ function entity:drawStringProp(componentID, key, data, path, type, width, max)
     style.tooltip(type)
     self:drawResetProp(componentID, path)
     if ImGui.IsItemDeactivatedAfterEdit() then
-        history.addAction(history.getElementChange(self.object))
-        self:updatePropValue(componentID, path, value)
-    end
-end
-
-function entity:drawNumericProp(componentID, key, data, path, type, isFloat, hasText, format)
-    key = tostring(key)
-
-    if hasText then
-        ImGui.Text(key)
-        ImGui.SameLine()
-    end
-    ImGui.SetNextItemWidth(100 * style.viewSize)
-    local value, changed
-    if isFloat then
-        value, changed = ImGui.InputFloat("##" .. componentID .. table.concat(path), data, 0.05, 0.1, format)
-    else
-        value, changed = ImGui.InputInt("##" .. componentID .. table.concat(path), data, 1, 10, format)
-    end
-    style.tooltip(type)
-    self:drawResetProp(componentID, path)
-
-    if changed then
         history.addAction(history.getElementChange(self.object))
         self:updatePropValue(componentID, path, value)
     end

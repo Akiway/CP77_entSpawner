@@ -12,7 +12,6 @@ local config = require("modules/utils/config")
 ---@field public deleteConfirm boolean
 ---@field public moveCloneToParent integer
 ---@field public spawnUIOnlyNames boolean
----@field public editor {color: integer}
 ---@field public colliderColor integer
 ---@field public selectedType string
 ---@field public lastVariants table
@@ -62,9 +61,6 @@ local settingsData = {
     deleteConfirm = true,
     moveCloneToParent = 1,
     spawnUIOnlyNames = false,
-    editor = {
-        color = 1
-    },
     colliderColor = 0,
     selectedType = "Entity",
     lastVariants = { Entity = "Template", Lighting = "Static Light", Mesh = "Mesh", Collision = "Collision Shape", ["Deco"] = "Particles", ["Meta"] = "Occluder", ["Area"] = "Outline Marker", ["AI"] = "AI Spot" },
