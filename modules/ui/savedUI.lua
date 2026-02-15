@@ -21,12 +21,16 @@ savedUI = {
 
 ---@param group table
 ---@param spawner spawner
-function savedUI.startQueuedGroupLoad(group, spawner)
+---@param loadHidden boolean?
+function savedUI.startQueuedGroupLoad(group, spawner, loadHidden)
+    local hidden = loadHidden == true
+
     groupLoadManager.start({
         spawner = spawner,
         data = group,
         targetParent = spawner.baseUI.spawnedUI.root,
-        setAsSpawnNew = settings.setLoadedGroupAsSpawnNew
+        setAsSpawnNew = settings.setLoadedGroupAsSpawnNew and not hidden,
+        loadHidden = hidden
     })
 end
 
@@ -205,18 +209,33 @@ function savedUI.drawGroup(group, spawner)
         if ImGui.Button("Load") and not groupLoadActive then
             savedUI.startQueuedGroupLoad(group, spawner)
         end
-        style.popGreyedOut(groupLoadActive)
         if groupLoadActive then
             style.tooltip("Another group is currently loading.")
+        else
+            style.tooltip("Load and spawn the group immediately.")
         end
+
+        ImGui.SameLine()
+        if ImGui.Button("Load as Hidden") and not groupLoadActive then
+            savedUI.startQueuedGroupLoad(group, spawner, true)
+        end
+        if groupLoadActive then
+            style.tooltip("Another group is currently loading.")
+        else
+            style.tooltip("Load with hidden root so children are kept despawned until shown.")
+        end
+        style.popGreyedOut(groupLoadActive)
+
         ImGui.SameLine()
         if ImGui.Button("TP to pos") then
             Game.GetTeleportationFacility():Teleport(Game.GetPlayer(), utils.getVector(group.pos), GetSingleton('Quaternion'):ToEulerAngles(Game.GetPlayer():GetWorldOrientation()))
         end
+
         ImGui.SameLine()
         if ImGui.Button("Add to Export") then
             spawner.baseUI.exportUI.addGroup(group.name)
         end
+        
         ImGui.SameLine()
         if ImGui.Button("Delete") then
             savedUI.deleteData(group)
