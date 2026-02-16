@@ -324,7 +324,25 @@ function exportUI.drawTemplates()
 
         ImGui.BeginChildFrame(2, 0, settings.exportTemplatesHeight)
 
+        local sortedTemplates = {}
         for key, data in pairs(exportUI.templates) do
+            table.insert(sortedTemplates, { key = key, data = data })
+        end
+
+        table.sort(sortedTemplates, function(a, b)
+            local aName = tostring(a.data.projectName or a.key or ""):lower()
+            local bName = tostring(b.data.projectName or b.key or ""):lower()
+
+            if aName == bName then
+                return tostring(a.key) < tostring(b.key)
+            end
+
+            return aName < bName
+        end)
+
+        for _, entry in ipairs(sortedTemplates) do
+            local key = entry.key
+            local data = entry.data
             ImGui.BeginGroup()
 
             local nodeFlags = ImGuiTreeNodeFlags.SpanFullWidth
@@ -645,6 +663,14 @@ function exportUI.draw()
     ImGui.SetNextItemWidth(200 * style.viewSize)
     ImGui.SetCursorPosX(exportUI.mainPropertiesWidth)
     exportUI.projectName = ImGui.InputTextWithHint('##name', 'Export name...', exportUI.projectName, 100)
+    if exportUI.projectName ~= "" then
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.Close .. "##clearExportProjectName") then
+            exportUI.projectName = ""
+        end
+        style.pushButtonNoBG(false)
+    end
 
     ImGui.Text("XL Format")
     ImGui.SameLine()
