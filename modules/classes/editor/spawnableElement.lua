@@ -16,6 +16,19 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field silent boolean
 local spawnableElement = setmetatable({}, { __index = positionable })
 
+local function invalidateParentAutoCenter(instance)
+	local current = instance and instance.parent or nil
+
+	while current do
+		if current.invalidateAutoCenterCache then
+			current:invalidateAutoCenterCache(true)
+			return
+		end
+
+		current = current.parent
+	end
+end
+
 function spawnableElement:new(sUI)
 	local o = positionable.new(self, sUI)
 
@@ -180,11 +193,13 @@ end
 function spawnableElement:setPosition(position)
 	self.spawnable.position = position
 	self.spawnable:update()
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:setPositionDelta(delta)
 	self.spawnable.position = utils.addVector(self.spawnable.position, delta)
 	self.spawnable:update()
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:setRotation(rotation)
@@ -192,6 +207,7 @@ function spawnableElement:setRotation(rotation)
 
 	self.spawnable.rotation = rotation
 	self.spawnable:update()
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:setRotationDelta(delta)
@@ -204,6 +220,7 @@ function spawnableElement:setRotationDelta(delta)
 	end
 
 	self.spawnable:update()
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:getPosition()
@@ -229,6 +246,7 @@ function spawnableElement:setScaleDelta(delta, finished)
 	if self.scaleLocked and delta.z ~= 0 then self.spawnable.scale.y = self.spawnable.scale.z  self.spawnable.scale.x = self.spawnable.scale.z end
 
 	self.spawnable:updateScale(finished, delta)
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:setScale(scale, finished)
@@ -245,6 +263,7 @@ function spawnableElement:setScale(scale, finished)
 	self.spawnable.scale.z = scale.z
 
 	self.spawnable:updateScale(finished, delta)
+	invalidateParentAutoCenter(self)
 end
 
 function spawnableElement:getSize()

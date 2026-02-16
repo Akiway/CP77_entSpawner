@@ -36,6 +36,10 @@ function positionableGroup:new(sUI)
 	o.rotationUIDragValue = { roll = nil, pitch = nil }
 	o.originInitialized = false
 	o.originMode = "autoCenter"
+	o.autoCenterCacheValid = false
+	o.autoCenterCacheMin = nil
+	o.autoCenterCacheMax = nil
+	o.autoCenterCacheCenter = nil
 	o.class = utils.combine(o.class, { "positionableGroup" })
 	o.quickOperations = {
 		[IconGlyphs.ContentSaveOutline] = {
@@ -98,6 +102,7 @@ function positionableGroup:load(data, silent)
 
 	self.rotation = EulerAngles.new(data.rotation.roll, data.rotation.pitch, data.rotation.yaw)
 	self.rotationQuat = self.rotation:ToQuat()
+	self:invalidateAutoCenterCache(false)
 end
 
 function positionableGroup:serialize()
@@ -119,6 +124,53 @@ end
 
 function positionableGroup:addChild(child)
 	positionable.addChild(self, child)
+end
+
+---@param propagate boolean?
+function positionableGroup:invalidateAutoCenterCache(propagate)
+	self.autoCenterCacheValid = false
+	self.autoCenterCacheMin = nil
+	self.autoCenterCacheMax = nil
+	self.autoCenterCacheCenter = nil
+
+	if propagate and self.parent and utils.isA(self.parent, "positionableGroup") then
+		self.parent:invalidateAutoCenterCache(true)
+	end
+end
+
+---@param entry element
+---@param min Vector4
+---@param max Vector4
+local function accumulateWorldMinMax(entry, min, max)
+	if entry:isLocked() then
+		return
+	end
+
+	if utils.isA(entry, "spawnableElement") then
+		local entrySize = entry:getSize()
+		local entryPos = entry:getCenter()
+
+		if entrySize and entryPos then
+			local halfSize = utils.multVector(entrySize, 0.5)
+			local entryMin = utils.subVector(entryPos, halfSize)
+			local entryMax = utils.addVector(entryPos, halfSize)
+
+			min.x = math.min(min.x, entryMin.x)
+			min.y = math.min(min.y, entryMin.y)
+			min.z = math.min(min.z, entryMin.z)
+			max.x = math.max(max.x, entryMax.x)
+			max.y = math.max(max.y, entryMax.y)
+			max.z = math.max(max.z, entryMax.z)
+		end
+
+		return
+	end
+
+	if utils.isA(entry, "positionableGroup") then
+		for _, child in pairs(entry.childs) do
+			accumulateWorldMinMax(child, min, max)
+		end
+	end
 end
 
 function positionableGroup:getDirection(direction)
@@ -161,45 +213,42 @@ function positionableGroup:drawGeneralProperties()
 end
 
 function positionableGroup:getWorldMinMax()
+	if self.autoCenterCacheValid and self.autoCenterCacheMin and self.autoCenterCacheMax then
+		return self.autoCenterCacheMin, self.autoCenterCacheMax
+	end
+
 	local min = Vector4.new(math.huge, math.huge, math.huge, 0)
 	local max = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
 
-	local leafs = self:getPositionableLeafs()
-
-	for _, entry in pairs(leafs) do
-		local entrySize = entry:getSize()
-		local entryPos = entry:getCenter()
-
-		if entrySize and entryPos then
-			local entryMin = utils.subVector(entryPos, utils.multVector(entrySize, 0.5))
-			local entryMax = utils.addVector(entryPos, utils.multVector(entrySize, 0.5))
-
-			min = Vector4.new(
-				math.min(min.x, entryMin.x),
-				math.min(min.y, entryMin.y),
-				math.min(min.z, entryMin.z),
-				0
-			)
-
-			max = Vector4.new(
-				math.max(max.x, entryMax.x),
-				math.max(max.y, entryMax.y),
-				math.max(max.z, entryMax.z),
-				0
-			)
-		end
+	for _, entry in pairs(self.childs) do
+		accumulateWorldMinMax(entry, min, max)
 	end
+
+	if min.x == math.huge then
+		min = Vector4.new(0, 0, 0, 0)
+		max = Vector4.new(0, 0, 0, 0)
+	end
+
+	self.autoCenterCacheMin = min
+	self.autoCenterCacheMax = max
+	self.autoCenterCacheCenter = utils.addVector(utils.multVector(utils.subVector(max, min), 0.5), min)
+	self.autoCenterCacheValid = true
 
 	return min, max
 end
 
 function positionableGroup:getCenter()
+	if self.autoCenterCacheValid and self.autoCenterCacheCenter then
+		return self.autoCenterCacheCenter
+	end
+
 	local min, max = self:getWorldMinMax()
-	return utils.addVector(utils.multVector(utils.subVector(max, min), 0.5), min)
+	return self.autoCenterCacheCenter or utils.addVector(utils.multVector(utils.subVector(max, min), 0.5), min)
 end
 
 function positionableGroup:setOriginToCenter()
 	self.originMode = "autoCenter"
+	self:invalidateAutoCenterCache(false)
 	if #self.childs == 0 then
 		self.origin = Vector4.new(0, 0, 0, 1)
 	else

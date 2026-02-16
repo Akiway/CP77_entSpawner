@@ -38,6 +38,19 @@ local function invalidateSUI(instance, registryAffected)
 	end
 end
 
+local function invalidateAutoCenter(instance)
+	local current = instance
+
+	while current do
+		if current.invalidateAutoCenterCache then
+			current:invalidateAutoCenterCache(true)
+			return
+		end
+
+		current = current.parent
+	end
+end
+
 function element:new(sUI)
 	local o = {}
 
@@ -171,11 +184,13 @@ function element:addChild(new, index)
 	new:setHiddenByParent(not self.visible or self.hiddenByParent)
 	new:setLockedByParent(self.locked or self.lockedByParent)
 	invalidateSUI(self, true)
+	invalidateAutoCenter(self)
 end
 
 function element:removeChild(child)
 	utils.removeItem(self.childs, child)
 	invalidateSUI(self, true)
+	invalidateAutoCenter(self)
 end
 
 ---Sets the parent, removes it from previous parent and adds self to new one
@@ -486,6 +501,7 @@ function element:setLocked(state, fromRecursive)
 	end
 
 	invalidateSUI(self, false)
+	invalidateAutoCenter(self)
 end
 
 function element:setLockedByParent(state)
