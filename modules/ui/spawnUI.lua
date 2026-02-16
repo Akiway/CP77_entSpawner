@@ -110,6 +110,7 @@ local AMM = nil
 ---@field lastSpawnedClass table?
 ---@field lastSpawnedEntry table?
 ---@field lastSpawnedIsFavorite boolean
+---@field lastSpawnedOptions table?
 ---@field previewInstance spawnable?
 ---@field previewTimer number?
 ---@field hoveredEntry table?
@@ -132,6 +133,7 @@ spawnUI = {
     lastSpawnedClass = nil,
     lastSpawnedEntry = nil,
     lastSpawnedIsFavorite = false,
+    lastSpawnedOptions = nil,
     previewInstance = nil,
     previewTimer = nil,
     hoveredEntry = nil,
@@ -665,14 +667,21 @@ local function isFavoriteGroupData(data)
     return data.childs ~= nil
 end
 
-function spawnUI.spawnNew(entry, class, isFavorite)
+---@param options table?
+function spawnUI.spawnNew(entry, class, isFavorite, options)
     if groupLoadManager.isActive() then
         return nil
     end
 
+    options = options or {}
+    local loadHidden = isFavorite and options.loadHidden == true
+
     spawnUI.lastSpawnedClass = class
     spawnUI.lastSpawnedEntry = entry
     spawnUI.lastSpawnedIsFavorite = isFavorite
+    spawnUI.lastSpawnedOptions = {
+        loadHidden = loadHidden
+    }
 
     -- Cleanup preview
     if spawnUI.previewTimer then
@@ -714,7 +723,8 @@ function spawnUI.spawnNew(entry, class, isFavorite)
             data = data,
             targetParent = parent,
             clearLocks = true,
-            selectLoaded = true,
+            selectLoaded = not loadHidden,
+            loadHidden = loadHidden,
             initialPosition = pos,
             initialRotation = rot
         })
@@ -742,7 +752,9 @@ function spawnUI.spawnNew(entry, class, isFavorite)
         new:setPosition(pos)
         new:setRotation(rot)
         new:setSilent(false)
-        new:setVisible(true, true) -- Now spawn, but dont record in history
+        if not loadHidden then
+            new:setVisible(true, true) -- Now spawn, but dont record in history
+        end
     else
         new:load({
             name = utils.getFileName(entry.name),
@@ -790,7 +802,7 @@ function spawnUI.repeatLastSpawn()
     local ray = editor.getScreenToWorldRay()
     spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil,  true)
 
-    spawnUI.spawnNew(spawnUI.lastSpawnedEntry, spawnUI.lastSpawnedClass, spawnUI.lastSpawnedIsFavorite)
+    spawnUI.spawnNew(spawnUI.lastSpawnedEntry, spawnUI.lastSpawnedClass, spawnUI.lastSpawnedIsFavorite, spawnUI.lastSpawnedOptions)
     spawnUI.spawnedUI.cachePaths()
     spawnUI.popupSpawnHit = nil
 end

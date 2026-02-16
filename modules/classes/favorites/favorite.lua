@@ -115,6 +115,14 @@ function favorite:draw(context)
         self.spawnUI.popupSpawnHit = nil
     end
 
+    if ImGui.BeginPopupContextItem("##favoriteContext", ImGuiPopupFlags.MouseButtonRight) then
+        if ImGui.MenuItem("Spawn as Hidden") then
+            self.spawnUI.spawnNew({ data = self.data }, require(self.data.modulePath), true, { loadHidden = true })
+        end
+
+        ImGui.EndPopup()
+    end
+
     -- Asset preview
     if self.data.modulePath == "modules/classes/editor/spawnableElement" and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
