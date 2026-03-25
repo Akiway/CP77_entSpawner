@@ -19,12 +19,83 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field originInitialized boolean
 ---@field originMode string
 ---@field supportsSaving boolean
+---@field project table?
 local positionableGroup = setmetatable({}, { __index = positionable })
+
+local PROJECT_DEFAULT_ICON = "TagOutline"
+local PROJECT_DEFAULT_COLOR = { 0.23, 0.35, 0.55 }
 
 local function bumpWireframeEpoch(instance)
 	if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
 		instance.sUI.bumpWireframeEpoch()
 	end
+end
+
+---@param value string?
+---@return string
+local function trimText(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+
+    return value:match("^%s*(.-)%s*$") or ""
+end
+
+---@param value number?
+---@return number
+local function clamp01(value)
+    value = tonumber(value) or 0
+    return math.max(0, math.min(value, 1))
+end
+
+---@param color table?
+---@return number[]
+local function normalizeProjectColor(color)
+    local r = tonumber(color and (color[1] or color["1"] or color.r or color.x))
+    local g = tonumber(color and (color[2] or color["2"] or color.g or color.y))
+    local b = tonumber(color and (color[3] or color["3"] or color.b or color.z))
+
+    if r == nil or g == nil or b == nil then
+        return {
+            PROJECT_DEFAULT_COLOR[1],
+            PROJECT_DEFAULT_COLOR[2],
+            PROJECT_DEFAULT_COLOR[3]
+        }
+    end
+
+    if r > 1 or g > 1 or b > 1 then
+        r = r / 255
+        g = g / 255
+        b = b / 255
+    end
+
+    return {
+        clamp01(r),
+        clamp01(g),
+        clamp01(b)
+    }
+end
+
+---@param project table?
+---@return table?
+local function normalizeProjectData(project)
+    if type(project) ~= "table" then
+        return nil
+    end
+
+    local name = trimText(project.name)
+    if name == "" then
+        return nil
+    end
+
+    local icon = type(project.icon) == "string" and IconGlyphs[project.icon] and project.icon or PROJECT_DEFAULT_ICON
+    local color = normalizeProjectColor(project.color)
+
+    return {
+        name = name,
+        icon = icon,
+        color = { color[1], color[2], color[3] }
+    }
 end
 
 function positionableGroup:new(sUI)
@@ -57,6 +128,7 @@ function positionableGroup:new(sUI)
 	}
 	o.supportsSaving = true
 	o.applyRotationWhenDropped = false
+	o.project = nil
 
 	setmetatable(o, { __index = self })
    	return o
@@ -108,6 +180,7 @@ function positionableGroup:load(data, silent)
 
 	self.rotation = EulerAngles.new(data.rotation.roll, data.rotation.pitch, data.rotation.yaw)
 	self.rotationQuat = self.rotation:ToQuat()
+	self.project = normalizeProjectData(data.project)
 	self:invalidateAutoCenterCache(false)
 	bumpWireframeEpoch(self)
 end
@@ -125,6 +198,7 @@ function positionableGroup:serialize()
 	data.originInitialized = self.originInitialized
 	data.originMode = self.originMode
 	data.rotation = { roll = self.rotation.roll, pitch = self.rotation.pitch, yaw = self.rotation.yaw }
+	data.project = normalizeProjectData(self.project)
 
 	return data
 end

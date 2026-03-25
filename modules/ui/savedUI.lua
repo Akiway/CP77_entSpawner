@@ -4,9 +4,18 @@ local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
 local amm = require("modules/utils/ammUtils")
 local history = require("modules/utils/history")
+local field = require("modules/utils/field")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local backup = require("modules/utils/backup")
+
+local PROJECT_NEUTRAL_KEY = "__no_project__"
+local PROJECT_DEFAULT_ICON = "TagOutline"
+local PROJECT_DEFAULT_COLOR = { 0.23, 0.35, 0.55 }
+local PROJECT_NEUTRAL_LABEL = "No Project"
+local PROJECT_NEUTRAL_ICON = "Tag"
+local PROJECT_NEUTRAL_COLOR = { 0.24, 0.24, 0.24 }
+local PROJECT_MIN_CONTRAST_RATIO = 4
 
 savedUI = {
     filter = "",
@@ -22,7 +31,15 @@ savedUI = {
     spawned = {},
     maxTextWidth = nil,
     pendingReload = false,
-    pendingGroupOpenState = nil
+    pendingGroupOpenState = nil,
+    projectSectionOpenState = {},
+    projectSectionRestoreOpenState = {},
+    groupOpenState = {},
+    projectSectionEditorState = {},
+    projectSectionIconSearch = {},
+    groupProjectCreateState = {},
+    groupProjectIconSearch = {},
+    pendingGroupProjectPopupId = nil
 }
 
 ---@param group table
@@ -50,6 +67,203 @@ local function isSavedElement(data)
     return data and (data.type == "object"
         or data.type == "element"
         or data.modulePath == "modules/classes/editor/spawnableElement")
+end
+
+---@param value string?
+---@return string
+local function trimText(value)
+    if type(value) ~= "string" then
+        return ""
+    end
+
+    return value:match("^%s*(.-)%s*$") or ""
+end
+
+---@param value string?
+---@return string
+local function normalizeProjectName(value)
+    return trimText(value):lower()
+end
+
+---@param entry {fileName: string, data: table}
+---@return string
+local function getEntrySortName(entry)
+    local data = entry and entry.data or nil
+    if type(data) == "table" and type(data.name) == "string" and data.name ~= "" then
+        return data.name:lower()
+    end
+
+    return tostring(entry and entry.fileName or ""):lower()
+end
+
+---@param a {fileName: string, data: table}
+---@param b {fileName: string, data: table}
+---@return boolean
+local function compareSavedEntriesByName(a, b)
+    local nameA = getEntrySortName(a)
+    local nameB = getEntrySortName(b)
+
+    if nameA == nameB then
+        return tostring(a.fileName):lower() < tostring(b.fileName):lower()
+    end
+
+    return nameA < nameB
+end
+
+---@param value number?
+---@return number
+local function clamp01(value)
+    value = tonumber(value) or 0
+    return math.max(0, math.min(value, 1))
+end
+
+---@param color table?
+---@param fallback number[]?
+---@return number[]
+local function normalizeProjectColor(color, fallback)
+    local fallbackColor = fallback or PROJECT_DEFAULT_COLOR
+    local candidate = color
+
+    if type(candidate) ~= "table" then
+        return {
+            clamp01(fallbackColor[1]),
+            clamp01(fallbackColor[2]),
+            clamp01(fallbackColor[3])
+        }
+    end
+
+    local r = tonumber(candidate[1] or candidate["1"] or candidate.r or candidate.x)
+    local g = tonumber(candidate[2] or candidate["2"] or candidate.g or candidate.y)
+    local b = tonumber(candidate[3] or candidate["3"] or candidate.b or candidate.z)
+
+    if r == nil or g == nil or b == nil then
+        return {
+            clamp01(fallbackColor[1]),
+            clamp01(fallbackColor[2]),
+            clamp01(fallbackColor[3])
+        }
+    end
+
+    if r > 1 or g > 1 or b > 1 then
+        r = r / 255
+        g = g / 255
+        b = b / 255
+    end
+
+    return {
+        clamp01(r),
+        clamp01(g),
+        clamp01(b)
+    }
+end
+
+---@param icon string?
+---@return string
+local function normalizeProjectIcon(icon)
+    if type(icon) == "string" and icon ~= "" and IconGlyphs[icon] then
+        return icon
+    end
+
+    return PROJECT_DEFAULT_ICON
+end
+
+---@param project table?
+---@param fallback table?
+---@return table?
+local function normalizeProjectData(project, fallback)
+    local source = type(project) == "table" and project or nil
+    local fallbackProject = type(fallback) == "table" and fallback or nil
+    local name = trimText(source and source.name or (fallbackProject and fallbackProject.name))
+
+    if name == "" then
+        return nil
+    end
+
+    local icon = normalizeProjectIcon(source and source.icon or (fallbackProject and fallbackProject.icon))
+    local color = normalizeProjectColor(source and source.color or nil, fallbackProject and fallbackProject.color or PROJECT_DEFAULT_COLOR)
+
+    return {
+        name = name,
+        icon = icon,
+        color = color
+    }
+end
+
+---@param group table?
+---@return table?
+local function getGroupProject(group)
+    return normalizeProjectData(group and group.project)
+end
+
+---@param group table
+---@param project table?
+local function setGroupProject(group, project)
+    local normalized = normalizeProjectData(project)
+    if normalized then
+        group.project = {
+            name = normalized.name,
+            icon = normalized.icon,
+            color = { normalized.color[1], normalized.color[2], normalized.color[3] }
+        }
+    else
+        group.project = nil
+    end
+end
+
+---@param value number
+---@return number
+local function linearizeColorChannel(value)
+    if value <= 0.04045 then
+        return value / 12.92
+    end
+
+    return ((value + 0.055) / 1.055) ^ 2.4
+end
+
+---@param color number[]
+---@return number
+local function getRelativeLuminance(color)
+    local r = linearizeColorChannel(clamp01(color[1]))
+    local g = linearizeColorChannel(clamp01(color[2]))
+    local b = linearizeColorChannel(clamp01(color[3]))
+
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+end
+
+---@param color number[]
+---@param useWhiteText boolean
+---@return number
+local function getContrastRatio(color, useWhiteText)
+    local lumBg = getRelativeLuminance(color)
+    local lumText = useWhiteText and 1 or 0
+    local lighter = math.max(lumBg, lumText)
+    local darker = math.min(lumBg, lumText)
+
+    return (lighter + 0.05) / (darker + 0.05)
+end
+
+---@param projectColor number[]
+---@return number[]
+local function getProjectSectionTextColor(projectColor)
+    local whiteContrast = getContrastRatio(projectColor, true)
+    if whiteContrast >= PROJECT_MIN_CONTRAST_RATIO then
+        return { 1, 1, 1, 1 }
+    end
+
+    return { 0, 0, 0, 1 }
+end
+
+---@param baseColor number[]
+---@param amount number
+---@return number[]
+local function adjustColorBrightness(baseColor, amount)
+    local adjusted = {
+        clamp01(baseColor[1] + amount),
+        clamp01(baseColor[2] + amount),
+        clamp01(baseColor[3] + amount)
+    }
+
+    return adjusted
 end
 
 local function hasSavedGroups()
@@ -238,6 +452,7 @@ local function syncSavedFileCaches()
     for fileName, _ in pairs(savedUI.files) do
         if not existing[fileName] then
             savedUI.files[fileName] = nil
+            savedUI.groupOpenState[fileName] = nil
         end
     end
 
@@ -272,6 +487,224 @@ local function getSavedGroupElementCount(group)
 
     group.elementCount = count
     return count
+end
+
+---@param filter string
+---@param data table
+---@return boolean
+local function matchesSavedFilter(filter, data)
+    if not data or type(data.name) ~= "string" then
+        return false
+    end
+
+    return data.name:lower():match(filter:lower()) ~= nil
+end
+
+---@param fileName string
+---@param data table
+---@param updateTimestamp boolean?
+---@return boolean
+local function saveSavedEntry(fileName, data, updateTimestamp)
+    if not fileName or fileName == "" or type(data) ~= "table" then
+        return false
+    end
+
+    if updateTimestamp ~= false then
+        data.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
+    end
+
+    local ok = config.saveFile("data/objects/" .. fileName, data)
+    if ok then
+        savedUI.files[fileName] = data
+        savedUI.invalidFiles[fileName] = nil
+    end
+
+    return ok
+end
+
+---@param fileName string
+---@param group table
+---@param project table?
+---@param showToast boolean?
+---@return boolean
+local function assignProjectToGroup(fileName, group, project, showToast)
+    local existing = getGroupProject(group)
+    local nextProject = normalizeProjectData(project)
+
+    local unchanged = (existing == nil and nextProject == nil)
+    if not unchanged and existing and nextProject then
+        unchanged = existing.name == nextProject.name
+            and existing.icon == nextProject.icon
+            and existing.color[1] == nextProject.color[1]
+            and existing.color[2] == nextProject.color[2]
+            and existing.color[3] == nextProject.color[3]
+    end
+
+    if unchanged then
+        return true
+    end
+
+    setGroupProject(group, nextProject)
+    local saved = saveSavedEntry(fileName, group, true)
+
+    if saved and showToast then
+        local target = nextProject and ("project \"" .. nextProject.name .. "\"") or "No Project"
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Assigned \"%s\" to %s", group.name, target)))
+    elseif not saved and showToast then
+        ImGui.ShowToast(ImGui.Toast.new(getToastType("error"), 4000, string.format("Failed to update project for \"%s\"", group.name)))
+    end
+
+    return saved
+end
+
+---@param key string
+---@param groups {fileName: string, data: table}[]
+---@param project table?
+---@param showToast boolean?
+local function applyProjectToSectionGroups(key, groups, project, showToast)
+    local applied = 0
+    local failures = 0
+    local normalized = normalizeProjectData(project)
+    local newKey = normalized and normalizeProjectName(normalized.name) or PROJECT_NEUTRAL_KEY
+    local previousSectionOpen = savedUI.projectSectionOpenState[key]
+
+    for _, entry in ipairs(groups or {}) do
+        local saved = assignProjectToGroup(entry.fileName, entry.data, normalized, false)
+        if saved then
+            applied = applied + 1
+        else
+            failures = failures + 1
+        end
+    end
+
+    if not showToast then
+        if previousSectionOpen ~= nil and newKey ~= key then
+            savedUI.projectSectionOpenState[newKey] = previousSectionOpen
+        end
+        return
+    end
+
+    if previousSectionOpen ~= nil and newKey ~= key then
+        savedUI.projectSectionOpenState[newKey] = previousSectionOpen
+    end
+
+    if failures == 0 then
+        if normalized then
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 3000, string.format("Updated project \"%s\" on %d group%s", normalized.name, applied, applied == 1 and "" or "s")))
+        elseif key == PROJECT_NEUTRAL_KEY then
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 3000, string.format("Moved %d group%s to %s", applied, applied == 1 and "" or "s", PROJECT_NEUTRAL_LABEL)))
+        end
+    else
+        ImGui.ShowToast(ImGui.Toast.new(getToastType("error"), 4000, string.format("Project update incomplete (%d updated, %d failed)", applied, failures)))
+    end
+end
+
+---@param allGroups {fileName: string, data: table}[]
+---@return table<string, table>, table[]
+local function collectProjectCatalog(allGroups)
+    local projectMap = {}
+    local projectOptions = {}
+
+    for _, entry in ipairs(allGroups) do
+        local project = getGroupProject(entry.data)
+        if project then
+            local key = normalizeProjectName(project.name)
+            if key ~= "" then
+                if not projectMap[key] then
+                    projectMap[key] = {
+                        key = key,
+                        project = project,
+                        groups = {}
+                    }
+                end
+
+                table.insert(projectMap[key].groups, entry)
+            end
+        end
+    end
+
+    for _, bucket in pairs(projectMap) do
+        table.insert(projectOptions, bucket)
+    end
+
+    table.sort(projectOptions, function(a, b)
+        local nameA = a.project.name:lower()
+        local nameB = b.project.name:lower()
+        if nameA == nameB then
+            return a.key < b.key
+        end
+        return nameA < nameB
+    end)
+
+    return projectMap, projectOptions
+end
+
+---@param filteredGroups {fileName: string, data: table}[]
+---@return table[]
+local function buildProjectSections(filteredGroups)
+    local sections = {
+        {
+            key = PROJECT_NEUTRAL_KEY,
+            isNeutral = true,
+            project = {
+                name = PROJECT_NEUTRAL_LABEL,
+                icon = PROJECT_NEUTRAL_ICON,
+                color = { PROJECT_NEUTRAL_COLOR[1], PROJECT_NEUTRAL_COLOR[2], PROJECT_NEUTRAL_COLOR[3] }
+            },
+            groups = {}
+        }
+    }
+    local sectionByKey = {
+        [PROJECT_NEUTRAL_KEY] = sections[1]
+    }
+
+    for _, entry in ipairs(filteredGroups) do
+        local project = getGroupProject(entry.data)
+        local key = project and normalizeProjectName(project.name) or PROJECT_NEUTRAL_KEY
+        if key == "" then
+            key = PROJECT_NEUTRAL_KEY
+            project = nil
+        end
+
+        local section = sectionByKey[key]
+        if not section then
+            section = {
+                key = key,
+                isNeutral = false,
+                project = project,
+                groups = {}
+            }
+            sectionByKey[key] = section
+            table.insert(sections, section)
+        end
+
+        if section.project == nil and project ~= nil then
+            section.project = project
+        end
+
+        table.insert(section.groups, entry)
+    end
+
+    table.sort(sections, function(a, b)
+        if a.isNeutral ~= b.isNeutral then
+            return a.isNeutral
+        end
+
+        local aName = ((a.project and a.project.name) or ""):lower()
+        local bName = ((b.project and b.project.name) or ""):lower()
+
+        if aName == bName then
+            return a.key < b.key
+        end
+
+        return aName < bName
+    end)
+
+    for _, section in ipairs(sections) do
+        table.sort(section.groups, compareSavedEntriesByName)
+    end
+
+    return sections
 end
 
 local function removeFromExportListIfPresent(data)
@@ -367,9 +800,307 @@ function savedUI.importAMMPresets()
     })
 end
 
+---@param fileName string
+---@param group table
+local function primeGroupProjectCreateState(fileName, group)
+    local current = getGroupProject(group)
+    savedUI.groupProjectCreateState[fileName] = {
+        name = "",
+        icon = current and current.icon or PROJECT_DEFAULT_ICON,
+        color = normalizeProjectColor(current and current.color or PROJECT_DEFAULT_COLOR)
+    }
+    savedUI.groupProjectIconSearch[fileName] = savedUI.groupProjectIconSearch[fileName] or ""
+end
+
+---@param group table
+---@param fileName string
+---@param projectMap table<string, table>
+---@param projectOptions table[]
+local function drawGroupProjectAssignment(group, fileName, projectMap, projectOptions)
+    local currentProject = getGroupProject(group)
+    local currentKey = currentProject and normalizeProjectName(currentProject.name) or PROJECT_NEUTRAL_KEY
+    local previewText = PROJECT_NEUTRAL_LABEL
+    local previewIcon = IconGlyphs[PROJECT_NEUTRAL_ICON] or ""
+
+    if currentProject then
+        previewText = currentProject.name
+        previewIcon = IconGlyphs[currentProject.icon] or IconGlyphs[PROJECT_DEFAULT_ICON] or ""
+    end
+
+    style.mutedText("Project")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(savedUI.maxTextWidth)
+    ImGui.SetNextItemWidth(180 * style.viewSize)
+
+    local comboSelectionApplied = false
+    if ImGui.BeginCombo("##groupProjectAssign" .. fileName, previewIcon .. " " .. previewText) then
+        local neutralSelected = currentKey == PROJECT_NEUTRAL_KEY
+        if ImGui.Selectable((IconGlyphs[PROJECT_NEUTRAL_ICON] or "") .. " " .. PROJECT_NEUTRAL_LABEL, neutralSelected)
+            and currentKey ~= PROJECT_NEUTRAL_KEY then
+            assignProjectToGroup(fileName, group, nil, true)
+            comboSelectionApplied = true
+            ImGui.CloseCurrentPopup()
+        end
+
+        if not comboSelectionApplied then
+            for _, option in ipairs(projectOptions) do
+                local selected = currentKey == option.key
+                local icon = IconGlyphs[option.project.icon] or IconGlyphs[PROJECT_DEFAULT_ICON] or ""
+                local label = string.format("%s %s##projectOption%s", icon, option.project.name, option.key)
+
+                if ImGui.Selectable(label, selected) and currentKey ~= option.key then
+                    assignProjectToGroup(fileName, group, option.project, true)
+                    comboSelectionApplied = true
+                    ImGui.CloseCurrentPopup()
+                    break
+                end
+            end
+        end
+
+        if not comboSelectionApplied then
+            ImGui.Separator()
+            local plusIcon = IconGlyphs.Plus or "+"
+            if ImGui.Selectable(string.format("%s Create new project tag...##createProject%s", plusIcon, fileName), false) then
+                primeGroupProjectCreateState(fileName, group)
+                savedUI.pendingGroupProjectPopupId = "##groupCreateProjectPopup" .. fileName
+            end
+        end
+
+        ImGui.EndCombo()
+    end
+
+    if comboSelectionApplied then
+        return
+    end
+
+    ImGui.SameLine()
+    style.pushGreyedOut(currentProject == nil)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Close .. "##groupProjectClear" .. fileName) and currentProject ~= nil then
+        assignProjectToGroup(fileName, group, nil, true)
+    end
+    style.pushButtonNoBG(false)
+    style.popGreyedOut(currentProject == nil)
+    style.tooltip("Remove project attribution")
+
+    local popupId = "##groupCreateProjectPopup" .. fileName
+    if savedUI.pendingGroupProjectPopupId == popupId then
+        ImGui.OpenPopup(popupId)
+        savedUI.pendingGroupProjectPopupId = nil
+    end
+
+    local editor = savedUI.groupProjectCreateState[fileName]
+    if not editor then
+        primeGroupProjectCreateState(fileName, group)
+        editor = savedUI.groupProjectCreateState[fileName]
+    end
+
+    if ImGui.BeginPopup(popupId) then
+        style.mutedText("Create project tag for this group")
+        ImGui.Separator()
+
+        ImGui.SetNextItemWidth(220 * style.viewSize)
+        editor.name, _ = ImGui.InputTextWithHint("##newGroupProjectName" .. fileName, "Project name...", editor.name or "", 100)
+
+        editor.icon, savedUI.groupProjectIconSearch[fileName], _ = field.drawIconSelector("savedGroupProject:" .. fileName, editor.icon, savedUI.groupProjectIconSearch[fileName])
+        ImGui.SameLine()
+        editor.color, _ = style.trackedColor(nil, "##newGroupProjectColor" .. fileName, editor.color, 58)
+
+        local normalizedName = normalizeProjectName(editor.name)
+        local existingProject = projectMap[normalizedName]
+        if existingProject then
+            style.mutedText("Existing project name detected. Assignment will reuse the existing shared project data.")
+        end
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        local canAssign = trimText(editor.name) ~= ""
+        style.pushGreyedOut(not canAssign)
+        if ImGui.Button("Assign") and canAssign then
+            local targetProject = existingProject and existingProject.project or {
+                name = editor.name,
+                icon = editor.icon,
+                color = editor.color
+            }
+
+            assignProjectToGroup(fileName, group, targetProject, true)
+            ImGui.CloseCurrentPopup()
+        end
+        style.popGreyedOut(not canAssign)
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##groupProjectCreateCancel" .. fileName) then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
+end
+
+---@param section table
+---@return table
+local function getSectionProjectEditorState(section)
+    local editor = savedUI.projectSectionEditorState[section.key]
+    if not editor then
+        editor = {
+            name = section.project.name,
+            icon = section.project.icon,
+            color = normalizeProjectColor(section.project.color, PROJECT_DEFAULT_COLOR)
+        }
+        savedUI.projectSectionEditorState[section.key] = editor
+    end
+
+    return editor
+end
+
+---@param section table
+---@param projectMap table<string, table>
+---@param buttonTextColor number[]
+---@return boolean settingsButtonClicked
+local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
+    if section.isNeutral then
+        return false
+    end
+
+    local settingsButtonClicked = false
+    local popupId = "##savedProjectEditPopup" .. section.key
+    local editor = getSectionProjectEditorState(section)
+
+    if not ImGui.IsPopupOpen(popupId) then
+        editor.name = section.project.name
+        editor.icon = section.project.icon
+        editor.color = normalizeProjectColor(section.project.color, PROJECT_DEFAULT_COLOR)
+    end
+
+    ImGui.SameLine()
+    local editIcon = IconGlyphs.CogOutline
+    local editWidth, _ = ImGui.CalcTextSize(editIcon)
+    local buttonWidth = editWidth + ImGui.GetStyle().FramePadding.x * 2
+    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
+    local cursorX = ImGui.GetWindowWidth() - buttonWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+    ImGui.SetCursorPosX(cursorX)
+    ImGui.SetNextItemAllowOverlap()
+    style.pushButtonNoBG(true)
+    ImGui.PushStyleColor(ImGuiCol.Text, buttonTextColor[1], buttonTextColor[2], buttonTextColor[3], buttonTextColor[4] or 1)
+    if ImGui.Button(editIcon .. "##savedProjectEditButton" .. section.key) then
+        settingsButtonClicked = true
+        ImGui.OpenPopup(popupId)
+    end
+    ImGui.PopStyleColor()
+    style.pushButtonNoBG(false)
+    style.tooltip("Edit project tag")
+
+    if ImGui.BeginPopup(popupId) then
+        style.mutedText("Project tag")
+        ImGui.Separator()
+
+        ImGui.SetNextItemWidth(220 * style.viewSize)
+        editor.name, _ = ImGui.InputTextWithHint("##savedProjectName" .. section.key, "Project name...", editor.name, 100)
+
+        editor.icon, savedUI.projectSectionIconSearch[section.key], _ =
+            field.drawIconSelector("savedProjectSection:" .. section.key, editor.icon, savedUI.projectSectionIconSearch[section.key])
+        ImGui.SameLine()
+        editor.color, _ = style.trackedColor(nil, "##savedProjectColor" .. section.key, editor.color, 58)
+
+        local updatedProject = normalizeProjectData({
+            name = editor.name,
+            icon = editor.icon,
+            color = editor.color
+        }, section.project)
+        local canApply = updatedProject ~= nil
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        if not canApply then
+            style.styledText("Project name is required.", 0xFF0000FF, 0.9)
+        else
+            style.mutedText("Project cannot be deleted. Move groups to \"" .. PROJECT_NEUTRAL_LABEL .. "\" to unassign.")
+        end
+
+        style.pushGreyedOut(not canApply)
+        if ImGui.Button("Apply to all groups##savedProjectApply" .. section.key) and canApply then
+            local targetGroups = (projectMap[section.key] and projectMap[section.key].groups) or section.groups
+            applyProjectToSectionGroups(section.key, targetGroups, updatedProject, true)
+        end
+        style.popGreyedOut(not canApply)
+
+        ImGui.SameLine()
+        if ImGui.Button("Close##savedProjectClose" .. section.key) then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
+
+    return settingsButtonClicked
+end
+
+---@param section table
+---@param spawner spawner
+---@param projectMap table<string, table>
+---@param projectOptions table[]
+local function drawProjectSection(section, spawner, projectMap, projectOptions)
+    if #section.groups == 0 then
+        return
+    end
+
+    local sectionColor = normalizeProjectColor(section.project and section.project.color or nil, PROJECT_NEUTRAL_COLOR)
+    local textColor = getProjectSectionTextColor(sectionColor)
+    local hoverAmount = textColor[1] > 0 and 0.08 or -0.08
+    local activeAmount = textColor[1] > 0 and 0.14 or -0.14
+    local hoverColor = adjustColorBrightness(sectionColor, hoverAmount)
+    local activeColor = adjustColorBrightness(sectionColor, activeAmount)
+    local icon = IconGlyphs[(section.project and section.project.icon) or PROJECT_DEFAULT_ICON] or ""
+    local sectionName = (section.project and section.project.name) or PROJECT_NEUTRAL_LABEL
+    local label = string.format("%s %s (%d)##savedProjectSection%s", icon, sectionName, #section.groups, section.key)
+
+    local restoreSectionState = savedUI.projectSectionRestoreOpenState[section.key]
+    if restoreSectionState ~= nil then
+        ImGui.SetNextItemOpen(restoreSectionState, ImGuiCond.Always)
+        savedUI.projectSectionRestoreOpenState[section.key] = nil
+    elseif savedUI.pendingGroupOpenState ~= nil then
+        ImGui.SetNextItemOpen(savedUI.pendingGroupOpenState, ImGuiCond.Always)
+    elseif savedUI.projectSectionOpenState[section.key] ~= nil then
+        ImGui.SetNextItemOpen(savedUI.projectSectionOpenState[section.key], ImGuiCond.Always)
+    end
+
+    local previousOpen = savedUI.projectSectionOpenState[section.key]
+
+    ImGui.PushStyleColor(ImGuiCol.Header, sectionColor[1], sectionColor[2], sectionColor[3], 0.95)
+    ImGui.PushStyleColor(ImGuiCol.HeaderHovered, hoverColor[1], hoverColor[2], hoverColor[3], 0.98)
+    ImGui.PushStyleColor(ImGuiCol.HeaderActive, activeColor[1], activeColor[2], activeColor[3], 1.0)
+    ImGui.PushStyleColor(ImGuiCol.Text, textColor[1], textColor[2], textColor[3], textColor[4])
+    local openOnArrowFlag = ImGuiTreeNodeFlags.OpenOnArrow or 0
+    local openOnDoubleClickFlag = ImGuiTreeNodeFlags.OpenOnDoubleClick or 0
+    local allowOverlapFlag = ImGuiTreeNodeFlags.AllowItemOverlap or 0
+    local sectionNodeFlags = ImGuiTreeNodeFlags.SpanFullWidth +
+        ImGuiTreeNodeFlags.Framed +
+        openOnArrowFlag +
+        openOnDoubleClickFlag +
+        allowOverlapFlag
+    local open = ImGui.TreeNodeEx(label, sectionNodeFlags)
+    ImGui.SetItemAllowOverlap()
+    ImGui.PopStyleColor(4)
+
+    local settingsButtonClicked = drawProjectSectionEditor(section, projectMap, textColor)
+
+    if settingsButtonClicked and previousOpen ~= nil and open ~= previousOpen then
+        open = previousOpen
+        savedUI.projectSectionRestoreOpenState[section.key] = previousOpen
+    end
+
+    savedUI.projectSectionOpenState[section.key] = open
+
+    if open then
+        for _, entry in ipairs(section.groups) do
+            savedUI.drawGroup(entry.data, spawner, entry.fileName, projectMap, projectOptions)
+        end
+
+        ImGui.TreePop()
+    end
+end
+
 function savedUI.draw(spawner)
     if not savedUI.maxTextWidth then
-        savedUI.maxTextWidth = utils.getTextMaxWidth({"File name:", "Position:"}) + 4 * ImGui.GetStyle().ItemSpacing.x
+        savedUI.maxTextWidth = utils.getTextMaxWidth({"File name", "Project", "Position"}) + 6 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
@@ -457,7 +1188,7 @@ function savedUI.draw(spawner)
     local headerScrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
     local qtyHeaderX = ImGui.GetWindowWidth() - qtyHeaderWidth - ImGui.GetStyle().CellPadding.x / 2 - headerScrollBarAddition + ImGui.GetScrollX()
 
-    style.mutedText("Group name")
+    style.mutedText("Project / Group name")
     ImGui.SameLine()
     ImGui.SetCursorPosX(qtyHeaderX)
     style.mutedText(qtyHeader)
@@ -470,51 +1201,86 @@ function savedUI.draw(spawner)
         return a:lower() < b:lower()
     end)
 
+    local filteredCorruptedCount = 0
     for _, fileName in ipairs(sortedCorruptedFiles) do
         if fileName:lower():match(savedUI.filter:lower()) ~= nil then
             drawCorruptedEntry(fileName, qtyHeaderX)
+            filteredCorruptedCount = filteredCorruptedCount + 1
         end
     end
 
-    local sortedSavedEntries = {}
+    local allGroups = {}
+    local allObjects = {}
     for fileName, data in pairs(savedUI.files) do
-        table.insert(sortedSavedEntries, {
+        local entry = {
             fileName = fileName,
             data = data
-        })
+        }
+
+        if isSavedGroup(data) then
+            table.insert(allGroups, entry)
+        elseif isSavedElement(data) then
+            table.insert(allObjects, entry)
+        end
     end
 
-    table.sort(sortedSavedEntries, function(a, b)
-        local dataA = a.data
-        local dataB = b.data
+    table.sort(allGroups, compareSavedEntriesByName)
+    table.sort(allObjects, compareSavedEntriesByName)
 
-        local isGroupA = isSavedGroup(dataA)
-        local isGroupB = isSavedGroup(dataB)
-        if isGroupA ~= isGroupB then
-            return isGroupA
+    local filteredGroups = {}
+    for _, entry in ipairs(allGroups) do
+        if matchesSavedFilter(savedUI.filter, entry.data) then
+            table.insert(filteredGroups, entry)
+        end
+    end
+
+    local filteredObjects = {}
+    for _, entry in ipairs(allObjects) do
+        if matchesSavedFilter(savedUI.filter, entry.data) then
+            table.insert(filteredObjects, entry)
+        end
+    end
+
+    local projectMap, projectOptions = collectProjectCatalog(allGroups)
+    local projectSections = buildProjectSections(filteredGroups)
+
+    if savedUI.pendingGroupOpenState ~= nil then
+        local forcedState = savedUI.pendingGroupOpenState
+
+        for _, entry in ipairs(allGroups) do
+            savedUI.groupOpenState[entry.fileName] = forcedState
         end
 
-        local nameA = type(dataA) == "table" and type(dataA.name) == "string" and dataA.name:lower() or a.fileName:lower()
-        local nameB = type(dataB) == "table" and type(dataB.name) == "string" and dataB.name:lower() or b.fileName:lower()
+        savedUI.projectSectionOpenState[PROJECT_NEUTRAL_KEY] = forcedState
+        for projectKey, _ in pairs(projectMap) do
+            savedUI.projectSectionOpenState[projectKey] = forcedState
+        end
+        savedUI.projectSectionRestoreOpenState = {}
+    end
 
-        if nameA == nameB then
-            return a.fileName:lower() < b.fileName:lower()
+    local visibleResults = false
+    for _, section in ipairs(projectSections) do
+        if #section.groups > 0 then
+            drawProjectSection(section, spawner, projectMap, projectOptions)
+            visibleResults = true
+        end
+    end
+
+    if #filteredObjects > 0 then
+        if visibleResults then
+            ImGui.Dummy(0, 4 * style.viewSize)
+            style.mutedText("Saved Objects")
+            ImGui.Separator()
         end
 
-        return nameA < nameB
-    end)
-
-    for _, entry in ipairs(sortedSavedEntries) do
-        local fileName = entry.fileName
-        local d = entry.data
-
-        if d and type(d.name) == "string" and (d.name:lower():match(savedUI.filter:lower())) ~= nil then
-            if isSavedGroup(d) then
-                savedUI.drawGroup(d, spawner, fileName)
-            elseif d.type == "element" or d.modulePath == "modules/classes/editor/spawnableElement" then
-                savedUI.drawObject(d, spawner, fileName)
-            end
+        for _, entry in ipairs(filteredObjects) do
+            savedUI.drawObject(entry.data, spawner, entry.fileName)
         end
+        visibleResults = true
+    end
+
+    if not visibleResults and filteredCorruptedCount == 0 then
+        style.mutedText("No saved entries match the current search.")
     end
 
     savedUI.pendingGroupOpenState = nil
@@ -532,12 +1298,17 @@ end
 ---@param group table
 ---@param spawner spawner
 ---@param fileName string
-function savedUI.drawGroup(group, spawner, fileName)
+---@param projectMap table<string, table>?
+---@param projectOptions table[]?
+function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
     if savedUI.pendingGroupOpenState ~= nil then
         ImGui.SetNextItemOpen(savedUI.pendingGroupOpenState, ImGuiCond.Always)
+    elseif savedUI.groupOpenState[fileName] ~= nil then
+        ImGui.SetNextItemOpen(savedUI.groupOpenState[fileName], ImGuiCond.Always)
     end
 
-    local open = ImGui.TreeNodeEx(group.name)
+    local open = ImGui.TreeNodeEx(group.name .. "##savedGroupNode:" .. fileName)
+    savedUI.groupOpenState[fileName] = open
 
     local countText = tostring(getSavedGroupElementCount(group))
     local textWidth, _ = ImGui.CalcTextSize(countText)
@@ -557,7 +1328,7 @@ function savedUI.drawGroup(group, spawner, fileName)
 
         if group.newName == nil then group.newName = group.name end
 
-        style.mutedText("File name:")
+        style.mutedText("File name")
         ImGui.SameLine()
         ImGui.SetCursorPosX(savedUI.maxTextWidth)
         ImGui.PushItemWidth(180 * style.viewSize)
@@ -569,15 +1340,20 @@ function savedUI.drawGroup(group, spawner, fileName)
             savedUI.invalidFiles[fileName] = nil
 
             local newFileName = group.newName .. ".json"
+            local previousOpen = savedUI.groupOpenState[fileName]
             os.rename("data/objects/" .. fileName, "data/objects/" .. newFileName)
             group.name = group.newName
             group.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
             config.saveFile("data/objects/" .. newFileName, group)
             savedUI.files[newFileName] = group
+            savedUI.groupOpenState[newFileName] = previousOpen
+            savedUI.groupOpenState[fileName] = nil
             fileName = newFileName
         end
 
-        style.mutedText("Position:")
+        drawGroupProjectAssignment(group, fileName, projectMap or {}, projectOptions or {})
+
+        style.mutedText("Position")
         ImGui.SameLine()
         ImGui.SetCursorPosX(savedUI.maxTextWidth)
         ImGui.Text(posString)
@@ -710,6 +1486,7 @@ function savedUI.deleteData(data)
         os.remove("data/objects/" .. data.name .. ".json")
         savedUI.files[data.name .. ".json"] = nil
         savedUI.invalidFiles[data.name .. ".json"] = nil
+        savedUI.groupOpenState[data.name .. ".json"] = nil
 
         local removedFromExport = removeFromExportListIfPresent(data)
         showDeletedGroupToast(data, removedFromExport)
@@ -744,6 +1521,7 @@ function savedUI.handlePopUp()
                 os.remove("data/objects/" .. savedUI.deleteFile.name .. ".json")
                 savedUI.files[savedUI.deleteFile.name .. ".json"] = nil
                 savedUI.invalidFiles[savedUI.deleteFile.name .. ".json"] = nil
+                savedUI.groupOpenState[savedUI.deleteFile.name .. ".json"] = nil
 
                 local removedFromExport = removeFromExportListIfPresent(savedUI.deleteFile)
                 showDeletedGroupToast(savedUI.deleteFile, removedFromExport)
@@ -761,6 +1539,14 @@ function savedUI.reload()
     savedUI.files = {}
     savedUI.invalidFiles = {}
     savedUI.pendingReload = false
+    savedUI.projectSectionOpenState = {}
+    savedUI.projectSectionRestoreOpenState = {}
+    savedUI.groupOpenState = {}
+    savedUI.projectSectionEditorState = {}
+    savedUI.projectSectionIconSearch = {}
+    savedUI.groupProjectCreateState = {}
+    savedUI.groupProjectIconSearch = {}
+    savedUI.pendingGroupProjectPopupId = nil
 
     for _, file in pairs(dir("data/objects")) do
         if file.name:match("^.+(%..+)$") == ".json" then
