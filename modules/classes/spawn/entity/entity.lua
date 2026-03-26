@@ -183,6 +183,33 @@ local function normalizeInstanceDataPath(path)
     return normalized
 end
 
+---@param value any
+---@param object positionable
+---@return string
+local function resolveNodeRefDisplayValue(value, object)
+    local raw = tostring(value or "")
+    if raw == "" or string.find(raw, "%D") then
+        return raw
+    end
+
+    if not object or not object.getRootParent then
+        return raw
+    end
+
+    local root = object:getRootParent()
+    if not root or not root.name or not registry.refs[root.name] then
+        return raw
+    end
+
+    for ref, _ in pairs(registry.refs[root.name]) do
+        if utils.nodeRefStringToHashString(ref) == raw then
+            return ref
+        end
+    end
+
+    return raw
+end
+
 local function clampCustomNumericProperty(key, value)
     if type(value) ~= "number" then
         return value
@@ -1747,8 +1774,9 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
         ImGui.SameLine()
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(key) + max)
 
-        local value, finished = registry.drawNodeRefSelector(style.getMaxWidth(250), data["$value"], self.object, false)
-        style.tooltip(info.typeName .. " (String will get converted to hash)")
+        local displayValue = resolveNodeRefDisplayValue(data["$value"], self.object)
+        local value, finished = registry.drawNodeRefSelector(style.getMaxWidth(250), displayValue, self.object, false)
+        style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)
         if finished then
             if string.find(value, "%D") then
