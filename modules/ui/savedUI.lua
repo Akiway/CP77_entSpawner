@@ -5,17 +5,14 @@ local settings = require("modules/utils/settings")
 local amm = require("modules/utils/ammUtils")
 local history = require("modules/utils/history")
 local field = require("modules/utils/field")
+local colorUtil = require("modules/utils/color")
+local projectTagUtil = require("modules/utils/ui/projectTag")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local backup = require("modules/utils/backup")
 
 local PROJECT_NEUTRAL_KEY = "__no_project__"
-local PROJECT_DEFAULT_ICON = "TagOutline"
-local PROJECT_DEFAULT_COLOR = { 0.23, 0.35, 0.55 }
 local PROJECT_NEUTRAL_LABEL = "No Project"
-local PROJECT_NEUTRAL_ICON = "Tag"
-local PROJECT_NEUTRAL_COLOR = { 0.24, 0.24, 0.24 }
-local PROJECT_MIN_CONTRAST_RATIO = 4
 
 savedUI = {
     filter = "",
@@ -69,22 +66,6 @@ local function isSavedElement(data)
         or data.modulePath == "modules/classes/editor/spawnableElement")
 end
 
----@param value string?
----@return string
-local function trimText(value)
-    if type(value) ~= "string" then
-        return ""
-    end
-
-    return value:match("^%s*(.-)%s*$") or ""
-end
-
----@param value string?
----@return string
-local function normalizeProjectName(value)
-    return trimText(value):lower()
-end
-
 ---@param entry {fileName: string, data: table}
 ---@return string
 local function getEntrySortName(entry)
@@ -110,95 +91,16 @@ local function compareSavedEntriesByName(a, b)
     return nameA < nameB
 end
 
----@param value number?
----@return number
-local function clamp01(value)
-    value = tonumber(value) or 0
-    return math.max(0, math.min(value, 1))
-end
-
----@param color table?
----@param fallback number[]?
----@return number[]
-local function normalizeProjectColor(color, fallback)
-    local fallbackColor = fallback or PROJECT_DEFAULT_COLOR
-    local candidate = color
-
-    if type(candidate) ~= "table" then
-        return {
-            clamp01(fallbackColor[1]),
-            clamp01(fallbackColor[2]),
-            clamp01(fallbackColor[3])
-        }
-    end
-
-    local r = tonumber(candidate[1] or candidate["1"] or candidate.r or candidate.x)
-    local g = tonumber(candidate[2] or candidate["2"] or candidate.g or candidate.y)
-    local b = tonumber(candidate[3] or candidate["3"] or candidate.b or candidate.z)
-
-    if r == nil or g == nil or b == nil then
-        return {
-            clamp01(fallbackColor[1]),
-            clamp01(fallbackColor[2]),
-            clamp01(fallbackColor[3])
-        }
-    end
-
-    if r > 1 or g > 1 or b > 1 then
-        r = r / 255
-        g = g / 255
-        b = b / 255
-    end
-
-    return {
-        clamp01(r),
-        clamp01(g),
-        clamp01(b)
-    }
-end
-
----@param icon string?
----@return string
-local function normalizeProjectIcon(icon)
-    if type(icon) == "string" and icon ~= "" and IconGlyphs[icon] then
-        return icon
-    end
-
-    return PROJECT_DEFAULT_ICON
-end
-
----@param project table?
----@param fallback table?
----@return table?
-local function normalizeProjectData(project, fallback)
-    local source = type(project) == "table" and project or nil
-    local fallbackProject = type(fallback) == "table" and fallback or nil
-    local name = trimText(source and source.name or (fallbackProject and fallbackProject.name))
-
-    if name == "" then
-        return nil
-    end
-
-    local icon = normalizeProjectIcon(source and source.icon or (fallbackProject and fallbackProject.icon))
-    local color = normalizeProjectColor(source and source.color or nil, fallbackProject and fallbackProject.color or PROJECT_DEFAULT_COLOR)
-
-    return {
-        name = name,
-        icon = icon,
-        color = color
-    }
-end
-
 ---@param group table?
 ---@return table?
 local function getGroupProject(group)
-    return normalizeProjectData(group and group.project)
+    return projectTagUtil.normalizeProject(group and group.project)
 end
 
 ---@param group table
 ---@param project table?
 local function setGroupProject(group, project)
-    local normalized = normalizeProjectData(project)
+    local normalized = projectTagUtil.normalizeProject(project)
     if normalized then
         group.project = {
             name = normalized.name,
@@ -208,62 +110,6 @@ local function setGroupProject(group, project)
     else
         group.project = nil
     end
-end
-
----@param value number
----@return number
-local function linearizeColorChannel(value)
-    if value <= 0.04045 then
-        return value / 12.92
-    end
-
-    return ((value + 0.055) / 1.055) ^ 2.4
-end
-
----@param color number[]
----@return number
-local function getRelativeLuminance(color)
-    local r = linearizeColorChannel(clamp01(color[1]))
-    local g = linearizeColorChannel(clamp01(color[2]))
-    local b = linearizeColorChannel(clamp01(color[3]))
-
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-end
-
----@param color number[]
----@param useWhiteText boolean
----@return number
-local function getContrastRatio(color, useWhiteText)
-    local lumBg = getRelativeLuminance(color)
-    local lumText = useWhiteText and 1 or 0
-    local lighter = math.max(lumBg, lumText)
-    local darker = math.min(lumBg, lumText)
-
-    return (lighter + 0.05) / (darker + 0.05)
-end
-
----@param projectColor number[]
----@return number[]
-local function getProjectSectionTextColor(projectColor)
-    local whiteContrast = getContrastRatio(projectColor, true)
-    if whiteContrast >= PROJECT_MIN_CONTRAST_RATIO then
-        return { 1, 1, 1, 1 }
-    end
-
-    return { 0, 0, 0, 1 }
-end
-
----@param baseColor number[]
----@param amount number
----@return number[]
-local function adjustColorBrightness(baseColor, amount)
-    local adjusted = {
-        clamp01(baseColor[1] + amount),
-        clamp01(baseColor[2] + amount),
-        clamp01(baseColor[3] + amount)
-    }
-
-    return adjusted
 end
 
 local function hasSavedGroups()
@@ -529,7 +375,7 @@ end
 ---@return boolean
 local function assignProjectToGroup(fileName, group, project, showToast)
     local existing = getGroupProject(group)
-    local nextProject = normalizeProjectData(project)
+    local nextProject = projectTagUtil.normalizeProject(project)
 
     local unchanged = (existing == nil and nextProject == nil)
     if not unchanged and existing and nextProject then
@@ -564,8 +410,8 @@ end
 local function applyProjectToSectionGroups(key, groups, project, showToast)
     local applied = 0
     local failures = 0
-    local normalized = normalizeProjectData(project)
-    local newKey = normalized and normalizeProjectName(normalized.name) or PROJECT_NEUTRAL_KEY
+    local normalized = projectTagUtil.normalizeProject(project)
+    local newKey = normalized and projectTagUtil.normalizeNameKey(normalized.name) or PROJECT_NEUTRAL_KEY
     local previousSectionOpen = savedUI.projectSectionOpenState[key]
 
     for _, entry in ipairs(groups or {}) do
@@ -608,7 +454,7 @@ local function collectProjectCatalog(allGroups)
     for _, entry in ipairs(allGroups) do
         local project = getGroupProject(entry.data)
         if project then
-            local key = normalizeProjectName(project.name)
+            local key = projectTagUtil.normalizeNameKey(project.name)
             if key ~= "" then
                 if not projectMap[key] then
                     projectMap[key] = {
@@ -648,8 +494,8 @@ local function buildProjectSections(filteredGroups)
             isNeutral = true,
             project = {
                 name = PROJECT_NEUTRAL_LABEL,
-                icon = PROJECT_NEUTRAL_ICON,
-                color = { PROJECT_NEUTRAL_COLOR[1], PROJECT_NEUTRAL_COLOR[2], PROJECT_NEUTRAL_COLOR[3] }
+                icon = projectTagUtil.DEFAULT_ICON,
+                color = { projectTagUtil.DEFAULT_COLOR[1], projectTagUtil.DEFAULT_COLOR[2], projectTagUtil.DEFAULT_COLOR[3] }
             },
             groups = {}
         }
@@ -660,7 +506,7 @@ local function buildProjectSections(filteredGroups)
 
     for _, entry in ipairs(filteredGroups) do
         local project = getGroupProject(entry.data)
-        local key = project and normalizeProjectName(project.name) or PROJECT_NEUTRAL_KEY
+        local key = project and projectTagUtil.normalizeNameKey(project.name) or PROJECT_NEUTRAL_KEY
         if key == "" then
             key = PROJECT_NEUTRAL_KEY
             project = nil
@@ -806,8 +652,8 @@ local function primeGroupProjectCreateState(fileName, group)
     local current = getGroupProject(group)
     savedUI.groupProjectCreateState[fileName] = {
         name = "",
-        icon = current and current.icon or PROJECT_DEFAULT_ICON,
-        color = normalizeProjectColor(current and current.color or PROJECT_DEFAULT_COLOR)
+        icon = current and current.icon or projectTagUtil.DEFAULT_ICON,
+        color = projectTagUtil.normalizeColor(current and current.color or nil)
     }
     savedUI.groupProjectIconSearch[fileName] = savedUI.groupProjectIconSearch[fileName] or ""
 end
@@ -818,13 +664,13 @@ end
 ---@param projectOptions table[]
 local function drawGroupProjectAssignment(group, fileName, projectMap, projectOptions)
     local currentProject = getGroupProject(group)
-    local currentKey = currentProject and normalizeProjectName(currentProject.name) or PROJECT_NEUTRAL_KEY
+    local currentKey = currentProject and projectTagUtil.normalizeNameKey(currentProject.name) or PROJECT_NEUTRAL_KEY
     local previewText = PROJECT_NEUTRAL_LABEL
-    local previewIcon = IconGlyphs[PROJECT_NEUTRAL_ICON] or ""
+    local previewIcon = IconGlyphs[projectTagUtil.DEFAULT_ICON] or ""
 
     if currentProject then
         previewText = currentProject.name
-        previewIcon = IconGlyphs[currentProject.icon] or IconGlyphs[PROJECT_DEFAULT_ICON] or ""
+        previewIcon = IconGlyphs[currentProject.icon] or IconGlyphs[projectTagUtil.DEFAULT_ICON] or ""
     end
 
     style.mutedText("Project")
@@ -835,7 +681,7 @@ local function drawGroupProjectAssignment(group, fileName, projectMap, projectOp
     local comboSelectionApplied = false
     if ImGui.BeginCombo("##groupProjectAssign" .. fileName, previewIcon .. " " .. previewText) then
         local neutralSelected = currentKey == PROJECT_NEUTRAL_KEY
-        if ImGui.Selectable((IconGlyphs[PROJECT_NEUTRAL_ICON] or "") .. " " .. PROJECT_NEUTRAL_LABEL, neutralSelected)
+        if ImGui.Selectable((IconGlyphs[projectTagUtil.DEFAULT_ICON] or "") .. " " .. PROJECT_NEUTRAL_LABEL, neutralSelected)
             and currentKey ~= PROJECT_NEUTRAL_KEY then
             assignProjectToGroup(fileName, group, nil, true)
             comboSelectionApplied = true
@@ -845,7 +691,7 @@ local function drawGroupProjectAssignment(group, fileName, projectMap, projectOp
         if not comboSelectionApplied then
             for _, option in ipairs(projectOptions) do
                 local selected = currentKey == option.key
-                local icon = IconGlyphs[option.project.icon] or IconGlyphs[PROJECT_DEFAULT_ICON] or ""
+                local icon = IconGlyphs[option.project.icon] or IconGlyphs[projectTagUtil.DEFAULT_ICON] or ""
                 local label = string.format("%s %s##projectOption%s", icon, option.project.name, option.key)
 
                 if ImGui.Selectable(label, selected) and currentKey ~= option.key then
@@ -906,14 +752,14 @@ local function drawGroupProjectAssignment(group, fileName, projectMap, projectOp
         ImGui.SameLine()
         editor.color, _ = style.trackedColor(nil, "##newGroupProjectColor" .. fileName, editor.color, 58)
 
-        local normalizedName = normalizeProjectName(editor.name)
+        local normalizedName = projectTagUtil.normalizeNameKey(editor.name)
         local existingProject = projectMap[normalizedName]
         if existingProject then
             style.mutedText("Existing project name detected. Assignment will reuse the existing shared project data.")
         end
 
         ImGui.Dummy(0, 8 * style.viewSize)
-        local canAssign = trimText(editor.name) ~= ""
+        local canAssign = projectTagUtil.trimText(editor.name) ~= ""
         style.pushGreyedOut(not canAssign)
         if ImGui.Button("Assign") and canAssign then
             local targetProject = existingProject and existingProject.project or {
@@ -944,7 +790,7 @@ local function getSectionProjectEditorState(section)
         editor = {
             name = section.project.name,
             icon = section.project.icon,
-            color = normalizeProjectColor(section.project.color, PROJECT_DEFAULT_COLOR)
+            color = projectTagUtil.normalizeColor(section.project.color)
         }
         savedUI.projectSectionEditorState[section.key] = editor
     end
@@ -968,7 +814,7 @@ local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
     if not ImGui.IsPopupOpen(popupId) then
         editor.name = section.project.name
         editor.icon = section.project.icon
-        editor.color = normalizeProjectColor(section.project.color, PROJECT_DEFAULT_COLOR)
+        editor.color = projectTagUtil.normalizeColor(section.project.color)
     end
 
     ImGui.SameLine()
@@ -1001,11 +847,11 @@ local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
         ImGui.SameLine()
         editor.color, _ = style.trackedColor(nil, "##savedProjectColor" .. section.key, editor.color, 58)
 
-        local updatedProject = normalizeProjectData({
+        local updatedProject = projectTagUtil.normalizeProject({
             name = editor.name,
             icon = editor.icon,
             color = editor.color
-        }, section.project)
+        })
         local canApply = updatedProject ~= nil
 
         ImGui.Dummy(0, 8 * style.viewSize)
@@ -1042,13 +888,13 @@ local function drawProjectSection(section, spawner, projectMap, projectOptions)
         return
     end
 
-    local sectionColor = normalizeProjectColor(section.project and section.project.color or nil, PROJECT_NEUTRAL_COLOR)
-    local textColor = getProjectSectionTextColor(sectionColor)
+    local sectionColor = colorUtil.normalizeRGB(section.project and section.project.color or nil, projectTagUtil.DEFAULT_COLOR)
+    local textColor = colorUtil.readableTextColor(sectionColor, projectTagUtil.DEFAULT_MIN_CONTRAST_RATIO)
     local hoverAmount = textColor[1] > 0 and 0.08 or -0.08
     local activeAmount = textColor[1] > 0 and 0.14 or -0.14
-    local hoverColor = adjustColorBrightness(sectionColor, hoverAmount)
-    local activeColor = adjustColorBrightness(sectionColor, activeAmount)
-    local icon = IconGlyphs[(section.project and section.project.icon) or PROJECT_DEFAULT_ICON] or ""
+    local hoverColor = colorUtil.adjustBrightness(sectionColor, hoverAmount)
+    local activeColor = colorUtil.adjustBrightness(sectionColor, activeAmount)
+    local icon = IconGlyphs[(section.project and section.project.icon) or projectTagUtil.DEFAULT_ICON] or ""
     local sectionName = (section.project and section.project.name) or PROJECT_NEUTRAL_LABEL
     local label = string.format("%s %s (%d)##savedProjectSection%s", icon, sectionName, #section.groups, section.key)
 

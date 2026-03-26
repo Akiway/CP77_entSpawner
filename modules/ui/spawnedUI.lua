@@ -6,6 +6,8 @@ local history = require("modules/utils/history")
 local input = require("modules/utils/input")
 local registry = require("modules/utils/nodeRefRegistry")
 local perf = require("modules/utils/perf")
+local colorUtil = require("modules/utils/color")
+local projectTagUtil = require("modules/utils/ui/projectTag")
 
 ---@class spawnedUI
 ---@field root element
@@ -1159,6 +1161,9 @@ local STATE_COLOR_ORANGE = 0xFF0099FF
 local STATE_COLOR_DEFAULT = style.mutedColor
 local STATE_ICON_GRID_STEP = 22
 local STATE_ICON_GRID_PADDING = 16
+local PROJECT_TAG_FRAME_PADDING_X = 6
+local PROJECT_TAG_FRAME_PADDING_Y = 2
+local PROJECT_TAG_FONT_SCALE = 0.75
 local CONNECTION_COUNT_ICONS = {
     [0] = IconGlyphs.Numeric0CircleOutline,
     [1] = IconGlyphs.Numeric1CircleOutline,
@@ -1491,27 +1496,64 @@ function spawnedUI.getStateIcons(element)
 end
 
 ---@param stateIcons {icon: string, tooltip: string, color: number?}[]
----@param skipPadding boolean?
 ---@return number
-function spawnedUI.getStateIconsWidth(stateIcons, skipPadding)
+function spawnedUI.getStateIconsWidth(stateIcons)
     if #stateIcons == 0 then
         return 0
     end
 
     local step = STATE_ICON_GRID_STEP * style.viewSize
-    local pad = (skipPadding and 0 or STATE_ICON_GRID_PADDING) * style.viewSize
-    return pad + (#stateIcons + 1) * step
+    return (#stateIcons + 1) * step
+end
+
+---@param projectTag table?
+---@return number
+function spawnedUI.getProjectTagWidth(projectTag)
+    if projectTag == nil then
+        return 0
+    end
+
+    local labelWidth = projectTagUtil.getLabelSize(projectTag.label, PROJECT_TAG_FONT_SCALE)
+    local padX = PROJECT_TAG_FRAME_PADDING_X * style.viewSize
+
+    return labelWidth + padX * 2
+end
+
+---@param projectTag table?
+function spawnedUI.drawProjectTag(projectTag)
+    if projectTag == nil then
+        return
+    end
+
+    ImGui.SameLine()
+    local cursorX = ImGui.GetCursorPosX() + STATE_ICON_GRID_PADDING * style.viewSize
+    local baselineY = ImGui.GetCursorPosY() + 1 * style.viewSize
+    local labelWidth, labelHeight = projectTagUtil.getLabelSize(projectTag.label, PROJECT_TAG_FONT_SCALE)
+    local padX = PROJECT_TAG_FRAME_PADDING_X * style.viewSize
+    local padY = PROJECT_TAG_FRAME_PADDING_Y * style.viewSize
+    local frameWidth = labelWidth + padX * 2
+    local frameHeight = labelHeight + padY * 2
+
+    ImGui.SetCursorPosX(cursorX)
+    ImGui.SetCursorPosY(baselineY)
+    local frameX, frameY = ImGui.GetCursorScreenPos()
+    ImGui.Dummy(frameWidth, frameHeight)
+
+    local backgroundColor = colorUtil.packAABBGGRR(projectTag.color, 1.0)
+    local textColor = colorUtil.packAABBGGRR(projectTag.textColor, 1.0)
+    local drawList = ImGui.GetWindowDrawList()
+    ImGui.ImDrawListAddRectFilled(drawList, frameX, frameY, frameX + frameWidth, frameY + frameHeight, backgroundColor, 3 * style.viewSize)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize() * PROJECT_TAG_FONT_SCALE, frameX + padX, frameY + padY, textColor, projectTag.label)
 end
 
 ---@param stateIcons {icon: string, tooltip: string, color: number?}[]
----@param skipPadding boolean?
-function spawnedUI.drawStateIcons(stateIcons, skipPadding)
+function spawnedUI.drawStateIcons(stateIcons)
     if #stateIcons == 0 then
         return
     end
 
     ImGui.SameLine()
-    local cursorX = ImGui.GetCursorPosX() + (skipPadding and 0 or STATE_ICON_GRID_PADDING) * style.viewSize
+    local cursorX = ImGui.GetCursorPosX() + STATE_ICON_GRID_PADDING * style.viewSize
     local baselineY = ImGui.GetCursorPosY() + 1 * style.viewSize
     local step = STATE_ICON_GRID_STEP * style.viewSize
 
@@ -1739,8 +1781,13 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     local leftOffset = 25 * style.viewSize -- Accounts for icon
     local hiddenText = not element.visible
     style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
+    local projectTag = projectTagUtil.getRootGroupTag(element)
     local stateIcons = spawnedUI.getStateIcons(element)
-    local stateIconsWidth = spawnedUI.getStateIconsWidth(stateIcons, element.editName)
+    local projectTagWidth = spawnedUI.getProjectTagWidth(projectTag)
+    local stateIconsWidth = spawnedUI.getStateIconsWidth(stateIcons)
+    local projectTagLeadPad = projectTag and (STATE_ICON_GRID_PADDING * style.viewSize) or 0
+    local stateIconLeadPad = (#stateIcons > 0) and (STATE_ICON_GRID_PADDING * style.viewSize) or 0
+    local rowMetaWidth = projectTagWidth + stateIconsWidth + projectTagLeadPad + stateIconLeadPad
 
     -- Icon or expand button
     if not element.expandable and element.icon ~= "" then
@@ -1785,7 +1832,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
         local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
         local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
         local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-        local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x - stateIconsWidth)
+        local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x - rowMetaWidth)
 
         local fittedName, wasClipped = spawnedUI.fitTextWithEllipsis(element.name, maxNameWidth)
         ImGui.SetNextItemAllowOverlap()
@@ -1794,7 +1841,10 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
             style.tooltip(element.name)
         end
     end
-    spawnedUI.drawStateIcons(stateIcons, element.editName)
+    if not element.editName then
+        spawnedUI.drawStateIcons(stateIcons)
+        spawnedUI.drawProjectTag(projectTag)
+    end
     style.popStyleColor(hiddenText)
 
     if element.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
