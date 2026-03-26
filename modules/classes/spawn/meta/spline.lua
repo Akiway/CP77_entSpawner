@@ -10,6 +10,8 @@ local settings = require("modules/utils/settings")
 
 local minCurvePreviewSamples = 8
 local maxCurvePreviewSamples = 24
+local lengthIntegrationEpsilon = 0.00001
+local lengthIntegrationMaxDepth = 18
 
 ---Class for worldSplineNode
 ---@class spline : visualized
@@ -265,6 +267,57 @@ function spline:getFollowerPathPoints()
     return applyPreviewDirection(pathPoints)
 end
 
+function spline:getTotalLength()
+    local pointDefs = self:getFollowerPreviewSplineMarkerDefs()
+
+    local function sumLinear(points, looped)
+        if #points < 2 then
+            return 0
+        end
+
+        local total = 0
+        for i = 1, #points - 1 do
+            total = total + utils.distanceVector(points[i], points[i + 1])
+        end
+
+        if looped and #points > 1 then
+            total = total + utils.distanceVector(points[#points], points[1])
+        end
+
+        return total
+    end
+
+    if #pointDefs == 0 then
+        self:loadSplinePoints()
+        local points = {}
+        for i = 1, #self.points do
+            table.insert(points, self.points[i])
+        end
+
+        return sumLinear(points, self.looped)
+    end
+
+    local total = 0
+    local function bezierSegmentLength(defA, defB)
+        local p0 = defA.position
+        local p1 = defB.position
+        local c0 = utils.addVector(p0, Vector4.new(defA.tangentOut.x, defA.tangentOut.y, defA.tangentOut.z, 0))
+        local c1 = utils.addVector(p1, Vector4.new(defB.tangentIn.x, defB.tangentIn.y, defB.tangentIn.z, 0))
+
+        return self:getBezierArcLength(p0, c0, c1, p1, lengthIntegrationEpsilon, lengthIntegrationMaxDepth)
+    end
+
+    for i = 1, #pointDefs - 1 do
+        total = total + bezierSegmentLength(pointDefs[i], pointDefs[i + 1])
+    end
+
+    if self.looped and #pointDefs > 1 then
+        total = total + bezierSegmentLength(pointDefs[#pointDefs], pointDefs[1])
+    end
+
+    return total
+end
+
 function spline:refreshLinkedMarkerTangents(refreshEdgeTangents)
     local paths = self:loadSplinePaths()
     if utils.indexValue(paths, self.splinePath) == -1 then return end
@@ -462,6 +515,68 @@ function spline:getBezierPoint(p0, c0, c1, p1, t)
         uuu * p0.z + 3 * uu * t * c0.z + 3 * u * tt * c1.z + ttt * p1.z,
         0
     )
+end
+
+function spline:getBezierSpeed(p0, c0, c1, p1, t)
+    local u = 1 - t
+    local uu = u * u
+    local tt = t * t
+
+    local aX = c0.x - p0.x
+    local aY = c0.y - p0.y
+    local aZ = c0.z - p0.z
+    local bX = c1.x - c0.x
+    local bY = c1.y - c0.y
+    local bZ = c1.z - c0.z
+    local cX = p1.x - c1.x
+    local cY = p1.y - c1.y
+    local cZ = p1.z - c1.z
+
+    local dX = 3 * (uu * aX + 2 * u * t * bX + tt * cX)
+    local dY = 3 * (uu * aY + 2 * u * t * bY + tt * cY)
+    local dZ = 3 * (uu * aZ + 2 * u * t * bZ + tt * cZ)
+
+    return math.sqrt(dX * dX + dY * dY + dZ * dZ)
+end
+
+function spline:getBezierArcLength(p0, c0, c1, p1, epsilon, maxDepth)
+    epsilon = epsilon or lengthIntegrationEpsilon
+    maxDepth = maxDepth or lengthIntegrationMaxDepth
+
+    local function simpson(fa, fm, fb, h)
+        return h * (fa + 4 * fm + fb) / 6
+    end
+
+    local function integrateRecursive(a, b, fa, fm, fb, whole, eps, depth)
+        local m = (a + b) / 2
+        local lm = (a + m) / 2
+        local rm = (m + b) / 2
+
+        local flm = self:getBezierSpeed(p0, c0, c1, p1, lm)
+        local frm = self:getBezierSpeed(p0, c0, c1, p1, rm)
+
+        local left = simpson(fa, flm, fm, m - a)
+        local right = simpson(fm, frm, fb, b - m)
+        local delta = left + right - whole
+
+        if depth <= 0 or math.abs(delta) <= 15 * eps then
+            -- Richardson extrapolation term improves final precision.
+            return left + right + delta / 15
+        end
+
+        return integrateRecursive(a, m, fa, flm, fm, left, eps / 2, depth - 1)
+            + integrateRecursive(m, b, fm, frm, fb, right, eps / 2, depth - 1)
+    end
+
+    local a = 0
+    local b = 1
+    local m = 0.5
+    local fa = self:getBezierSpeed(p0, c0, c1, p1, a)
+    local fm = self:getBezierSpeed(p0, c0, c1, p1, m)
+    local fb = self:getBezierSpeed(p0, c0, c1, p1, b)
+    local whole = simpson(fa, fm, fb, b - a)
+
+    return integrateRecursive(a, b, fa, fm, fb, whole, epsilon, maxDepth)
 end
 
 function spline:getCurvePreviewComponent(index)
@@ -845,7 +960,7 @@ function spline:draw()
     visualized.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Curve Quality", "Spline Path", "Reverse", "Looped", "Preview NPC", "Preview NPC Record", "Movement Type", "Movement Speed" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Curve Quality", "Spline Path", "Spline Length", "Reverse", "Looped", "Preview NPC", "Preview NPC Record", "Movement Type", "Movement Speed" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     local paths = self:loadSplinePaths()
@@ -865,6 +980,12 @@ function spline:draw()
         self:respawn()
     end
     style.tooltip("Path to the group containing the spline points.\nMust be contained within the same root group as this spline.")
+
+    style.mutedText("Spline Length")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.Text(string.format("%.2fm", self:getTotalLength()))
+    style.tooltip("Total spline length based on current curve sampling.")
 
     style.mutedText("Reverse")
     ImGui.SameLine()
