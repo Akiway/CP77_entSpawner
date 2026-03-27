@@ -1105,7 +1105,8 @@ function spawnedUI.getSideButtonsWidth(element)
         getButtonWidth(IconGlyphs.LockOpenAlertOutline)
     )
 
-    local totalX = getButtonWidth(IconGlyphs.EyeOutline) + lockWidth + ImGui.GetStyle().ItemSpacing.x
+    local visibilityWidth = math.max(getButtonWidth(IconGlyphs.EyeOutline), getButtonWidth(IconGlyphs.EyeOffOutline))
+    local totalX = visibilityWidth + lockWidth + ImGui.GetStyle().ItemSpacing.x
     local gotoX = getButtonWidth(IconGlyphs.ArrowTopRight)
 
     if spawnedUI.filter ~= "" then
@@ -1662,11 +1663,12 @@ function spawnedUI.drawSideButtons(element)
     ImGui.SameLine()
 
     local visible = element.visible
+    local visibilityIcon = visible and IconGlyphs.EyeOutline or IconGlyphs.EyeOffOutline
     style.pushStyleColor(not visible, ImGuiCol.Text, style.mutedColor)
 
     ImGui.SetNextItemAllowOverlap()
     ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
-    if ImGui.Button(IconGlyphs.EyeOutline) then
+    if ImGui.Button(visibilityIcon) then
         if spawnedUI.multiSelectActive() and spawnedUI.canToggleVisibility(element) then
             element:setVisibleRecursive(not element.visible)
         elseif spawnedUI.canToggleVisibility(element) then
