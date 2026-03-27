@@ -10,12 +10,15 @@ local style = {
     mutedColor = 0xFFA5A19B,
     extraMutedColor = 0x96A5A19B,
     highlightColor = 0xFFDCD8D1,
-    activeColor = 0xFFFEB500,
+    activeColor = 0xFFB2FF00,
+    selectedColor = 0xFFFF9900,
+    warnColor = 0xFF0099FF,
     activeTextColor = 0xFF000000,
     elementIndent = 35,
     draggedColor = 0xFF00007F,
     targetedColor = 0xFF00007F,
-    regularColor = 0xFFFFFFFF
+    regularColor = 0xFFFFFFFF,
+    greyedColor = 0xff777777,
 }
 
 local initialized = false
@@ -96,13 +99,13 @@ end
 function style.pushGreyedOut(state)
     if not state then return end
 
-    ImGui.PushStyleColor(ImGuiCol.Button, 0xff777777)
-    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0xff777777)
-    ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0xff777777)
+    ImGui.PushStyleColor(ImGuiCol.Button, style.greyedColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.greyedColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonActive, style.greyedColor)
 
-    ImGui.PushStyleColor(ImGuiCol.FrameBg, 0xff777777)
-    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, 0xff777777)
-    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, 0xff777777)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, style.greyedColor)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, style.greyedColor)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, style.greyedColor)
 end
 
 ---Pop greyed-out colors pushed by `style.pushGreyedOut`.
@@ -157,7 +160,7 @@ function style.tooltip(text)
     if ImGui.IsItemHovered() then
         placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
         ImGui.BeginTooltip()
-        ImGui.PushStyleColor(ImGuiCol.Text, 0xFFFFFFFF)
+        ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
         ImGui.Text(text)
         ImGui.PopStyleColor()
         ImGui.EndTooltip()
@@ -299,9 +302,12 @@ end
 ---@param ... any Optional size args forwarded to `ImGui.Button`.
 ---@return boolean clicked
 function style.warnButton(text, ...)
-    ImGui.PushStyleColor(ImGuiCol.Button, 1.0, 0.6, 0.0, 0.8)
-    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1.0, 0.6, 0.0, 1.0)
-    ImGui.PushStyleColor(ImGuiCol.ButtonActive, 1.0, 0.6, 0.0, 0.6)
+    local rgb = style.warnColor % 0x1000000
+    local defaultColor = 0xCC000000 + rgb
+    local activeColor = 0x99000000 + rgb
+    ImGui.PushStyleColor(ImGuiCol.Button, defaultColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.warnColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor)
     local clicked = ImGui.Button(text, ...)
     ImGui.PopStyleColor(3)
     return clicked
@@ -317,9 +323,12 @@ function style.toggleButton(text, state)
 
     if state then
         -- toggled on state
-        ImGui.PushStyleColor(ImGuiCol.Button, 0.0, 1.0, 0.7, 0.8)
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.0, 1.0, 0.7, 1.0)
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.0, 1.0, 0.7, 0.6)
+        local rgb = style.activeColor % 0x1000000
+        local defaultColor = 0xCC000000 + rgb
+        local activeColor = 0x99000000 + rgb
+        ImGui.PushStyleColor(ImGuiCol.Button, defaultColor)
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.activeColor)
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor)
         ImGui.PushStyleColor(ImGuiCol.Text, style.activeTextColor)
         clicked = ImGui.Button(text)
         ImGui.PopStyleColor(4)
@@ -639,7 +648,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, options, 
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
             for _, option in pairs(options) do
                 local optionText = tostring(option)
-                if optionText:lower():match(searchValue:lower()) and ImGui.Selectable(optionText) then
+                if utils.safePatternMatch(optionText:lower(), searchValue:lower()) and ImGui.Selectable(optionText) then
                     if element then
                         history.addAction(history.getElementChange(element))
                     end
@@ -679,6 +688,7 @@ function style.trackedSearchDropdownWithSearch(element, text, searchHint, value,
     matchContentWidth = matchContentWidth == true
 
     local finished = false
+    local selectedValue = tostring(value)
     local comboWidth = width * style.viewSize
     local popupMaxWidth = comboWidth
 
@@ -705,13 +715,32 @@ function style.trackedSearchDropdownWithSearch(element, text, searchHint, value,
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
             for _, option in pairs(options) do
                 local optionText = tostring(option)
-                if optionText:lower():match(searchValue:lower()) and ImGui.Selectable(optionText) then
-                    if element then
-                        history.addAction(history.getElementChange(element))
+                if utils.safePatternMatch(optionText:lower(), searchValue:lower()) then
+                    local selected = optionText == selectedValue
+                    if selected then
+                        local rowX, rowY = ImGui.GetCursorScreenPos()
+                        local rowWidth = ImGui.GetContentRegionAvail()
+                        local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
+                        local drawList = ImGui.GetWindowDrawList()
+                        ImGui.ImDrawListAddRectFilled(
+                            drawList,
+                            rowX,
+                            rowY - (0.5 * ImGui.GetStyle().FramePadding.y),
+                            rowX + rowWidth,
+                            rowY + rowHeight,
+                            style.selectedColor,
+                            3 * style.viewSize
+                        )
                     end
-                    value = optionText
-                    finished = true
-                    ImGui.CloseCurrentPopup()
+
+                    if ImGui.Selectable(optionText) then
+                        if element then
+                            history.addAction(history.getElementChange(element))
+                        end
+                        value = optionText
+                        finished = true
+                        ImGui.CloseCurrentPopup()
+                    end
                 end
             end
 

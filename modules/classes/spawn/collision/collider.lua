@@ -15,6 +15,42 @@ local groupScaleAxes = { "X", "Y", "Z", "All" }
 
 table.sort(materials, function(a, b) return a < b end)
 
+---@param value string
+---@return string
+local function toReadableMaterialLabel(value)
+    local label = tostring(value or "")
+    label = label:gsub("%.physmat$", "")
+    label = label:gsub("_", " ")
+    label = label:gsub("%s+", " ")
+    label = label:gsub("^%s*(.-)%s*$", "%1")
+
+    return label:gsub("(%a)([%w']*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end)
+end
+
+local materialDisplayOptions = {}
+local materialDisplayToIndex = {}
+
+for i, material in ipairs(materials) do
+    local label = toReadableMaterialLabel(material)
+
+    -- Keep labels stable/unique in case two source values normalize to the same text.
+    if materialDisplayToIndex[label] ~= nil then
+        label = string.format("%s (%s)", label, material)
+    end
+
+    materialDisplayOptions[i] = label
+    materialDisplayToIndex[label] = i - 1
+end
+
+---@param index number?
+---@return string
+local function getMaterialDisplayByIndex(index)
+    local safeIndex = math.max(0, tonumber(index) or 0) + 1
+    return materialDisplayOptions[safeIndex] or materialDisplayOptions[1] or ""
+end
+
 ---Class for worldCollisionNode
 ---@class collider : spawnable
 ---@field private shape integer
@@ -46,6 +82,7 @@ function collider:new()
     o.previewed = true
     o.maxPropertyWidth = nil
     o.currentAxis = 0
+    o.materialSearch = ""
 
     setmetatable(o, { __index = self })
    	return o
@@ -267,8 +304,23 @@ function collider:draw()
     style.mutedText("Collision Material")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.material, changed = style.trackedCombo(self.object, "##material", self.material, materials, 200)
-    self:updateFull(changed)
+    local selectedMaterial = getMaterialDisplayByIndex(self.material)
+    local materialChanged
+    selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdownWithSearch(
+        self.object,
+        "##material",
+        "Search material...",
+        selectedMaterial,
+        self.materialSearch,
+        materialDisplayOptions,
+        200,
+        true
+    )
+    if materialChanged then
+        self.material = materialDisplayToIndex[selectedMaterial] or self.material
+    end
+    self:updateFull(materialChanged)
+    style.tooltip(materials[self.material + 1] or "")
 end
 
 function collider:getProperties()
@@ -332,14 +384,32 @@ function collider:getGroupedProperties()
         id = "colliderMaterial",
 		data = {
             material = settings.defaultColliderMaterial,
+            materialSearch = "",
             scaleAxis = 3,
             scaleValue = 1
         },
 		draw = function(element, entries)
             style.mutedText("Collision Material")
             ImGui.SameLine()
-            ImGui.SetNextItemWidth(150 * style.viewSize)
-            element.groupOperationData["collider"].material, _ = ImGui.Combo("##collisionMaterial", element.groupOperationData["collider"].material, materials, #materials)
+            local groupData = element.groupOperationData["collider"]
+            groupData.materialSearch = groupData.materialSearch or ""
+
+            local selectedMaterial = getMaterialDisplayByIndex(groupData.material)
+            local materialChanged
+            selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdownWithSearch(
+                nil,
+                "##collisionMaterial",
+                "Search material...",
+                selectedMaterial,
+                groupData.materialSearch,
+                materialDisplayOptions,
+                150,
+                true
+            )
+            if materialChanged then
+                groupData.material = materialDisplayToIndex[selectedMaterial] or groupData.material
+            end
+            style.tooltip(materials[groupData.material + 1] or "")
 
             ImGui.SameLine()
 
@@ -349,7 +419,7 @@ function collider:getGroupedProperties()
 
                 for _, entry in ipairs(entries) do
                     if entry.spawnable.node == self.node then
-                        entry.spawnable.material = element.groupOperationData["collider"].material
+                        entry.spawnable.material = groupData.material
                         entry.spawnable:updateFull(true)
                         nApplied = nApplied + 1
                     end
@@ -362,17 +432,17 @@ function collider:getGroupedProperties()
             style.mutedText("Scale")
             ImGui.SameLine()
             ImGui.SetNextItemWidth(70 * style.viewSize)
-            element.groupOperationData["collider"].scaleAxis, _ = ImGui.Combo("##groupColliderScaleAxis", element.groupOperationData["collider"].scaleAxis, groupScaleAxes, #groupScaleAxes)
+            groupData.scaleAxis, _ = ImGui.Combo("##groupColliderScaleAxis", groupData.scaleAxis, groupScaleAxes, #groupScaleAxes)
 
             ImGui.SameLine()
             ImGui.SetNextItemWidth(80 * style.viewSize)
-            element.groupOperationData["collider"].scaleValue, _ = ImGui.InputFloat("##groupColliderScaleValue", element.groupOperationData["collider"].scaleValue, 0, 0, "%.3f")
+            groupData.scaleValue, _ = ImGui.InputFloat("##groupColliderScaleValue", groupData.scaleValue, 0, 0, "%.3f")
 
             ImGui.SameLine()
             if ImGui.Button("Apply Scale") then
                 history.addAction(history.getMultiSelectChange(entries))
                 local nApplied = 0
-                local data = element.groupOperationData["collider"]
+                local data = groupData
                 local axis = data.scaleAxis
                 local value = math.max(0, tonumber(data.scaleValue) or 0)
                 data.scaleValue = value
