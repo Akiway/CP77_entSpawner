@@ -313,6 +313,22 @@ function element:drawProperties()
 	else
 		groupedProperties = {}
 
+		for key, property in pairs(self:getExtraGroupedProperties()) do
+			if not groupedProperties[key] then
+				groupedProperties[key] = {
+					name = property.name,
+					draw = { [property.id] = property.draw },
+					entries = property.entries or {}
+				}
+			elseif not groupedProperties[key].draw[property.id] then
+				groupedProperties[key].draw[property.id] = property.draw
+			end
+
+			if not self.groupOperationData[key] then
+				self.groupOperationData[key] = property.data
+			end
+		end
+
 		for _, child in ipairs(self:getPathsRecursive(true)) do
 			if not child.ref:isLocked() then
 				for key, property in pairs(child.ref:getGroupedProperties()) do
@@ -375,6 +391,10 @@ function element:getProperties()
 end
 
 function element:getGroupedProperties()
+	return {}
+end
+
+function element:getExtraGroupedProperties()
 	return {}
 end
 

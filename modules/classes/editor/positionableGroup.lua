@@ -1,9 +1,11 @@
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
+local field = require("modules/utils/field")
 local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
 local editor = require("modules/utils/editor/editor")
+local projectTagUtil = require("modules/utils/ui/projectTag")
 
 local positionable = require("modules/classes/editor/positionable")
 
@@ -24,6 +26,8 @@ local positionableGroup = setmetatable({}, { __index = positionable })
 
 local PROJECT_DEFAULT_ICON = "TagOutline"
 local PROJECT_DEFAULT_COLOR = { 0.23, 0.35, 0.55 }
+local PROJECT_NEUTRAL_KEY = "__no_project__"
+local PROJECT_NEUTRAL_LABEL = "No Project"
 
 local function bumpWireframeEpoch(instance)
 	if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
@@ -96,6 +100,221 @@ local function normalizeProjectData(project)
         icon = icon,
         color = { color[1], color[2], color[3] }
     }
+end
+
+---@param data table?
+---@return boolean
+local function isSerializedSavedGroup(data)
+    return type(data) == "table" and (
+        data.type == "group"
+        or data.modulePath == "modules/classes/editor/positionableGroup"
+        or data.modulePath == "modules/classes/editor/randomizedGroup"
+    )
+end
+
+---@param instance positionableGroup
+---@return table<string, table>, table[]
+local function collectSavedProjectCatalog(instance)
+    local projectMap = {}
+    local projectOptions = {}
+    local baseUI = instance and instance.sUI and instance.sUI.spawner and instance.sUI.spawner.baseUI
+    local savedFiles = baseUI and baseUI.savedUI and baseUI.savedUI.files or nil
+    if type(savedFiles) ~= "table" then
+        return projectMap, projectOptions
+    end
+
+    for _, data in pairs(savedFiles) do
+        if isSerializedSavedGroup(data) then
+            local project = projectTagUtil.normalizeProject(data.project)
+            if project then
+                local key = projectTagUtil.normalizeNameKey(project.name)
+                if key ~= "" and not projectMap[key] then
+                    projectMap[key] = {
+                        key = key,
+                        project = project
+                    }
+                    table.insert(projectOptions, projectMap[key])
+                end
+            end
+        end
+    end
+
+    table.sort(projectOptions, function(a, b)
+        local nameA = a.project.name:lower()
+        local nameB = b.project.name:lower()
+        if nameA == nameB then
+            return a.key < b.key
+        end
+
+        return nameA < nameB
+    end)
+
+    return projectMap, projectOptions
+end
+
+---@param a table?
+---@param b table?
+---@return boolean
+local function areProjectsEqual(a, b)
+    local first = projectTagUtil.normalizeProject(a)
+    local second = projectTagUtil.normalizeProject(b)
+
+    if first == nil or second == nil then
+        return first == nil and second == nil
+    end
+
+    return first.name == second.name
+        and first.icon == second.icon
+        and first.color[1] == second.color[1]
+        and first.color[2] == second.color[2]
+        and first.color[3] == second.color[3]
+end
+
+---@param instance positionableGroup
+---@param project table?
+local function setProjectAssignment(instance, project)
+    local normalized = projectTagUtil.normalizeProject(project)
+    if areProjectsEqual(instance.project, normalized) then
+        return
+    end
+
+    history.addAction(history.getElementChange(instance))
+
+    if normalized then
+        instance.project = {
+            name = normalized.name,
+            icon = normalized.icon,
+            color = { normalized.color[1], normalized.color[2], normalized.color[3] }
+        }
+    else
+        instance.project = nil
+    end
+
+    if instance.sUI and instance.sUI.invalidateCache then
+        instance.sUI.invalidateCache(false)
+    end
+end
+
+---@param instance positionableGroup
+local function primeProjectCreateState(instance)
+    local current = projectTagUtil.normalizeProject(instance.project)
+    instance.projectCreateState = {
+        name = "",
+        icon = current and current.icon or projectTagUtil.DEFAULT_ICON,
+        color = projectTagUtil.normalizeColor(current and current.color or nil)
+    }
+    instance.projectCreateIconSearch = instance.projectCreateIconSearch or ""
+end
+
+---@param instance positionableGroup
+local function drawRootProjectTagSelector(instance)
+    local projectMap, projectOptions = collectSavedProjectCatalog(instance)
+    local currentProject = projectTagUtil.normalizeProject(instance.project)
+    local currentKey = currentProject and projectTagUtil.normalizeNameKey(currentProject.name) or PROJECT_NEUTRAL_KEY
+    local previewText = currentProject and currentProject.name or PROJECT_NEUTRAL_LABEL
+    local previewIcon = IconGlyphs[(currentProject and currentProject.icon) or projectTagUtil.DEFAULT_ICON] or ""
+    local comboSelectionApplied = false
+
+    style.mutedText("Project Tag")
+    ImGui.SameLine()
+    ImGui.SetNextItemWidth(200 * style.viewSize)
+
+    if ImGui.BeginCombo("##rootGroupProjectAssign" .. instance.id, previewIcon .. " " .. previewText) then
+        local neutralSelected = currentKey == PROJECT_NEUTRAL_KEY
+        if ImGui.Selectable((IconGlyphs[projectTagUtil.DEFAULT_ICON] or "") .. " " .. PROJECT_NEUTRAL_LABEL, neutralSelected)
+            and currentKey ~= PROJECT_NEUTRAL_KEY then
+            setProjectAssignment(instance, nil)
+            comboSelectionApplied = true
+            ImGui.CloseCurrentPopup()
+        end
+
+        if not comboSelectionApplied then
+            for _, option in ipairs(projectOptions) do
+                local selected = currentKey == option.key
+                local icon = IconGlyphs[option.project.icon] or IconGlyphs[projectTagUtil.DEFAULT_ICON] or ""
+                local label = string.format("%s %s##rootProjectOption%s%s", icon, option.project.name, option.key, instance.id)
+
+                if ImGui.Selectable(label, selected) and currentKey ~= option.key then
+                    setProjectAssignment(instance, option.project)
+                    comboSelectionApplied = true
+                    ImGui.CloseCurrentPopup()
+                    break
+                end
+            end
+        end
+
+        if not comboSelectionApplied then
+            ImGui.Separator()
+            local plusIcon = IconGlyphs.Plus or "+"
+            if ImGui.Selectable(string.format("%s Create new project tag...##rootProjectCreate%s", plusIcon, instance.id), false) then
+                primeProjectCreateState(instance)
+                instance.pendingProjectCreatePopupId = "##rootProjectCreatePopup" .. instance.id
+            end
+        end
+
+        ImGui.EndCombo()
+    end
+
+    ImGui.SameLine()
+    style.pushGreyedOut(currentProject == nil)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Close .. "##rootProjectClear" .. instance.id) and currentProject ~= nil then
+        setProjectAssignment(instance, nil)
+    end
+    style.pushButtonNoBG(false)
+    style.popGreyedOut(currentProject == nil)
+    style.tooltip("Remove project attribution")
+
+    local popupId = "##rootProjectCreatePopup" .. instance.id
+    if instance.pendingProjectCreatePopupId == popupId then
+        ImGui.OpenPopup(popupId)
+        instance.pendingProjectCreatePopupId = nil
+    end
+
+    if not instance.projectCreateState then
+        primeProjectCreateState(instance)
+    end
+
+    local editorState = instance.projectCreateState
+    if ImGui.BeginPopup(popupId) then
+        style.mutedText("Create project tag for this group")
+        ImGui.Separator()
+
+        ImGui.SetNextItemWidth(220 * style.viewSize)
+        editorState.name, _ = ImGui.InputTextWithHint("##rootProjectName" .. instance.id, "Project name...", editorState.name or "", 100)
+
+        editorState.icon, instance.projectCreateIconSearch, _ = field.drawIconSelector("spawnedRootProject:" .. instance.id, editorState.icon, instance.projectCreateIconSearch)
+        ImGui.SameLine()
+        editorState.color, _ = style.trackedColor(nil, "##rootProjectColor" .. instance.id, editorState.color, 58)
+
+        local normalizedName = projectTagUtil.normalizeNameKey(editorState.name)
+        local existingProject = projectMap[normalizedName]
+        if existingProject then
+            style.mutedText("Existing project name detected. Assignment will reuse the existing shared project data.")
+        end
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        local canAssign = projectTagUtil.trimText(editorState.name) ~= ""
+        style.pushGreyedOut(not canAssign)
+        if ImGui.Button("Assign##rootProjectAssign" .. instance.id) and canAssign then
+            local targetProject = existingProject and existingProject.project or {
+                name = editorState.name,
+                icon = editorState.icon,
+                color = editorState.color
+            }
+
+            setProjectAssignment(instance, targetProject)
+            ImGui.CloseCurrentPopup()
+        end
+        style.popGreyedOut(not canAssign)
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##rootProjectCancel" .. instance.id) then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
 end
 
 function positionableGroup:new(sUI)
@@ -298,6 +517,22 @@ function positionableGroup:drawGeneralProperties()
 	ImGui.SameLine()
 	settings.groupWireframeEnabled, _ = style.trackedCheckbox(self, "##showGroupWireframe", settings.groupWireframeEnabled)
 	style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin.")
+end
+
+function positionableGroup:getExtraGroupedProperties()
+    if self.parent == nil or not self.parent:isRoot(true) then
+        return {}
+    end
+
+    return {
+        rootProjectTag = {
+            id = "rootProjectTag",
+            name = "Project Tag",
+            draw = function ()
+                drawRootProjectTagSelector(self)
+            end
+        }
+    }
 end
 
 function positionableGroup:getWorldMinMax()
