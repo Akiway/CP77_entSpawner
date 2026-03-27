@@ -1,5 +1,6 @@
 local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
+local field = require("modules/utils/field")
 local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
 local perf = require("modules/utils/perf")
@@ -220,6 +221,18 @@ function settingsUI.draw(spawner)
 
         settings.rotSteps, changed = ImGui.InputFloat("Rotation controls step size", settings.rotSteps, -9999, 9999, "%.4f")
         if changed then settings.save() end
+
+        settings.rotationShiftClickStep, changed = field.advancedTrackedFloat(nil, "Quick Rotation Step", settings.rotationShiftClickStep, {
+            step = 0.5,
+            shiftStep = 5,
+            min = 0,
+            max = 360,
+            format = "%.2f",
+            shiftFormat = "%.2f",
+            width = 120
+        })
+        if changed then settings.save() end
+        style.tooltip("Amount added/subtracted when Shift+Left/Right clicking Roll/Pitch/Yaw fields.")
 
         settings.precisionMultiplier, changed = ImGui.InputFloat("Precision multiplier", settings.precisionMultiplier, 0, 10, "x%.3f")
         if changed then settings.save() end

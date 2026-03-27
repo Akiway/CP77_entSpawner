@@ -3,6 +3,7 @@ local gameUtils = require("modules/utils/gameUtils")
 local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
+local field = require("modules/utils/field")
 local editor = require("modules/utils/editor/editor")
 
 local element = require("modules/classes/editor/element")
@@ -227,6 +228,23 @@ function positionable:drawGeneralProperties()
 	style.mutedText("Apply Rotation When Dropped")
 	ImGui.SameLine()
 	self.applyRotationWhenDropped, _ = style.trackedCheckbox(self, "##applyRotationWhenDropped", self.applyRotationWhenDropped)
+
+	style.mutedText("Quick Rotation Step")
+	ImGui.SameLine()
+	local changed
+	settings.rotationShiftClickStep, changed = field.advancedTrackedFloat(nil, "##shiftClickRotationStep", settings.rotationShiftClickStep, {
+		step = 0.5,
+		shiftStep = 5,
+		min = 0,
+		max = 360,
+		format = "%.2f",
+		shiftFormat = "%.2f",
+		width = 80
+	})
+	if changed then
+		settings.save()
+	end
+	style.tooltip("Amount added/subtracted when Shift+Left/Right clicking Roll/Pitch/Yaw fields.")
 end
 
 function positionable:setSelected(state)
@@ -566,6 +584,7 @@ end
 
 function positionable:handleRightAngleChange(axis, shiftActive)
 	if not shiftActive or self.rotationLocked then return end
+	local step = math.abs(tonumber(settings.rotationShiftClickStep) or 90)
 
 	local function applyRightAngle(angle)
 		history.addAction(history.getElementChange(self))
@@ -574,10 +593,10 @@ function positionable:handleRightAngleChange(axis, shiftActive)
 	end
 
 	if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Left) and shiftActive then
-		applyRightAngle(90)
+		applyRightAngle(step)
 	end
 	if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and shiftActive then
-		applyRightAngle(-90)
+		applyRightAngle(-step)
 	end
 end
 

@@ -623,7 +623,9 @@ end
 ---`max` (`number`, default `99999`), `format` (`string`, default `"%.2f"`),
 ---`shiftFormat` (`string`, default `"%.3f"`), `width` (`number`, default `74`),
 ---`prefix` (`string`, default `""`), `suffix` (`string`, default `""`),
----`loop` (`boolean`, default `false`) to wrap values between min/max.
+---`loop` (`boolean`, default `false`) to wrap values between min/max,
+---`shiftStep` (`number`, optional, effective final step while Shift is held) and
+---`ctrlStep` (`number`, optional) to override modifier drag steps.
 ---@return number newValue Updated value (may include infinity sentinel or wrapped value).
 ---@return boolean changed True while value changed this frame.
 ---@return boolean finished True when item was deactivated after edit.
@@ -631,6 +633,8 @@ function field.advancedTrackedFloat(element, text, value, options)
     options = options or {}
 
     local step = options.step or 0.01
+    local shiftStep = options.shiftStep
+    local ctrlStep = options.ctrlStep
     local min = options.min or -99999
     local max = options.max or 99999
     local format = options.format or "%.2f"
@@ -645,9 +649,10 @@ function field.advancedTrackedFloat(element, text, value, options)
     local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
 
     if shiftDown then
-        dragStep = dragStep * 0.1 * settings.precisionMultiplier
+        -- ImGui drag applies an internal x10 multiplier while Shift is held, compensating here with `* 0.1`.
+        dragStep = 0.1 * (tonumber(shiftStep) or (dragStep * settings.precisionMultiplier))
     elseif ctrlDown then
-        dragStep = dragStep * settings.coarsePrecisionMultiplier
+        dragStep = tonumber(ctrlStep) or (dragStep * settings.coarsePrecisionMultiplier)
     end
 
     local wasPositiveInfinity = not loop and isPositiveInfinitySentinel(value)

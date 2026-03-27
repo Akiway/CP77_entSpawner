@@ -7,6 +7,7 @@ local config = require("modules/utils/config")
 ---@field public precisionMultiplier number
 ---@field public coarsePrecisionMultiplier number
 ---@field public rotSteps number
+---@field public rotationShiftClickStep number
 ---@field public despawnOnReload boolean
 ---@field public headerState boolean
 ---@field public deleteConfirm boolean
@@ -60,6 +61,7 @@ local settingsData = {
     precisionMultiplier = 0.2,
     coarsePrecisionMultiplier = 5,
     rotSteps = 0.050,
+    rotationShiftClickStep = 90,
     despawnOnReload = true,
     headerState = true,
     deleteConfirm = true,
