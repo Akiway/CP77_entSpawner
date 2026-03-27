@@ -5,10 +5,6 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local cache = require("modules/utils/cache")
 
-local channels = {
-    "TC_Default", "TC_Player", "TC_Camera", "TC_Human", "TC_SoundReverbArea", "TC_SoundAmbientArea", "TC_Quest", "TC_Projectiles", "TC_Vehicle", "TC_Environment", "TC_WaterNullArea", "TC_Custom0", "TC_Custom1", "TC_Custom2", "TC_Custom3", "TC_Custom4", "TC_Custom5", "TC_Custom6", "TC_Custom7", "TC_Custom8", "TC_Custom9", "TC_Custom10", "TC_Custom11", "TC_Custom12", "TC_Custom13", "TC_Custom14"
-}
-
 ---Class for worldAmbientAreaNode
 ---@class ambientArea : triggerArea
 local ambientArea = setmetatable({}, { __index = triggerArea })
@@ -181,9 +177,7 @@ end
 
 function ambientArea:drawChannelSelect()
     if ImGui.TreeNodeEx("Trigger Channels", ImGuiTreeNodeFlags.SpanFullWidth) then
-        for key, name in pairs(channels) do
-            self.channels[key], _ = style.trackedCheckbox(self.object, name, self.channels[key])
-        end
+        self.channels = style.drawTriggerChannelsSelector(self.object, self.channels)
         ImGui.TreePop()
     end
 end

@@ -5,6 +5,7 @@ local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
 local dragBeingEdited = false
 local maxLightChannelsWidth = nil
+local maxTriggerChannelsWidth = nil
 
 local style = {
     mutedColor = 0xFFA5A19B,
@@ -791,6 +792,35 @@ style.lightChannelEnum = {
     "LC_Automated"
 }
 
+style.triggerChannelEnum = {
+    "TC_Default",
+    "TC_Player",
+    "TC_Camera",
+    "TC_Human",
+    "TC_SoundReverbArea",
+    "TC_SoundAmbientArea",
+    "TC_Quest",
+    "TC_Projectiles",
+    "TC_Vehicle",
+    "TC_Environment",
+    "TC_WaterNullArea",
+    "TC_Custom0",
+    "TC_Custom1",
+    "TC_Custom2",
+    "TC_Custom3",
+    "TC_Custom4",
+    "TC_Custom5",
+    "TC_Custom6",
+    "TC_Custom7",
+    "TC_Custom8",
+    "TC_Custom9",
+    "TC_Custom10",
+    "TC_Custom11",
+    "TC_Custom12",
+    "TC_Custom13",
+    "TC_Custom14"
+}
+
 ---Draw controls for selecting light-channel flags.
 ---Includes select all/none, copy, and paste actions.
 ---@param object table? Optional element for undo history tracking.
@@ -848,6 +878,65 @@ function style.drawLightChannelsSelector(object, lightChannels)
     end
 
     return lightChannels
+end
+
+---Draw controls for selecting trigger-channel flags.
+---Includes select all/none, copy, and paste actions.
+---@param object table? Optional element for undo history tracking.
+---@param triggerChannels boolean[] Array of channel states.
+---@return boolean[] triggerChannels Updated channel states.
+function style.drawTriggerChannelsSelector(object, triggerChannels)
+    if not maxTriggerChannelsWidth then
+        maxTriggerChannelsWidth = utils.getTextMaxWidth(style.triggerChannelEnum) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+    end
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.PlusBoxMultipleOutline) then
+        if object then history.addAction(history.getElementChange(object)) end
+        for i = 1, #triggerChannels do
+            triggerChannels[i] = true
+        end
+    end
+    style.tooltip("Select all trigger channels")
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.MinusBoxMultipleOutline) then
+        if object then history.addAction(history.getElementChange(object)) end
+        for i = 1, #triggerChannels do
+            triggerChannels[i] = false
+        end
+    end
+    style.tooltip("Deselect all trigger channels")
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.ContentCopy) then
+        utils.insertClipboardValue("triggerChannels", utils.deepcopy(triggerChannels))
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Copied trigger channels to the clipboard"))
+    end
+    style.tooltip("Copy trigger channels to clipboard")
+
+    ImGui.SameLine()
+    local channels = utils.getClipboardValue("triggerChannels")
+    style.pushGreyedOut(channels == nil)
+    if ImGui.Button(IconGlyphs.ContentPaste) and channels ~= nil then
+        if object then history.addAction(history.getElementChange(object)) end
+        triggerChannels = utils.deepcopy(channels)
+    end
+    style.tooltip("Paste trigger channels from clipboard")
+    style.popGreyedOut(channels == nil)
+    style.pushButtonNoBG(false)
+
+    for key, channel in ipairs(style.triggerChannelEnum) do
+        style.mutedText(channel)
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(maxTriggerChannelsWidth)
+
+        if object then
+            triggerChannels[key], _ = style.trackedCheckbox(object, "##triggerChannel" .. key, triggerChannels[key])
+        else
+            triggerChannels[key], _ = ImGui.Checkbox("##triggerChannel" .. key, triggerChannels[key])
+        end
+    end
+
+    return triggerChannels
 end
 
 return style
