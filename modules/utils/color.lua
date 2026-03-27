@@ -6,6 +6,73 @@
 ---@class color
 local color = {}
 
+---Normalize arbitrary numeric channels from flexible table shapes.
+---Supports indexed arrays (`[1]`, `[2]`, ...), stringified indices (`"1"`), and optional named keys.
+---@param source table? Source table to normalize.
+---@param options table? Optional configuration:
+---`count` (`number`): output channel count.
+---`fallback` (`table`): fallback source values.
+---`keys` (`table`): per-channel alias lists, e.g. `keys[1] = {"r","x","Red"}`.
+---`min` (`number`): optional lower clamp.
+---`max` (`number`): optional upper clamp.
+---@return number[] normalized
+function color.normalizeChannels(source, options)
+    options = options or {}
+
+    local fallback = type(options.fallback) == "table" and options.fallback or {}
+    local count = tonumber(options.count) or math.max(#fallback, 0)
+    local keys = type(options.keys) == "table" and options.keys or {}
+    local hasMin = options.min ~= nil
+    local hasMax = options.max ~= nil
+    local minValue = tonumber(options.min) or 0
+    local maxValue = tonumber(options.max) or 0
+    local src = type(source) == "table" and source or nil
+    local normalized = {}
+
+    local function readChannel(candidate, index, aliases)
+        if type(candidate) ~= "table" then
+            return nil
+        end
+
+        local value = tonumber(candidate[index] or candidate[tostring(index)])
+        if value ~= nil then
+            return value
+        end
+
+        if type(aliases) ~= "table" then
+            return nil
+        end
+
+        for _, key in ipairs(aliases) do
+            value = tonumber(candidate[key])
+            if value ~= nil then
+                return value
+            end
+        end
+
+        return nil
+    end
+
+    for index = 1, count do
+        local aliases = keys[index]
+        local channel = readChannel(src, index, aliases)
+        if channel == nil then
+            channel = readChannel(fallback, index, aliases) or 0
+        end
+
+        if hasMin then
+            channel = math.max(channel, minValue)
+        end
+        if hasMax then
+            channel = math.min(channel, maxValue)
+        end
+
+        normalized[index] = channel
+    end
+
+    return normalized
+end
+
 ---Clamp a numeric value to the inclusive [0, 1] range.
 ---@param value number?
 ---@return number clamped
