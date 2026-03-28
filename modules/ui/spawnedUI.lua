@@ -1194,12 +1194,38 @@ end
 ---@param icon string
 ---@param tooltip string
 ---@param color number?
-local function addStateIcon(target, icon, tooltip, color)
+---@param onClick fun()?
+---@param drawPopup fun()?
+local function addStateIcon(target, icon, tooltip, color, onClick, drawPopup)
     table.insert(target, {
         icon = icon,
         tooltip = tooltip,
-        color = color
+        color = color,
+        onClick = onClick,
+        drawPopup = drawPopup
     })
+end
+
+---@param rawColor table?
+---@return string
+local function formatColorPreviewTooltip(rawColor)
+    local normalized = colorUtil.normalizeRGB(rawColor, { 1, 1, 1 })
+    local red = math.floor(normalized[1] * 255 + 0.5)
+    local green = math.floor(normalized[2] * 255 + 0.5)
+    local blue = math.floor(normalized[3] * 255 + 0.5)
+
+    return string.format(
+        "#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)",
+        red,
+        green,
+        blue,
+        red,
+        green,
+        blue,
+        normalized[1],
+        normalized[2],
+        normalized[3]
+    )
 end
 
 ---@param count number
@@ -1414,6 +1440,32 @@ function spawnedUI.getStateIcons(element)
             addStateIcon(stateIcons, IconGlyphs.Human, tooltip, (missingRecord or unsupportedRig) and STATE_COLOR_ORANGE or nil)
         end
 
+        if spawnable.modulePath == "light/light" then
+            local color = colorUtil.normalizeRGB(spawnable.color, { 1, 1, 1 })
+            local popupId = "##lightColorPickerState" .. tostring(element.id or "")
+            addStateIcon(
+                stateIcons,
+                IconGlyphs.SquareRounded,
+                formatColorPreviewTooltip(color),
+                colorUtil.packAABBGGRR(color, 1.0),
+                function()
+                    ImGui.OpenPopup(popupId)
+                end,
+                function()
+                    if ImGui.BeginPopup(popupId) then
+                        local newColor, changed = style.trackedColorPicker(spawnable.object, "##stateLightColorPicker", spawnable.color)
+                        if changed then
+                            spawnable.color = newColor
+                            if spawnable.updateParameters then
+                                spawnable:updateParameters()
+                            end
+                        end
+                        ImGui.EndPopup()
+                    end
+                end
+            )
+        end
+
         local isSpline = spawnable.modulePath == "meta/spline"
         local isAreaNode = spawnable.outlinePath ~= nil and spawnable.loadOutlinePaths ~= nil
         if isSpline or isAreaNode then
@@ -1547,7 +1599,7 @@ function spawnedUI.drawProjectTag(projectTag)
     ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize() * PROJECT_TAG_FONT_SCALE, frameX + padX, frameY + padY, textColor, projectTag.label)
 end
 
----@param stateIcons {icon: string, tooltip: string, color: number?}[]
+---@param stateIcons {icon: string, tooltip: string, color: number?, onClick: fun()?, drawPopup: fun()?}[]
 function spawnedUI.drawStateIcons(stateIcons)
     if #stateIcons == 0 then
         return
@@ -1558,12 +1610,29 @@ function spawnedUI.drawStateIcons(stateIcons)
     local baselineY = ImGui.GetCursorPosY() + 1 * style.viewSize
     local step = STATE_ICON_GRID_STEP * style.viewSize
 
-    for _, iconData in ipairs(stateIcons) do
+    for idx, iconData in ipairs(stateIcons) do
         local snappedX = snapStateIconXToGrid(cursorX)
         ImGui.SetCursorPosX(snappedX)
         ImGui.SetCursorPosY(baselineY)
-        style.styledText(iconData.icon, iconData.color or STATE_COLOR_DEFAULT)
+
+        if iconData.onClick then
+            style.pushStyleColor(true, ImGuiCol.Text, iconData.color or STATE_COLOR_DEFAULT)
+            style.pushButtonNoBG(true)
+            ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+            if ImGui.Button(iconData.icon .. "##stateIcon" .. tostring(idx)) then
+                iconData.onClick()
+            end
+            ImGui.PopStyleVar()
+            style.pushButtonNoBG(false)
+            style.popStyleColor(true)
+        else
+            style.styledText(iconData.icon, iconData.color or STATE_COLOR_DEFAULT)
+        end
+
         style.tooltip(iconData.tooltip)
+        if iconData.drawPopup then
+            iconData.drawPopup()
+        end
         cursorX = snappedX + step
     end
 end

@@ -54,6 +54,7 @@ local config = require("modules/utils/config")
 ---@field public wireframeColorStyle integer
 ---@field public spawnedUIPerfEnabled boolean
 ---@field public spawnedUIPerfShowPanel boolean
+---@field public colorPickerStyle integer
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -104,6 +105,7 @@ local settingsData = {
     wireframeColorStyle = 1,
     spawnedUIPerfEnabled = false,
     spawnedUIPerfShowPanel = false,
+    colorPickerStyle = 1,
 
     filterTags = {},
     favoritesFilter = "",

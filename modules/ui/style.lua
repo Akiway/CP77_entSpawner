@@ -24,6 +24,39 @@ local style = {
 
 local initialized = false
 
+---@param lhs number?
+---@param rhs number?
+---@return number?
+local function combineImGuiFlags(lhs, rhs)
+    if lhs == nil then return rhs end
+    if rhs == nil then return lhs end
+
+    if bit32 and bit32.bor then
+        return bit32.bor(lhs, rhs)
+    end
+
+    if bit and bit.bor then
+        return bit.bor(lhs, rhs)
+    end
+
+    return lhs + rhs
+end
+
+---@return number?
+local function getColorPickerStyleFlag()
+    local flags = ImGuiColorEditFlags
+    if not flags then
+        return nil
+    end
+
+    local pickerStyle = tonumber(settings.colorPickerStyle) or 1
+    if pickerStyle == 2 then
+        return flags.PickerHueWheel
+    end
+
+    return flags.PickerHueBar
+end
+
 ---Clamp a numeric value to an inclusive range.
 ---@param value number Value to clamp.
 ---@param minValue number Lower bound.
@@ -490,15 +523,24 @@ end
 ---@param name string Widget label / ID.
 ---@param color table Current color value (RGB vector/table).
 ---@param width number? Base field width in unscaled style units (default `80`).
+---@param flags number? Optional `ImGuiColorEditFlags` bitmask.
 ---@return table newValue
 ---@return boolean changed
 ---@return boolean finished True when item was deactivated after edit.
-function style.trackedColor(element, name, color, width)
+function style.trackedColor(element, name, color, width, flags)
     width = width or 80
     width = width * 3 + 2 * ImGui.GetStyle().ItemSpacing.x
     ImGui.SetNextItemWidth(width * style.viewSize)
 
-    local newValue, changed = ImGui.ColorEdit3(name, color)
+    local pickerStyleFlag = getColorPickerStyleFlag()
+    local effectiveFlags = combineImGuiFlags(flags, pickerStyleFlag)
+
+    local newValue, changed
+    if effectiveFlags ~= nil then
+        newValue, changed = ImGui.ColorEdit3(name, color, effectiveFlags)
+    else
+        newValue, changed = ImGui.ColorEdit3(name, color)
+    end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
 	if finished then
@@ -512,20 +554,60 @@ function style.trackedColor(element, name, color, width)
     return newValue, changed, finished
 end
 
+---Draw an RGB color picker with history tracking.
+---@param element table? Element used for undo history tracking.
+---@param name string Widget label / ID.
+---@param color table Current color value (RGB vector/table).
+---@param flags number? Optional `ImGuiColorEditFlags` bitmask.
+---@return table newValue
+---@return boolean changed
+---@return boolean finished True when item was deactivated after edit.
+function style.trackedColorPicker(element, name, color, flags)
+    local pickerStyleFlag = getColorPickerStyleFlag()
+    local effectiveFlags = combineImGuiFlags(flags, pickerStyleFlag)
+
+    local newValue, changed
+    if effectiveFlags ~= nil then
+        newValue, changed = ImGui.ColorPicker3(name, color, effectiveFlags)
+    else
+        newValue, changed = ImGui.ColorPicker3(name, color)
+    end
+
+    local finished = ImGui.IsItemDeactivatedAfterEdit()
+    if finished then
+        dragBeingEdited = false
+    end
+    if changed and element and not dragBeingEdited then
+        history.addAction(history.getElementChange(element))
+        dragBeingEdited = true
+    end
+
+    return newValue, changed, finished
+end
+
 ---Draw an RGBA color editor with history tracking.
 ---@param element table? Element used for undo history tracking.
 ---@param name string Widget label / ID.
 ---@param color table Current color value (RGBA vector/table).
 ---@param width number? Base field width in unscaled style units (default `80`).
+---@param flags number? Optional `ImGuiColorEditFlags` bitmask.
 ---@return table newValue
 ---@return boolean changed
 ---@return boolean finished True when item was deactivated after edit.
-function style.trackedColorAlpha(element, name, color, width)
+function style.trackedColorAlpha(element, name, color, width, flags)
     width = width or 80
     width = width * 4 + 3 * ImGui.GetStyle().ItemSpacing.x
     ImGui.SetNextItemWidth(width * style.viewSize)
 
-    local newValue, changed = ImGui.ColorEdit4(name, color)
+    local pickerStyleFlag = getColorPickerStyleFlag()
+    local effectiveFlags = combineImGuiFlags(flags, pickerStyleFlag)
+
+    local newValue, changed
+    if effectiveFlags ~= nil then
+        newValue, changed = ImGui.ColorEdit4(name, color, effectiveFlags)
+    else
+        newValue, changed = ImGui.ColorEdit4(name, color)
+    end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
     if finished then

@@ -1,6 +1,7 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
+local field = require("modules/utils/field")
 local lcHelper = require("modules/utils/lightChannelHelper")
 
 ---Class for worldStaticLightNode
@@ -17,7 +18,10 @@ local lcHelper = require("modules/utils/lightChannelHelper")
 ---@field public flickerOffset number
 ---@field public lightType integer
 ---@field public localShadows boolean
----@field private lightTypes table
+---@field private lightTypeNames table
+---@field private lightTypeOptions table
+---@field private lightTypeIcons table
+---@field private lightTypeLabels table
 ---@field private temperature number
 ---@field private scaleVolFog number
 ---@field private useInParticles boolean
@@ -67,7 +71,18 @@ function light:new()
     o.flickerOffset = 0
     o.lightType = 1
     o.localShadows = true
-    o.lightTypes = utils.enumTable("ELightType")
+    o.lightTypeNames = utils.enumTable("ELightType")
+    o.lightTypeOptions = {}
+    o.lightTypeIcons = {
+        [0] = IconGlyphs.LightbulbOn20,
+        [1] = IconGlyphs.TrackLight,
+        [2] = IconGlyphs.CarParkingLights
+    }
+    o.lightTypeLabels = {
+        [0] = "Point",
+        [1] = "Spot",
+        [2] = "Area"
+    }
     o.temperature = -1
     o.scaleVolFog = 0
     o.useInParticles = true
@@ -96,9 +111,41 @@ function light:new()
     o.maxLightChannelsWidth = nil
 
     o.previewColor = "yellow"
+    o.previewed = true
 
     setmetatable(o, { __index = self })
+    o:rebuildLightTypeOptions()
+    o:updateLightTypeIcon()
    	return o
+end
+
+---@param typeIndex integer?
+---@return string
+function light:getLightTypeIcon(typeIndex)
+    local idx = tonumber(typeIndex) or 0
+    return self.lightTypeIcons[idx] or IconGlyphs.LightbulbOn20
+end
+
+---@param typeIndex integer?
+---@return string
+function light:getLightTypeLabel(typeIndex)
+    local idx = tonumber(typeIndex) or 0
+    return self.lightTypeLabels[idx] or self.lightTypeNames[idx + 1] or ("Type " .. tostring(idx))
+end
+
+function light:rebuildLightTypeOptions()
+    self.lightTypeOptions = {}
+    local maxEnumIndex = math.max(#(self.lightTypeNames or {}) - 1, 2)
+    for idx = 0, maxEnumIndex do
+        self.lightTypeOptions[idx + 1] = string.format("%s %s", self:getLightTypeIcon(idx), self:getLightTypeLabel(idx))
+    end
+end
+
+function light:updateLightTypeIcon()
+    self.icon = self:getLightTypeIcon(self.lightType)
+    if self.object then
+        self.object.icon = self.icon
+    end
 end
 
 function light:loadSpawnData(data, position, rotation)
@@ -107,6 +154,8 @@ function light:loadSpawnData(data, position, rotation)
     self.roughnessBias = math.min(math.max(math.floor(self.roughnessBias), -127), 127) -- Fix for incorrect clamping before
     self.scaleVolFog = math.floor(self.scaleVolFog)
     self.sceneSpecularScale = math.floor(self.sceneSpecularScale)
+    self:rebuildLightTypeOptions()
+    self:updateLightTypeIcon()
 end
 
 function light:onAssemble(entity)
@@ -209,36 +258,40 @@ function light:draw()
     visualized.draw(self)
 
     if not self.maxBasePropertiesWidth then
-        self.maxBasePropertiesWidth = utils.getTextMaxWidth({ "Visualize Position", "Light Type", "Intensity", "EV", "Color", "Angles", "Radius", "Spot Capsule", "Softness" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxBasePropertiesWidth = utils.getTextMaxWidth({ "Visualize", "Light Type", "Intensity", "Color", "Angles", "Radius", "Spot Capsule", "Softness" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    self:drawPreviewCheckbox("Visualize Position", self.maxBasePropertiesWidth)
+    self:drawPreviewCheckbox("Visualize", self.maxBasePropertiesWidth)
 
     style.mutedText("Light Type")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    self.lightType, changed = style.trackedCombo(self.object, "##type", self.lightType, self.lightTypes)
+    self.lightType, changed = style.trackedCombo(self.object, "##type", self.lightType, self.lightTypeOptions)
+    if changed then
+        self:updateLightTypeIcon()
+    end
     self:updateFull(changed)
 
     style.mutedText("Intensity")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    self.intensity, changed = style.trackedDragFloat(self.object, "##intensity", self.intensity, 0.1, 0, 9999, "%.1f", 50)
+    self.intensity, changed, _ = field.advancedTrackedFloat(self.object, "##intensity", self.intensity, {
+        step = 1,
+        min = 0,
+        max = 9999,
+        format = "%.1f",
+        width = 50
+    })
     if changed then
         self:updateScale()
         self:updateParameters()
     end
 
-    style.mutedText("EV")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    self.ev, _, finished = style.trackedDragFloat(self.object, "##ev", self.ev, 0.1, 0, 9999, "%.1f", 50)
-    self:updateFull(finished)
-
     style.mutedText("Color")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    self.color, changed = style.trackedColor(self.object, "##color", self.color, 60)
+    local colorFlags = ImGuiColorEditFlags and ImGuiColorEditFlags.NoInputs or nil
+    self.color, changed = style.trackedColor(self.object, "##color", self.color, 60, colorFlags)
     if changed then
         self:updateParameters()
     end
@@ -370,7 +423,7 @@ function light:draw()
 
     if ImGui.TreeNodeEx("Misc. Settings") then
         if not self.maxShadowPropertiesWidth then
-            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Auto Hide Distance", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Auto Hide Distance", "EV", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
 
         style.mutedText("Use in particles")
@@ -419,6 +472,12 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
         self.autoHideDistance, _, finished = style.trackedDragFloat(self.object, "##autoHideDistance", self.autoHideDistance, 0.05, 0, 9999, "%.1f", 110)
+        self:updateFull(finished)
+
+        style.mutedText("EV")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        self.ev, _, finished = style.trackedDragFloat(self.object, "##ev", self.ev, 0.1, 0, 9999, "%.1f", 110)
         self:updateFull(finished)
 
         style.mutedText("Attenuation Mode")
@@ -505,7 +564,7 @@ function light:export()
         intensity = self.intensity,
         outerAngle = self.outerAngle,
         radius = self.radius,
-        type = self.lightTypes[self.lightType + 1],
+        type = self.lightTypeNames[self.lightType + 1],
         allowDistantLight = 0,
         lightChannel = utils.buildBitfieldString(self.lightChannels, style.lightChannelEnum),
         scaleVolFog = self.scaleVolFog,
