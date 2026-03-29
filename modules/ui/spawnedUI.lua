@@ -1050,7 +1050,7 @@ function spawnedUI.drawContextMenu(element, path)
             local data = spawnedUI.copy(isMulti, element)
             history.addAction(history.getInsert(spawnedUI.paste(data, element)))
         end
-        
+
         ImGui.Separator()
         if ImGui.MenuItem(IconGlyphs.ArrowTopLeftBoldBoxOutline .. " Move to Root", "BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
@@ -2233,6 +2233,7 @@ function spawnedUI.drawTop()
     spawnedUI.newGroupRandomized = style.toggleButton(IconGlyphs.Dice5Outline, spawnedUI.newGroupRandomized)
     style.tooltip("Make new group randomized")
 
+    -- Hierarchy actions
     local nextEditorState, editorToggleChanged = style.toggleButton(IconGlyphs.Rotate3d, editor.active)
     if editorToggleChanged then
         editor.toggle(nextEditorState)
@@ -2242,6 +2243,24 @@ function spawnedUI.drawTop()
     style.pushButtonNoBG(true)
     
     local hasHierarchy = hasRootChildren()
+    local rightHierarchyActionIcons = {
+        IconGlyphs.MapMarkerPlusOutline,
+        IconGlyphs.MapMarkerMinusOutline,
+        IconGlyphs.LockPlusOutline,
+        IconGlyphs.LockOpenMinusOutline,
+        IconGlyphs.EyePlusOutline,
+        IconGlyphs.EyeMinusOutline
+    }
+    local rightGroupWidth = 0
+    local framePaddingX = ImGui.GetStyle().FramePadding.x
+    for idx, icon in ipairs(rightHierarchyActionIcons) do
+        local iconWidth, _ = ImGui.CalcTextSize(icon)
+        rightGroupWidth = rightGroupWidth + iconWidth + framePaddingX * 2
+        if idx < #rightHierarchyActionIcons then
+            rightGroupWidth = rightGroupWidth + ImGui.GetStyle().ItemSpacing.x
+        end
+    end
+
     ImGui.SameLine()
     ImGui.BeginDisabled(not hasHierarchy)
     if ImGui.Button(IconGlyphs.ContentSaveAllOutline) then
@@ -2262,116 +2281,6 @@ function spawnedUI.drawTop()
         spawnedUI.root:setHeaderStateRecursive(true)
     end
     style.tooltip("Expand all groups")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.EyeMinusOutline) then
-        if spawnedUI.filter ~= "" then
-            local targets = {}
-            for _, entry in pairs(spawnedUI.filteredPaths) do
-                if spawnedUI.canToggleVisibility(entry.ref) then
-                    table.insert(targets, entry.ref)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setVisible(false, true)
-            end)
-        else
-            spawnedUI.root:setVisibleRecursive(false)
-        end
-    end
-    style.tooltip("Hide all elements (or filtered elements)")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.EyePlusOutline) then
-        if spawnedUI.filter ~= "" then
-            local targets = {}
-            for _, entry in pairs(spawnedUI.filteredPaths) do
-                if spawnedUI.canToggleVisibility(entry.ref) then
-                    table.insert(targets, entry.ref)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setVisible(true, true)
-            end)
-        else
-            spawnedUI.root:setVisibleRecursive(true)
-        end
-    end
-    style.tooltip("Show all elements (or filtered elements)")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.MapMarkerMultiple) then
-        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
-        applyElementChangesBatched(targets, function(entry)
-            if spawnedUI.canToggleVisualization(entry) then
-                entry.spawnable:setPreview(true)
-            end
-        end)
-    end
-    style.tooltip("Enable visualization helpers for all elements (or filtered elements)")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.MapMarkerMultipleOutline) then
-        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
-        applyElementChangesBatched(targets, function(entry)
-            if spawnedUI.canToggleVisualization(entry) then
-                entry.spawnable:setPreview(false)
-            end
-        end)
-    end
-    style.tooltip("Disable visualization helpers for all elements (or filtered elements)")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.LockPlusOutline) then
-        if spawnedUI.filter ~= "" then
-            local targets = {}
-            for _, entry in pairs(spawnedUI.filteredPaths) do
-                if spawnedUI.canMutateLockedState(entry.ref) then
-                    table.insert(targets, entry.ref)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setLocked(true, true)
-            end)
-        else
-            local targets = {}
-            for _, child in pairs(spawnedUI.root.childs) do
-                if spawnedUI.canMutateLockedState(child) then
-                    table.insert(targets, child)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setLockedRecursive(true, true)
-            end)
-        end
-    end
-    style.tooltip("Lock all elements (or filtered elements)")
-
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.LockOpenMinusOutline) then
-        if spawnedUI.filter ~= "" then
-            local targets = {}
-            for _, entry in pairs(spawnedUI.filteredPaths) do
-                if spawnedUI.canMutateLockedState(entry.ref) then
-                    table.insert(targets, entry.ref)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setLocked(false, true)
-            end)
-        else
-            local targets = {}
-            for _, child in pairs(spawnedUI.root.childs) do
-                if spawnedUI.canMutateLockedState(child) then
-                    table.insert(targets, child)
-                end
-            end
-            applyElementChangesBatched(targets, function(entry)
-                entry:setLockedRecursive(false, true)
-            end)
-        end
-    end
-    style.tooltip("Unlock all elements (or filtered elements)")
     ImGui.EndDisabled()
 
     ImGui.SameLine()
@@ -2475,6 +2384,121 @@ function spawnedUI.drawTop()
         local x, y = ImGui.GetWindowSize()
         spawnedUI.infoWindowSize = { x = x, y = y }
     end
+
+    local rightGroupStartX = ImGui.GetWindowWidth() - ImGui.GetStyle().WindowPadding.x - rightGroupWidth
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(math.max(ImGui.GetCursorPosX(), rightGroupStartX))
+
+    ImGui.BeginDisabled(not hasHierarchy)
+    if ImGui.Button(IconGlyphs.MapMarkerPlusOutline) then
+        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
+        applyElementChangesBatched(targets, function(entry)
+            if spawnedUI.canToggleVisualization(entry) then
+                entry.spawnable:setPreview(true)
+            end
+        end)
+    end
+    style.tooltip("Enable visualization helpers for all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.MapMarkerMinusOutline) then
+        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
+        applyElementChangesBatched(targets, function(entry)
+            if spawnedUI.canToggleVisualization(entry) then
+                entry.spawnable:setPreview(false)
+            end
+        end)
+    end
+    style.tooltip("Disable visualization helpers for all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.LockPlusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canMutateLockedState(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLocked(true, true)
+            end)
+        else
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canMutateLockedState(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLockedRecursive(true, true)
+            end)
+        end
+    end
+    style.tooltip("Lock all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.LockOpenMinusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canMutateLockedState(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLocked(false, true)
+            end)
+        else
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canMutateLockedState(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setLockedRecursive(false, true)
+            end)
+        end
+    end
+    style.tooltip("Unlock all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.EyePlusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canToggleVisibility(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisible(true, true)
+            end)
+        else
+            spawnedUI.root:setVisibleRecursive(true)
+        end
+    end
+    style.tooltip("Show all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.EyeMinusOutline) then
+        if spawnedUI.filter ~= "" then
+            local targets = {}
+            for _, entry in pairs(spawnedUI.filteredPaths) do
+                if spawnedUI.canToggleVisibility(entry.ref) then
+                    table.insert(targets, entry.ref)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisible(false, true)
+            end)
+        else
+            spawnedUI.root:setVisibleRecursive(false)
+        end
+    end
+    style.tooltip("Hide all elements (or filtered elements)")
+    ImGui.EndDisabled()
 
     style.pushButtonNoBG(false)
 end
