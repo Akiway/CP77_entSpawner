@@ -45,7 +45,7 @@ local tabs = {
     {
         id = "spawned",
         name = "Spawned",
-        icon = IconGlyphs.FormatListBulletedType,
+        icon = IconGlyphs.FileTree,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 1200 },
         draw = baseUI.spawnedUI.draw

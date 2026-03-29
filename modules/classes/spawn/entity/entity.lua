@@ -1575,7 +1575,7 @@ function entity:drawResetProp(componentID, path, typeName)
             path = utils.deepcopy(path)
             table.remove(path, #path)
         end
-        local text = isArray and "Remove" or "Reset"
+        local text = isArray and (IconGlyphs.DeleteOutline .. " Remove") or (IconGlyphs.Restore .. " Reset")
 
         if ImGui.MenuItem(text) and modified then
             history.addAction(history.getElementChange(self.object))
@@ -1592,7 +1592,7 @@ end
 
 function entity:drawResetComponent(id)
     if ImGui.BeginPopupContextItem("##resetComponent" .. id, ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Reset") and self.instanceDataChanges[id] then
+        if ImGui.MenuItem(IconGlyphs.Restore .. " Reset") and self.instanceDataChanges[id] then
             history.addAction(history.getElementChange(self.object))
             self.instanceDataChanges[id] = nil
             self:respawn()

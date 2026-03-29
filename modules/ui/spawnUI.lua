@@ -554,7 +554,7 @@ function spawnUI.drawAll()
             end
 
             if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
-                if ImGui.MenuItem("Make Favorite") then
+                if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
                     local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
                     local data = utils.deepcopy(entry.data)
                     data.modulePath = spawnUI.getActiveSpawnList().class:new().modulePath

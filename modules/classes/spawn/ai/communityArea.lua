@@ -80,11 +80,11 @@ end
 
 function community:drawContext(key, tbl)
     if ImGui.BeginPopupContextItem("##remove" .. key, ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Delete") then
+        if ImGui.MenuItem(IconGlyphs.DeleteOutline .. " Delete") then
             history.addAction(history.getElementChange(self.object))
             table.remove(tbl, key)
         end
-        if ImGui.MenuItem("Duplicate") then
+        if ImGui.MenuItem(IconGlyphs.ContentDuplicate .. " Duplicate") then
             history.addAction(history.getElementChange(self.object))
             table.insert(tbl, utils.deepcopy(tbl[key]))
         end

@@ -1021,7 +1021,7 @@ function spawnedUI.drawContextMenu(element, path)
         ImGui.Separator()
 
         ImGui.BeginDisabled(isLocked)
-        if ImGui.MenuItem("Delete", "DEL") then
+        if ImGui.MenuItem(IconGlyphs.DeleteOutline .. " Delete", "DEL") then
             if isMulti then
                 local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
                 history.addAction(history.getRemove(roots))
@@ -1035,43 +1035,31 @@ function spawnedUI.drawContextMenu(element, path)
         end
         ImGui.EndDisabled()
 
-        if ImGui.MenuItem("Copy", "CTRL-C") then
+        if ImGui.MenuItem(IconGlyphs.ContentCopy .. " Copy", "CTRL-C") then
             spawnedUI.clipboard = spawnedUI.copy(isMulti, element)
         end
 
         ImGui.BeginDisabled(isLocked)
-        if ImGui.MenuItem("Paste", "CTRL-V") then
+        if ImGui.MenuItem(IconGlyphs.ContentPaste .. " Paste", "CTRL-V") then
             history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, element)))
         end
-        if ImGui.MenuItem("Cut", "CTRL-X") then
+        if ImGui.MenuItem(IconGlyphs.ContentCut .. " Cut", "CTRL-X") then
             spawnedUI.cut(isMulti, element)
         end
-        if ImGui.MenuItem("Duplicate", "CTRL-D") then
+        if ImGui.MenuItem(IconGlyphs.ContentDuplicate .. " Duplicate", "CTRL-D") then
             local data = spawnedUI.copy(isMulti, element)
             history.addAction(history.getInsert(spawnedUI.paste(data, element)))
         end
-        if utils.isA(element, "positionableGroup") then
-            ImGui.EndDisabled()
-            if ImGui.MenuItem("Show all children") then
-                applyElementChangesBatched({ element }, function(entry)
-                    entry:showDescendants(true)
-                end)
-            end
-            if ImGui.MenuItem("Unlock all children") then
-                applyElementChangesBatched({ element }, function(entry)
-                    entry:unlockDescendants(true)
-                end)
-            end
-            ImGui.BeginDisabled(isLocked)
-        end
-        if ImGui.MenuItem("Move to Root", "BACKSPACE") then
+        
+        ImGui.Separator()
+        if ImGui.MenuItem(IconGlyphs.ArrowTopLeftBoldBoxOutline .. " Move to Root", "BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
         end
-        if ImGui.MenuItem("Move to new group", "CTRL-G") then
+        if ImGui.MenuItem(IconGlyphs.FolderMultiplePlusOutline .. " Move to new group", "CTRL-G") then
             spawnedUI.moveToNewGroup(isMulti, element)
         end
         if utils.isA(element, "positionableGroup") then
-            if ImGui.MenuItem("Set as \"Spawn New\" group", "CTRL-N") then
+            if ImGui.MenuItem(IconGlyphs.PlusBoxOutline .. " Set as \"Spawn New\" group", "CTRL-N") then
                 local idx = 1
                 local elementPath = element:getPath()
                 for _, entry in pairs(spawnedUI.containerPaths) do
@@ -1086,7 +1074,7 @@ function spawnedUI.drawContextMenu(element, path)
 
 		ImGui.Separator()
         if utils.isA(element, "spawnableElement") then
-            if ImGui.MenuItem("Drop to floor", "CTRL-E") then
+            if ImGui.MenuItem(IconGlyphs.Download .. " Drop to floor", "CTRL-E") then
                 if isMulti then
                     spawnedUI.multiSelectGroup:dropToSurface(true, Vector4.new(0, 0, -1, 0))
                 else
@@ -1095,22 +1083,44 @@ function spawnedUI.drawContextMenu(element, path)
             end
         end
         if utils.isA(element, "positionableGroup") then
-            if ImGui.MenuItem("Drop Children to Floor") then
+            ImGui.EndDisabled()
+            if ImGui.MenuItem(IconGlyphs.EyeOutline .. " Show all children") then
+                applyElementChangesBatched({ element }, function(entry)
+                    entry:showDescendants(true)
+                end)
+            end
+            if ImGui.MenuItem(IconGlyphs.LockOpenVariantOutline .. " Unlock all children") then
+                applyElementChangesBatched({ element }, function(entry)
+                    entry:unlockDescendants(true)
+                end)
+            end
+            if ImGui.MenuItem(IconGlyphs.HospitalMarker .. " Show all children visualization helpers") then
+                local targets = {}
+                collectVisualizationTargetsRecursive(element, targets)
+                applyElementChangesBatched(targets, function(entry)
+                    if spawnedUI.canToggleVisualization(entry) then
+                        entry.spawnable:setPreview(true)
+                    end
+                end)
+            end
+            ImGui.BeginDisabled(isLocked)
+            
+            if ImGui.MenuItem(IconGlyphs.DownloadMultiple .. " Drop Children to Floor") then
                 element:dropChildrenToSurface(false, Vector4.new(0, 0, -1, 0))
             end
 
 		    ImGui.Separator()
-            if ImGui.MenuItem("Set Origin to Center") then
+            if ImGui.MenuItem(IconGlyphs.ImageFilterCenterFocus .. " Set Origin to Center") then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOriginToCenter()
                 end)
             end
-            if ImGui.MenuItem("Set Player Position as Origin") then
+            if ImGui.MenuItem(IconGlyphs.AccountBadgeOutline .. " Set Origin to Player Position") then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOrigin(GetPlayer():GetWorldPosition())
                 end)
             end
-            if ImGui.MenuItem("Copy Origin and Identity") then
+            if ImGui.MenuItem(IconGlyphs.ContentCopy .. " Copy Origin and Identity") then
                 local pos = element:getPosition()
                 local rot = element:getRotation()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
@@ -1119,7 +1129,7 @@ function spawnedUI.drawContextMenu(element, path)
             local copiedOrigin = utils.getClipboardValue("position")
             local copiedIdentity = utils.getClipboardValue("rotation")
             ImGui.BeginDisabled(copiedOrigin == nil or copiedIdentity == nil)
-            if ImGui.MenuItem("Paste Origin and Identity") then
+            if ImGui.MenuItem(IconGlyphs.ContentPaste .. " Paste Origin and Identity") then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOrigin(Vector4.new(copiedOrigin.x, copiedOrigin.y, copiedOrigin.z, 0))
                     entry:setIdentity(copiedIdentity)
@@ -1129,7 +1139,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
         if element.parent ~= nil and utils.isA(element.parent, "positionableGroup") and not element.parent:isRoot(true) then
             ImGui.EndDisabled()
-            if ImGui.MenuItem("Set Parent Origin to Element") then
+            if ImGui.MenuItem(IconGlyphs.SquareRoundedBadgeOutline .. " Set Parent Origin to Element") then
                 local selectedPos = element:getPosition()
                 applyElementChangesBatched({ element.parent }, function(entry)
                     entry:setOrigin(selectedPos)
@@ -1139,7 +1149,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
         ImGui.EndDisabled()
 
-        if utils.isA(element, "positionable") and not utils.isA(element, "positionableGroup") and ImGui.MenuItem("Copy Origin and Identity") then
+        if utils.isA(element, "positionable") and not utils.isA(element, "positionableGroup") and ImGui.MenuItem(IconGlyphs.ContentCopy .. " Copy Origin and Identity") then
             local pos = element:getPosition()
             local rot = element:getRotation()
             utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
@@ -1147,7 +1157,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
 		ImGui.Separator()
-        if ImGui.MenuItem(not utils.isA(element, "positionableGroup") and "Make Favorite" or "Make Prefab", "CTRL-F") then
+        if ImGui.MenuItem(IconGlyphs.Group .. (not utils.isA(element, "positionableGroup") and " Make Favorite" or " Make Prefab"), "CTRL-F") then
             local icon = element.icon
             if icon == "" then
                 icon = IconGlyphs.Group
