@@ -31,6 +31,7 @@ end
 
 local materialDisplayOptions = {}
 local materialDisplayToIndex = {}
+local presetToIndex = {}
 
 for i, material in ipairs(materials) do
     local label = toReadableMaterialLabel(material)
@@ -42,6 +43,10 @@ for i, material in ipairs(materials) do
 
     materialDisplayOptions[i] = label
     materialDisplayToIndex[label] = i - 1
+end
+
+for i, preset in ipairs(presets) do
+    presetToIndex[preset] = i - 1
 end
 
 ---@param index number?
@@ -83,6 +88,7 @@ function collider:new()
     o.maxPropertyWidth = nil
     o.currentAxis = 0
     o.materialSearch = ""
+    o.presetSearch = ""
 
     setmetatable(o, { __index = self })
    	return o
@@ -297,7 +303,20 @@ function collider:draw()
     style.mutedText("Collision Preset")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.preset, changed = style.trackedCombo(self.object, "##preset", self.preset, presets, 100)
+    local selectedPreset = presets[self.preset + 1] or presets[1] or ""
+    selectedPreset, self.presetSearch, changed = style.trackedSearchDropdown(
+        self.object,
+        "##preset",
+        "Search preset...",
+        selectedPreset,
+        self.presetSearch,
+        presets,
+        200,
+        true
+    )
+    if changed then
+        self.preset = presetToIndex[selectedPreset] or self.preset
+    end
     self:updateFull(changed)
     style.tooltip(hints[self.preset + 1])
 
