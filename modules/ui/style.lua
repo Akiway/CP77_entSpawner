@@ -691,65 +691,6 @@ local function getSearchDropdownPopupMaxWidth(options, baseWidth)
     return math.min(math.max(baseWidth, contentWidth), screenLimit)
 end
 
----Searchable dropdown where search text follows selected value.
----Use this for legacy behavior where typing in the search field is part of element history tracking.
----@param element table Element used for undo history tracking.
----@param text string Combo label / ID.
----@param searchHint string Placeholder for the filter input.
----@param value string Current selected value.
----@param options table List of selectable values.
----@param width number? Combo width in unscaled style units (default `100`).
----@return string value
----@return boolean finished
-function style.trackedSearchDropdown(element, text, searchHint, value, options, width)
-    value = value or ""
-    options = options or {}
-    width = width or 100
-
-    local finished = false
-    local searchValue = value
-
-    ImGui.SetNextItemWidth(width * style.viewSize)
-    if (ImGui.BeginCombo(text, value)) then
-        local interiorWidth = width - (2 * ImGui.GetStyle().FramePadding.x) - 30
-        searchValue, _, _ = style.trackedTextField(element, "##search", searchValue, searchHint, interiorWidth)
-        local x, _ = ImGui.GetItemRectSize()
-
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            if element then
-                history.addAction(history.getElementChange(element))
-            end
-            value = ""
-            searchValue = ""
-            finished = true
-        end
-        style.pushButtonNoBG(false)
-
-        local xButton, _ = ImGui.GetItemRectSize()
-        if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
-            for _, option in pairs(options) do
-                local optionText = tostring(option)
-                if utils.safePatternMatch(optionText:lower(), searchValue:lower()) and ImGui.Selectable(optionText) then
-                    if element then
-                        history.addAction(history.getElementChange(element))
-                    end
-                    value = optionText
-                    finished = true
-                    ImGui.CloseCurrentPopup()
-                end
-            end
-
-            ImGui.EndChild()
-        end
-
-        ImGui.EndCombo()
-    end
-
-    return value, finished
-end
-
 ---Searchable dropdown with decoupled search text state.
 ---Use this when selected value and typed filter must be independent.
 ---@param element table? Element used for undo history tracking when selection changes.
@@ -763,7 +704,7 @@ end
 ---@return string value
 ---@return string searchValue
 ---@return boolean finished
-function style.trackedSearchDropdownWithSearch(element, text, searchHint, value, searchValue, options, width, matchContentWidth)
+function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth)
     value = value or ""
     searchValue = searchValue or ""
     options = options or {}

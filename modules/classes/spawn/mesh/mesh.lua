@@ -426,7 +426,7 @@ function mesh:draw()
     end
 
     local changed
-    selectedApp, self.appSearch, changed = style.trackedSearchDropdownWithSearch(
+    selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
         self.object,
         "##app",
         "Search appearance...",

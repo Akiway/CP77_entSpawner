@@ -7,6 +7,7 @@ local cache = require("modules/utils/cache")
 ---@class sound : visualized
 ---@field private radius number
 ---@field private emitterMetadataName string
+---@field private emitterMetadataSearch string
 local sound = setmetatable({}, { __index = visualized })
 
 function sound:new()
@@ -24,6 +25,7 @@ function sound:new()
     o.radius = 5
     o.previewColor = "mediumvioletred"
     o.emitterMetadataName = ""
+    o.emitterMetadataSearch = ""
     o.useDoppler = true
     o.usePhysicsObstruction = true
     o.previewed = true
@@ -103,7 +105,8 @@ function sound:draw()
     style.mutedText("Emitter Metadata Name")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.emitterMetadataName, change = style.trackedSearchDropdown(self.object, "##emitterMetadataName", "Search...", self.emitterMetadataName, cache.staticData.staticMetadataAll, style.getMaxWidth(250))
+    self.emitterMetadataSearch = self.emitterMetadataSearch or ""
+    self.emitterMetadataName, self.emitterMetadataSearch, change = style.trackedSearchDropdown(self.object, "##emitterMetadataName", "Search...", self.emitterMetadataName, self.emitterMetadataSearch, cache.staticData.staticMetadataAll, style.getMaxWidth(250))
 end
 
 function sound:getArrowSize()

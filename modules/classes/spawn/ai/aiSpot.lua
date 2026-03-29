@@ -737,7 +737,7 @@ function aiSpot:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         local finished = false
-        self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdownWithSearch(self.object, "##previewNPCRigPicker", "Character.", self.previewNPC, self.previewNPCSearch, compatibleRecords, 250)
+        self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdown(self.object, "##previewNPCRigPicker", "Character.", self.previewNPC, self.previewNPCSearch, compatibleRecords, 250)
         if finished then
             self:respawn()
         end

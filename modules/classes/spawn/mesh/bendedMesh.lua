@@ -1962,7 +1962,7 @@ function bendedMesh:drawAppearanceSelector()
     end
 
     local changed
-    selectedApp, self.appSearch, changed = style.trackedSearchDropdownWithSearch(
+    selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
         self.object,
         "##bendedApp",
         "Search appearance...",

@@ -306,7 +306,7 @@ function collider:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     local selectedMaterial = getMaterialDisplayByIndex(self.material)
     local materialChanged
-    selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdownWithSearch(
+    selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdown(
         self.object,
         "##material",
         "Search material...",
@@ -396,7 +396,7 @@ function collider:getGroupedProperties()
 
             local selectedMaterial = getMaterialDisplayByIndex(groupData.material)
             local materialChanged
-            selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdownWithSearch(
+            selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdown(
                 nil,
                 "##collisionMaterial",
                 "Search material...",

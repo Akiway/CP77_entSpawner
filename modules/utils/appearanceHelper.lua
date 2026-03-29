@@ -383,7 +383,7 @@ function appearanceHelper.getGroupedProperties(spawnable)
                     end
 
                     local searchValue = groupedData.selectorSearches[group.key] or ""
-                    selectedApp, searchValue, _ = style.trackedSearchDropdownWithSearch(
+                    selectedApp, searchValue, _ = style.trackedSearchDropdown(
                         nil,
                         "##groupAppearance",
                         GROUPED_APPEARANCE_SEARCH_HINT,
