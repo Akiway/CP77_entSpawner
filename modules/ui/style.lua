@@ -49,7 +49,7 @@ local function getColorPickerStyleFlag()
         return nil
     end
 
-    local pickerStyle = tonumber(settings.colorPickerStyle) or 1
+    local pickerStyle = tonumber(settings.colorPickerStyle) or 2
     if pickerStyle == 2 then
         return flags.PickerHueWheel
     end

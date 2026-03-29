@@ -105,7 +105,7 @@ local settingsData = {
     wireframeColorStyle = 1,
     spawnedUIPerfEnabled = false,
     spawnedUIPerfShowPanel = false,
-    colorPickerStyle = 1,
+    colorPickerStyle = 2,
 
     filterTags = {},
     favoritesFilter = "",

@@ -8,6 +8,7 @@ local registry = require("modules/utils/nodeRefRegistry")
 local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
+local visualized = require("modules/classes/spawn/visualized")
 
 ---@class spawnedUI
 ---@field root element
@@ -97,6 +98,51 @@ spawnedUI.multiSelectGroup.sUI = spawnedUI
 ---@return boolean
 function spawnedUI.canToggleVisibility(element)
     return element ~= nil
+end
+
+---@param spawnable table?
+---@return boolean
+local function isVisualizedSpawnable(spawnable)
+    if type(spawnable) ~= "table" then
+        return false
+    end
+
+    local rootMeta = getmetatable(spawnable)
+    local current = nil
+    if type(rootMeta) == "table" then
+        if type(rootMeta.__index) == "table" then
+            current = rootMeta.__index
+        else
+            current = rootMeta
+        end
+    end
+
+    local guard = 0
+    while current ~= nil and guard < 32 do
+        if current == visualized then
+            return true
+        end
+
+        local meta = getmetatable(current)
+        if type(meta) == "table" and type(meta.__index) == "table" then
+            current = meta.__index
+        else
+            current = nil
+        end
+        guard = guard + 1
+    end
+
+    return false
+end
+
+---@param element element?
+---@return boolean
+function spawnedUI.canToggleVisualization(element)
+    if element == nil or not utils.isA(element, "spawnableElement") or element.spawnable == nil then
+        return false
+    end
+
+    return isVisualizedSpawnable(element.spawnable) and element.spawnable.setPreview ~= nil and element.spawnable.previewed ~= nil
 end
 
 ---@param element element?
@@ -367,6 +413,37 @@ end
 ---@return boolean
 local function hasRootChildren()
     return spawnedUI.root ~= nil and spawnedUI.root.childs ~= nil and next(spawnedUI.root.childs) ~= nil
+end
+
+---@param source {ref: element}[]
+---@return element[]
+local function collectVisualizationTargets(source)
+    local targets = {}
+
+    for _, entry in pairs(source) do
+        local target = entry and entry.ref or nil
+        if spawnedUI.canToggleVisualization(target) then
+            table.insert(targets, target)
+        end
+    end
+
+    return targets
+end
+
+---@param node element?
+---@param targets element[]
+local function collectVisualizationTargetsRecursive(node, targets)
+    if node == nil then
+        return
+    end
+
+    if spawnedUI.canToggleVisualization(node) then
+        table.insert(targets, node)
+    end
+
+    for _, child in pairs(node.childs or {}) do
+        collectVisualizationTargetsRecursive(child, targets)
+    end
 end
 
 ---@param node element?
@@ -1107,6 +1184,10 @@ function spawnedUI.getSideButtonsWidth(element)
 
     local visibilityWidth = math.max(getButtonWidth(IconGlyphs.EyeOutline), getButtonWidth(IconGlyphs.EyeOffOutline))
     local totalX = visibilityWidth + lockWidth + ImGui.GetStyle().ItemSpacing.x
+    if spawnedUI.canToggleVisualization(element) then
+        local visualizationWidth = math.max(getButtonWidth(IconGlyphs.HospitalMarker), getButtonWidth(IconGlyphs.MapMarkerOffOutline))
+        totalX = totalX + visualizationWidth + ImGui.GetStyle().ItemSpacing.x
+    end
     local gotoX = getButtonWidth(IconGlyphs.ArrowTopRight)
 
     if spawnedUI.filter ~= "" then
@@ -1698,6 +1779,32 @@ function spawnedUI.drawSideButtons(element)
         ImGui.SameLine()
     end
 
+    if spawnedUI.canToggleVisualization(element) then
+        local previewed = element.spawnable.previewed == true
+        local visualizationIcon = previewed and IconGlyphs.HospitalMarker or IconGlyphs.MapMarkerOffOutline
+        style.pushStyleColor(not previewed, ImGuiCol.Text, style.mutedColor)
+
+        ImGui.SetNextItemAllowOverlap()
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
+        if ImGui.Button(visualizationIcon) then
+            local targets = { element }
+            if spawnedUI.multiSelectActive() then
+                targets = {}
+                collectVisualizationTargetsRecursive(element, targets)
+            end
+
+            applyElementChangesBatched(targets, function(entry)
+                if spawnedUI.canToggleVisualization(entry) then
+                    entry.spawnable:setPreview(not previewed)
+                end
+            end)
+        end
+        ImGui.PopStyleVar()
+        style.popStyleColor(not previewed)
+        style.tooltip(previewed and "Disable visualization helpers" or "Enable visualization helpers")
+        ImGui.SameLine()
+    end
+
     local icon = elementLocked and IconGlyphs.LockOutline or IconGlyphs.LockOpenVariantOutline
     local canToggleLock = spawnedUI.canMutateLockedState(element)
     local hasLockedChildren = spawnedUI.hasLockedChildren(element) and not elementLocked
@@ -2181,6 +2288,28 @@ function spawnedUI.drawTop()
         end
     end
     style.tooltip("Show all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.MapMarkerMultiple) then
+        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
+        applyElementChangesBatched(targets, function(entry)
+            if spawnedUI.canToggleVisualization(entry) then
+                entry.spawnable:setPreview(true)
+            end
+        end)
+    end
+    style.tooltip("Enable visualization helpers for all elements (or filtered elements)")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.MapMarkerMultipleOutline) then
+        local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)
+        applyElementChangesBatched(targets, function(entry)
+            if spawnedUI.canToggleVisualization(entry) then
+                entry.spawnable:setPreview(false)
+            end
+        end)
+    end
+    style.tooltip("Disable visualization helpers for all elements (or filtered elements)")
 
     ImGui.SameLine()
     if ImGui.Button(IconGlyphs.LockPlusOutline) then
