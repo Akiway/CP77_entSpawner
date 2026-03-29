@@ -46,6 +46,16 @@ local lcHelper = require("modules/utils/lightChannelHelper")
 ---@field private sourceRadius number
 ---@field private directional boolean
 ---@field private lightChannels table
+---@field private rayTracedShadowsPlatform integer
+---@field private rayTracingLightSourceRadius number
+---@field private rayTracingContactShadowRange number
+---@field private rayTracingIntensityScale number
+---@field private pathTracingLightUsage integer
+---@field private pathTracingOverrideScaleGI boolean
+---@field private rtxdiShadowStartingDistance number
+---@field private rayTracedShadowsPlatforms table
+---@field private pathTracingLightUsageTypes table
+---@field private maxRayPathTracingPropertiesWidth number
 local light = setmetatable({}, { __index = visualized })
 
 function light:new()
@@ -103,12 +113,22 @@ function light:new()
     o.sourceRadius = 0.05
     o.directional = false
     o.lightChannels = { true, true, true, true, true, true, true, true, true, false, false, false }
+    o.rayTracedShadowsPlatform = 0
+    o.rayTracingLightSourceRadius = 0
+    o.rayTracingContactShadowRange = 0
+    o.rayTracingIntensityScale = 1
+    o.pathTracingLightUsage = 0
+    o.pathTracingOverrideScaleGI = false
+    o.rtxdiShadowStartingDistance = 0
+    o.rayTracedShadowsPlatforms = utils.enumTable("rendRayTracedShadowsPlatform")
+    o.pathTracingLightUsageTypes = utils.enumTable("rendEPathTracingLightUsage")
 
     o.maxBasePropertiesWidth = nil
     o.maxShadowPropertiesWidth = nil
     o.maxFlickerPropertiesWidth = nil
     o.maxMiscPropertiesWidth = nil
     o.maxLightChannelsWidth = nil
+    o.maxRayPathTracingPropertiesWidth = nil
 
     o.previewColor = "yellow"
     o.previewed = true
@@ -191,6 +211,13 @@ function light:onAssemble(entity)
     component.roughnessBias = self.roughnessBias
     component.sourceRadius = self.sourceRadius
     component.directional = self.directional
+    component.rayTracedShadowsPlatform = Enum.new("rendRayTracedShadowsPlatform", self.rayTracedShadowsPlatform)
+    component.rayTracingLightSourceRadius = self.rayTracingLightSourceRadius
+    component.rayTracingContactShadowRange = self.rayTracingContactShadowRange
+    component.rayTracingIntensityScale = self.rayTracingIntensityScale
+    component.pathTracingLightUsage = Enum.new("rendEPathTracingLightUsage", self.pathTracingLightUsage)
+    component.pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI
+    component.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
 
     entity:AddComponent(component)
 end
@@ -227,6 +254,13 @@ function light:save()
     data.localShadows = self.localShadows
     data.sourceRadius = self.sourceRadius
     data.directional = self.directional
+    data.rayTracedShadowsPlatform = self.rayTracedShadowsPlatform
+    data.rayTracingLightSourceRadius = self.rayTracingLightSourceRadius
+    data.rayTracingContactShadowRange = self.rayTracingContactShadowRange
+    data.rayTracingIntensityScale = self.rayTracingIntensityScale
+    data.pathTracingLightUsage = self.pathTracingLightUsage
+    data.pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI
+    data.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
     data.lightChannels = utils.deepcopy(self.lightChannels)
 
     return data
@@ -272,6 +306,15 @@ function light:draw()
     end
     self:updateFull(changed)
 
+    style.mutedText("Color")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+    local colorFlags = ImGuiColorEditFlags and ImGuiColorEditFlags.NoInputs or nil
+    self.color, changed = style.trackedColor(self.object, "##color", self.color, 60, colorFlags)
+    if changed then
+        self:updateParameters()
+    end
+
     style.mutedText("Intensity")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
@@ -284,15 +327,6 @@ function light:draw()
     })
     if changed then
         self:updateScale()
-        self:updateParameters()
-    end
-
-    style.mutedText("Color")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    local colorFlags = ImGuiColorEditFlags and ImGuiColorEditFlags.NoInputs or nil
-    self.color, changed = style.trackedColor(self.object, "##color", self.color, 60, colorFlags)
-    if changed then
         self:updateParameters()
     end
 
@@ -501,6 +535,112 @@ function light:draw()
         ImGui.TreePop()
     end
 
+    if ImGui.TreeNodeEx("Ray/Path Tracing Settings") then
+        if not self.maxRayPathTracingPropertiesWidth then
+            self.maxRayPathTracingPropertiesWidth = utils.getTextMaxWidth({
+                "Ray Traced Shadows Platform",
+                "RT Light Source Radius",
+                "RT Contact Shadow Range",
+                "RT Intensity Scale",
+                "Path Tracing Light Usage",
+                "PT Override Scale GI",
+                "RTXDI Shadow Start Distance"
+            }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        end
+
+        style.mutedText("Ray Traced Shadows Platform")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.rayTracedShadowsPlatform, changed = style.trackedCombo(
+            self.object,
+            "##rayTracedShadowsPlatform",
+            self.rayTracedShadowsPlatform,
+            self.rayTracedShadowsPlatforms,
+            175
+        )
+        self:updateFull(changed)
+
+        style.mutedText("RT Light Source Radius")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.rayTracingLightSourceRadius, _, finished = style.trackedDragFloat(
+            self.object,
+            "##rayTracingLightSourceRadius",
+            self.rayTracingLightSourceRadius,
+            0.005,
+            0,
+            9999,
+            "%.3f",
+            120
+        )
+        self:updateFull(finished)
+
+        style.mutedText("RT Contact Shadow Range")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.rayTracingContactShadowRange, _, finished = style.trackedDragFloat(
+            self.object,
+            "##rayTracingContactShadowRange",
+            self.rayTracingContactShadowRange,
+            0.05,
+            0,
+            9999,
+            "%.2f",
+            120
+        )
+        self:updateFull(finished)
+
+        style.mutedText("RT Intensity Scale")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.rayTracingIntensityScale, _, finished = style.trackedDragFloat(
+            self.object,
+            "##rayTracingIntensityScale",
+            self.rayTracingIntensityScale,
+            0.01,
+            0,
+            9999,
+            "%.2f",
+            120
+        )
+        self:updateFull(finished)
+
+        style.mutedText("Path Tracing Light Usage")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.pathTracingLightUsage, changed = style.trackedCombo(
+            self.object,
+            "##pathTracingLightUsage",
+            self.pathTracingLightUsage,
+            self.pathTracingLightUsageTypes,
+            175
+        )
+        self:updateFull(changed)
+
+        style.mutedText("PT Override Scale GI")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.pathTracingOverrideScaleGI, changed = style.trackedCheckbox(self.object, "##pathTracingOverrideScaleGI", self.pathTracingOverrideScaleGI)
+        self:updateFull(changed)
+
+        style.mutedText("RTXDI Shadow Start Distance")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxRayPathTracingPropertiesWidth)
+        self.rtxdiShadowStartingDistance, _, finished = style.trackedDragFloat(
+            self.object,
+            "##rtxdiShadowStartingDistance",
+            self.rtxdiShadowStartingDistance,
+            0.05,
+            0,
+            9999,
+            "%.2f",
+            120
+        )
+        self:updateFull(finished)
+
+        ImGui.TreePop()
+    end
+
     ImGui.PopItemWidth()
 end
 
@@ -582,7 +722,14 @@ function light:export()
         sceneDiffuse = self.sceneDiffuse and 1 or 0,
         roughnessBias = self.roughnessBias,
         sourceRadius = self.sourceRadius,
-        directional = self.directional and 1 or 0
+        directional = self.directional and 1 or 0,
+        rayTracedShadowsPlatform = self.rayTracedShadowsPlatforms[self.rayTracedShadowsPlatform + 1],
+        rayTracingLightSourceRadius = self.rayTracingLightSourceRadius,
+        rayTracingContactShadowRange = self.rayTracingContactShadowRange,
+        rayTracingIntensityScale = self.rayTracingIntensityScale,
+        pathTracingLightUsage = self.pathTracingLightUsageTypes[self.pathTracingLightUsage + 1],
+        pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI and 1 or 0,
+        rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
     }
 
     return data
