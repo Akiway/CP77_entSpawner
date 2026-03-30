@@ -3,7 +3,7 @@ local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 local intersection = require("modules/utils/editor/intersection")
 
----Class for any spawnable that has a "basic" visualizer. Assumes x component of the scale to be the size of the sphere used for intersection testing.
+---Class for any spawnable that has a "basic" visualizer. Intersection uses a sphere bound (capsules use a larger bounding sphere).
 ---@class visualized : spawnable
 ---@field public previewed boolean
 ---@field private previewShape string
@@ -37,6 +37,8 @@ function visualized:onAssemble(entity)
         visualizer.addSphere(entity, visualizerSize, self.previewColor)
     elseif self.previewShape == "box" then
         visualizer.addBox(entity, visualizerSize, self.previewColor)
+    elseif self.previewShape == "capsule" then
+        visualizer.addCapsule(entity, visualizerSize.x, visualizerSize.z, self.previewColor)
     elseif self.previewShape == "mesh" then
         visualizer.addMesh(entity, visualizerSize, self.previewMesh)
     end
@@ -58,8 +60,13 @@ function visualized:updateScale()
     local entity = self:getEntity()
     if not entity then return end
 
+    local visualizerSize = self:getVisualizerSize()
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
-    visualizer.updateScale(entity, self:getVisualizerSize(), self.previewShape)
+    if self.previewShape == "capsule" then
+        visualizer.updateCapsuleScale(entity, visualizerSize.x, visualizerSize.z)
+    else
+        visualizer.updateScale(entity, visualizerSize, self.previewShape)
+    end
 end
 
 function visualized:getVisualizerSize()
@@ -71,8 +78,13 @@ function visualized:calculateIntersection(origin, ray)
         return { hit = false }
     end
 
-    if self.previewShape == "sphere" or self.previewShape == "mesh" then
-        local radius = self:getVisualizerSize().x * self.intersectionMultiplier
+    if self.previewShape == "sphere" or self.previewShape == "mesh" or self.previewShape == "capsule" then
+        local visualizerSize = self:getVisualizerSize()
+        local radius = visualizerSize.x * self.intersectionMultiplier
+        if self.previewShape == "capsule" then
+            -- Use a bounding sphere large enough to cover the capsule body and caps.
+            radius = (visualizerSize.x + visualizerSize.z / 2) * self.intersectionMultiplier
+        end
         local result = intersection.getSphereIntersection(origin, ray, self.position, radius)
         local bbox = {
             min = { x = -radius, y = -radius, z = -radius },

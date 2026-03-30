@@ -136,7 +136,8 @@ function light:new()
     setmetatable(o, { __index = self })
     o:rebuildLightTypeOptions()
     o:updateLightTypeIcon()
-   	return o
+    o:updatePreviewShape()
+    	return o
 end
 
 ---@param typeIndex integer?
@@ -168,6 +169,46 @@ function light:updateLightTypeIcon()
     end
 end
 
+function light:updatePreviewShape()
+    self.previewShape = self.lightType == 2 and "capsule" or "sphere"
+end
+
+---@param entity entEntity?
+function light:applyCapsulePreviewRotation(entity)
+    if self.previewShape ~= "capsule" then
+        return
+    end
+
+    local target = entity or self:getEntity()
+    if not target then
+        return
+    end
+
+    local rollFix = EulerAngles.new(90, 0, 0)
+    local rollFixQuat = rollFix:ToQuat()
+    local rollFixFlippedQuat = EulerAngles.new(90, 0, 180):ToQuat()
+    local halfHeight = self:getVisualizerSize().z / 2
+    local topOffset = rollFixQuat:Transform(Vector4.new(0, 0, halfHeight, 0))
+    local bottomOffset = rollFixQuat:Transform(Vector4.new(0, 0, -halfHeight, 0))
+
+    local body = target:FindComponentByName("capsule_body")
+    if body then
+        body:SetLocalOrientation(rollFixQuat)
+    end
+
+    local top = target:FindComponentByName("capsule_top")
+    if top then
+        top:SetLocalOrientation(rollFixQuat)
+        top:SetLocalPosition(topOffset)
+    end
+
+    local bottom = target:FindComponentByName("capsule_bottom")
+    if bottom then
+        bottom:SetLocalOrientation(rollFixFlippedQuat)
+        bottom:SetLocalPosition(bottomOffset)
+    end
+end
+
 function light:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
@@ -176,10 +217,13 @@ function light:loadSpawnData(data, position, rotation)
     self.sceneSpecularScale = math.floor(self.sceneSpecularScale)
     self:rebuildLightTypeOptions()
     self:updateLightTypeIcon()
+    self:updatePreviewShape()
 end
 
 function light:onAssemble(entity)
+    self:updatePreviewShape()
     visualized.onAssemble(self, entity)
+    self:applyCapsulePreviewRotation(entity)
 
     local component = gameLightComponent.new()
     component.name = "light"
@@ -281,10 +325,16 @@ function light:updateParameters()
     comp:SetFlickerParams(self.flickerStrength, self.flickerPeriod, self.flickerOffset)
 end
 
+function light:updateScale()
+    visualized.updateScale(self)
+    self:applyCapsulePreviewRotation()
+end
+
 ---Respawn the light to update parameters, if changed
 ---@param changed boolean
 ---@protected
 function light:updateFull(changed)
+    self:updatePreviewShape()
     if changed and self:isSpawned() then self:respawn() end
 end
 
@@ -666,7 +716,13 @@ function light:getGroupedProperties()
 end
 
 function light:getVisualizerSize()
-    local size = math.max(math.min(0.35, ((self.intensity / 10000) * (self.lightType == 2 and self.capsuleLength / 2 or 1))), 0.05)
+    local size = math.max(math.min(0.35, (self.intensity / 10000)), 0.05)
+
+    if self.lightType == 2 then
+        local capsuleZScale = math.max(self.capsuleLength, 0)
+        return { x = size, y = size, z = size * capsuleZScale }
+    end
+
     return { x = size, y = size, z = size }
 end
 
