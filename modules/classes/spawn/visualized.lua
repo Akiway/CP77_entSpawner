@@ -35,6 +35,8 @@ function visualized:onAssemble(entity)
 
     if self.previewShape == "sphere" then
         visualizer.addSphere(entity, visualizerSize, self.previewColor)
+    elseif self.previewShape == "cone" then
+        visualizer.addCone(entity, visualizerSize, self.previewColor)
     elseif self.previewShape == "box" then
         visualizer.addBox(entity, visualizerSize, self.previewColor)
     elseif self.previewShape == "capsule" then
@@ -78,9 +80,13 @@ function visualized:calculateIntersection(origin, ray)
         return { hit = false }
     end
 
-    if self.previewShape == "sphere" or self.previewShape == "mesh" or self.previewShape == "capsule" then
+    if self.previewShape == "sphere" or self.previewShape == "cone" or self.previewShape == "mesh" or self.previewShape == "capsule" then
         local visualizerSize = self:getVisualizerSize()
         local radius = visualizerSize.x * self.intersectionMultiplier
+        if self.previewShape == "cone" then
+            -- Use the larger cone axis for a more reliable pick volume.
+            radius = math.max(visualizerSize.x, visualizerSize.z) * self.intersectionMultiplier
+        end
         if self.previewShape == "capsule" then
             -- Use a bounding sphere large enough to cover the capsule body and caps.
             radius = (visualizerSize.x + visualizerSize.z / 2) * self.intersectionMultiplier

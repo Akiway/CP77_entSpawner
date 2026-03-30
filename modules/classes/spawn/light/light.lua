@@ -1,8 +1,18 @@
 local visualized = require("modules/classes/spawn/visualized")
+local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
+local history = require("modules/utils/history")
 local utils = require("modules/utils/utils")
 local field = require("modules/utils/field")
 local lcHelper = require("modules/utils/lightChannelHelper")
+local INNER_ANGLE_BORDER_COLOR = 0xFF98CCE9 -- #e9cc98
+local OUTER_ANGLE_BORDER_COLOR = 0xFFAF7838 -- #3878af
+local RADIUS_ICON_COLOR = 0xFF5D9645 -- #45965d
+local SPOT_CONE_MIN_INTENSITY = 50
+local SPOT_CONE_MAX_INTENSITY = 1000
+local SPOT_CONE_MAX_BASE_SCALE = 0.04
+local SPOT_CONE_MIN_BASE_SCALE = SPOT_CONE_MAX_BASE_SCALE * (SPOT_CONE_MIN_INTENSITY / SPOT_CONE_MAX_INTENSITY)
+local SPOT_CONE_INNER_SCALE_MULTIPLIER = 0.05 / 0.03
 
 ---Class for worldStaticLightNode
 ---@class light : visualized
@@ -56,6 +66,7 @@ local lcHelper = require("modules/utils/lightChannelHelper")
 ---@field private rayTracedShadowsPlatforms table
 ---@field private pathTracingLightUsageTypes table
 ---@field private maxRayPathTracingPropertiesWidth number
+---@field private radiusPreviewed boolean
 local light = setmetatable({}, { __index = visualized })
 
 function light:new()
@@ -132,6 +143,7 @@ function light:new()
 
     o.previewColor = "yellow"
     o.previewed = true
+    o.radiusPreviewed = false
 
     setmetatable(o, { __index = self })
     o:rebuildLightTypeOptions()
@@ -170,17 +182,108 @@ function light:updateLightTypeIcon()
 end
 
 function light:updatePreviewShape()
-    self.previewShape = self.lightType == 2 and "capsule" or "sphere"
+    if self.lightType == 2 then
+        self.previewShape = "capsule"
+        self.previewColor = "yellow"
+    elseif self.lightType == 1 then
+        self.previewShape = "cone"
+        self.previewColor = "blue"
+    else
+        self.previewShape = "sphere"
+        self.previewColor = "yellow"
+    end
+end
+
+---@return boolean
+function light:hasRadiusProperty()
+    return self.lightType == 1 or self.lightType == 2
+end
+
+---@return { x: number, y: number, z: number }
+function light:getRadiusPreviewVisualizerSize()
+    local sphereRadius = math.max(self.radius, 0)
+    return { x = sphereRadius, y = sphereRadius, z = sphereRadius }
+end
+
+---@return boolean
+function light:shouldShowRadiusPreview()
+    return self.previewed and self.radiusPreviewed and self:hasRadiusProperty()
 end
 
 ---@param entity entEntity?
-function light:applyCapsulePreviewRotation(entity)
-    if self.previewShape ~= "capsule" then
+function light:updateRadiusPreviewVisibility(entity)
+    local target = entity or self:getEntity()
+    if not target then
         return
     end
 
+    local sphere = target:FindComponentByName("radius_sphere")
+    if not sphere then
+        return
+    end
+
+    visualizer.updateScale(target, self:getRadiusPreviewVisualizerSize(), "radius_sphere")
+
+    local shouldEnable = self:shouldShowRadiusPreview()
+    if sphere:IsEnabled() ~= shouldEnable then
+        sphere:Toggle(shouldEnable)
+    end
+end
+
+---@param multiplier number?
+---@return number
+function light:getSpotConeBaseSize(multiplier)
+    local range = math.max(SPOT_CONE_MAX_INTENSITY - SPOT_CONE_MIN_INTENSITY, 1)
+    local clampedIntensity = math.max(math.min(self.intensity, SPOT_CONE_MAX_INTENSITY), SPOT_CONE_MIN_INTENSITY)
+    local normalizedIntensity = (clampedIntensity - SPOT_CONE_MIN_INTENSITY) / range
+    local baseSize = SPOT_CONE_MIN_BASE_SCALE + normalizedIntensity * (SPOT_CONE_MAX_BASE_SCALE - SPOT_CONE_MIN_BASE_SCALE)
+
+    return baseSize * (multiplier or 1)
+end
+
+---@param angle number
+---@param size number
+---@param radiusFloorRatio number
+---@return { x: number, y: number, z: number }
+function light:getSpotConeVisualizerSize(angle, size, radiusFloorRatio)
+    local clampedAngle = math.max(math.min(angle, 170), 0.1)
+    local halfAngleRadians = math.rad(clampedAngle * 0.5)
+    -- cone.mesh is centered and spans roughly 1.5 units across its main axis.
+    local coneRadiusScale = size * 1.5 * math.tan(halfAngleRadians)
+    coneRadiusScale = math.max(math.min(coneRadiusScale, size * 8), size * radiusFloorRatio)
+
+    return { x = coneRadiusScale, y = coneRadiusScale, z = size }
+end
+
+---@return { x: number, y: number, z: number }
+function light:getOuterSpotConeVisualizerSize()
+    return self:getSpotConeVisualizerSize(self.outerAngle, self:getSpotConeBaseSize(1), 0.03)
+end
+
+---@return { x: number, y: number, z: number }
+function light:getInnerSpotConeVisualizerSize()
+    return self:getSpotConeVisualizerSize(self.innerAngle, self:getSpotConeBaseSize(SPOT_CONE_INNER_SCALE_MULTIPLIER), 0.05)
+end
+
+---@param entity entEntity?
+function light:applyPreviewShapeRotation(entity)
     local target = entity or self:getEntity()
     if not target then
+        return
+    end
+
+    if self.previewShape == "cone" then
+        local coneOrientation = EulerAngles.new(0, 90, 0):ToQuat()
+        for _, coneName in ipairs({ "cone", "cone_inner" }) do
+            local cone = target:FindComponentByName(coneName)
+            if cone then
+                cone:SetLocalOrientation(coneOrientation)
+            end
+        end
+        return
+    end
+
+    if self.previewShape ~= "capsule" then
         return
     end
 
@@ -223,7 +326,15 @@ end
 function light:onAssemble(entity)
     self:updatePreviewShape()
     visualized.onAssemble(self, entity)
-    self:applyCapsulePreviewRotation(entity)
+    if self:hasRadiusProperty() then
+        visualizer.addSphere(entity, self:getRadiusPreviewVisualizerSize(), "ghostwhite", "radius_sphere")
+    end
+    if self.previewShape == "cone" then
+        visualizer.addCone(entity, self:getInnerSpotConeVisualizerSize(), "yellow", "cone_inner")
+        visualizer.toggleAll(entity, self.previewed)
+    end
+    self:applyPreviewShapeRotation(entity)
+    self:updateRadiusPreviewVisibility(entity)
 
     local component = gameLightComponent.new()
     component.name = "light"
@@ -306,6 +417,7 @@ function light:save()
     data.pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI
     data.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
     data.lightChannels = utils.deepcopy(self.lightChannels)
+    data.radiusPreviewed = self.radiusPreviewed
 
     return data
 end
@@ -325,9 +437,19 @@ function light:updateParameters()
     comp:SetFlickerParams(self.flickerStrength, self.flickerPeriod, self.flickerOffset)
 end
 
+function light:setPreview(state)
+    visualized.setPreview(self, state)
+    self:updateRadiusPreviewVisibility()
+end
+
 function light:updateScale()
     visualized.updateScale(self)
-    self:applyCapsulePreviewRotation()
+    local entity = self:getEntity()
+    if entity and self.previewShape == "cone" then
+        visualizer.updateScale(entity, self:getInnerSpotConeVisualizerSize(), "cone_inner")
+    end
+    self:updateRadiusPreviewVisibility(entity)
+    self:applyPreviewShapeRotation()
 end
 
 ---Respawn the light to update parameters, if changed
@@ -384,8 +506,17 @@ function light:draw()
         style.mutedText("Angles")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+        local innerIconY = ImGui.GetCursorPosY()
+        ImGui.SetCursorPosY(innerIconY + 4 * style.viewSize)
+        style.styledText(IconGlyphs.Cone, INNER_ANGLE_BORDER_COLOR)
+        ImGui.SameLine()
+        ImGui.SetCursorPosY(innerIconY)
         self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 9999, "%.1f Inner", 105)
+        style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
         if changed then
+            if self.lightType == 1 then
+                self:updateScale()
+            end
             self:updateParameters()
         end
         if self.lightType == 2 then
@@ -393,8 +524,19 @@ function light:draw()
         end
 
         ImGui.SameLine()
+        ImGui.Dummy(0, 8 * style.viewSize)
+        ImGui.SameLine()
+        local outerIconY = ImGui.GetCursorPosY()
+        ImGui.SetCursorPosY(outerIconY + 1 * style.viewSize)
+        style.styledText(IconGlyphs.Cone, OUTER_ANGLE_BORDER_COLOR)
+        ImGui.SameLine()
+        ImGui.SetCursorPosY(outerIconY)
         self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 9999, "%.1f Outer", 105)
+        style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
         if changed then
+            if self.lightType == 1 then
+                self:updateScale()
+            end
             self:updateParameters()
         end
         if self.lightType == 2 then
@@ -405,17 +547,41 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
         self.softness, _, finished = style.trackedDragFloat(self.object, "##softness", self.softness, 0.05, 0, 9999, "%.2f", 90)
+        style.tooltip("Softens the transition near the cone edge")
         self:updateFull(finished)
     end
     if self.lightType == 1 or self.lightType == 2 then
         style.mutedText("Radius")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+        local radiusIconY = ImGui.GetCursorPosY()
+        ImGui.SetCursorPosY(radiusIconY + 4 * style.viewSize)
+        style.styledText(IconGlyphs.RadiusOutline, RADIUS_ICON_COLOR)
+        ImGui.SameLine()
+        ImGui.SetCursorPosY(radiusIconY)
         self.radius, changed = style.trackedDragFloat(self.object, "##radius", self.radius, 0.25, 0, 9999, "%.1f", 90)
         if changed then
             self:updateParameters()
+            self:updateRadiusPreviewVisibility()
         end
-        style.tooltip("How far the light source emitts light")
+        style.tooltip("How far the light source emitts light, visualized by the green sphere")
+
+        ImGui.SameLine()
+        ImGui.BeginDisabled(not self.previewed)
+        local newRadiusPreviewed, toggled = style.toggleButton(IconGlyphs.HospitalMarker .. "##radiusPreview", self.radiusPreviewed)
+        ImGui.EndDisabled()
+        if toggled then
+            if self.object then
+                history.addAction(history.getElementChange(self.object))
+            end
+            self.radiusPreviewed = newRadiusPreviewed
+            self:updateRadiusPreviewVisibility()
+        end
+
+        style.tooltip(
+            (not self.previewed and "Enable global visualization to edit radius preview")
+                or (self.radiusPreviewed and "Disable radius preview sphere" or "Enable radius preview sphere")
+        )
     end
     if self.lightType == 2 then
         style.mutedText("Capsule Length")
@@ -557,6 +723,10 @@ function light:draw()
         ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
         self.autoHideDistance, _, finished = style.trackedDragFloat(self.object, "##autoHideDistance", self.autoHideDistance, 0.05, 0, 9999, "%.1f", 110)
         self:updateFull(finished)
+        ImGui.SameLine()
+        local distance = utils.distanceVector(self.position, GetPlayer():GetWorldPosition())
+        style.styledText(IconGlyphs.AxisArrowInfo, distance > self.autoHideDistance and 0xFF0000FF or 0xFF00FF00)
+        style.tooltip(string.format("Distance to node position: %.2f", distance))
 
         style.mutedText("EV")
         ImGui.SameLine()
@@ -716,11 +886,15 @@ function light:getGroupedProperties()
 end
 
 function light:getVisualizerSize()
-    local size = math.max(math.min(0.35, (self.intensity / 10000)), 0.05)
+    local size = math.max(math.min(0.35, (self.intensity / 10000)), 0.03)
 
     if self.lightType == 2 then
         local capsuleZScale = math.max(self.capsuleLength, 0)
         return { x = size, y = size, z = size * capsuleZScale }
+    end
+
+    if self.lightType == 1 then
+        return self:getOuterSpotConeVisualizerSize()
     end
 
     return { x = size, y = size, z = size }

@@ -5,6 +5,8 @@ local visualizer = {}
 local previewComponentNames = {
     "box",
     "sphere",
+    "cone",
+    "cone_inner",
     "capsule_body",
     "capsule_top",
     "capsule_bottom",
@@ -80,7 +82,8 @@ end
 ---@param entity entEntity Target entity.
 ---@param scale visualizerScale Sphere scale.
 ---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
-function visualizer.addSphere(entity, scale, color)
+---@param name string? Component name override. Defaults to `"sphere"`.
+function visualizer.addSphere(entity, scale, color, name)
     if not entity then return end
 
     if not color then
@@ -88,7 +91,23 @@ function visualizer.addSphere(entity, scale, color)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
+    addMesh(entity, name or "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
+end
+
+---Attach a cone preview mesh named `"cone"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Cone scale.
+---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
+---@param name string? Component name override. Defaults to `"cone"`.
+function visualizer.addCone(entity, scale, color, name)
+    if not entity then return end
+
+    if not color then
+        local colors = { "red", "green", "blue" }
+        color = colors[math.random(1, 3)]
+    end
+
+    addMesh(entity, name or "cone", "base\\spawner\\cone.mesh", scale, color, true)
 end
 
 ---Attach a three-part capsule preview (`capsule_body`, `capsule_top`, `capsule_bottom`).
@@ -131,7 +150,7 @@ end
 ---If the component is currently enabled, it is toggled off/on to refresh rendering.
 ---@param entity entEntity Target entity.
 ---@param scale visualizerScale New scale.
----@param componentName string Existing component name (commonly `"box"`, `"sphere"`, `"mesh"`, or `"arrows"`).
+---@param componentName string Existing component name (commonly `"box"`, `"sphere"`, `"cone"`, `"mesh"`, or `"arrows"`).
 function visualizer.updateScale(entity, scale, componentName)
     if not entity then return end
 
@@ -194,7 +213,7 @@ function visualizer.showArrows(entity, state)
 end
 
 ---Toggle visibility of all preview components except arrows.
----Affects: `box`, `sphere`, `capsule_body`, `capsule_top`, `capsule_bottom`, `mesh`.
+---Affects: `box`, `sphere`, `cone`, `cone_inner`, `capsule_body`, `capsule_top`, `capsule_bottom`, `mesh`.
 ---@param entity entEntity Target entity.
 ---@param state boolean? Desired enabled state for each preview component found.
 function visualizer.toggleAll(entity, state)
