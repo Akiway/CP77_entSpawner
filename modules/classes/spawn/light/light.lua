@@ -13,6 +13,8 @@ local SPOT_CONE_MAX_INTENSITY = 1000
 local SPOT_CONE_MAX_BASE_SCALE = 0.04
 local SPOT_CONE_MIN_BASE_SCALE = SPOT_CONE_MAX_BASE_SCALE * (SPOT_CONE_MIN_INTENSITY / SPOT_CONE_MAX_INTENSITY)
 local SPOT_CONE_INNER_SCALE_MULTIPLIER = 0.05 / 0.03
+local SPOT_CAPSULE_PRISM_MESH = "base\\spawner\\triangular_prism.w2mesh"
+local SPOT_CAPSULE_PRISM_THICKNESS_SCALE = 2
 
 ---Class for worldStaticLightNode
 ---@class light : visualized
@@ -183,14 +185,22 @@ end
 
 function light:updatePreviewShape()
     if self.lightType == 2 then
-        self.previewShape = "capsule"
         self.previewColor = "yellow"
+        if self.spotCapsule then
+            self.previewShape = "mesh"
+            self.previewMesh = SPOT_CAPSULE_PRISM_MESH
+        else
+            self.previewShape = "capsule"
+            self.previewMesh = ""
+        end
     elseif self.lightType == 1 then
         self.previewShape = "cone"
         self.previewColor = "blue"
+        self.previewMesh = ""
     else
         self.previewShape = "sphere"
         self.previewColor = "yellow"
+        self.previewMesh = ""
     end
 end
 
@@ -278,6 +288,20 @@ function light:applyPreviewShapeRotation(entity)
             local cone = target:FindComponentByName(coneName)
             if cone then
                 cone:SetLocalOrientation(coneOrientation)
+            end
+        end
+        return
+    end
+
+    if self.previewShape == "mesh" and self.previewMesh == SPOT_CAPSULE_PRISM_MESH then
+        local prism = target:FindComponentByName("mesh")
+        if prism then
+            prism:SetLocalOrientation(EulerAngles.new(-90, 0, 90):ToQuat())
+            local desiredAppearance = self.previewColor or "yellow"
+            local currentAppearance = prism.meshAppearance and prism.meshAppearance.value or nil
+            if currentAppearance ~= desiredAppearance then
+                prism.meshAppearance = CName.new(desiredAppearance)
+                prism:LoadAppearance()
             end
         end
         return
@@ -502,6 +526,14 @@ function light:draw()
         self:updateParameters()
     end
 
+    if self.lightType == 2 then
+        style.mutedText("Spot Capsule")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+        self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
+        self:updateFull(changed)
+    end
+
     if self.lightType == 1 or (self.lightType == 2 and self.spotCapsule) then
         style.mutedText("Angles")
         ImGui.SameLine()
@@ -592,12 +624,6 @@ function light:draw()
         if changed then
             self:updateScale()
         end
-
-        style.mutedText("Spot Capsule")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-        self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
-        self:updateFull(changed)
     end
 
     if ImGui.TreeNodeEx("Shadow Settings") then
@@ -889,8 +915,16 @@ function light:getVisualizerSize()
     local size = math.max(math.min(0.35, (self.intensity / 10000)), 0.03)
 
     if self.lightType == 2 then
-        local capsuleZScale = math.max(self.capsuleLength, 0)
-        return { x = size, y = size, z = size * capsuleZScale }
+        local areaBaseSize = self:getSpotConeBaseSize(4)
+        local length = math.max(self.capsuleLength, 0)
+        if self.spotCapsule then
+            -- triangular_prism.w2mesh uses Y as length axis in this preview orientation.
+            local prismThickness = areaBaseSize * SPOT_CAPSULE_PRISM_THICKNESS_SCALE
+            return { x = prismThickness, y = length, z = prismThickness }
+        end
+
+        -- capsuleLength is a world-distance value, so use it directly for preview length.
+        return { x = areaBaseSize, y = areaBaseSize, z = length }
     end
 
     if self.lightType == 1 then

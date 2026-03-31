@@ -87,6 +87,10 @@ function visualized:calculateIntersection(origin, ray)
             -- Use the larger cone axis for a more reliable pick volume.
             radius = math.max(visualizerSize.x, visualizerSize.z) * self.intersectionMultiplier
         end
+        if self.previewShape == "mesh" then
+            -- Mesh previews can be elongated (for example area-light prism), so use the largest axis.
+            radius = math.max(visualizerSize.x, visualizerSize.y, visualizerSize.z) * self.intersectionMultiplier
+        end
         if self.previewShape == "capsule" then
             -- Use a bounding sphere large enough to cover the capsule body and caps.
             radius = (visualizerSize.x + visualizerSize.z / 2) * self.intersectionMultiplier
