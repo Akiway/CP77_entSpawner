@@ -468,6 +468,81 @@ function style.trackedDragInt(element, text, value, min, max, width)
     return newValue, changed, finished
 end
 
+---Draw an integer slider with history tracking and clamp bounds.
+---@param element table Element used for undo history tracking.
+---@param text string Widget label / ID.
+---@param value number Current value.
+---@param min number Minimum allowed value.
+---@param max number Maximum allowed value.
+---@param width number? Field width in unscaled style units (default `80`).
+---@return number newValue
+---@return boolean changed
+---@return boolean finished True when item was deactivated after edit.
+function style.trackedSliderInt(element, text, value, min, max, width)
+    width = width or 80
+    ImGui.SetNextItemWidth(width * style.viewSize)
+    local newValue, changed
+    if ImGui.SliderInt then
+        newValue, changed = ImGui.SliderInt(text, value, min, max)
+    elseif ImGui.SliderFloat then
+        newValue, changed = ImGui.SliderFloat(text, value, min, max, "%.0f")
+    else
+        newValue, changed = ImGui.DragFloat(text, value, 1, min, max, "%.0f")
+    end
+
+    local finished = ImGui.IsItemDeactivatedAfterEdit()
+    if finished then
+        dragBeingEdited = false
+    end
+    if changed and not dragBeingEdited then
+        history.addAction(history.getElementChange(element))
+        dragBeingEdited = true
+    end
+
+    newValue = math.floor(newValue)
+    newValue = math.max(newValue, min)
+    newValue = math.min(newValue, max)
+
+    return newValue, changed, finished
+end
+
+---Draw a float slider with history tracking and clamp bounds.
+---@param element table Element used for undo history tracking.
+---@param text string Widget label / ID.
+---@param value number Current value.
+---@param min number Minimum allowed value.
+---@param max number Maximum allowed value.
+---@param format string? Display format (ImGui printf-style).
+---@param width number? Field width in unscaled style units (default `80`).
+---@return number newValue
+---@return boolean changed
+---@return boolean finished True when item was deactivated after edit.
+function style.trackedSliderFloat(element, text, value, min, max, format, width)
+    width = width or 80
+    ImGui.SetNextItemWidth(width * style.viewSize)
+    local newValue, changed
+    if ImGui.SliderFloat then
+        newValue, changed = ImGui.SliderFloat(text, value, min, max, format or "%.3f")
+    else
+        local dragStep = math.max((max - min) / 200, 0.001)
+        newValue, changed = ImGui.DragFloat(text, value, dragStep, min, max, format or "%.3f")
+    end
+
+    local finished = ImGui.IsItemDeactivatedAfterEdit()
+    if finished then
+        dragBeingEdited = false
+    end
+    if changed and not dragBeingEdited then
+        history.addAction(history.getElementChange(element))
+        dragBeingEdited = true
+    end
+
+    newValue = math.max(newValue, min)
+    newValue = math.min(newValue, max)
+
+    return newValue, changed, finished
+end
+
 ---Draw an integer input field with history tracking and clamp bounds.
 ---@param element table Element used for undo history tracking.
 ---@param text string Widget label / ID.
