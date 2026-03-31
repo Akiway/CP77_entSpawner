@@ -363,29 +363,30 @@ function positionable:drawCopyPaste(name)
         end
 
         if beginSection(showPosition or showRotation) then
+            local copiedPosition = utils.getClipboardValue("position")
+            local copiedRotation = utils.getClipboardValue("rotation")
+
+            ImGui.BeginDisabled(showPosition and copiedPosition == nil)
             if showPosition and ImGui.MenuItem("Paste position") then
-                local pos = utils.getClipboardValue("position")
-                if pos then
-                    history.addAction(history.getElementChange(self))
-                    self:setPosition(Vector4.new(pos.x, pos.y, pos.z, 0))
-                end
+                history.addAction(history.getElementChange(self))
+                self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
             end
+            ImGui.EndDisabled()
+
+            ImGui.BeginDisabled(showRotation and copiedRotation == nil)
             if showRotation and ImGui.MenuItem("Paste rotation") then
-                local rot = utils.getClipboardValue("rotation")
-                if rot then
-                    history.addAction(history.getElementChange(self))
-                    self:setRotation(EulerAngles.new(rot.roll, rot.pitch, rot.yaw))
-                end
+                history.addAction(history.getElementChange(self))
+                self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
+            ImGui.EndDisabled()
+
+            ImGui.BeginDisabled(showPosition and showRotation and (copiedPosition == nil or copiedRotation == nil))
             if showPosition and showRotation and ImGui.MenuItem("Paste position and rotation") then
-                local pos = utils.getClipboardValue("position")
-                local rot = utils.getClipboardValue("rotation")
-                if pos and rot then
-                    history.addAction(history.getElementChange(self))
-                    self:setPosition(Vector4.new(pos.x, pos.y, pos.z, 0))
-                    self:setRotation(EulerAngles.new(rot.roll, rot.pitch, rot.yaw))
-                end
+                history.addAction(history.getElementChange(self))
+                self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
+                self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
+            ImGui.EndDisabled()
         end
 
         if beginSection(showRotation) then

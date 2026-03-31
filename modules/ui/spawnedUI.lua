@@ -415,6 +415,28 @@ local function hasRootChildren()
     return spawnedUI.root ~= nil and spawnedUI.root.childs ~= nil and next(spawnedUI.root.childs) ~= nil
 end
 
+---@param entry table?
+---@return boolean
+local function isValidClipboardEntry(entry)
+    return type(entry) == "table" and type(entry.modulePath) == "string" and entry.modulePath ~= ""
+end
+
+---@param elements table?
+---@return boolean
+local function hasValidClipboardElements(elements)
+    if type(elements) ~= "table" then
+        return false
+    end
+
+    for _, entry in ipairs(elements) do
+        if isValidClipboardEntry(entry) then
+            return true
+        end
+    end
+
+    return false
+end
+
 ---@param source {ref: element}[]
 ---@return element[]
 local function collectVisualizationTargets(source)
@@ -564,7 +586,7 @@ function spawnedUI.registerHotkeys()
         spawnedUI.clipboard = spawnedUI.copy(true)
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.V, ImGuiKey.LeftCtrl }, function()
-        if #spawnedUI.clipboard == 0 or spawnedUI.nameBeingEdited then return end
+        if not hasValidClipboardElements(spawnedUI.clipboard) or spawnedUI.nameBeingEdited then return end
 
         local target
         if #spawnedUI.selectedPaths > 0 then
@@ -851,6 +873,10 @@ function spawnedUI.paste(elements, element)
     spawnedUI.unselectAll()
 
     local pasted = {}
+    if not hasValidClipboardElements(elements) then
+        return pasted
+    end
+
     local parent = spawnedUI.root
     local index = #parent.childs + 1
 
@@ -871,17 +897,19 @@ function spawnedUI.paste(elements, element)
     end
 
     for _, entry in ipairs(elements) do
-        local new = require(entry.modulePath):new(spawnedUI)
+        if isValidClipboardEntry(entry) then
+            local new = require(entry.modulePath):new(spawnedUI)
 
-        if entry.modulePath == "modules/classes/editor/randomizedGroup" then
-            entry.seed = -1
+            if entry.modulePath == "modules/classes/editor/randomizedGroup" then
+                entry.seed = -1
+            end
+
+            new:load(entry)
+            new:setParent(parent, index)
+            new:setSelected(true)
+            index = index + 1
+            table.insert(pasted, new)
         end
-
-        new:load(entry)
-        new:setParent(parent, index)
-        new:setSelected(true)
-        index = index + 1
-        table.insert(pasted, new)
     end
 
     return pasted
@@ -1012,6 +1040,7 @@ function spawnedUI.drawContextMenu(element, path)
     if ImGui.BeginPopupContextItem("##contextMenu" .. path, ImGuiPopupFlags.MouseButtonRight) then
         local isMulti = #spawnedUI.selectedPaths > 1 and element.selected
         local isLocked = element:isLocked()
+        local canPaste = hasValidClipboardElements(spawnedUI.clipboard)
 
         style.mutedText(isMulti and #spawnedUI.selectedPaths .. " elements" or element.name)
         if isLocked then
@@ -1040,9 +1069,11 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
         ImGui.BeginDisabled(isLocked)
+        ImGui.BeginDisabled(not canPaste)
         if ImGui.MenuItem(IconGlyphs.ContentPaste .. " Paste", "CTRL-V") then
             history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, element)))
         end
+        ImGui.EndDisabled()
         if ImGui.MenuItem(IconGlyphs.ContentCut .. " Cut", "CTRL-X") then
             spawnedUI.cut(isMulti, element)
         end
