@@ -9,6 +9,7 @@ local intersection = require("modules/utils/editor/intersection")
 ---@field private previewShape string
 ---@field private previewColor string
 ---@field private previewMesh string
+---@field private previewMeshAppearance string|nil
 ---@field private intersectionMultiplier number
 local visualized = setmetatable({}, { __index = spawnable })
 
@@ -21,6 +22,7 @@ function visualized:new()
     o.previewed = false
     o.previewShape = "sphere"
     o.previewMesh = ""
+    o.previewMeshAppearance = nil
     o.intersectionMultiplier = 1
     o.previewColor = "blue"
 
@@ -42,11 +44,12 @@ function visualized:onAssemble(entity)
     elseif self.previewShape == "capsule" then
         visualizer.addCapsule(entity, visualizerSize.x, visualizerSize.z, self.previewColor)
     elseif self.previewShape == "mesh" then
-        visualizer.addMesh(entity, visualizerSize, self.previewMesh)
+        visualizer.addMesh(entity, visualizerSize, self.previewMesh, self.previewMeshAppearance)
     end
 
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
     visualizer.toggleAll(entity, self.previewed)
+    self:onAfterPreviewAssemble(entity)
 end
 
 function visualized:save()
@@ -69,10 +72,19 @@ function visualized:updateScale()
     else
         visualizer.updateScale(entity, visualizerSize, self.previewShape)
     end
+    self:onAfterPreviewScale(entity)
 end
 
 function visualized:getVisualizerSize()
     return self:getArrowSize()
+end
+
+---@param entity entEntity
+function visualized:onAfterPreviewAssemble(entity)
+end
+
+---@param entity entEntity
+function visualized:onAfterPreviewScale(entity)
 end
 
 function visualized:calculateIntersection(origin, ray)

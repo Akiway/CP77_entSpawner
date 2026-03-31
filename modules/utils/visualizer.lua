@@ -57,10 +57,11 @@ end
 ---@param entity entEntity Target entity.
 ---@param scale visualizerScale Mesh scale.
 ---@param mesh string Depot mesh path to render.
-function visualizer.addMesh(entity, scale, mesh)
+---@param app string? Optional appearance override. Defaults to `"default"`.
+function visualizer.addMesh(entity, scale, mesh, app)
     if not entity then return end
 
-    addMesh(entity, "mesh", mesh, scale, "default", true)
+    addMesh(entity, "mesh", mesh, scale, app or "default", true)
 end
 
 ---Attach a cube preview mesh named `"box"`.

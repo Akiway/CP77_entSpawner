@@ -5,16 +5,28 @@ local history = require("modules/utils/history")
 local utils = require("modules/utils/utils")
 local field = require("modules/utils/field")
 local lcHelper = require("modules/utils/lightChannelHelper")
+
+local LIGHT_TYPE_POINT = 0
+local LIGHT_TYPE_SPOT = 1
+local LIGHT_TYPE_AREA = 2
+
 local INNER_ANGLE_BORDER_COLOR = 0xFF98CCE9 -- #e9cc98
 local OUTER_ANGLE_BORDER_COLOR = 0xFFAF7838 -- #3878af
 local RADIUS_ICON_COLOR = 0xFF5D9645 -- #45965d
-local SPOT_CONE_MIN_INTENSITY = 50
-local SPOT_CONE_MAX_INTENSITY = 1000
-local SPOT_CONE_MAX_BASE_SCALE = 0.04
-local SPOT_CONE_MIN_BASE_SCALE = SPOT_CONE_MAX_BASE_SCALE * (SPOT_CONE_MIN_INTENSITY / SPOT_CONE_MAX_INTENSITY)
-local SPOT_CONE_INNER_SCALE_MULTIPLIER = 0.05 / 0.03
-local SPOT_CAPSULE_PRISM_MESH = "base\\spawner\\triangular_prism.w2mesh"
-local SPOT_CAPSULE_PRISM_THICKNESS_SCALE = 2
+
+local PREVIEW_COLOR_SPOT = "blue"
+local PREVIEW_COLOR_SPOT_INNER = "yellow"
+local PREVIEW_COLOR_DEFAULT = "yellow"
+local PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO = 0.03
+local PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO = 0.05
+local PREVIEW_SPOT_INNER_SCALE_MULTIPLIER = 0.05 / 0.03
+local PREVIEW_INTENSITY_MIN = 50
+local PREVIEW_INTENSITY_MAX = 1000
+local PREVIEW_BASE_SCALE_MAX = 0.04
+local PREVIEW_BASE_SCALE_MIN = PREVIEW_BASE_SCALE_MAX * (PREVIEW_INTENSITY_MIN / PREVIEW_INTENSITY_MAX)
+local PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER = 4
+local PREVIEW_PRISM_MESH = "base\\spawner\\triangular_prism.w2mesh"
+local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
 
 ---Class for worldStaticLightNode
 ---@class light : visualized
@@ -92,19 +104,19 @@ function light:new()
     o.flickerStrength = 0
     o.flickerPeriod = 0.2
     o.flickerOffset = 0
-    o.lightType = 1
+    o.lightType = LIGHT_TYPE_SPOT
     o.localShadows = true
     o.lightTypeNames = utils.enumTable("ELightType")
     o.lightTypeOptions = {}
     o.lightTypeIcons = {
-        [0] = IconGlyphs.LightbulbOn20,
-        [1] = IconGlyphs.TrackLight,
-        [2] = IconGlyphs.CarParkingLights
+        [LIGHT_TYPE_POINT] = IconGlyphs.LightbulbOn20,
+        [LIGHT_TYPE_SPOT] = IconGlyphs.TrackLight,
+        [LIGHT_TYPE_AREA] = IconGlyphs.CarParkingLights
     }
     o.lightTypeLabels = {
-        [0] = "Point",
-        [1] = "Spot",
-        [2] = "Area"
+        [LIGHT_TYPE_POINT] = "Point",
+        [LIGHT_TYPE_SPOT] = "Spot",
+        [LIGHT_TYPE_AREA] = "Area"
     }
     o.temperature = -1
     o.scaleVolFog = 0
@@ -170,7 +182,7 @@ end
 
 function light:rebuildLightTypeOptions()
     self.lightTypeOptions = {}
-    local maxEnumIndex = math.max(#(self.lightTypeNames or {}) - 1, 2)
+    local maxEnumIndex = math.max(#(self.lightTypeNames or {}) - 1, LIGHT_TYPE_AREA)
     for idx = 0, maxEnumIndex do
         self.lightTypeOptions[idx + 1] = string.format("%s %s", self:getLightTypeIcon(idx), self:getLightTypeLabel(idx))
     end
@@ -183,30 +195,70 @@ function light:updateLightTypeIcon()
     end
 end
 
-function light:updatePreviewShape()
-    if self.lightType == 2 then
-        self.previewColor = "yellow"
+---@return table
+function light:getPreviewSpec()
+    local pointAreaBaseSize = self:getIntensityPreviewBaseSize(PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER)
+
+    if self.lightType == LIGHT_TYPE_AREA then
+        local length = math.max(self.capsuleLength, 0)
         if self.spotCapsule then
-            self.previewShape = "mesh"
-            self.previewMesh = SPOT_CAPSULE_PRISM_MESH
-        else
-            self.previewShape = "capsule"
-            self.previewMesh = ""
+            local prismThickness = pointAreaBaseSize * PREVIEW_PRISM_THICKNESS_MULTIPLIER
+            return {
+                shape = "mesh",
+                color = PREVIEW_COLOR_DEFAULT,
+                mesh = PREVIEW_PRISM_MESH,
+                meshAppearance = PREVIEW_COLOR_DEFAULT,
+                size = { x = prismThickness, y = length, z = prismThickness },
+                rotation = { kind = "quat", value = EulerAngles.new(-90, 0, 90):ToQuat() }
+            }
         end
-    elseif self.lightType == 1 then
-        self.previewShape = "cone"
-        self.previewColor = "blue"
-        self.previewMesh = ""
-    else
-        self.previewShape = "sphere"
-        self.previewColor = "yellow"
-        self.previewMesh = ""
+
+        return {
+            shape = "capsule",
+            color = PREVIEW_COLOR_DEFAULT,
+            size = { x = pointAreaBaseSize, y = pointAreaBaseSize, z = length },
+            rotation = { kind = "capsule" }
+        }
     end
+
+    if self.lightType == LIGHT_TYPE_SPOT then
+        local outerSize = self:getSpotConeVisualizerSize(self.outerAngle, self:getIntensityPreviewBaseSize(1), PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO)
+        local innerSize = self:getSpotConeVisualizerSize(
+            self.innerAngle,
+            self:getIntensityPreviewBaseSize(PREVIEW_SPOT_INNER_SCALE_MULTIPLIER),
+            PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO
+        )
+
+        return {
+            shape = "cone",
+            color = PREVIEW_COLOR_SPOT,
+            size = outerSize,
+            rotation = { kind = "quat", value = EulerAngles.new(0, 90, 0):ToQuat() },
+            innerCone = {
+                color = PREVIEW_COLOR_SPOT_INNER,
+                size = innerSize
+            }
+        }
+    end
+
+    return {
+        shape = "sphere",
+        color = PREVIEW_COLOR_DEFAULT,
+        size = { x = pointAreaBaseSize, y = pointAreaBaseSize, z = pointAreaBaseSize }
+    }
+end
+
+function light:updatePreviewShape()
+    local spec = self:getPreviewSpec()
+    self.previewShape = spec.shape
+    self.previewColor = spec.color or PREVIEW_COLOR_DEFAULT
+    self.previewMesh = spec.mesh or ""
+    self.previewMeshAppearance = spec.meshAppearance
 end
 
 ---@return boolean
 function light:hasRadiusProperty()
-    return self.lightType == 1 or self.lightType == 2
+    return self.lightType == LIGHT_TYPE_SPOT or self.lightType == LIGHT_TYPE_AREA
 end
 
 ---@return { x: number, y: number, z: number }
@@ -242,11 +294,11 @@ end
 
 ---@param multiplier number?
 ---@return number
-function light:getSpotConeBaseSize(multiplier)
-    local range = math.max(SPOT_CONE_MAX_INTENSITY - SPOT_CONE_MIN_INTENSITY, 1)
-    local clampedIntensity = math.max(math.min(self.intensity, SPOT_CONE_MAX_INTENSITY), SPOT_CONE_MIN_INTENSITY)
-    local normalizedIntensity = (clampedIntensity - SPOT_CONE_MIN_INTENSITY) / range
-    local baseSize = SPOT_CONE_MIN_BASE_SCALE + normalizedIntensity * (SPOT_CONE_MAX_BASE_SCALE - SPOT_CONE_MIN_BASE_SCALE)
+function light:getIntensityPreviewBaseSize(multiplier)
+    local range = math.max(PREVIEW_INTENSITY_MAX - PREVIEW_INTENSITY_MIN, 1)
+    local clampedIntensity = math.max(math.min(self.intensity, PREVIEW_INTENSITY_MAX), PREVIEW_INTENSITY_MIN)
+    local normalizedIntensity = (clampedIntensity - PREVIEW_INTENSITY_MIN) / range
+    local baseSize = PREVIEW_BASE_SCALE_MIN + normalizedIntensity * (PREVIEW_BASE_SCALE_MAX - PREVIEW_BASE_SCALE_MIN)
 
     return baseSize * (multiplier or 1)
 end
@@ -267,12 +319,50 @@ end
 
 ---@return { x: number, y: number, z: number }
 function light:getOuterSpotConeVisualizerSize()
-    return self:getSpotConeVisualizerSize(self.outerAngle, self:getSpotConeBaseSize(1), 0.03)
+    local spec = self:getPreviewSpec()
+    if spec.innerCone then
+        return spec.size
+    end
+
+    return self:getSpotConeVisualizerSize(self.outerAngle, self:getIntensityPreviewBaseSize(1), PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO)
 end
 
 ---@return { x: number, y: number, z: number }
 function light:getInnerSpotConeVisualizerSize()
-    return self:getSpotConeVisualizerSize(self.innerAngle, self:getSpotConeBaseSize(SPOT_CONE_INNER_SCALE_MULTIPLIER), 0.05)
+    local spec = self:getPreviewSpec()
+    if spec.innerCone then
+        return spec.innerCone.size
+    end
+
+    return self:getSpotConeVisualizerSize(
+        self.innerAngle,
+        self:getIntensityPreviewBaseSize(PREVIEW_SPOT_INNER_SCALE_MULTIPLIER),
+        PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO
+    )
+end
+
+---@param entity entEntity?
+function light:applyPreviewAppearance(entity)
+    local target = entity or self:getEntity()
+    if not target then
+        return
+    end
+
+    local spec = self:getPreviewSpec()
+    if spec.shape ~= "mesh" or not spec.meshAppearance then
+        return
+    end
+
+    local mesh = target:FindComponentByName("mesh")
+    if not mesh then
+        return
+    end
+
+    local currentAppearance = mesh.meshAppearance and mesh.meshAppearance.value or nil
+    if currentAppearance ~= spec.meshAppearance then
+        mesh.meshAppearance = CName.new(spec.meshAppearance)
+        mesh:LoadAppearance()
+    end
 end
 
 ---@param entity entEntity?
@@ -282,39 +372,38 @@ function light:applyPreviewShapeRotation(entity)
         return
     end
 
-    if self.previewShape == "cone" then
-        local coneOrientation = EulerAngles.new(0, 90, 0):ToQuat()
+    local spec = self:getPreviewSpec()
+    local rotation = spec.rotation
+    if not rotation then
+        return
+    end
+
+    if spec.shape == "cone" and rotation.kind == "quat" then
         for _, coneName in ipairs({ "cone", "cone_inner" }) do
             local cone = target:FindComponentByName(coneName)
             if cone then
-                cone:SetLocalOrientation(coneOrientation)
+                cone:SetLocalOrientation(rotation.value)
             end
         end
         return
     end
 
-    if self.previewShape == "mesh" and self.previewMesh == SPOT_CAPSULE_PRISM_MESH then
-        local prism = target:FindComponentByName("mesh")
-        if prism then
-            prism:SetLocalOrientation(EulerAngles.new(-90, 0, 90):ToQuat())
-            local desiredAppearance = self.previewColor or "yellow"
-            local currentAppearance = prism.meshAppearance and prism.meshAppearance.value or nil
-            if currentAppearance ~= desiredAppearance then
-                prism.meshAppearance = CName.new(desiredAppearance)
-                prism:LoadAppearance()
-            end
+    if spec.shape == "mesh" and rotation.kind == "quat" then
+        local mesh = target:FindComponentByName("mesh")
+        if mesh then
+            mesh:SetLocalOrientation(rotation.value)
         end
         return
     end
 
-    if self.previewShape ~= "capsule" then
+    if spec.shape ~= "capsule" or rotation.kind ~= "capsule" then
         return
     end
 
     local rollFix = EulerAngles.new(90, 0, 0)
     local rollFixQuat = rollFix:ToQuat()
     local rollFixFlippedQuat = EulerAngles.new(90, 0, 180):ToQuat()
-    local halfHeight = self:getVisualizerSize().z / 2
+    local halfHeight = spec.size.z / 2
     local topOffset = rollFixQuat:Transform(Vector4.new(0, 0, halfHeight, 0))
     local bottomOffset = rollFixQuat:Transform(Vector4.new(0, 0, -halfHeight, 0))
 
@@ -347,18 +436,41 @@ function light:loadSpawnData(data, position, rotation)
     self:updatePreviewShape()
 end
 
-function light:onAssemble(entity)
-    self:updatePreviewShape()
-    visualized.onAssemble(self, entity)
+---@param entity entEntity
+function light:onAfterPreviewAssemble(entity)
+    local spec = self:getPreviewSpec()
+
     if self:hasRadiusProperty() then
         visualizer.addSphere(entity, self:getRadiusPreviewVisualizerSize(), "ghostwhite", "radius_sphere")
     end
-    if self.previewShape == "cone" then
-        visualizer.addCone(entity, self:getInnerSpotConeVisualizerSize(), "yellow", "cone_inner")
+
+    if spec.innerCone then
+        visualizer.addCone(entity, spec.innerCone.size, spec.innerCone.color, "cone_inner")
+        -- Ensure the newly created inner cone follows the current global preview visibility.
         visualizer.toggleAll(entity, self.previewed)
     end
+
+    self:applyPreviewAppearance(entity)
     self:applyPreviewShapeRotation(entity)
     self:updateRadiusPreviewVisibility(entity)
+end
+
+---@param entity entEntity
+function light:onAfterPreviewScale(entity)
+    local spec = self:getPreviewSpec()
+
+    if spec.innerCone then
+        visualizer.updateScale(entity, spec.innerCone.size, "cone_inner")
+    end
+
+    self:applyPreviewAppearance(entity)
+    self:applyPreviewShapeRotation(entity)
+    self:updateRadiusPreviewVisibility(entity)
+end
+
+function light:onAssemble(entity)
+    self:updatePreviewShape()
+    visualized.onAssemble(self, entity)
 
     local component = gameLightComponent.new()
     component.name = "light"
@@ -468,12 +580,6 @@ end
 
 function light:updateScale()
     visualized.updateScale(self)
-    local entity = self:getEntity()
-    if entity and self.previewShape == "cone" then
-        visualizer.updateScale(entity, self:getInnerSpotConeVisualizerSize(), "cone_inner")
-    end
-    self:updateRadiusPreviewVisibility(entity)
-    self:applyPreviewShapeRotation()
 end
 
 ---Respawn the light to update parameters, if changed
@@ -526,7 +632,7 @@ function light:draw()
         self:updateParameters()
     end
 
-    if self.lightType == 2 then
+    if self.lightType == LIGHT_TYPE_AREA then
         style.mutedText("Spot Capsule")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
@@ -534,7 +640,7 @@ function light:draw()
         self:updateFull(changed)
     end
 
-    if self.lightType == 1 or (self.lightType == 2 and self.spotCapsule) then
+    if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
         style.mutedText("Angles")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
@@ -546,12 +652,12 @@ function light:draw()
         self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 9999, "%.1f Inner", 105)
         style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
         if changed then
-            if self.lightType == 1 then
+            if self.lightType == LIGHT_TYPE_SPOT then
                 self:updateScale()
             end
             self:updateParameters()
         end
-        if self.lightType == 2 then
+        if self.lightType == LIGHT_TYPE_AREA then
             self:updateFull(finished)
         end
 
@@ -566,12 +672,12 @@ function light:draw()
         self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 9999, "%.1f Outer", 105)
         style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
         if changed then
-            if self.lightType == 1 then
+            if self.lightType == LIGHT_TYPE_SPOT then
                 self:updateScale()
             end
             self:updateParameters()
         end
-        if self.lightType == 2 then
+        if self.lightType == LIGHT_TYPE_AREA then
             self:updateFull(finished)
         end
 
@@ -582,7 +688,7 @@ function light:draw()
         style.tooltip("Softens the transition near the cone edge")
         self:updateFull(finished)
     end
-    if self.lightType == 1 or self.lightType == 2 then
+    if self.lightType == LIGHT_TYPE_SPOT or self.lightType == LIGHT_TYPE_AREA then
         style.mutedText("Radius")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
@@ -615,7 +721,7 @@ function light:draw()
                 or (self.radiusPreviewed and "Disable radius preview sphere" or "Enable radius preview sphere")
         )
     end
-    if self.lightType == 2 then
+    if self.lightType == LIGHT_TYPE_AREA then
         style.mutedText("Capsule Length")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
@@ -637,7 +743,7 @@ function light:draw()
         self.contactShadows, changed = style.trackedCombo(self.object, "##contactShadows", self.contactShadows, self.contactShadowsTypes)
         self:updateFull(changed)
 
-        if self.lightType == 1 or lightType == 2 then
+        if self.lightType == LIGHT_TYPE_SPOT or self.lightType == LIGHT_TYPE_AREA then
             style.mutedText("Local Shadows")
             ImGui.SameLine()
             ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
@@ -912,26 +1018,7 @@ function light:getGroupedProperties()
 end
 
 function light:getVisualizerSize()
-    local size = math.max(math.min(0.35, (self.intensity / 10000)), 0.03)
-
-    if self.lightType == 2 then
-        local areaBaseSize = self:getSpotConeBaseSize(4)
-        local length = math.max(self.capsuleLength, 0)
-        if self.spotCapsule then
-            -- triangular_prism.w2mesh uses Y as length axis in this preview orientation.
-            local prismThickness = areaBaseSize * SPOT_CAPSULE_PRISM_THICKNESS_SCALE
-            return { x = prismThickness, y = length, z = prismThickness }
-        end
-
-        -- capsuleLength is a world-distance value, so use it directly for preview length.
-        return { x = areaBaseSize, y = areaBaseSize, z = length }
-    end
-
-    if self.lightType == 1 then
-        return self:getOuterSpotConeVisualizerSize()
-    end
-
-    return { x = size, y = size, z = size }
+    return self:getPreviewSpec().size
 end
 
 function light:getSize()
