@@ -14,6 +14,7 @@ local hints = colliderGenerics.hints
 local colors = colliderGenerics.colors
 
 
+
 ---Class for worldCollisionNode
 ---@class collider : spawnable
 ---@field private shape integer
@@ -35,16 +36,11 @@ function collider:new()
     o.description = "A collision shape, can be a box, capsule or sphere"
     o.icon = IconGlyphs.TextureBox
 
-    -- shape id 3 -> mesh
     o.shape = 0
     o.material = settings.defaultColliderMaterial
     o.preset = 33
 
     o.shapeTypes = { "Box", "Capsule", "Sphere" }
-
-    o.sectorHash = nil
-    o.shapeHash = nil
-    o.meshType = nil
 
     o.scale = { x = 1, y = 1, z = 1 }
     o.previewed = true
@@ -53,15 +49,6 @@ function collider:new()
 
     setmetatable(o, { __index = self })
    	return o
-end
-
-function collider:setCollisionMesh(sectorHash, shapeHash, meshType)
-    self.shape = 3
-    self.sectorHash = sectorHash
-    self.shapeHash = shapeHash
-    self.meshType = meshType
-
-    self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. tostring(sectorHash) .. "_" .. tostring(shapeHash) .. "_" .. tostring(meshType):lower() .. ".ent"
 end
 
 function collider:loadSpawnData(data, position, rotation)
@@ -76,62 +63,51 @@ function collider:loadSpawnData(data, position, rotation)
             self.scale = { x = data.radius, y = data.radius, z = data.radius }
         end
     end
-
-    if data.shape == 3 then
-        self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. tostring(data.sectorHash) .. "_" .. tostring(data.shapeHash) .. "_" .. tostring(data.meshType):lower() .. ".ent"
-    end
 end
 
 function collider:onAssemble(entity)
     spawnable.onAssemble(self, entity)
 
-    if self.shape == 3 then
-        local component = entity:FindComponentByName("Collision Mesh 0")
-        component.filterData.preset = self.preset
+    local component = entColliderComponent.new()
+    component.name = "collider"
+    local actor
+    local color = colors[settings.colliderColor + 1]
 
-        visualizer.addMesh(entity, {x = 1, y = 1, z = 1}, "scc\\generated\\geometry_cache\\collision\\" .. tostring(self.sectorHash) .. "_" .. tostring(self.shapeHash) .. "_" .. tostring(self.meshType):lower() .. ".mesh")
-    else
-        local component = entColliderComponent.new()
-        component.name = "collider"
-        local actor
-        local color = colors[settings.colliderColor + 1]
-
-        if self.shape == 0 then
-            actor = physicsColliderBox.new()
-            actor.halfExtents = ToVector3(self.scale)
-            visualizer.addBox(entity, self.scale, color)
-        elseif self.shape == 1 then
-            actor = physicsColliderCapsule.new()
-            actor.height = self.scale.z
-            actor.radius = self.scale.x
-            visualizer.addCapsule(entity, self.scale.x, self.scale.z, color)
-        elseif self.shape == 2 then
-            actor = physicsColliderSphere.new()
-            actor.radius = self.scale.x
-            visualizer.addSphere(entity, self.scale, color)
-        end
-
-        actor.material = materials[self.material + 1]
-
-        component.colliders = { actor }
-
-        local filterData = physicsFilterData.new()
-        filterData.preset = self.preset
-
-        local query = physicsQueryFilter.new()
-        query.mask1 = 0
-        query.mask2 = 70107400
-
-        local sim = physicsSimulationFilter.new()
-        sim.mask1 = 114696
-        sim.mask2 = 23627
-
-        filterData.queryFilter = query
-        filterData.simulationFilter = sim
-        component.filterData = filterData
-
-        entity:AddComponent(component)
+    if self.shape == 0 then
+        actor = physicsColliderBox.new()
+        actor.halfExtents = ToVector3(self.scale)
+        visualizer.addBox(entity, self.scale, color)
+    elseif self.shape == 1 then
+        actor = physicsColliderCapsule.new()
+        actor.height = self.scale.z
+        actor.radius = self.scale.x
+        visualizer.addCapsule(entity, self.scale.x, self.scale.z, color)
+    elseif self.shape == 2 then
+        actor = physicsColliderSphere.new()
+        actor.radius = self.scale.x
+        visualizer.addSphere(entity, self.scale, color)
     end
+
+    actor.material = materials[self.material + 1]
+
+    component.colliders = { actor }
+
+    local filterData = physicsFilterData.new()
+    filterData.preset = self.preset
+
+    local query = physicsQueryFilter.new()
+    query.mask1 = 0
+    query.mask2 = 70107400
+
+    local sim = physicsSimulationFilter.new()
+    sim.mask1 = 114696
+    sim.mask2 = 23627
+
+    filterData.queryFilter = query
+    filterData.simulationFilter = sim
+    component.filterData = filterData
+
+    entity:AddComponent(component)
 
     visualizer.toggleAll(entity, self.previewed)
 end
@@ -144,10 +120,6 @@ function collider:save()
     data.previewed = self.previewed
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
     if data.previewed == nil then data.previewed = true end
-
-    data.sectorHash = self.sectorHash
-    data.shapeHash = self.shapeHash
-    data.meshType = self.meshType
 
     return data
 end
@@ -271,14 +243,12 @@ function collider:draw()
         visualizer.toggleAll(self:getEntity(), self.previewed)
     end
 
-    if (not self.shape == 3) then
-        style.mutedText("Collision Shape")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxPropertyWidth)
-        self.shape, changed = style.trackedCombo(self.object, "##type", self.shape, self.shapeTypes, 100)
-        if changed then
-            self:updateScale(true, { x = 0, y = 0, z = 0 })
-        end
+    style.mutedText("Collision Shape")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.shape, changed = style.trackedCombo(self.object, "##type", self.shape, self.shapeTypes, 100)
+    if changed then
+        self:updateScale(true, { x = 0, y = 0, z = 0 })
     end
 
     style.mutedText("Collision Preset")
