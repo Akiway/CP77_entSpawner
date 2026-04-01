@@ -10,7 +10,8 @@ local previewComponentNames = {
     "capsule_body",
     "capsule_top",
     "capsule_bottom",
-    "mesh"
+    "mesh",
+    "mesh_inner"
 }
 
 ---Create and attach an `entMeshComponent` used as preview geometry.
@@ -58,10 +59,11 @@ end
 ---@param scale visualizerScale Mesh scale.
 ---@param mesh string Depot mesh path to render.
 ---@param app string? Optional appearance override. Defaults to `"default"`.
-function visualizer.addMesh(entity, scale, mesh, app)
+---@param name string? Optional component name override. Defaults to `"mesh"`.
+function visualizer.addMesh(entity, scale, mesh, app, name)
     if not entity then return end
 
-    addMesh(entity, "mesh", mesh, scale, app or "default", true)
+    addMesh(entity, name or "mesh", mesh, scale, app or "default", true)
 end
 
 ---Attach a cube preview mesh named `"box"`.
