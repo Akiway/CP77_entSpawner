@@ -46,11 +46,22 @@ function json.stringify(value, prettyPrint, indentLevel)
         local isArray = #value > 0
 
         for key, val in pairs(value) do
-            if isArray then
-                jsonStr[#jsonStr + 1] = nextIndent .. json.stringify(val, prettyPrint, indentLevel + 1)
-            else
-                jsonStr[#jsonStr + 1] = string.format('%s"%s":' .. space ..'%s', nextIndent, tostring(key), json.stringify(val, prettyPrint, indentLevel + 1))
+            local jsonVal = json.stringify(val, prettyPrint, indentLevel + 1)
+            if jsonVal == nil then
+                goto continue
             end
+
+            if isArray then
+                jsonStr[#jsonStr + 1] = nextIndent .. jsonVal
+            else
+                jsonStr[#jsonStr + 1] = string.format('%s"%s":' .. space ..'%s', nextIndent, tostring(key), jsonVal)
+            end
+
+            ::continue::
+        end
+
+        if #jsonStr == 0 then
+            return nil
         end
 
         if isArray then

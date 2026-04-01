@@ -357,9 +357,9 @@ function meshCollider:export()
 		["extents"] = {
 			["$type"] = "Vector4",
 			["W"] = 0,
-			["X"] = extents.x,
-			["Y"] = extents.y,
-			["Z"] = extents.z
+			["X"] = extends.x,
+			["Y"] = extends.y,
+			["Z"] = extends.z
 		},
 		["lod"] = 1,
 		["numActors"] = 1,
