@@ -4,6 +4,7 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local utils = require("modules/utils/utils")
 local field = require("modules/utils/field")
+local colorUtil = require("modules/utils/color")
 local lcHelper = require("modules/utils/lightChannelHelper")
 
 local LIGHT_TYPE_POINT = 0
@@ -28,6 +29,108 @@ local PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER = 4
 local PREVIEW_PRISM_MESH = "base\\spawner\\triangular_prism.w2mesh"
 local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
 
+local LIGHT_TYPE_TAB_INACTIVE_BG = colorUtil.packAABBGGRR({ 0.08, 0.15, 0.26 }, 0.85)
+local LIGHT_TYPE_TAB_INACTIVE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.30, 0.50 }, 1.0)
+local LIGHT_TYPE_TAB_INACTIVE_PRESSED = colorUtil.packAABBGGRR({ 0.10, 0.24, 0.41 }, 0.95)
+local LIGHT_TYPE_TAB_INACTIVE_TEXT = colorUtil.packAABBGGRR({ 0.82, 0.87, 0.93 }, 1.0)
+local COLOR_HEX_BADGE_BG = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95)
+local COLOR_HEX_BADGE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0)
+local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0)
+
+---@param rawColor table?
+---@return number normalizedR
+---@return number normalizedG
+---@return number normalizedB
+local function getColorRgb(rawColor)
+    local normalized = colorUtil.normalizeRGB(rawColor, { 1, 1, 1 })
+    return normalized[1], normalized[2], normalized[3]
+end
+
+---@param rawColor table?
+---@return string
+local function formatColorHex(rawColor)
+    local r, g, b = getColorRgb(rawColor)
+    return string.format("#%02X%02X%02X", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+end
+
+---@param rawColor table?
+---@return string
+local function formatColorPreviewTooltip(rawColor)
+    local r, g, b = getColorRgb(rawColor)
+    local red = math.floor(r * 255 + 0.5)
+    local green = math.floor(g * 255 + 0.5)
+    local blue = math.floor(b * 255 + 0.5)
+
+    return string.format(
+        "#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)",
+        red,
+        green,
+        blue,
+        red,
+        green,
+        blue,
+        r,
+        g,
+        b
+    )
+end
+
+---@param hexText string?
+---@return table? rgb
+local function parseHexColor(hexText)
+    if type(hexText) ~= "string" then
+        return nil
+    end
+
+    local normalized = hexText:gsub("%s+", "")
+    if normalized:sub(1, 1) == "#" then
+        normalized = normalized:sub(2)
+    end
+
+    normalized = normalized:upper()
+    if #normalized ~= 6 or normalized:find("[^0-9A-F]") then
+        return nil
+    end
+
+    local red = tonumber(normalized:sub(1, 2), 16)
+    local green = tonumber(normalized:sub(3, 4), 16)
+    local blue = tonumber(normalized:sub(5, 6), 16)
+    if not red or not green or not blue then
+        return nil
+    end
+
+    return { red / 255, green / 255, blue / 255 }
+end
+
+---@param icon string
+---@param label string
+---@param opts table?
+---@return number rowStartY
+local function drawIconLabelRow(icon, label, opts)
+    opts = opts or {}
+    local rowStartY = ImGui.GetCursorPosY()
+    local iconOffset = (opts.iconOffset or 4) * style.viewSize
+    local labelOffset = (opts.labelOffset or 2) * style.viewSize
+
+    ImGui.SetCursorPosY(rowStartY + iconOffset)
+    if opts.iconColor then
+        style.styledText(icon, opts.iconColor)
+    else
+        style.mutedText(icon)
+    end
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(rowStartY + labelOffset)
+    style.mutedText(label)
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(rowStartY)
+
+    if opts.fieldX then
+        ImGui.SetCursorPosX(opts.fieldX)
+    end
+
+    return rowStartY
+end
+
 ---Class for worldStaticLightNode
 ---@class light : visualized
 ---@field public color {r: number, g: number, b: number}
@@ -43,7 +146,6 @@ local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
 ---@field public lightType integer
 ---@field public localShadows boolean
 ---@field private lightTypeNames table
----@field private lightTypeOptions table
 ---@field private lightTypeIcons table
 ---@field private lightTypeLabels table
 ---@field private temperature number
@@ -81,6 +183,8 @@ local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
 ---@field private pathTracingLightUsageTypes table
 ---@field private maxRayPathTracingPropertiesWidth number
 ---@field private radiusPreviewed boolean
+---@field private colorHexText string
+---@field private colorHexEditing boolean
 local light = setmetatable({}, { __index = visualized })
 
 function light:new()
@@ -107,7 +211,6 @@ function light:new()
     o.lightType = LIGHT_TYPE_SPOT
     o.localShadows = true
     o.lightTypeNames = utils.enumTable("ELightType")
-    o.lightTypeOptions = {}
     o.lightTypeIcons = {
         [LIGHT_TYPE_POINT] = IconGlyphs.LightbulbOn20,
         [LIGHT_TYPE_SPOT] = IconGlyphs.TrackLight,
@@ -152,15 +255,15 @@ function light:new()
     o.maxShadowPropertiesWidth = nil
     o.maxFlickerPropertiesWidth = nil
     o.maxMiscPropertiesWidth = nil
-    o.maxLightChannelsWidth = nil
     o.maxRayPathTracingPropertiesWidth = nil
 
     o.previewColor = "yellow"
     o.previewed = true
     o.radiusPreviewed = false
+    o.colorHexText = formatColorHex(o.color)
+    o.colorHexEditing = false
 
     setmetatable(o, { __index = self })
-    o:rebuildLightTypeOptions()
     o:updateLightTypeIcon()
     o:updatePreviewShape()
     	return o
@@ -178,14 +281,6 @@ end
 function light:getLightTypeLabel(typeIndex)
     local idx = tonumber(typeIndex) or 0
     return self.lightTypeLabels[idx] or self.lightTypeNames[idx + 1] or ("Type " .. tostring(idx))
-end
-
-function light:rebuildLightTypeOptions()
-    self.lightTypeOptions = {}
-    local maxEnumIndex = math.max(#(self.lightTypeNames or {}) - 1, LIGHT_TYPE_AREA)
-    for idx = 0, maxEnumIndex do
-        self.lightTypeOptions[idx + 1] = string.format("%s %s", self:getLightTypeIcon(idx), self:getLightTypeLabel(idx))
-    end
 end
 
 function light:updateLightTypeIcon()
@@ -256,11 +351,6 @@ function light:updatePreviewShape()
     self.previewMeshAppearance = spec.meshAppearance
 end
 
----@return boolean
-function light:hasRadiusProperty()
-    return self.lightType == LIGHT_TYPE_SPOT or self.lightType == LIGHT_TYPE_AREA
-end
-
 ---@return { x: number, y: number, z: number }
 function light:getRadiusPreviewVisualizerSize()
     local sphereRadius = math.max(self.radius, 0)
@@ -269,7 +359,7 @@ end
 
 ---@return boolean
 function light:shouldShowRadiusPreview()
-    return self.previewed and self.radiusPreviewed and self:hasRadiusProperty()
+    return self.previewed and self.radiusPreviewed
 end
 
 ---@param entity entEntity?
@@ -315,30 +405,6 @@ function light:getSpotConeVisualizerSize(angle, size, radiusFloorRatio)
     coneRadiusScale = math.max(math.min(coneRadiusScale, size * 8), size * radiusFloorRatio)
 
     return { x = coneRadiusScale, y = coneRadiusScale, z = size }
-end
-
----@return { x: number, y: number, z: number }
-function light:getOuterSpotConeVisualizerSize()
-    local spec = self:getPreviewSpec()
-    if spec.innerCone then
-        return spec.size
-    end
-
-    return self:getSpotConeVisualizerSize(self.outerAngle, self:getIntensityPreviewBaseSize(1), PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO)
-end
-
----@return { x: number, y: number, z: number }
-function light:getInnerSpotConeVisualizerSize()
-    local spec = self:getPreviewSpec()
-    if spec.innerCone then
-        return spec.innerCone.size
-    end
-
-    return self:getSpotConeVisualizerSize(
-        self.innerAngle,
-        self:getIntensityPreviewBaseSize(PREVIEW_SPOT_INNER_SCALE_MULTIPLIER),
-        PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO
-    )
 end
 
 ---@param entity entEntity?
@@ -431,18 +497,17 @@ function light:loadSpawnData(data, position, rotation)
     self.roughnessBias = math.min(math.max(math.floor(self.roughnessBias), -127), 127) -- Fix for incorrect clamping before
     self.scaleVolFog = math.floor(self.scaleVolFog)
     self.sceneSpecularScale = math.floor(self.sceneSpecularScale)
-    self:rebuildLightTypeOptions()
     self:updateLightTypeIcon()
     self:updatePreviewShape()
+    self.colorHexText = formatColorHex(self.color)
+    self.colorHexEditing = false
 end
 
 ---@param entity entEntity
 function light:onAfterPreviewAssemble(entity)
     local spec = self:getPreviewSpec()
 
-    if self:hasRadiusProperty() then
-        visualizer.addSphere(entity, self:getRadiusPreviewVisualizerSize(), "ghostwhite", "radius_sphere")
-    end
+    visualizer.addSphere(entity, self:getRadiusPreviewVisualizerSize(), "ghostwhite", "radius_sphere")
 
     if spec.innerCone then
         visualizer.addCone(entity, spec.innerCone.size, spec.innerCone.color, "cone_inner")
@@ -590,147 +655,286 @@ function light:updateFull(changed)
     if changed and self:isSpawned() then self:respawn() end
 end
 
+---@param lightRef light
+---@param changed boolean
+---@param shouldUpdateScale boolean?
+local function applyRuntimeParameterChange(lightRef, changed, shouldUpdateScale)
+    if not changed then
+        return
+    end
+
+    if shouldUpdateScale then
+        lightRef:updateScale()
+    end
+
+    lightRef:updateParameters()
+end
+
 function light:draw()
     visualized.draw(self)
+    local changed, finished
 
     if not self.maxBasePropertiesWidth then
-        self.maxBasePropertiesWidth = utils.getTextMaxWidth({ "Visualize", "Light Type", "Intensity", "Color", "Angles", "Radius", "Spot Capsule", "Softness" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxBasePropertiesWidth = utils.getTextMaxWidth({
+            string.format("%s %s", IconGlyphs.Cone, "Inner Angle"),
+            string.format("%s %s", IconGlyphs.Cone, "Outer Angle"),
+            string.format("%s %s", IconGlyphs.FormatLineWeight, "Softness"),
+            string.format("%s %s", IconGlyphs.Pill, "Capsule Length"),
+            string.format("%s %s", IconGlyphs.CircleHalfFull, "Spot Capsule")
+        }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    self:drawPreviewCheckbox("Visualize", self.maxBasePropertiesWidth)
+    local lightTypeChanged = false
+    local lightTypeTabWidth = 95 * style.viewSize
+    local lightTypes = { LIGHT_TYPE_POINT, LIGHT_TYPE_SPOT, LIGHT_TYPE_AREA }
+    for index, typeIndex in ipairs(lightTypes) do
+        if index > 1 then
+            ImGui.SameLine()
+        end
 
-    style.mutedText("Light Type")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    self.lightType, changed = style.trackedCombo(self.object, "##type", self.lightType, self.lightTypeOptions)
-    if changed then
+        local selected = self.lightType == typeIndex
+        if selected then
+            ImGui.PushStyleColor(ImGuiCol.Button, style.selectedColor)
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.selectedColor)
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, style.selectedColor)
+            ImGui.PushStyleColor(ImGuiCol.Text, 0xFFFFFFFF)
+        else
+            ImGui.PushStyleColor(ImGuiCol.Button, LIGHT_TYPE_TAB_INACTIVE_BG)
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, LIGHT_TYPE_TAB_INACTIVE_HOVER)
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, LIGHT_TYPE_TAB_INACTIVE_PRESSED)
+            ImGui.PushStyleColor(ImGuiCol.Text, LIGHT_TYPE_TAB_INACTIVE_TEXT)
+        end
+
+        local clicked = ImGui.Button(
+            string.format("%s %s##lightTypeTab%d", self:getLightTypeIcon(typeIndex), self:getLightTypeLabel(typeIndex), typeIndex),
+            lightTypeTabWidth,
+            0
+        )
+        ImGui.PopStyleColor(4)
+
+        if clicked and self.lightType ~= typeIndex then
+            if self.object then
+                history.addAction(history.getElementChange(self.object))
+            end
+            self.lightType = typeIndex
+            lightTypeChanged = true
+        end
+    end
+
+    if lightTypeChanged then
         self:updateLightTypeIcon()
     end
-    self:updateFull(changed)
+    self:updateFull(lightTypeChanged)
 
-    style.mutedText("Color")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-    local colorFlags = ImGuiColorEditFlags and ImGuiColorEditFlags.NoInputs or nil
-    self.color, changed = style.trackedColor(self.object, "##color", self.color, 60, colorFlags)
-    if changed then
-        self:updateParameters()
+    ImGui.Spacing()
+
+    local colorPopupId = "##lightColorPickerMain" .. tostring(self.object and self.object.id or "")
+    local swatchSize = 142 * style.viewSize
+    local swatchRoundness = 14 * style.viewSize
+    local hexInputWidth = 96
+    local hexInputBottomOffset = 10 * style.viewSize
+    
+    ImGui.Dummy(0, 2 * style.viewSize)
+
+    ImGui.BeginGroup()
+    local swatchLocalX = ImGui.GetCursorPosX()
+    local swatchLocalY = ImGui.GetCursorPosY()
+    local swatchX, swatchY = ImGui.GetCursorScreenPos()
+    local swatchMaxX = swatchX + swatchSize
+    local swatchMaxY = swatchY + swatchSize
+    local hexInputScreenX = swatchX + 10 * style.viewSize
+    local hexInputScreenY = swatchY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
+    local hexInputScreenW = hexInputWidth * style.viewSize
+    local hexInputScreenH = ImGui.GetFrameHeight()
+
+    ImGui.Dummy(swatchSize, swatchSize)
+    local drawList = ImGui.GetWindowDrawList()
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        swatchX,
+        swatchY,
+        swatchX + swatchSize,
+        swatchY + swatchSize,
+        colorUtil.packAABBGGRR(self.color, 1.0),
+        swatchRoundness
+    )
+
+    local afterSwatchY = swatchLocalY + swatchSize
+    local hexText = formatColorHex(self.color)
+    if not self.colorHexEditing and self.colorHexText ~= hexText then
+        self.colorHexText = hexText
     end
 
-    style.mutedText("Intensity")
+    local hexInputY = swatchLocalY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
+    ImGui.SetCursorPos(swatchLocalX + 10 * style.viewSize, hexInputY)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, COLOR_HEX_BADGE_BG)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, COLOR_HEX_BADGE_HOVER)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, COLOR_HEX_BADGE_PRESSED)
+    self.colorHexText, changed, finished = style.trackedTextField(self.object, "##lightColorHexInput", self.colorHexText or hexText, "#RRGGBB", hexInputWidth)
+    self.colorHexEditing = ImGui.IsItemActive()
+    ImGui.PopStyleColor(3)
+    if changed then
+        self.colorHexText = (self.colorHexText or ""):upper()
+        local parsedColor = parseHexColor(self.colorHexText)
+        if parsedColor then
+            self.color = parsedColor
+            applyRuntimeParameterChange(self, true, false)
+        end
+    end
+    if finished then
+        self.colorHexEditing = false
+        local parsedColor = parseHexColor(self.colorHexText)
+        if parsedColor then
+            self.color = parsedColor
+            self.colorHexText = formatColorHex(self.color)
+            applyRuntimeParameterChange(self, true, false)
+        else
+            self.colorHexText = formatColorHex(self.color)
+        end
+    end
+
+    local hoveringSwatch = ImGui.IsMouseHoveringRect(swatchX, swatchY, swatchMaxX, swatchMaxY)
+    local hoveringHexInput = ImGui.IsMouseHoveringRect(
+        hexInputScreenX,
+        hexInputScreenY,
+        hexInputScreenX + hexInputScreenW,
+        hexInputScreenY + hexInputScreenH
+    )
+    if hoveringSwatch and not hoveringHexInput then
+        if ImGui.IsMouseClicked(0) then
+            ImGui.OpenPopup(colorPopupId)
+        end
+        ImGui.BeginTooltip()
+        ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
+        ImGui.Text(formatColorPreviewTooltip(self.color))
+        ImGui.PopStyleColor()
+        ImGui.EndTooltip()
+    end
+
+    ImGui.SetCursorPos(swatchLocalX, afterSwatchY)
+    ImGui.EndGroup()
+
     ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+    ImGui.Dummy(2 * style.viewSize, 0)
+
+    ImGui.SameLine()
+    ImGui.BeginGroup()
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    style.mutedText("Visualize")
+    ImGui.SameLine()
+    self.previewed, changed = style.trackedCheckbox(self.object, "##visualizeInline", self.previewed)
+    if changed then
+        self:setPreview(self.previewed)
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    local currentCursorY = ImGui.GetCursorPosY()
+    ImGui.SetCursorPosY(currentCursorY + 2 * style.viewSize)
+    style.mutedText(IconGlyphs.WeatherSunny)
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(currentCursorY)
+    style.mutedText("Intensity")
     self.intensity, changed, _ = field.advancedTrackedFloat(self.object, "##intensity", self.intensity, {
         step = 1,
         min = 0,
-        max = 9999,
         format = "%.1f",
-        width = 50
+        width = 80
     })
+    applyRuntimeParameterChange(self, changed, true)
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    currentCursorY = ImGui.GetCursorPosY()
+    ImGui.SetCursorPosY(currentCursorY + 2 * style.viewSize)
+    style.styledText(IconGlyphs.RadiusOutline, RADIUS_ICON_COLOR)
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(currentCursorY)
+    style.mutedText("Radius")
+    self.radius, changed, finished = style.trackedDragFloat(self.object, "##radius", self.radius, 0.25, 0, 9999, "%.1fm", 60)
+    applyRuntimeParameterChange(self, changed, false)
     if changed then
-        self:updateScale()
-        self:updateParameters()
+        self:updateRadiusPreviewVisibility()
+    end
+    self:updateFull(finished)
+    style.tooltip("How far the light source emitts light, visualized by the green sphere")
+
+    ImGui.SameLine()
+    ImGui.BeginDisabled(not self.previewed)
+    local newRadiusPreviewed, toggled = style.toggleButton(IconGlyphs.HospitalMarker .. "##radiusPreview", self.radiusPreviewed)
+    ImGui.EndDisabled()
+    if toggled then
+        if self.object then
+            history.addAction(history.getElementChange(self.object))
+        end
+        self.radiusPreviewed = newRadiusPreviewed
+        self:updateRadiusPreviewVisibility()
     end
 
+    style.tooltip(
+        (not self.previewed and "Enable global visualization to edit radius preview")
+            or (self.radiusPreviewed and "Disable radius preview sphere" or "Enable radius preview sphere")
+    )
+    ImGui.EndGroup()
+
+    if ImGui.BeginPopup(colorPopupId) then
+        self.color, changed = style.trackedColorPicker(self.object, "##lightMainColorPicker", self.color)
+        if changed then
+            applyRuntimeParameterChange(self, true, false)
+            self.colorHexText = formatColorHex(self.color)
+        end
+        ImGui.EndPopup()
+    end
+    
+    ImGui.Dummy(0, 8 * style.viewSize)
+    
     if self.lightType == LIGHT_TYPE_AREA then
-        style.mutedText("Spot Capsule")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+        drawIconLabelRow(IconGlyphs.Pill, "Capsule Length", { fieldX = self.maxBasePropertiesWidth })
+        self.capsuleLength, changed, finished = style.trackedDragFloat(self.object, "##capsuleLength", self.capsuleLength, 0.05, 0, 9999, "%.2fm", 60)
+        self:updateFull(finished)
+        if changed then
+            self:updateScale()
+        end
+        
+        drawIconLabelRow(IconGlyphs.CircleHalfFull, "Spot Capsule", { fieldX = self.maxBasePropertiesWidth })
         self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
         self:updateFull(changed)
     end
 
     if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
-        style.mutedText("Angles")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-        local innerIconY = ImGui.GetCursorPosY()
-        ImGui.SetCursorPosY(innerIconY + 4 * style.viewSize)
-        style.styledText(IconGlyphs.Cone, INNER_ANGLE_BORDER_COLOR)
-        ImGui.SameLine()
-        ImGui.SetCursorPosY(innerIconY)
-        self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 9999, "%.1f Inner", 105)
-        style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
-        if changed then
-            if self.lightType == LIGHT_TYPE_SPOT then
-                self:updateScale()
-            end
-            self:updateParameters()
+        drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = INNER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 360, "%.1f°", 60)
+        if self.lightType == LIGHT_TYPE_SPOT then
+            style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
+        else
+            style.tooltip("Inner angle of the light\nThe area between inner and outer angles is where the light intensity falls off")
         end
+        applyRuntimeParameterChange(self, changed, self.lightType == LIGHT_TYPE_SPOT)
         if self.lightType == LIGHT_TYPE_AREA then
             self:updateFull(finished)
         end
 
-        ImGui.SameLine()
-        ImGui.Dummy(0, 8 * style.viewSize)
-        ImGui.SameLine()
-        local outerIconY = ImGui.GetCursorPosY()
-        ImGui.SetCursorPosY(outerIconY + 1 * style.viewSize)
-        style.styledText(IconGlyphs.Cone, OUTER_ANGLE_BORDER_COLOR)
-        ImGui.SameLine()
-        ImGui.SetCursorPosY(outerIconY)
-        self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 9999, "%.1f Outer", 105)
-        style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
-        if changed then
-            if self.lightType == LIGHT_TYPE_SPOT then
-                self:updateScale()
-            end
-            self:updateParameters()
+        drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = OUTER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 360, "%.1f°", 60)
+        if self.lightType == LIGHT_TYPE_SPOT then
+            style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
+        else
+            style.tooltip("Outer angle of the light\nThe area between inner and outer angles is where the light intensity falls off")
         end
+        applyRuntimeParameterChange(self, changed, self.lightType == LIGHT_TYPE_SPOT)
         if self.lightType == LIGHT_TYPE_AREA then
             self:updateFull(finished)
         end
 
-        style.mutedText("Softness")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-        self.softness, _, finished = style.trackedDragFloat(self.object, "##softness", self.softness, 0.05, 0, 9999, "%.2f", 90)
-        style.tooltip("Softens the transition near the cone edge")
+        drawIconLabelRow(IconGlyphs.FormatLineWeight, "Softness", { fieldX = self.maxBasePropertiesWidth })
+        self.softness, _, finished = style.trackedDragFloat(self.object, "##softness", self.softness, 0.05, 0, 9999, "%.2f", 60)
+        style.tooltip("Softens the transition between both angles")
         self:updateFull(finished)
     end
-    if self.lightType == LIGHT_TYPE_SPOT or self.lightType == LIGHT_TYPE_AREA then
-        style.mutedText("Radius")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-        local radiusIconY = ImGui.GetCursorPosY()
-        ImGui.SetCursorPosY(radiusIconY + 4 * style.viewSize)
-        style.styledText(IconGlyphs.RadiusOutline, RADIUS_ICON_COLOR)
-        ImGui.SameLine()
-        ImGui.SetCursorPosY(radiusIconY)
-        self.radius, changed = style.trackedDragFloat(self.object, "##radius", self.radius, 0.25, 0, 9999, "%.1f", 90)
-        if changed then
-            self:updateParameters()
-            self:updateRadiusPreviewVisibility()
-        end
-        style.tooltip("How far the light source emitts light, visualized by the green sphere")
-
-        ImGui.SameLine()
-        ImGui.BeginDisabled(not self.previewed)
-        local newRadiusPreviewed, toggled = style.toggleButton(IconGlyphs.HospitalMarker .. "##radiusPreview", self.radiusPreviewed)
-        ImGui.EndDisabled()
-        if toggled then
-            if self.object then
-                history.addAction(history.getElementChange(self.object))
-            end
-            self.radiusPreviewed = newRadiusPreviewed
-            self:updateRadiusPreviewVisibility()
-        end
-
-        style.tooltip(
-            (not self.previewed and "Enable global visualization to edit radius preview")
-                or (self.radiusPreviewed and "Disable radius preview sphere" or "Enable radius preview sphere")
-        )
-    end
-    if self.lightType == LIGHT_TYPE_AREA then
-        style.mutedText("Capsule Length")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
-        self.capsuleLength, changed, finished = style.trackedDragFloat(self.object, "##capsuleLength", self.capsuleLength, 0.05, 0, 9999, "%.2f", 90)
-        self:updateFull(finished)
-        if changed then
-            self:updateScale()
-        end
-    end
+    
+    ImGui.Dummy(0, 8 * style.viewSize)
 
     if ImGui.TreeNodeEx("Shadow Settings") then
         if not self.maxShadowPropertiesWidth then
@@ -775,25 +979,19 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxFlickerPropertiesWidth)
         self.flickerPeriod, changed = style.trackedDragFloat(self.object, "##flickerPeriod", self.flickerPeriod, 0.01, 0.05, 9999, "%.2f", 85)
-        if changed then
-            self:updateParameters()
-        end
+        applyRuntimeParameterChange(self, changed, false)
 
         style.mutedText("Flicker Strength")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxFlickerPropertiesWidth)
         self.flickerStrength, changed = style.trackedDragFloat(self.object, "##flickerStrength", self.flickerStrength, 0.01, 0, 9999, "%.2f", 85)
-        if changed then
-            self:updateParameters()
-        end
+        applyRuntimeParameterChange(self, changed, false)
 
         style.mutedText("Flicker Offset")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxFlickerPropertiesWidth)
         self.flickerOffset, changed = style.trackedDragFloat(self.object, "##flickerOffset", self.flickerOffset, 0.01, 0, 9999, "%.2f", 85)
-        if changed then
-            self:updateParameters()
-        end
+        applyRuntimeParameterChange(self, changed, false)
 
         ImGui.TreePop()
     end
@@ -804,55 +1002,55 @@ function light:draw()
     end
 
     if ImGui.TreeNodeEx("Misc. Settings") then
-        if not self.maxShadowPropertiesWidth then
-            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Auto Hide Distance", "EV", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        if not self.maxMiscPropertiesWidth then
+            self.maxMiscPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Auto Hide Distance", "EV", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
 
         style.mutedText("Use in particles")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.useInParticles, changed = style.trackedCheckbox(self.object, "##useInParticles", self.useInParticles)
         self:updateFull(changed)
 
         style.mutedText("Use in transparents")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.useInTransparents, changed = style.trackedCheckbox(self.object, "##useInTransparents", self.useInTransparents)
         self:updateFull(changed)
 
         style.mutedText("Scale Vol. Fog")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.scaleVolFog, _, finished = style.trackedSliderInt(self.object, "##scaleVolFog", self.scaleVolFog, 0, 255, 110)
         self:updateFull(finished)
 
         style.mutedText("Scene Diffuse")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.sceneDiffuse, changed = style.trackedCheckbox(self.object, "##sceneDiffuse", self.sceneDiffuse)
         self:updateFull(changed)
 
         style.mutedText("Specular Scale")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.sceneSpecularScale, _, finished = style.trackedSliderInt(self.object, "##sceneSpecularScale", self.sceneSpecularScale, 0, 255, 110)
         self:updateFull(finished)
 
         style.mutedText("Roughness Bias")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.roughnessBias, _, finished = style.trackedSliderInt(self.object, "##roughnessBias", self.roughnessBias, -127, 127, 110)
         self:updateFull(finished)
 
         style.mutedText("Source Radius")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.sourceRadius, _, finished = style.trackedDragFloat(self.object, "##sourceRadius", self.sourceRadius, 0.0025, 0, 9999, "%.3f", 110)
         self:updateFull(finished)
 
         style.mutedText("Auto Hide Distance")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.autoHideDistance, _, finished = style.trackedDragFloat(self.object, "##autoHideDistance", self.autoHideDistance, 0.05, 0, 9999, "%.1f", 110)
         self:updateFull(finished)
         ImGui.SameLine()
@@ -862,25 +1060,25 @@ function light:draw()
 
         style.mutedText("EV")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.ev, _, finished = style.trackedDragFloat(self.object, "##ev", self.ev, 0.1, 0, 9999, "%.1f", 110)
         self:updateFull(finished)
 
         style.mutedText("Attenuation Mode")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.attenuation, changed = style.trackedCombo(self.object, "##attenuation", self.attenuation, self.attenuationTypes, 110)
         self:updateFull(changed)
 
         style.mutedText("Clamp Attenuation")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.clampAttenuation, changed = style.trackedCheckbox(self.object, "##clampAttenuation", self.clampAttenuation)
         self:updateFull(changed)
 
         style.mutedText("Directional")
         ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.directional, changed = style.trackedCheckbox(self.object, "##directional", self.directional)
         self:updateFull(changed)
 
@@ -993,7 +1191,6 @@ function light:draw()
         ImGui.TreePop()
     end
 
-    ImGui.PopItemWidth()
 end
 
 function light:getProperties()
