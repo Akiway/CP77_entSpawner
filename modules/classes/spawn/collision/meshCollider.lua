@@ -276,8 +276,119 @@ function meshCollider:updateFull(changed)
 end
 
 function meshCollider:export()
-    -- TODO: implement later
-    return spawnable.export(self)
+    local rotation = self.rotation:ToQuat()
+    local shapeType = self.meshType
+    local extends = self:getSize()
+
+    if shapeType == "BV4TriangleMesh" then
+        shapeType = "TriangleMesh"
+    end
+
+    local data = spawnable.export(self)
+    data.type = "worldCollisionNode"
+    data.data = {
+		["compiledData"] = {
+			["BufferId"] = tostring(tonumber(FNV1a64("CollisionBuffer" .. math.random(1, 10000000)))),
+			["Flags"] = 4063232,
+			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
+			["Data"] = {
+				["Actors"] = {
+					{
+						["Position"] = {
+							["$type"] = "WorldPosition",
+							["x"] = {
+								["$type"] = "FixedPoint",
+								["Bits"] = math.floor(self.position.x * 131072)
+							},
+							["y"] = {
+								["$type"] = "FixedPoint",
+								["Bits"] = math.floor(self.position.y * 131072)
+							},
+							["z"] = {
+								["$type"] = "FixedPoint",
+								["Bits"] = math.floor(self.position.z * 131072)
+							}
+						},
+						["Shapes"] = {
+							{
+								["ShapeType"] = shapeType,
+                                ["Hash"] = "uint32:" .. self.shapeHash,
+                                ["Position"] = {
+									["$type"] = "Vector3",
+									["X"] = 0,
+									["Y"] = 0,
+									["Z"] = 0
+								},
+                                ["Rotation"] = {
+                                    ["$type"] = "Quaternion",
+                                    ["i"] = rotation.i,
+                                    ["j"] = rotation.j,
+                                    ["k"] = rotation.k,
+                                    ["r"] = rotation.r
+                                },
+								["Preset"] = {
+									["$type"] = "CName",
+									["$storage"] = "string",
+									["$value"] = presets[self.preset + 1]
+								},
+								["ProxyType"] = "CharacterObstacle",
+								["Materials"] = {
+									{
+										["$type"] = "CName",
+										["$storage"] = "string",
+										["$value"] = materials[self.material + 1]
+									}
+								},
+                                ["Uk1"] = 0,
+                                ["Uk2"] = 0,
+                                ["Uk3"] = 0
+							}
+						},
+						["Scale"] = {
+							["$type"] = "Vector3",
+							["X"] = 1,
+							["Y"] = 1,
+							["Z"] = 1
+						}
+					}
+				}
+			}
+		},
+		["extents"] = {
+			["$type"] = "Vector4",
+			["W"] = 0,
+			["X"] = extents.x,
+			["Y"] = extents.y,
+			["Z"] = extents.z
+		},
+		["lod"] = 1,
+		["numActors"] = 1,
+		["numMaterialIndices"] = 1,
+		["numMaterials"] = 1,
+		["numPresets"] = 1,
+		["numScales"] = 1,
+		["numShapeIndices"] = 1,
+		["numShapeInfos"] = 1,
+		["numShapePositions"] = 0,
+		["numShapeRotations"] = 1,
+        ["resourceVersion"] = 2, -- You little shit
+        ["sectorHash"] = "uint32:" .. self.sectorHash,
+		["staticCollisionShapeCategories"] = {
+			["$type"] = "worldStaticCollisionShapeCategories_CollisionNode",
+			["arr"] = {
+				["Elements"] = {
+					{ ["Elements"] = {0, 0, 0, 0, 0, 0} },
+					{ ["Elements"] = {0, 1, 0, 0, 0, 0} },
+					{ ["Elements"] = {0, 0, 0, 0, 0, 0} },
+					{ ["Elements"] = {0, 0, 0, 0, 0, 0} },
+					{ ["Elements"] = {0, 1, 0, 0, 0, 0} }
+				}
+			}
+		}
+	}
+
+
+    return data
 end
 
 return meshCollider
