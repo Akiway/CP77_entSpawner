@@ -45,10 +45,12 @@ end
 ---@param entity entEntity
 ---@param scale { x : number, y : number, z : number }
 ---@param mesh string
-function visualizer.addMesh(entity, scale, mesh)
+---@param app string
+function visualizer.addMesh(entity, scale, mesh, app)
     if not entity then return end
+    if not app then app = "default" end
 
-    addMesh(entity, "mesh", mesh, scale, "default", true)
+    addMesh(entity, "mesh", mesh, scale, app, true)
 end
 
 ---Creates and attached a box mesh, with the component name "box"

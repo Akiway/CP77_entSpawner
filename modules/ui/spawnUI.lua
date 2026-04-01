@@ -38,7 +38,8 @@ local types = {
     },
     ["Collision"] = {
         variants = {
-            ["Collision Shape"] = { class = require("modules/classes/spawn/collision/collider"), index = 1 }
+            ["Collision Shape"] = { class = require("modules/classes/spawn/collision/collider"), index = 1 },
+            ["Collision Mesh"] = { class = require("modules/classes/spawn/collision/meshCollider"), index = 2 }
         },
         index = 5
     },
