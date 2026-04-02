@@ -56,4 +56,55 @@ function preview.getTopLeft(backplaneSize)
     return backplaneSize / 2
 end
 
+---Compute a normalized base preview size from intensity and configured bounds.
+---@param intensity number
+---@param multiplier number?
+---@param options table?
+---@return number size
+function preview.getIntensityBaseSize(intensity, multiplier, options)
+    options = options or {}
+    local minIntensity = tonumber(options.minIntensity) or 50
+    local maxIntensity = tonumber(options.maxIntensity) or 1000
+    local minScale = tonumber(options.minScale) or 0.002
+    local maxScale = tonumber(options.maxScale) or 0.04
+
+    local range = math.max(maxIntensity - minIntensity, 1)
+    local clampedIntensity = math.max(math.min(tonumber(intensity) or minIntensity, maxIntensity), minIntensity)
+    local normalizedIntensity = (clampedIntensity - minIntensity) / range
+    local baseSize = minScale + normalizedIntensity * (maxScale - minScale)
+
+    return baseSize * (tonumber(multiplier) or 1)
+end
+
+---Compute cone visualizer scale for an angle-driven spotlight preview.
+---@param angle number
+---@param size number
+---@param radiusFloorRatio number
+---@return { x: number, y: number, z: number }
+function preview.getSpotConeSize(angle, size, radiusFloorRatio)
+    local baseSize = math.max(tonumber(size) or 0, 0)
+    local clampedAngle = math.max(math.min(tonumber(angle) or 0, 170), 0.1)
+    local floorRatio = math.max(tonumber(radiusFloorRatio) or 0, 0)
+    local halfAngleRadians = math.rad(clampedAngle * 0.5)
+    -- cone.mesh is centered and spans roughly 1.5 units across its main axis.
+    local coneRadiusScale = baseSize * 1.5 * math.tan(halfAngleRadians)
+    coneRadiusScale = math.max(math.min(coneRadiusScale, baseSize * 8), baseSize * floorRatio)
+
+    return { x = coneRadiusScale, y = coneRadiusScale, z = baseSize }
+end
+
+---Compute triangular-prism spotlight preview scale from angle and thickness.
+---@param angle number
+---@param thicknessBase number
+---@param length number
+---@param thicknessFloorRatio number
+---@return { x: number, y: number, z: number }
+function preview.getSpotPrismSize(angle, thicknessBase, length, thicknessFloorRatio)
+    local baseThickness = math.max(tonumber(thicknessBase) or 0, 0)
+    local coneLikeSize = preview.getSpotConeSize(angle, baseThickness, thicknessFloorRatio)
+    local prismThickness = coneLikeSize.x
+
+    return { x = prismThickness, y = math.max(tonumber(length) or 0, 0), z = baseThickness }
+end
+
 return preview

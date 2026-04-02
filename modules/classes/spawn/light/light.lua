@@ -6,6 +6,8 @@ local utils = require("modules/utils/utils")
 local field = require("modules/utils/field")
 local colorUtil = require("modules/utils/color")
 local lcHelper = require("modules/utils/lightChannelHelper")
+local lightPreview = require("modules/utils/previewUtils")
+local targeting = require("modules/utils/editor/targeting")
 
 local LIGHT_TYPE_POINT = 0
 local LIGHT_TYPE_SPOT = 1
@@ -28,6 +30,12 @@ local PREVIEW_BASE_SCALE_MIN = PREVIEW_BASE_SCALE_MAX * (PREVIEW_INTENSITY_MIN /
 local PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER = 4
 local PREVIEW_PRISM_MESH = "base\\spawner\\triangular_prism.mesh"
 local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
+local PREVIEW_SIZE_CONFIG = {
+    minIntensity = PREVIEW_INTENSITY_MIN,
+    maxIntensity = PREVIEW_INTENSITY_MAX,
+    minScale = PREVIEW_BASE_SCALE_MIN,
+    maxScale = PREVIEW_BASE_SCALE_MAX
+}
 
 local LIGHT_TYPE_TAB_INACTIVE_BG = colorUtil.packAABBGGRR({ 0.08, 0.15, 0.26 }, 0.85)
 local LIGHT_TYPE_TAB_INACTIVE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.30, 0.50 }, 1.0)
@@ -36,100 +44,6 @@ local LIGHT_TYPE_TAB_INACTIVE_TEXT = colorUtil.packAABBGGRR({ 0.82, 0.87, 0.93 }
 local COLOR_HEX_BADGE_BG = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95)
 local COLOR_HEX_BADGE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0)
 local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0)
-
----@param rawColor table?
----@return number normalizedR
----@return number normalizedG
----@return number normalizedB
-local function getColorRgb(rawColor)
-    local normalized = colorUtil.normalizeRGB(rawColor, { 1, 1, 1 })
-    return normalized[1], normalized[2], normalized[3]
-end
-
----@param rawColor table?
----@return string
-local function formatColorHex(rawColor)
-    local r, g, b = getColorRgb(rawColor)
-    return string.format("#%02X%02X%02X", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
-end
-
----@param rawColor table?
----@return string
-local function formatColorPreviewTooltip(rawColor)
-    local r, g, b = getColorRgb(rawColor)
-    local red = math.floor(r * 255 + 0.5)
-    local green = math.floor(g * 255 + 0.5)
-    local blue = math.floor(b * 255 + 0.5)
-
-    return string.format(
-        "#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)",
-        red,
-        green,
-        blue,
-        red,
-        green,
-        blue,
-        r,
-        g,
-        b
-    )
-end
-
----@param hexText string?
----@return table? rgb
-local function parseHexColor(hexText)
-    if type(hexText) ~= "string" then
-        return nil
-    end
-
-    local normalized = hexText:gsub("%s+", "")
-    if normalized:sub(1, 1) == "#" then
-        normalized = normalized:sub(2)
-    end
-
-    normalized = normalized:upper()
-    if #normalized ~= 6 or normalized:find("[^0-9A-F]") then
-        return nil
-    end
-
-    local red = tonumber(normalized:sub(1, 2), 16)
-    local green = tonumber(normalized:sub(3, 4), 16)
-    local blue = tonumber(normalized:sub(5, 6), 16)
-    if not red or not green or not blue then
-        return nil
-    end
-
-    return { red / 255, green / 255, blue / 255 }
-end
-
----@param icon string
----@param label string
----@param opts table?
----@return number rowStartY
-local function drawIconLabelRow(icon, label, opts)
-    opts = opts or {}
-    local rowStartY = ImGui.GetCursorPosY()
-    local iconOffset = (opts.iconOffset or 4) * style.viewSize
-    local labelOffset = (opts.labelOffset or 2) * style.viewSize
-
-    ImGui.SetCursorPosY(rowStartY + iconOffset)
-    if opts.iconColor then
-        style.styledText(icon, opts.iconColor)
-    else
-        style.mutedText(icon)
-    end
-    ImGui.SameLine()
-    ImGui.SetCursorPosY(rowStartY + labelOffset)
-    style.mutedText(label)
-    ImGui.SameLine()
-    ImGui.SetCursorPosY(rowStartY)
-
-    if opts.fieldX then
-        ImGui.SetCursorPosX(opts.fieldX)
-    end
-
-    return rowStartY
-end
 
 ---Class for worldStaticLightNode
 ---@class light : visualized
@@ -260,7 +174,7 @@ function light:new()
     o.previewColor = "yellow"
     o.previewed = true
     o.radiusPreviewed = false
-    o.colorHexText = formatColorHex(o.color)
+    o.colorHexText = colorUtil.formatHexRGB(o.color)
     o.colorHexEditing = false
 
     setmetatable(o, { __index = self })
@@ -292,19 +206,19 @@ end
 
 ---@return table
 function light:getPreviewSpec()
-    local pointAreaBaseSize = self:getIntensityPreviewBaseSize(PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER)
+    local pointAreaBaseSize = lightPreview.getIntensityBaseSize(self.intensity, PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER, PREVIEW_SIZE_CONFIG)
 
     if self.lightType == LIGHT_TYPE_AREA then
         local length = math.max(self.capsuleLength, 0)
         if self.spotCapsule then
             local outerPrismBaseThickness = pointAreaBaseSize * PREVIEW_PRISM_THICKNESS_MULTIPLIER
-            local outerPrismSize = self:getSpotPrismVisualizerSize(
+            local outerPrismSize = lightPreview.getSpotPrismSize(
                 self.outerAngle,
                 outerPrismBaseThickness,
                 length,
                 PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO
             )
-            local innerPrismSize = self:getSpotPrismVisualizerSize(
+            local innerPrismSize = lightPreview.getSpotPrismSize(
                 self.innerAngle,
                 outerPrismBaseThickness * PREVIEW_SPOT_INNER_SCALE_MULTIPLIER,
                 length,
@@ -335,10 +249,14 @@ function light:getPreviewSpec()
     end
 
     if self.lightType == LIGHT_TYPE_SPOT then
-        local outerSize = self:getSpotConeVisualizerSize(self.outerAngle, self:getIntensityPreviewBaseSize(1), PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO)
-        local innerSize = self:getSpotConeVisualizerSize(
+        local outerSize = lightPreview.getSpotConeSize(
+            self.outerAngle,
+            lightPreview.getIntensityBaseSize(self.intensity, 1, PREVIEW_SIZE_CONFIG),
+            PREVIEW_SPOT_CONE_RADIUS_FLOOR_RATIO
+        )
+        local innerSize = lightPreview.getSpotConeSize(
             self.innerAngle,
-            self:getIntensityPreviewBaseSize(PREVIEW_SPOT_INNER_SCALE_MULTIPLIER),
+            lightPreview.getIntensityBaseSize(self.intensity, PREVIEW_SPOT_INNER_SCALE_MULTIPLIER, PREVIEW_SIZE_CONFIG),
             PREVIEW_SPOT_INNER_RADIUS_FLOOR_RATIO
         )
 
@@ -398,43 +316,6 @@ function light:updateRadiusPreviewVisibility(entity)
     if sphere:IsEnabled() ~= shouldEnable then
         sphere:Toggle(shouldEnable)
     end
-end
-
----@param multiplier number?
----@return number
-function light:getIntensityPreviewBaseSize(multiplier)
-    local range = math.max(PREVIEW_INTENSITY_MAX - PREVIEW_INTENSITY_MIN, 1)
-    local clampedIntensity = math.max(math.min(self.intensity, PREVIEW_INTENSITY_MAX), PREVIEW_INTENSITY_MIN)
-    local normalizedIntensity = (clampedIntensity - PREVIEW_INTENSITY_MIN) / range
-    local baseSize = PREVIEW_BASE_SCALE_MIN + normalizedIntensity * (PREVIEW_BASE_SCALE_MAX - PREVIEW_BASE_SCALE_MIN)
-
-    return baseSize * (multiplier or 1)
-end
-
----@param angle number
----@param size number
----@param radiusFloorRatio number
----@return { x: number, y: number, z: number }
-function light:getSpotConeVisualizerSize(angle, size, radiusFloorRatio)
-    local clampedAngle = math.max(math.min(angle, 170), 0.1)
-    local halfAngleRadians = math.rad(clampedAngle * 0.5)
-    -- cone.mesh is centered and spans roughly 1.5 units across its main axis.
-    local coneRadiusScale = size * 1.5 * math.tan(halfAngleRadians)
-    coneRadiusScale = math.max(math.min(coneRadiusScale, size * 8), size * radiusFloorRatio)
-
-    return { x = coneRadiusScale, y = coneRadiusScale, z = size }
-end
-
----@param angle number
----@param thicknessBase number
----@param length number
----@param thicknessFloorRatio number
----@return { x: number, y: number, z: number }
-function light:getSpotPrismVisualizerSize(angle, thicknessBase, length, thicknessFloorRatio)
-    local coneLikeSize = self:getSpotConeVisualizerSize(angle, thicknessBase, thicknessFloorRatio)
-    local prismThickness = coneLikeSize.x
-
-    return { x = prismThickness, y = math.max(length, 0), z = thicknessBase }
 end
 
 ---@param entity entEntity?
@@ -542,7 +423,7 @@ function light:loadSpawnData(data, position, rotation)
     self.sceneSpecularScale = math.floor(self.sceneSpecularScale)
     self:updateLightTypeIcon()
     self:updatePreviewShape()
-    self.colorHexText = formatColorHex(self.color)
+    self.colorHexText = colorUtil.formatHexRGB(self.color)
     self.colorHexEditing = false
 end
 
@@ -816,7 +697,7 @@ function light:draw()
     )
 
     local afterSwatchY = swatchLocalY + swatchSize
-    local hexText = formatColorHex(self.color)
+    local hexText = colorUtil.formatHexRGB(self.color)
     if not self.colorHexEditing and self.colorHexText ~= hexText then
         self.colorHexText = hexText
     end
@@ -831,7 +712,7 @@ function light:draw()
     ImGui.PopStyleColor(3)
     if changed then
         self.colorHexText = (self.colorHexText or ""):upper()
-        local parsedColor = parseHexColor(self.colorHexText)
+        local parsedColor = colorUtil.parseHexRGB(self.colorHexText)
         if parsedColor then
             self.color = parsedColor
             applyRuntimeParameterChange(self, true, false)
@@ -839,13 +720,13 @@ function light:draw()
     end
     if finished then
         self.colorHexEditing = false
-        local parsedColor = parseHexColor(self.colorHexText)
+        local parsedColor = colorUtil.parseHexRGB(self.colorHexText)
         if parsedColor then
             self.color = parsedColor
-            self.colorHexText = formatColorHex(self.color)
+            self.colorHexText = colorUtil.formatHexRGB(self.color)
             applyRuntimeParameterChange(self, true, false)
         else
-            self.colorHexText = formatColorHex(self.color)
+            self.colorHexText = colorUtil.formatHexRGB(self.color)
         end
     end
 
@@ -863,7 +744,7 @@ function light:draw()
         end
         ImGui.BeginTooltip()
         ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
-        ImGui.Text(formatColorPreviewTooltip(self.color))
+        ImGui.Text(colorUtil.formatPreviewTooltip(self.color))
         ImGui.PopStyleColor()
         ImGui.EndTooltip()
     end
@@ -940,7 +821,7 @@ function light:draw()
         self.color, changed = style.trackedColorPicker(self.object, "##lightMainColorPicker", self.color)
         if changed then
             applyRuntimeParameterChange(self, true, false)
-            self.colorHexText = formatColorHex(self.color)
+            self.colorHexText = colorUtil.formatHexRGB(self.color)
         end
         ImGui.EndPopup()
     end
@@ -948,20 +829,20 @@ function light:draw()
     ImGui.Dummy(0, 8 * style.viewSize)
     
     if self.lightType == LIGHT_TYPE_AREA then
-        drawIconLabelRow(IconGlyphs.Pill, "Capsule Length", { fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.Pill, "Capsule Length", { fieldX = self.maxBasePropertiesWidth })
         self.capsuleLength, changed, finished = style.trackedDragFloat(self.object, "##capsuleLength", self.capsuleLength, 0.05, 0, 9999, "%.2fm", 60)
         self:updateFull(finished)
         if changed then
             self:updateScale()
         end
         
-        drawIconLabelRow(IconGlyphs.CircleHalfFull, "Spot Capsule", { fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.CircleHalfFull, "Spot Capsule", { fieldX = self.maxBasePropertiesWidth })
         self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
         self:updateFull(changed)
     end
 
     if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
-        drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = INNER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = INNER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
         self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
         applyRuntimeParameterChange(
@@ -973,7 +854,7 @@ function light:draw()
             self:updateFull(finished)
         end
 
-        drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = OUTER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = OUTER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
         self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
         applyRuntimeParameterChange(
@@ -985,14 +866,85 @@ function light:draw()
             self:updateFull(finished)
         end
 
-        drawIconLabelRow(IconGlyphs.FormatLineWeight, "Softness", { fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.FormatLineWeight, "Softness", { fieldX = self.maxBasePropertiesWidth })
         self.softness, _, finished = style.trackedDragFloat(self.object, "##softness", self.softness, 0.05, 0, 9999, "%.2f", 60)
         style.tooltip("Softens the transition between both angles")
         self:updateFull(finished)
     end
     
-    ImGui.Dummy(0, 8 * style.viewSize)
+    ImGui.Dummy(0, 4 * style.viewSize)
+    
+    -- Aim At ACTIONS
+    if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
+        local rotationTargetingDisabled = self.object == nil or self.object:isLocked() or self.object.rotationLocked
+        local hasHierarchyPicker = self.object and self.object.sUI
+            and type(self.object.sUI.beginHierarchyPick) == "function"
+            and type(self.object.sUI.cancelHierarchyPick) == "function"
+            and type(self.object.sUI.isHierarchyPickActive) == "function"
+        local hierarchyPickActive = hasHierarchyPicker and self.object.sUI.isHierarchyPickActive(self.object)
+        local hierarchyPickDisabled = not hasHierarchyPicker or rotationTargetingDisabled
 
+        ImGui.BeginDisabled(rotationTargetingDisabled)
+        if ImGui.Button(IconGlyphs.TargetAccount .. " Aim At Player##lightAimAtPlayer") then
+            local player = GetPlayer()
+            if player then
+                targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
+            end
+        end
+        ImGui.EndDisabled()
+        if rotationTargetingDisabled and self.object and self.object.rotationLocked then
+            style.tooltip("Unlock rotation to target the player.")
+        else
+            style.tooltip("Rotate this light to point at the player's current world position.")
+        end
+
+        ImGui.SameLine()
+
+        ImGui.BeginDisabled(hierarchyPickDisabled)
+        local hierarchyButtonLabel = hierarchyPickActive and " Cancel Target Pick" or " Aim At Element"
+        local hierarchyButtonClicked = false
+        if hierarchyPickActive then
+            hierarchyButtonClicked = style.successButton(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+        else
+            hierarchyButtonClicked = ImGui.Button(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+        end
+        if hierarchyButtonClicked then
+            if hierarchyPickActive then
+                self.object.sUI.cancelHierarchyPick(self.object)
+            else
+                local sourceElement = self.object
+                self.object.sUI.beginHierarchyPick(sourceElement, function(targetElement)
+                    if not targeting.canAimElementAtElement(sourceElement, targetElement) then
+                        return false
+                    end
+
+                    -- Completing the pick should not depend on whether rotation changed.
+                    targeting.aimElementAtElement(sourceElement, targetElement)
+                    return true
+                end, {
+                    allowOwner = false,
+                    canPick = function(targetElement)
+                        return targeting.canAimElementAtElement(sourceElement, targetElement)
+                    end,
+                    restoreOwnerSelection = true
+                })
+            end
+        end
+        ImGui.EndDisabled()
+        if hierarchyPickDisabled and self.object and self.object.rotationLocked then
+            style.tooltip("Unlock rotation to use hierarchy targeting.")
+        elseif hierarchyPickActive then
+            style.tooltip("Click an element in the hierarchy or click anywhere in the 3D world to aim this light.\nPress Esc or click this button again to cancel.")
+        else
+            style.tooltip("Pick a hierarchy element or click in the 3D world to rotate this light toward that target.")
+        end
+        
+        ImGui.Dummy(0, 4 * style.viewSize)
+    end
+    
+        ImGui.Dummy(0, 4 * style.viewSize)
+
+    -- Other Settings
     if ImGui.TreeNodeEx("Shadow Settings") then
         if not self.maxShadowPropertiesWidth then
             self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()

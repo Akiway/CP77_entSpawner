@@ -210,7 +210,7 @@ local function getStreamingWireframeThemeColors(inside)
         return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
     end
 
-    return inside and 0xFF007F00 or 0xFF0000B2, 0xFFDCD8D1
+    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
 end
 
 local function drawGroupStreamingBoxes()

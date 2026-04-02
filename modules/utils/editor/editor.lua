@@ -110,9 +110,54 @@ function editor.cancleEditingTransform()
 end
 
 ---Confirms current interaction by recording edits or selecting under cursor when idle.
+---@return boolean handled
+local function tryResolveHierarchyPickFromWorld()
+    if not editor.spawnedUI
+        or type(editor.spawnedUI.isHierarchyPickActive) ~= "function"
+        or type(editor.spawnedUI.resolveHierarchyPick) ~= "function"
+        or not editor.spawnedUI.isHierarchyPickActive() then
+        return false
+    end
+
+    local player = GetPlayer()
+    if not player then
+        return false
+    end
+
+    local excludeIds = nil
+    local request = editor.spawnedUI.hierarchyPickRequest
+    if request and request.ownerId then
+        excludeIds = { [request.ownerId] = true }
+    end
+
+    local ray = editor.getScreenToWorldRay()
+    local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+    local hit = editor.getRaySceneIntersection(ray, origin, excludeIds, true)
+    if not hit.hit or not hit.result or not hit.result.position then
+        return false
+    end
+
+    local hitPosition = hit.result.position
+    local worldPickTarget = {
+        getPosition = function()
+            return hitPosition
+        end
+    }
+
+    return editor.spawnedUI.resolveHierarchyPick(worldPickTarget)
+end
+
 function editor.confirmEditingTransform()
     if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit then
-        editor.setTarget()
+        local hierarchyPickActive = editor.spawnedUI
+            and type(editor.spawnedUI.isHierarchyPickActive) == "function"
+            and editor.spawnedUI.isHierarchyPickActive()
+
+        if hierarchyPickActive then
+            tryResolveHierarchyPickFromWorld()
+        else
+            editor.setTarget()
+        end
     end
 
     if editor.grab or editor.rotate or editor.scale then
@@ -149,6 +194,13 @@ function editor.init(spawner)
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
+        if editor.spawnedUI
+            and type(editor.spawnedUI.isHierarchyPickActive) == "function"
+            and editor.spawnedUI.isHierarchyPickActive()
+            and type(editor.spawnedUI.cancelHierarchyPick) == "function" then
+            editor.spawnedUI.cancelHierarchyPick()
+            return
+        end
         editor.cancleEditingTransform()
     end, viewportHovered)
     input.registerImGuiHotkey({ ImGuiKey.Enter }, function ()
@@ -1153,7 +1205,7 @@ local function getStreamingWireframeThemeColors(inside)
         return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
     end
 
-    return inside and 0xFF007F00 or 0xFF0000B2, 0xFFDCD8D1
+    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
 end
 
 ---Draws streaming-range overlays for eligible spawned elements.

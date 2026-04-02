@@ -224,4 +224,69 @@ function color.packAABBGGRR(rgb, alpha)
     return a * 0x1000000 + b * 0x10000 + g * 0x100 + r
 end
 
+---Format an RGB color as a hexadecimal string (`#RRGGBB`).
+---@param source table?
+---@param fallback number[]?
+---@return string hex
+function color.formatHexRGB(source, fallback)
+    local normalized = color.normalizeRGB(source, fallback or { 1, 1, 1 })
+    local red = math.floor(color.clamp01(normalized[1]) * 255 + 0.5)
+    local green = math.floor(color.clamp01(normalized[2]) * 255 + 0.5)
+    local blue = math.floor(color.clamp01(normalized[3]) * 255 + 0.5)
+
+    return string.format("#%02X%02X%02X", red, green, blue)
+end
+
+---Build a detailed color tooltip string with hex, byte channels, and normalized channels.
+---@param source table?
+---@param fallback number[]?
+---@return string tooltip
+function color.formatPreviewTooltip(source, fallback)
+    local normalized = color.normalizeRGB(source, fallback or { 1, 1, 1 })
+    local red = math.floor(color.clamp01(normalized[1]) * 255 + 0.5)
+    local green = math.floor(color.clamp01(normalized[2]) * 255 + 0.5)
+    local blue = math.floor(color.clamp01(normalized[3]) * 255 + 0.5)
+
+    return string.format(
+        "#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)",
+        red,
+        green,
+        blue,
+        red,
+        green,
+        blue,
+        normalized[1],
+        normalized[2],
+        normalized[3]
+    )
+end
+
+---Parse `#RRGGBB` or `RRGGBB` into normalized RGB channels.
+---@param hexText string?
+---@return number[]? rgb
+function color.parseHexRGB(hexText)
+    if type(hexText) ~= "string" then
+        return nil
+    end
+
+    local normalized = hexText:gsub("%s+", "")
+    if normalized:sub(1, 1) == "#" then
+        normalized = normalized:sub(2)
+    end
+
+    normalized = normalized:upper()
+    if #normalized ~= 6 or normalized:find("[^0-9A-F]") then
+        return nil
+    end
+
+    local red = tonumber(normalized:sub(1, 2), 16)
+    local green = tonumber(normalized:sub(3, 4), 16)
+    local blue = tonumber(normalized:sub(5, 6), 16)
+    if not red or not green or not blue then
+        return nil
+    end
+
+    return color.normalizeRGB({ red, green, blue }, nil)
+end
+
 return color

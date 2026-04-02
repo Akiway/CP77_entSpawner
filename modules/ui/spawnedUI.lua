@@ -53,6 +53,7 @@ spawnedUI = {
         path = ""
     },
     nameBeingEdited = false,
+    hierarchyPickRequest = nil,
 
     clipboard = {},
 
@@ -93,6 +94,10 @@ spawnedUI = {
 -- inside it receive a nil sUI during construction. Rebind them explicitly.
 spawnedUI.root.sUI = spawnedUI
 spawnedUI.multiSelectGroup.sUI = spawnedUI
+
+local HIERARCHY_PICK_ELIGIBLE_BG = 0x5F007F00
+local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
+local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
 
 ---@param element element?
 ---@return boolean
@@ -305,6 +310,120 @@ function spawnedUI.getElementByPath(path)
             return element.ref
         end
     end
+end
+
+---@param owner element?
+---@param onPick fun(PARAM: element, PARAM: element?): boolean?
+---@param opts table?
+---@return boolean
+function spawnedUI.beginHierarchyPick(owner, onPick, opts)
+    if type(onPick) ~= "function" then
+        return false
+    end
+
+    opts = opts or {}
+    spawnedUI.hierarchyPickRequest = {
+        owner = owner,
+        ownerId = owner and owner.id or nil,
+        allowOwner = opts.allowOwner == true,
+        restoreOwnerSelection = opts.restoreOwnerSelection ~= false,
+        canPick = type(opts.canPick) == "function" and opts.canPick or nil,
+        onPick = onPick
+    }
+
+    return true
+end
+
+---@param owner element?
+function spawnedUI.cancelHierarchyPick(owner)
+    if not spawnedUI.hierarchyPickRequest then
+        return
+    end
+
+    if owner and spawnedUI.hierarchyPickRequest.owner ~= owner and spawnedUI.hierarchyPickRequest.ownerId ~= owner.id then
+        return
+    end
+
+    spawnedUI.hierarchyPickRequest = nil
+end
+
+---@param owner element?
+---@return boolean
+function spawnedUI.isHierarchyPickActive(owner)
+    local request = spawnedUI.hierarchyPickRequest
+    if not request then
+        return false
+    end
+
+    if not owner then
+        return true
+    end
+
+    return request.owner == owner or request.ownerId == owner.id
+end
+
+---@param element element?
+---@return boolean
+function spawnedUI.isHierarchyPickEligible(element)
+    local request = spawnedUI.hierarchyPickRequest
+    if not request or not element then
+        return false
+    end
+
+    local owner = request.owner
+    if owner and not request.allowOwner and owner == element then
+        return false
+    end
+
+    if type(request.canPick) == "function" then
+        local ok, canPick = pcall(request.canPick, element, owner)
+        if not ok or canPick == false then
+            return false
+        end
+    end
+
+    return true
+end
+
+---@param element element
+---@return boolean handled
+function spawnedUI.resolveHierarchyPick(element)
+    local request = spawnedUI.hierarchyPickRequest
+    if not request or not element then
+        return false
+    end
+
+    local owner = request.owner
+    if owner and owner.parent == nil then
+        spawnedUI.hierarchyPickRequest = nil
+        return false
+    end
+
+    if not spawnedUI.isHierarchyPickEligible(element) then
+        return false
+    end
+
+    local handled = false
+    local consumeRequest = true
+    local ok, result = pcall(request.onPick, element, owner)
+    if ok then
+        handled = result ~= false
+        consumeRequest = handled
+    else
+        consumeRequest = true
+    end
+
+    if consumeRequest then
+        spawnedUI.hierarchyPickRequest = nil
+    end
+
+    if request.restoreOwnerSelection and owner and owner.parent ~= nil then
+        spawnedUI.unselectAll()
+        owner:setSelected(true)
+        spawnedUI.scrollToSelected = true
+    end
+
+    return handled
 end
 
 ---Adds an element to the root
@@ -627,6 +746,10 @@ function spawnedUI.registerHotkeys()
         spawnedUI.moveToRoot(true)
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
+        if spawnedUI.hierarchyPickRequest then
+            spawnedUI.cancelHierarchyPick()
+            return
+        end
         if #spawnedUI.selectedPaths == 0 or editor.grab or editor.rotate or editor.scale then return end -- Escape is also used for cancling editing
         spawnedUI.unselectAll()
     end, hotkeyRunConditionProperties)
@@ -1328,28 +1451,6 @@ local function addStateIcon(target, icon, tooltip, color, onClick, drawPopup)
     })
 end
 
----@param rawColor table?
----@return string
-local function formatColorPreviewTooltip(rawColor)
-    local normalized = colorUtil.normalizeRGB(rawColor, { 1, 1, 1 })
-    local red = math.floor(normalized[1] * 255 + 0.5)
-    local green = math.floor(normalized[2] * 255 + 0.5)
-    local blue = math.floor(normalized[3] * 255 + 0.5)
-
-    return string.format(
-        "#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)",
-        red,
-        green,
-        blue,
-        red,
-        green,
-        blue,
-        normalized[1],
-        normalized[2],
-        normalized[3]
-    )
-end
-
 ---@param count number
 ---@return string
 local function getConnectionCountIcon(count)
@@ -1565,10 +1666,18 @@ function spawnedUI.getStateIcons(element)
         if spawnable.modulePath == "light/light" then
             local color = colorUtil.normalizeRGB(spawnable.color, { 1, 1, 1 })
             local popupId = "##lightColorPickerState" .. tostring(element.id or "")
+            if spawnedUI.isHierarchyPickActive and spawnedUI.isHierarchyPickActive(element) then
+                addStateIcon(
+                    stateIcons,
+                    IconGlyphs.Target,
+                    "Aim At Element target mode is active",
+                    style.regularColor
+                )
+            end
             addStateIcon(
                 stateIcons,
                 IconGlyphs.SquareRounded,
-                formatColorPreviewTooltip(color),
+                colorUtil.formatPreviewTooltip(color),
                 colorUtil.packAABBGGRR(color, 1.0),
                 function()
                     ImGui.OpenPopup(popupId)
@@ -1947,9 +2056,15 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
     style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
     style.pushStyleColor(suppressHeaderState, ImGuiCol.Header, 0, 0, 0, 0)
+    local hierarchyPickEligible = spawnedUI.isHierarchyPickEligible and spawnedUI.isHierarchyPickEligible(element)
+    local highlightHierarchyPickEligible = hierarchyPickEligible and not suppressHeaderState
+    style.pushStyleColor(highlightHierarchyPickEligible, ImGuiCol.Header, HIERARCHY_PICK_ELIGIBLE_BG)
+    style.pushStyleColor(highlightHierarchyPickEligible, ImGuiCol.HeaderHovered, HIERARCHY_PICK_ELIGIBLE_HOVER)
+    style.pushStyleColor(highlightHierarchyPickEligible, ImGuiCol.HeaderActive, HIERARCHY_PICK_ELIGIBLE_ACTIVE)
 
     local previous = element.selected
     local newState = ImGui.Selectable("##item" .. spawnedUI.elementCount, element.selected, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap)
+    local rowClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left)
     element:setSelected(newState)
     local isHovered = ImGui.IsItemHovered()
     element:setHovered(isHovered)
@@ -1981,10 +2096,15 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
         element:setSelected(previous)
     end
 
+    if rowClicked and not spawnedUI.draggingSelected and spawnedUI.hierarchyPickRequest then
+        spawnedUI.resolveHierarchyPick(element)
+    end
+
     spawnedUI.handleDrag(element)
 
     spawnedUI.drawContextMenu(element, elementPath)
 
+    style.popStyleColor(highlightHierarchyPickEligible, 3)
     style.popStyleColor(suppressHeaderState, 3)
     ImGui.PopStyleVar()
 

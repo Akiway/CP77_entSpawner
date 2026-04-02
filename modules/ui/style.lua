@@ -14,6 +14,7 @@ local style = {
     activeColor = 0xFFB2FF00,
     selectedColor = 0xFFFF9900,
     warnColor = 0xFF0099FF,
+    successColor = 0xFF007F00,
     activeTextColor = 0xFF000000,
     elementIndent = 35,
     draggedColor = 0xFF00007F,
@@ -304,6 +305,36 @@ function style.styledText(text, color, size)
     ImGui.SetWindowFontScale(1)
 end
 
+---Draw an icon + label row with optional offsets and aligned field position.
+---@param icon string
+---@param label string
+---@param opts table?
+---@return number rowStartY
+function style.drawIconLabelRow(icon, label, opts)
+    opts = opts or {}
+    local rowStartY = ImGui.GetCursorPosY()
+    local iconOffset = (opts.iconOffset or 4) * (style.viewSize or 1)
+    local labelOffset = (opts.labelOffset or 2) * (style.viewSize or 1)
+
+    ImGui.SetCursorPosY(rowStartY + iconOffset)
+    if opts.iconColor then
+        style.styledText(icon, opts.iconColor)
+    else
+        style.mutedText(icon)
+    end
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(rowStartY + labelOffset)
+    style.mutedText(label)
+    ImGui.SameLine()
+    ImGui.SetCursorPosY(rowStartY)
+
+    if opts.fieldX then
+        ImGui.SetCursorPosX(opts.fieldX)
+    end
+
+    return rowStartY
+end
+
 ---Push or pop a no-background button style preset.
 ---Use `true` before drawing buttons and `false` after.
 ---@param push boolean `true` to push style, `false` to pop it.
@@ -341,6 +372,22 @@ function style.warnButton(text, ...)
     local activeColor = 0x99000000 + rgb
     ImGui.PushStyleColor(ImGuiCol.Button, defaultColor)
     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.warnColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor)
+    local clicked = ImGui.Button(text, ...)
+    ImGui.PopStyleColor(3)
+    return clicked
+end
+
+---Draw a green button matching default wireframe green styling.
+---@param text string Button label / ID.
+---@param ... any Optional size args forwarded to `ImGui.Button`.
+---@return boolean clicked
+function style.successButton(text, ...)
+    local rgb = style.successColor % 0x1000000
+    local defaultColor = 0xCC000000 + rgb
+    local activeColor = 0x99000000 + rgb
+    ImGui.PushStyleColor(ImGuiCol.Button, defaultColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.successColor)
     ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor)
     local clicked = ImGui.Button(text, ...)
     ImGui.PopStyleColor(3)

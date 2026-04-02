@@ -74,7 +74,7 @@ local function drawWireframeColorStylePreview()
     local previewWidth = badgeW * columns + gapX * (columns - 1)
     local previewHeight = badgeH * rows + gapY * (rows - 1)
     local badges = {
-        { color = 0xFF007F00, textColor = 0xFFDCD8D1 }, -- darker green
+        { color = style.successColor, textColor = 0xFFDCD8D1 }, -- darker green
         { color = 0xFF0000B2, textColor = 0xFFDCD8D1 }, -- darker red
         { color = 0xFF992D00, textColor = 0xFFDCD8D1 }, -- darker blue 
         { color = 0xFF50FF50, textColor = 0xFF000000 }, -- lighter green
