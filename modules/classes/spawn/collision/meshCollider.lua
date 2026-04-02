@@ -181,6 +181,37 @@ function meshCollider:getArrowSize()
     return { x = 1, y = 1, z = 1 }
 end
 
+function meshCollider:calculateIntersection(origin, ray)
+    if not self:getEntity() then
+        return { hit = false }
+    end
+
+    local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
+
+    local scaledBBox = {
+        min = {  x = self.bBox.min.x * scaleFactor.x, y = self.bBox.min.y * scaleFactor.y, z = self.bBox.min.z * scaleFactor.z },
+        max = {  x = self.bBox.max.x * scaleFactor.x, y = self.bBox.max.y * scaleFactor.y, z = self.bBox.max.z * scaleFactor.z }
+    }
+    local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
+
+    local unscaledHit
+    if result.hit then
+        unscaledHit = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, intersection.unscaleBBox(self.spawnData, self:getSize(), scaledBBox))
+    end
+
+    return {
+        hit = result.hit,
+        position = result.position,
+        unscaledHit = unscaledHit and unscaledHit.position or result.position,
+        collisionType = "bbox",
+        distance = result.distance,
+        bBox = scaledBBox,
+        objectOrigin = self.position,
+        objectRotation = self.rotation,
+        normal = result.normal
+    }
+end
+
 function meshCollider:draw()
     spawnable.draw(self)
 
