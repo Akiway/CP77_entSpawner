@@ -1,5 +1,3 @@
-local cjson = require("modules/utils/json")
-
 local utils = require("modules/utils/utils")
 config = {}
 
@@ -21,7 +19,7 @@ function config.loadFile(path)
     local file = io.open(path, "r")
     local config = {}
     local success = pcall(function ()
-        config = cjson.parse(file:read("*a"))
+        config = json.decode(file:read("*a"))
     end)
     if not success then
         print("Failed to load file: " .. path .. ", restoring empty state")
@@ -32,7 +30,7 @@ end
 
 function config.saveFile(path, data)
     local file = io.open(path, "w")
-    local jconfig = cjson.stringify(data)
+    local jconfig = json.encode(data)
     file:write(jconfig)
     file:close()
 end

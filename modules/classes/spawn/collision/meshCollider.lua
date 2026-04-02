@@ -312,7 +312,7 @@ function meshCollider:export()
 						["Shapes"] = {
 							{
 								["ShapeType"] = shapeType,
-                                ["Hash"] = "uint32:" .. self.shapeHash,
+                                ["Hash"] = self.shapeHash,
                                 ["Position"] = {
 									["$type"] = "Vector3",
 									["X"] = 0,
@@ -372,7 +372,7 @@ function meshCollider:export()
 		["numShapePositions"] = 0,
 		["numShapeRotations"] = 1,
         ["resourceVersion"] = 2, -- You little shit
-        ["sectorHash"] = "uint32:" .. self.sectorHash,
+        ["sectorHash"] = self.sectorHash,
 		["staticCollisionShapeCategories"] = {
 			["$type"] = "worldStaticCollisionShapeCategories_CollisionNode",
 			["arr"] = {
