@@ -5,6 +5,8 @@ local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
+local builder = require("modules/utils/entityBuilder")
+local cache = require("modules/utils/cache")
 
 local colliderGenerics = require("modules/classes/spawn/collision/colliderGenerics")
 local originalMaterials = colliderGenerics.originalMaterials
@@ -21,6 +23,9 @@ local colors = colliderGenerics.colors
 --- @field meshType string
 --- @field material integer
 --- @field preset integer
+--- @field bBox table
+--- @field bBoxLoaded boolean
+--- @field apps table
 --- @field previewed boolean
 --- @field maxPropertyWidth number
 local meshCollider = setmetatable({}, { __index = spawnable })
@@ -43,6 +48,10 @@ function meshCollider:new(spawnUI)
 
     o.material = settings.defaultColliderMaterial
     o.preset = 33
+
+    o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
+    o.bBoxLoaded = false
+    o.apps = {}
 
     o.previewed = true
     o.maxPropertyWidth = nil
@@ -74,6 +83,49 @@ function meshCollider:loadSpawnData(data, position, rotation)
     if self.sectorHash and self.shapeHash and self.meshType then
         self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent"
     end
+
+    local meshPath = "scc\\generated\\geometry_cache\\visual\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".mesh"
+
+    cache.tryGet(meshPath .. "_apps", meshPath .. "_bBox_max", meshPath .. "_bBox_min", meshPath .. "_occluder")
+    .notFound(function (task)
+        self.bBox.max = Vector4.new(0.5, 0.5, 0.5, 0) -- Temp values, so that onAssemble//updateScale can work
+        self.bBox.min = Vector4.new(-0.5, -0.5, -0.5, 0)
+
+        builder.registerLoadResource(meshPath, function (resource)
+            local apps = {}
+            for _, appearance in ipairs(resource.appearances) do
+                table.insert(apps, appearance.name.value)
+            end
+
+            self.bBox.min = resource.boundingBox.Min
+            self.bBox.max = resource.boundingBox.Max
+
+            local occluder = false
+            for _, param in pairs(resource.parameters) do
+                if param:IsA("meshMeshParamOccluderData") then
+                    occluder = true
+                    break
+                end
+            end
+
+            -- Save to cache
+            cache.addValue(meshPath .. "_apps", apps)
+            cache.addValue(meshPath .. "_bBox_max", utils.fromVector(self.bBox.max))
+            cache.addValue(meshPath .. "_bBox_min", utils.fromVector(self.bBox.min))
+            cache.addValue(meshPath .. "_occluder", occluder)
+
+            task:taskCompleted()
+
+            if self:isSpawned() and self.isAssetPreview then
+                self:assetPreviewSetPosition()
+            end
+        end)
+    end)
+    .found(function ()
+        self.bBox.max = cache.getValue(meshPath .. "_bBox_max")
+        self.bBox.min = cache.getValue(meshPath .. "_bBox_min")
+        self.bBoxLoaded = true
+    end)
 end
 
 function meshCollider:onAssemble(entity)
@@ -278,7 +330,11 @@ end
 function meshCollider:export()
     local rotation = self.rotation:ToQuat()
     local shapeType = self.meshType
-    local extends = self:getSize()
+    local extends = {
+        x = math.abs(self.bBox.max.x - self.bBox.min.x) / 2,
+        y = math.abs(self.bBox.max.y - self.bBox.min.y) / 2,
+        z = math.abs(self.bBox.max.z - self.bBox.min.z) / 2
+    }
 
     if shapeType == "BV4TriangleMesh" then
         shapeType = "TriangleMesh"
