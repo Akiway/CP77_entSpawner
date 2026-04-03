@@ -597,13 +597,17 @@ end
 ---@param min number Minimum clamp value (also used as InputInt step).
 ---@param max number Maximum clamp value (also used as InputInt fast step).
 ---@param width number? Field width in unscaled style units (default `80`).
+---@param step number? Optional InputInt step used by +/- buttons (default `min`).
+---@param fastStep number? Optional InputInt fast step (default `max`).
 ---@return number newValue
 ---@return boolean changed
 ---@return boolean finished True when item was deactivated after edit.
-function style.trackedIntInput(element, text, value, min, max, width)
+function style.trackedIntInput(element, text, value, min, max, width, step, fastStep)
     width = width or 80
+    step = step == nil and min or step
+    fastStep = fastStep == nil and max or fastStep
     ImGui.SetNextItemWidth(width * style.viewSize)
-    local newValue, changed = ImGui.InputInt(text, value, min, max)
+    local newValue, changed = ImGui.InputInt(text, value, step, fastStep)
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
 	if finished then

@@ -3,6 +3,172 @@ local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
 local registry = require("modules/utils/nodeRefRegistry")
+local cache = require("modules/utils/cache")
+local builder = require("modules/utils/entityBuilder")
+local Cron = require("modules/utils/Cron")
+
+local characterRecords = nil
+local pendingAppearanceLoads = {}
+
+local function sanitizeValue(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+
+    return sanitized
+end
+
+local function ensureCharacterRecordsLoaded()
+    if characterRecords ~= nil then
+        return
+    end
+
+    characterRecords = {}
+    local path = "data/spawnables/entity/records/records.txt"
+    local file = io.open(path, "r")
+    if not file then
+        return
+    end
+
+    for line in file:lines() do
+        local record = sanitizeValue(line)
+        if record:match("^Character%.") then
+            table.insert(characterRecords, record)
+        end
+    end
+
+    file:close()
+    table.sort(characterRecords)
+end
+
+local function copyList(values)
+    local list = {}
+    for _, value in ipairs(values or {}) do
+        table.insert(list, value)
+    end
+
+    return list
+end
+
+local function buildSelectorOptions(baseOptions, currentValue)
+    local options = copyList(baseOptions)
+    local current = sanitizeValue(currentValue)
+
+    if current ~= "" and utils.indexValue(options, current) == -1 then
+        table.insert(options, 1, current)
+    end
+
+    return options
+end
+
+local function normalizeAppearanceOptions(appearances)
+    local options = {}
+    local dedupe = {}
+
+    for _, appearance in ipairs(appearances or {}) do
+        local name = sanitizeValue(appearance)
+        if name ~= "" and not dedupe[name] then
+            dedupe[name] = true
+            table.insert(options, name)
+        end
+    end
+
+    table.sort(options)
+    if #options == 0 then
+        table.insert(options, "default")
+    end
+
+    return options
+end
+
+local function resolvePreferredOption(selected, options, fallback)
+    local cleanSelected = sanitizeValue(selected)
+    if cleanSelected == "" then
+        cleanSelected = sanitizeValue(fallback, "default")
+    end
+
+    if #options == 0 then
+        return cleanSelected
+    end
+
+    if utils.indexValue(options, cleanSelected) ~= -1 then
+        return cleanSelected
+    end
+
+    return options[1]
+end
+
+local function requestCharacterAppearances(recordID)
+    local record = sanitizeValue(recordID)
+    if record == "" or not record:match("^Character%.") then
+        return { "default" }, true
+    end
+
+    local cacheKey = record .. "_apps"
+    local cached = cache.getValue(cacheKey)
+    if type(cached) == "table" then
+        return normalizeAppearanceOptions(cached), true
+    end
+
+    if pendingAppearanceLoads[cacheKey] ~= true then
+        pendingAppearanceLoads[cacheKey] = true
+
+        local finished = false
+        local function complete(apps)
+            if finished then
+                return
+            end
+
+            finished = true
+            pendingAppearanceLoads[cacheKey] = nil
+            cache.addValue(cacheKey, apps or {})
+        end
+
+        local templateFlat = TweakDB:GetFlat(record .. ".entityTemplatePath")
+        local templateHash = templateFlat and templateFlat.hash
+        if not templateHash then
+            complete({})
+            return { "default" }, false
+        end
+
+        local templateResRef = ResRef.FromHash(templateHash)
+        local depot = Game.GetResourceDepot()
+        local exists = false
+        if depot then
+            pcall(function()
+                exists = depot:ResourceExists(templateResRef)
+            end)
+        end
+        if not exists then
+            complete({})
+            return { "default" }, false
+        end
+
+        Cron.After(2.5, function()
+            complete({})
+        end)
+
+        local ok = pcall(function()
+            builder.registerLoadResource(templateResRef, function(resource)
+                local apps = {}
+                if resource and resource.appearances then
+                    for _, appearance in ipairs(resource.appearances) do
+                        if appearance and appearance.name and appearance.name.value then
+                            table.insert(apps, appearance.name.value)
+                        end
+                    end
+                end
+
+                complete(apps)
+            end)
+        end)
+        if not ok then
+            complete({})
+        end
+    end
+
+    return { "default" }, false
+end
 
 ---Class for worldCompiledCommunityAreaNode_Streamable
 ---@class community : visualized
@@ -28,6 +194,8 @@ function community:new()
     o.streamingMultiplier = 5
 
     o.entries = {}
+    o.entryRecordSearch = {}
+    o.phaseAppearanceSearch = {}
     o.periodEnums = {
         "Morning",
         "Day",
@@ -63,7 +231,6 @@ function community:new()
    	return o
 end
 
-
 function community:save()
     local data = visualized.save(self)
 
@@ -92,16 +259,42 @@ function community:drawContext(key, tbl)
     end
 end
 
-function community:drawPhaseAppearances(phase)
+function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
+    phase.appearances = phase.appearances or {}
+    if #phase.appearances == 0 then
+        table.insert(phase.appearances, "default")
+    end
+
+    local baseAppearanceOptions, loaded = requestCharacterAppearances(entry.characterRecordId)
     if ImGui.TreeNodeEx("Appearances", ImGuiTreeNodeFlags.SpanFullWidth) then
         for appKey, _ in pairs(phase.appearances) do
             ImGui.PushID(appKey)
 
-            phase.appearances[appKey], _ = style.trackedTextField(self.object, "##appearance", phase.appearances[appKey], "default", 200)
+            local searchKey = string.format("%s|%s|%s", tostring(entryKey), tostring(phaseKey), tostring(appKey))
+            local search = self.phaseAppearanceSearch[searchKey] or ""
+            local options = copyList(baseAppearanceOptions)
+            local currentValue = resolvePreferredOption(phase.appearances[appKey], options, "default")
+            phase.appearances[appKey] = currentValue
+            phase.appearances[appKey], search, _ = style.trackedSearchDropdown(
+                self.object,
+                "##appearance",
+                "Search appearance...",
+                currentValue,
+                search,
+                options,
+                220,
+                true
+            )
+            self.phaseAppearanceSearch[searchKey] = search
+            style.tooltip(loaded
+                and "Select an appearance from the selected character record."
+                or "Appearances are loading for the selected character record. 'default' is available until the list is cached.")
+
             ImGui.SameLine()
             if ImGui.Button(IconGlyphs.Delete) then
                 history.addAction(history.getElementChange(self.object))
                 table.remove(phase.appearances, appKey)
+                self.phaseAppearanceSearch[searchKey] = nil
             end
 
             ImGui.PopID()
@@ -109,7 +302,7 @@ function community:drawPhaseAppearances(phase)
 
         if ImGui.Button("+ [Appearance]") then
             history.addAction(history.getElementChange(self.object))
-            table.insert(phase.appearances, "")
+            table.insert(phase.appearances, baseAppearanceOptions[1] or "default")
         end
 
         ImGui.TreePop()
@@ -179,6 +372,7 @@ function community:drawPeriod(periods, periodKey)
         ImGui.SameLine()
         ImGui.SetCursorPosX(max)
         period.hour, _ = style.trackedCombo(self.object, "##hour", period.hour, self.periodEnums)
+        style.tooltip("Named hour mappings:\nMidnight = 0:00\nMorning = 6:00\nDay = 9:00\nEvening = 18:00\nNight = 22:00")
 
         style.mutedText("Is Sequence")
         ImGui.SameLine()
@@ -189,7 +383,7 @@ function community:drawPeriod(periods, periodKey)
         style.mutedText("Quantity")
         ImGui.SameLine()
         ImGui.SetCursorPosX(max)
-        period.quantity, changed = style.trackedDragInt(self.object, "##quantity", period.quantity, 0, 9999, 75)
+        period.quantity, changed = style.trackedIntInput(self.object, "##quantity", period.quantity, 0, 9999, 75, 1, 10)
         if changed then
             period.quantity = math.floor(period.quantity)
         end
@@ -229,10 +423,13 @@ function community:drawPhasePeriods(phase)
     end
 end
 
-function community:drawPhases(entry)
+function community:drawPhases(entryKey, entry)
     if ImGui.TreeNodeEx("Phases", ImGuiTreeNodeFlags.SpanFullWidth) then
         for key, phase in pairs(entry.phases) do
             ImGui.PushID(key)
+
+            phase.appearances = phase.appearances or { "default" }
+            phase.timePeriods = phase.timePeriods or {}
 
             if ImGui.TreeNodeEx("##" .. tostring(key), ImGuiTreeNodeFlags.SpanFullWidth) then
                 self:drawContext(key, entry.phases)
@@ -242,7 +439,7 @@ function community:drawPhases(entry)
                 ImGui.SameLine()
                 phase.phaseName, _ = style.trackedTextField(self.object, "##phaseName", phase.phaseName, "uniqueName", 200)
 
-                self:drawPhaseAppearances(phase)
+                self:drawPhaseAppearances(entryKey, key, entry, phase)
                 self:drawPhasePeriods(phase)
 
                 ImGui.TreePop()
@@ -267,9 +464,14 @@ function community:drawPhases(entry)
 end
 
 function community:drawEntries()
+    ensureCharacterRecordsLoaded()
+
     if ImGui.TreeNodeEx("Entries", ImGuiTreeNodeFlags.SpanFullWidth) then
         for key, entry in pairs(self.entries) do
             ImGui.PushID(key)
+
+            entry.phases = entry.phases or {}
+            entry.characterRecordId = sanitizeValue(entry.characterRecordId)
 
             if ImGui.TreeNodeEx("##" .. tostring(key), ImGuiTreeNodeFlags.SpanFullWidth) then
                 self:drawContext(key, self.entries)
@@ -285,7 +487,20 @@ function community:drawEntries()
                 style.mutedText("Character Record")
                 ImGui.SameLine()
                 ImGui.SetCursorPosX(max)
-                entry.characterRecordId, _ = style.trackedTextField(self.object, "##characterRecordId", entry.characterRecordId, "Character.", -1)
+                local recordSearch = self.entryRecordSearch[tostring(key)] or ""
+                local recordOptions = buildSelectorOptions(characterRecords, entry.characterRecordId)
+                entry.characterRecordId, recordSearch, _ = style.trackedSearchDropdown(
+                    self.object,
+                    "##characterRecordId",
+                    "Search character record...",
+                    entry.characterRecordId,
+                    recordSearch,
+                    recordOptions,
+                    250,
+                    true
+                )
+                self.entryRecordSearch[tostring(key)] = recordSearch
+                style.tooltip("Select the character record (TweakDBID) for this community entry.")
 
                 style.mutedText("Initial Phase Name")
                 ImGui.SameLine()
@@ -297,7 +512,7 @@ function community:drawEntries()
                 ImGui.SetCursorPosX(max)
                 entry.entryActiveOnStart, _ = style.trackedCheckbox(self.object, "##activeOnStart", entry.entryActiveOnStart)
 
-                self:drawPhases(entry)
+                self:drawPhases(key, entry)
 
                 ImGui.TreePop()
             else

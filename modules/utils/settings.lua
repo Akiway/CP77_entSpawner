@@ -28,6 +28,7 @@ local config = require("modules/utils/config")
 ---@field public resetSpawnPopupSearch boolean
 ---@field public spawnAtCursor boolean
 ---@field public defaultAISpotNPC string
+---@field public defaultAISpotAppearance string
 ---@field public tabSizes table
 ---@field public defaultAISpotSpeed number
 ---@field public defaultSplineCurveQuality number
@@ -83,6 +84,7 @@ local settingsData = {
     resetSpawnPopupSearch = true,
     spawnAtCursor = true,
     defaultAISpotNPC = "Character.Judy",
+    defaultAISpotAppearance = "default",
     defaultAISpotSpeed = 3,
     defaultSplineCurveQuality = 12,
     nodeRefPrefix = "mod",

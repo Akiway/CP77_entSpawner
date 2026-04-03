@@ -288,6 +288,8 @@ end
 ---@class aiSpot : visualized
 ---@field previewNPC string
 ---@field previewNPCSearch string
+---@field previewNPCAppearance string
+---@field previewNPCAppearanceSearch string
 ---@field spawnNPC boolean
 ---@field isWorkspotInfinite boolean
 ---@field isWorkspotStatic boolean
@@ -301,6 +303,53 @@ end
 ---@field apps table
 ---@field workspotDefInfinite boolean
 local aiSpot = setmetatable({}, { __index = visualized })
+
+local function sanitizePreviewValue(value, fallback)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+
+    if sanitized == "" then
+        return fallback or ""
+    end
+
+    return sanitized
+end
+
+local function getPreviewAppearanceOptions(apps, selected)
+    local options = {}
+    local dedupe = {}
+
+    for _, app in ipairs(apps or {}) do
+        local clean = sanitizePreviewValue(app)
+        if clean ~= "" and not dedupe[clean] then
+            dedupe[clean] = true
+            table.insert(options, clean)
+        end
+    end
+
+    if #options == 0 then
+        local cleanSelected = sanitizePreviewValue(selected, "default")
+        table.insert(options, cleanSelected)
+    end
+
+    return options
+end
+
+local function resolvePreferredPreviewAppearance(selected, apps)
+    local cleanSelected = sanitizePreviewValue(selected, "default")
+    local normalizedApps = apps or {}
+
+    if #normalizedApps == 0 then
+        return cleanSelected
+    end
+
+    if utils.indexValue(normalizedApps, cleanSelected) ~= -1 then
+        return cleanSelected
+    end
+
+    return normalizedApps[1]
+end
 
 function aiSpot:new()
 	local o = visualized.new(self)
@@ -318,6 +367,8 @@ function aiSpot:new()
 
     o.previewNPC = settings.defaultAISpotNPC
     o.previewNPCSearch = ""
+    o.previewNPCAppearance = settings.defaultAISpotAppearance or "default"
+    o.previewNPCAppearanceSearch = ""
     o.spawnNPC = true
     o.workspotSpeed = settings.defaultAISpotSpeed
 
@@ -345,8 +396,11 @@ function aiSpot:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
     self.previewNPC = string.gsub(self.previewNPC, "[\128-\255]", "")
+    self.previewNPCAppearance = sanitizePreviewValue(self.previewNPCAppearance, settings.defaultAISpotAppearance or "default")
     self.previewNPCSearch = self.previewNPCSearch or ""
+    self.previewNPCAppearanceSearch = self.previewNPCAppearanceSearch or ""
     self.previewNPCSearch = string.gsub(self.previewNPCSearch, "[\128-\255]", "")
+    self.previewNPCAppearanceSearch = string.gsub(self.previewNPCAppearanceSearch, "[\128-\255]", "")
 end
 
 function aiSpot:getVisualizerSize()
@@ -395,8 +449,11 @@ function aiSpot:onAssemble(entity)
     component.workspotResource = ResRef.FromString(self.spawnData)
 
     if self.spawnNPC then
+        self.apps = {}
+
         local spec = DynamicEntitySpec.new()
         spec.recordID = self.previewNPC
+        spec.appearanceName = sanitizePreviewValue(self.previewNPCAppearance, "default")
         spec.position = self.position
         spec.orientation = self.rotation:ToQuat()
         spec.alwaysSpawned = true
@@ -459,6 +516,7 @@ function aiSpot:onAssemble(entity)
         end)
         .found(function ()
             self.apps = cache.getValue(appCacheKey) or {}
+            self.previewNPCAppearance = resolvePreferredPreviewAppearance(self.previewNPCAppearance, self.apps)
         end)
     end
 end
@@ -478,6 +536,9 @@ function aiSpot:spawn()
             local fallbackRecord = compatibleRecords[1]
             if fallbackRecord and fallbackRecord ~= "" then
                 self.previewNPC = fallbackRecord
+                self.previewNPCAppearance = "default"
+                self.previewNPCAppearanceSearch = ""
+                self.apps = {}
             end
         end
     end
@@ -679,6 +740,7 @@ function aiSpot:save()
     local data = visualized.save(self)
 
     data.previewNPC = self.previewNPC
+    data.previewNPCAppearance = self.previewNPCAppearance
     data.spawnNPC = self.spawnNPC
     data.workspotSpeed = self.workspotSpeed
     data.isWorkspotInfinite = self.isWorkspotInfinite
@@ -692,7 +754,7 @@ function aiSpot:draw()
     visualized.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Is Infinite", "Is Static", "Preview NPC", "Preview NPC Record", "Animation Speed"}) + 4 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Is Infinite", "Is Static", "Preview NPC", "NPC Record", "NPC Appearance", "Animation Speed"}) + 4 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     if ImGui.TreeNodeEx("Previewing Options", ImGuiTreeNodeFlags.SpanFullWidth) then
@@ -733,12 +795,15 @@ function aiSpot:draw()
             end
         end
 
-        style.mutedText("Preview NPC Record")
+        style.mutedText("NPC Record")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         local finished = false
         self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdown(self.object, "##previewNPCRigPicker", "Character.", self.previewNPC, self.previewNPCSearch, compatibleRecords, 250)
         if finished then
+            self.previewNPCAppearance = "default"
+            self.previewNPCAppearanceSearch = ""
+            self.apps = {}
             self:respawn()
         end
         local unsupportedRig = false
@@ -761,6 +826,39 @@ function aiSpot:draw()
             settings.save()
         end
         style.tooltip("Save this NPC as the default for AI Spots.")
+        style.pushButtonNoBG(false)
+
+        local previewAppOptions = getPreviewAppearanceOptions(self.apps, self.previewNPCAppearance)
+        self.previewNPCAppearance = resolvePreferredPreviewAppearance(self.previewNPCAppearance, self.apps)
+
+        style.mutedText("NPC Appearance")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        self.previewNPCAppearance, self.previewNPCAppearanceSearch, changed = style.trackedSearchDropdown(
+            self.object,
+            "##previewNPCAppPicker",
+            "Search appearance...",
+            self.previewNPCAppearance,
+            self.previewNPCAppearanceSearch,
+            previewAppOptions,
+            250,
+            true
+        )
+        style.tooltip(#self.apps > 0
+            and "Appearance used when spawning the preview NPC in this workspot."
+            or "No cached appearances yet for this character record. 'default' will be used until loaded.")
+        if changed then
+            self:respawn()
+        end
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        ImGui.PushID("savePreviewAppearance")
+        if ImGui.Button(IconGlyphs.ContentSaveSettingsOutline) then
+            settings.defaultAISpotAppearance = self.previewNPCAppearance
+            settings.save()
+        end
+        ImGui.PopID()
+        style.tooltip("Save this appearance as the default for AI Spot previews.")
         style.pushButtonNoBG(false)
 
         if self.spawnNPC then

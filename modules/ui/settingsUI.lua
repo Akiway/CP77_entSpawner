@@ -313,9 +313,19 @@ function settingsUI.draw(spawner)
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("AI SPOT PREVIEW")
-        settings.defaultAISpotNPC, changed = ImGui.InputTextWithHint("Default AI Spot NPC", "Character.", settings.defaultAISpotNPC, 128)
+        settings.defaultAISpotNPC, changed = ImGui.InputTextWithHint("Default AI Spot NPC Record", "Character.", settings.defaultAISpotNPC, 128)
         if changed then
             settings.defaultAISpotNPC = string.gsub(settings.defaultAISpotNPC, "[\128-\255]", "")
+            settings.save()
+        end
+
+        settings.defaultAISpotAppearance, changed = ImGui.InputTextWithHint("Default AI Spot NPC Appearance", "default", settings.defaultAISpotAppearance, 128)
+        if changed then
+            settings.defaultAISpotAppearance = tostring(settings.defaultAISpotAppearance or "default"):gsub("[\128-\255]", "")
+            settings.defaultAISpotAppearance = settings.defaultAISpotAppearance:gsub("^%s+", ""):gsub("%s+$", "")
+            if settings.defaultAISpotAppearance == "" then
+                settings.defaultAISpotAppearance = "default"
+            end
             settings.save()
         end
 
