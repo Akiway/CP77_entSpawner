@@ -84,7 +84,7 @@ end
 local function resolvePreferredOption(selected, options, fallback)
     local cleanSelected = sanitizeValue(selected)
     if cleanSelected == "" then
-        cleanSelected = sanitizeValue(fallback, "default")
+        cleanSelected = sanitizeValue(fallback ~= nil and fallback or "default")
     end
 
     if #options == 0 then

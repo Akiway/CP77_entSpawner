@@ -8,6 +8,7 @@ local builder = require("modules/utils/entityBuilder")
 local Cron = require("modules/utils/Cron")
 local settings = require("modules/utils/settings")
 local config = require("modules/utils/config")
+local registry = require("modules/utils/nodeRefRegistry")
 
 local characterRecords = nil
 local recordRigCacheRevision = 0
@@ -302,6 +303,18 @@ end
 ---@field rigs table
 ---@field apps table
 ---@field workspotDefInfinite boolean
+---@field communityAttachCommunity string
+---@field communityAttachCommunitySearch string
+---@field communityAttachEntry string
+---@field communityAttachEntrySearch string
+---@field communityAttachPhase string
+---@field communityAttachPhaseSearch string
+---@field communityAttachPeriod string
+---@field communityAttachPeriodSearch string
+---@field communityAttachMode string
+---@field communityAttachMarking string
+---@field communityAttachNodeRef string
+---@field communityAttachStatus string
 local aiSpot = setmetatable({}, { __index = visualized })
 
 local function sanitizePreviewValue(value, fallback)
@@ -351,6 +364,203 @@ local function resolvePreferredPreviewAppearance(selected, apps)
     return normalizedApps[1]
 end
 
+local function containsValue(list, value)
+    return utils.indexValue(list or {}, value) ~= -1
+end
+
+local function findTargetByLabel(targets, label)
+    for _, target in ipairs(targets or {}) do
+        if target.label == label then
+            return target
+        end
+    end
+
+    return nil
+end
+
+local function ensureSelectedLabel(current, targets)
+    if #targets == 0 then
+        return ""
+    end
+
+    if current ~= "" and findTargetByLabel(targets, current) then
+        return current
+    end
+
+    return targets[1].label
+end
+
+local function drawCommunityAttachModeTabs(currentMode, totalWidth)
+    local mode = currentMode == "marking" and "marking" or "nodeRef"
+    local spacing = ImGui.GetStyle().ItemSpacing.x / style.viewSize
+    local availableWidth = tonumber(totalWidth) or 320
+    local tabWidth = math.max(110, ((availableWidth - spacing) / 2) * style.viewSize)
+
+    if style.switchTabButton("NodeRef##communityAttachModeNodeRef", mode == "nodeRef", tabWidth, 0) then
+        mode = "nodeRef"
+    end
+
+    ImGui.SameLine()
+
+    if style.switchTabButton("Marking##communityAttachModeMarking", mode == "marking", tabWidth, 0) then
+        mode = "marking"
+    end
+
+    return mode
+end
+
+local function getCommunityTargetsForSpot(spot)
+    local targets = {}
+    local root = spot and spot.object and spot.object:getRootParent()
+    if not root then
+        return targets
+    end
+
+    for _, pathEntry in ipairs(root:getPathsRecursive(true) or {}) do
+        local ref = pathEntry.ref
+        if ref
+            and utils.isA(ref, "spawnableElement")
+            and ref.spawnable
+            and ref.spawnable.modulePath == "ai/communityArea"
+        then
+            local label = tostring(pathEntry.path or ref:getPath() or "")
+            table.insert(targets, {
+                label = label,
+                path = pathEntry.path,
+                element = ref,
+                spawnable = ref.spawnable
+            })
+        end
+    end
+
+    table.sort(targets, function(a, b)
+        return tostring(a.label):lower() < tostring(b.label):lower()
+    end)
+
+    return targets
+end
+
+local function getEntryTargetsForCommunity(communitySpawnable)
+    local targets = {}
+    local entries = communitySpawnable and communitySpawnable.entries or {}
+
+    for entryIndex, entry in ipairs(entries) do
+        local entryName = sanitizePreviewValue(entry.entryName, "entry_" .. tostring(entryIndex))
+        table.insert(targets, {
+            label = string.format("[%d] %s", entryIndex, entryName),
+            entryIndex = entryIndex,
+            append = false
+        })
+    end
+
+    table.insert(targets, {
+        label = "+ [Entry]",
+        entryIndex = nil,
+        append = true
+    })
+
+    return targets
+end
+
+local function getPhaseTargetsForEntry(communitySpawnable, entrySelection)
+    local targets = {}
+    local entries = communitySpawnable and communitySpawnable.entries or {}
+    if not entrySelection then
+        return targets
+    end
+
+    if entrySelection.append then
+        table.insert(targets, {
+            label = "+ [Phase]",
+            phaseIndex = nil,
+            append = true
+        })
+        return targets
+    end
+
+    local entryIndex = math.max(1, tonumber(entrySelection.entryIndex) or 1)
+    local entry = entries[entryIndex]
+    if not entry then
+        table.insert(targets, {
+            label = "+ [Phase]",
+            phaseIndex = nil,
+            append = true
+        })
+        return targets
+    end
+
+    entry.phases = entry.phases or {}
+    for phaseIndex, phase in ipairs(entry.phases) do
+        local phaseName = sanitizePreviewValue(phase.phaseName, "phase_" .. tostring(phaseIndex))
+        table.insert(targets, {
+            label = string.format("[%d] %s", phaseIndex, phaseName),
+            phaseIndex = phaseIndex,
+            append = false
+        })
+    end
+
+    table.insert(targets, {
+        label = "+ [Phase]",
+        phaseIndex = nil,
+        append = true
+    })
+
+    return targets
+end
+
+local function getPeriodTargetsForSelection(communitySpawnable, entrySelection, phaseSelection)
+    local targets = {}
+    if not communitySpawnable or not entrySelection or not phaseSelection then
+        return targets
+    end
+
+    if entrySelection.append or phaseSelection.append then
+        table.insert(targets, {
+            label = "+ [Period]",
+            periodIndex = nil,
+            append = true
+        })
+        return targets
+    end
+
+    local entry = (communitySpawnable.entries or {})[entrySelection.entryIndex]
+    local phase = entry and (entry.phases or {})[phaseSelection.phaseIndex]
+    local periods = phase and phase.timePeriods or {}
+    local periodEnums = communitySpawnable.periodEnums or {}
+    local periodEnumCount = #periodEnums
+
+    for periodIndex, period in ipairs(periods or {}) do
+        local hourLabel = tostring(period.hour or 0)
+        if periodEnumCount > 0 then
+            local hourIndex = math.max(1, math.min(periodEnumCount, (tonumber(period.hour) or 0) + 1))
+            hourLabel = periodEnums[hourIndex] or hourLabel
+        end
+        table.insert(targets, {
+            label = string.format("[%d] %s", periodIndex, hourLabel),
+            periodIndex = periodIndex,
+            append = false
+        })
+    end
+
+    table.insert(targets, {
+        label = "+ [Period]",
+        periodIndex = nil,
+        append = true
+    })
+
+    return targets
+end
+
+local function createDefaultCommunityEntry(index)
+    return {
+        entryName = "entry_" .. tostring(index),
+        characterRecordId = "",
+        initialPhaseName = "default",
+        entryActiveOnStart = true,
+        phases = {}
+    }
+end
+
 function aiSpot:new()
 	local o = visualized.new(self)
 
@@ -383,6 +593,18 @@ function aiSpot:new()
     o.rigs = {}
     o.apps = {}
     o.workspotDefInfinite = false
+    o.communityAttachCommunity = ""
+    o.communityAttachCommunitySearch = ""
+    o.communityAttachEntry = ""
+    o.communityAttachEntrySearch = ""
+    o.communityAttachPhase = ""
+    o.communityAttachPhaseSearch = ""
+    o.communityAttachPeriod = ""
+    o.communityAttachPeriodSearch = ""
+    o.communityAttachMode = "nodeRef"
+    o.communityAttachMarking = ""
+    o.communityAttachNodeRef = ""
+    o.communityAttachStatus = ""
 
     o.assetPreviewType = "position"
 
@@ -401,6 +623,18 @@ function aiSpot:loadSpawnData(data, position, rotation)
     self.previewNPCAppearanceSearch = self.previewNPCAppearanceSearch or ""
     self.previewNPCSearch = string.gsub(self.previewNPCSearch, "[\128-\255]", "")
     self.previewNPCAppearanceSearch = string.gsub(self.previewNPCAppearanceSearch, "[\128-\255]", "")
+    self.communityAttachCommunity = self.communityAttachCommunity or ""
+    self.communityAttachCommunitySearch = self.communityAttachCommunitySearch or ""
+    self.communityAttachEntry = self.communityAttachEntry or ""
+    self.communityAttachEntrySearch = self.communityAttachEntrySearch or ""
+    self.communityAttachPhase = self.communityAttachPhase or ""
+    self.communityAttachPhaseSearch = self.communityAttachPhaseSearch or ""
+    self.communityAttachPeriod = self.communityAttachPeriod or ""
+    self.communityAttachPeriodSearch = self.communityAttachPeriodSearch or ""
+    self.communityAttachMode = self.communityAttachMode == "marking" and "marking" or "nodeRef"
+    self.communityAttachMarking = self.communityAttachMarking or ""
+    self.communityAttachNodeRef = sanitizePreviewValue(self.communityAttachNodeRef, sanitizePreviewValue(self.nodeRef, ""))
+    self.communityAttachStatus = self.communityAttachStatus or ""
 end
 
 function aiSpot:getVisualizerSize()
@@ -750,6 +984,370 @@ function aiSpot:save()
     return data
 end
 
+function aiSpot:getCommunityAttachPopupId()
+    return "Add Workspot To Community##" .. tostring(self.object and self.object.id or 0)
+end
+
+---@param communityTarget table
+---@param entrySelection table
+---@param phaseSelection table
+---@param periodSelection table
+---@return boolean success
+---@return string status
+function aiSpot:applyCommunityAttachment(communityTarget, entrySelection, phaseSelection, periodSelection)
+    local communityElement = communityTarget and communityTarget.element
+    local communitySpawnable = communityElement and communityElement.spawnable
+
+    if not communityElement or not communitySpawnable then
+        return false, "Community target is invalid."
+    end
+
+    if not entrySelection or not phaseSelection or not periodSelection then
+        return false, "Entry, phase, or time period selection is invalid."
+    end
+
+    local mode = self.communityAttachMode == "marking" and "marking" or "nodeRef"
+    local markingValue = sanitizePreviewValue(self.communityAttachMarking, "")
+    if mode == "marking" and markingValue == "" then
+        return false, "Marking value is required."
+    end
+
+    local nodeRefValue = ""
+    local currentNodeRef = sanitizePreviewValue(self.nodeRef, "")
+    local generatedNodeRef = false
+    if mode == "nodeRef" then
+        nodeRefValue = sanitizePreviewValue(self.communityAttachNodeRef, "")
+        if nodeRefValue == "" then
+            nodeRefValue = registry.generate(self.object)
+            if nodeRefValue == "" then
+                return false, "Failed to generate NodeRef for this workspot."
+            end
+            generatedNodeRef = true
+        end
+    end
+
+    local actions = { history.getElementChange(communityElement) }
+    local requiresNodeRefUpdate = mode == "nodeRef" and nodeRefValue ~= currentNodeRef
+    if requiresNodeRefUpdate then
+        table.insert(actions, history.getElementChange(self.object))
+    end
+
+    if #actions == 1 then
+        history.addAction(actions[1])
+    else
+        history.addAction(history.getComposite(actions))
+    end
+
+    communitySpawnable.entries = communitySpawnable.entries or {}
+    local entry
+    local entryIndex
+    if entrySelection.append then
+        entryIndex = #communitySpawnable.entries + 1
+        entry = createDefaultCommunityEntry(entryIndex)
+        table.insert(communitySpawnable.entries, entry)
+    else
+        entryIndex = math.max(1, tonumber(entrySelection.entryIndex) or 1)
+        while #communitySpawnable.entries < entryIndex do
+            table.insert(communitySpawnable.entries, createDefaultCommunityEntry(#communitySpawnable.entries + 1))
+        end
+        entry = communitySpawnable.entries[entryIndex]
+    end
+
+    entry.entryName = sanitizePreviewValue(entry.entryName, "entry_" .. tostring(entryIndex))
+    entry.characterRecordId = sanitizePreviewValue(entry.characterRecordId, "")
+    entry.initialPhaseName = sanitizePreviewValue(entry.initialPhaseName, "")
+    entry.entryActiveOnStart = entry.entryActiveOnStart ~= false
+    entry.phases = entry.phases or {}
+
+    local phase
+    if phaseSelection.append then
+        local phaseName = "phase_" .. tostring(#entry.phases + 1)
+        phase = {
+            phaseName = phaseName,
+            appearances = {},
+            timePeriods = {}
+        }
+        table.insert(entry.phases, phase)
+
+        if entry.initialPhaseName == "" then
+            entry.initialPhaseName = phaseName
+        end
+    else
+        local phaseIndex = math.max(1, tonumber(phaseSelection.phaseIndex) or 1)
+        while #entry.phases < phaseIndex do
+            table.insert(entry.phases, {
+                phaseName = "phase_" .. tostring(#entry.phases + 1),
+                appearances = {},
+                timePeriods = {}
+            })
+        end
+        phase = entry.phases[phaseIndex]
+    end
+
+    phase.phaseName = sanitizePreviewValue(phase.phaseName, "default")
+    phase.appearances = phase.appearances or {}
+    phase.timePeriods = phase.timePeriods or {}
+
+    local period
+    if periodSelection.append or not periodSelection.periodIndex then
+        period = {
+            hour = 1,
+            isSequence = false,
+            markings = {},
+            quantity = 1,
+            spotNodeRefs = {}
+        }
+        table.insert(phase.timePeriods, period)
+    else
+        local periodIndex = math.max(1, tonumber(periodSelection.periodIndex) or 1)
+        while #phase.timePeriods < periodIndex do
+            table.insert(phase.timePeriods, {
+                hour = 1,
+                isSequence = false,
+                markings = {},
+                quantity = 1,
+                spotNodeRefs = {}
+            })
+        end
+        period = phase.timePeriods[periodIndex]
+    end
+
+    period.markings = period.markings or {}
+    period.spotNodeRefs = period.spotNodeRefs or {}
+    period.quantity = tonumber(period.quantity) or 1
+    period.hour = tonumber(period.hour) or 1
+    period.isSequence = period.isSequence == true
+
+    local addedSpotReference = false
+    if mode == "nodeRef" then
+        self.communityAttachNodeRef = nodeRefValue
+        if requiresNodeRefUpdate then
+            self.nodeRef = nodeRefValue
+            registry.invalidate()
+        end
+
+        period.markings = {}
+        if not containsValue(period.spotNodeRefs, nodeRefValue) then
+            table.insert(period.spotNodeRefs, nodeRefValue)
+            addedSpotReference = true
+        end
+    else
+        period.spotNodeRefs = {}
+        if not containsValue(period.markings, markingValue) then
+            table.insert(period.markings, markingValue)
+            addedSpotReference = true
+        end
+    end
+
+    local workspotRecord = sanitizePreviewValue(self.previewNPC, "")
+    if not workspotRecord:match("^Character%.") then
+        workspotRecord = ""
+    end
+    local workspotAppearance = sanitizePreviewValue(self.previewNPCAppearance, "default")
+    local addedAppearance = false
+    local assignedRecord = false
+
+    if entry.characterRecordId == "" and workspotRecord ~= "" then
+        entry.characterRecordId = workspotRecord
+        assignedRecord = true
+    end
+
+    if workspotRecord ~= "" and entry.characterRecordId == workspotRecord then
+        if workspotAppearance ~= "" and not containsValue(phase.appearances, workspotAppearance) then
+            table.insert(phase.appearances, workspotAppearance)
+            addedAppearance = true
+        end
+    end
+
+    local status = addedSpotReference and "Workspot linked to selected community target." or "Workspot link already existed."
+    if generatedNodeRef then
+        status = status .. " NodeRef was generated."
+    elseif requiresNodeRefUpdate then
+        status = status .. " NodeRef was updated."
+    end
+    if assignedRecord then
+        status = status .. " Entry record was set from the workspot."
+    end
+    if addedAppearance then
+        status = status .. " Phase appearance was synced from the workspot."
+    end
+
+    return true, status
+end
+
+function aiSpot:drawCommunityAttachPopup()
+    local popupId = self:getCommunityAttachPopupId()
+    if not ImGui.BeginPopupModal(popupId, true, ImGuiWindowFlags.AlwaysAutoResize) then
+        return
+    end
+
+    local baseWidth = 400
+    local contentWidth = tonumber((ImGui.GetContentRegionAvail())) or 0
+    local controlWidth = math.max(baseWidth, contentWidth / style.viewSize)
+    local itemSpacingUnscaled = ImGui.GetStyle().ItemSpacing.x / style.viewSize
+    local inlineSelectorWidth = math.max(90, (controlWidth - 2 * itemSpacingUnscaled) / 3)
+
+    style.mutedText("Community")
+
+    local communityTargets = getCommunityTargetsForSpot(self)
+    self.communityAttachCommunity = ensureSelectedLabel(self.communityAttachCommunity, communityTargets)
+    local communityOptions = {}
+    for _, target in ipairs(communityTargets) do
+        table.insert(communityOptions, target.label)
+    end
+    self.communityAttachCommunity, self.communityAttachCommunitySearch, _ = style.trackedSearchDropdown(
+        nil,
+        "##communityAttachCommunity",
+        "Search community...",
+        self.communityAttachCommunity,
+        self.communityAttachCommunitySearch,
+        communityOptions,
+        controlWidth,
+        true
+    )
+    
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    local selectedCommunity = findTargetByLabel(communityTargets, self.communityAttachCommunity)
+    local entryTargets = getEntryTargetsForCommunity(selectedCommunity and selectedCommunity.spawnable)
+    self.communityAttachEntry = ensureSelectedLabel(self.communityAttachEntry, entryTargets)
+    local entryOptions = {}
+    for _, target in ipairs(entryTargets) do
+        table.insert(entryOptions, target.label)
+    end
+    local selectedEntry = findTargetByLabel(entryTargets, self.communityAttachEntry)
+    local phaseTargets = getPhaseTargetsForEntry(selectedCommunity and selectedCommunity.spawnable, selectedEntry)
+    self.communityAttachPhase = ensureSelectedLabel(self.communityAttachPhase, phaseTargets)
+    local phaseOptions = {}
+    for _, target in ipairs(phaseTargets) do
+        table.insert(phaseOptions, target.label)
+    end
+    local selectedPhase = findTargetByLabel(phaseTargets, self.communityAttachPhase)
+    local periodTargets = getPeriodTargetsForSelection(selectedCommunity and selectedCommunity.spawnable, selectedEntry, selectedPhase)
+    self.communityAttachPeriod = ensureSelectedLabel(self.communityAttachPeriod, periodTargets)
+    local periodOptions = {}
+    for _, target in ipairs(periodTargets) do
+        table.insert(periodOptions, target.label)
+    end
+    if ImGui.BeginTable("##communityAttachInlineSelectors", 3, ImGuiTableFlags.SizingStretchSame) then
+        ImGui.TableNextRow()
+        ImGui.TableSetColumnIndex(0)
+        style.mutedText("Entry")
+        ImGui.TableSetColumnIndex(1)
+        style.mutedText("Phase")
+        ImGui.TableSetColumnIndex(2)
+        style.mutedText("Time Period")
+
+        ImGui.TableNextRow()
+        ImGui.TableSetColumnIndex(0)
+        self.communityAttachEntry, self.communityAttachEntrySearch, _ = style.trackedSearchDropdown(
+            nil,
+            "##communityAttachEntry",
+            "Search entry...",
+            self.communityAttachEntry,
+            self.communityAttachEntrySearch,
+            entryOptions,
+            inlineSelectorWidth,
+            true
+        )
+
+        ImGui.TableSetColumnIndex(1)
+        self.communityAttachPhase, self.communityAttachPhaseSearch, _ = style.trackedSearchDropdown(
+            nil,
+            "##communityAttachPhase",
+            "Search phase...",
+            self.communityAttachPhase,
+            self.communityAttachPhaseSearch,
+            phaseOptions,
+            inlineSelectorWidth,
+            true
+        )
+
+        ImGui.TableSetColumnIndex(2)
+        self.communityAttachPeriod, self.communityAttachPeriodSearch, _ = style.trackedSearchDropdown(
+            nil,
+            "##communityAttachPeriod",
+            "Search time period...",
+            self.communityAttachPeriod,
+            self.communityAttachPeriodSearch,
+            periodOptions,
+            inlineSelectorWidth,
+            true
+        )
+
+        ImGui.EndTable()
+    end
+
+    selectedEntry = findTargetByLabel(entryTargets, self.communityAttachEntry)
+    local effectivePhaseTargets = getPhaseTargetsForEntry(selectedCommunity and selectedCommunity.spawnable, selectedEntry)
+    self.communityAttachPhase = ensureSelectedLabel(self.communityAttachPhase, effectivePhaseTargets)
+    selectedPhase = findTargetByLabel(effectivePhaseTargets, self.communityAttachPhase)
+    local effectivePeriodTargets = getPeriodTargetsForSelection(selectedCommunity and selectedCommunity.spawnable, selectedEntry, selectedPhase)
+    self.communityAttachPeriod = ensureSelectedLabel(self.communityAttachPeriod, effectivePeriodTargets)
+    local selectedPeriod = findTargetByLabel(effectivePeriodTargets, self.communityAttachPeriod)
+    
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    style.mutedText("Link Type")
+    self.communityAttachMode = drawCommunityAttachModeTabs(self.communityAttachMode, controlWidth)
+    style.tooltip("Choose whether the workspot is added to period by NodeRef or is part of a Marking.")
+
+    if self.communityAttachMode == "marking" then
+        if sanitizePreviewValue(self.communityAttachMarking, "") == "" then
+            self.communityAttachMarking = sanitizePreviewValue(self.markings and self.markings[1], "")
+        end
+
+        style.mutedText("Marking")
+        self.communityAttachMarking, _, _ = style.trackedTextField(nil, "##communityAttachMarking", self.communityAttachMarking, "Marking", controlWidth)
+    else
+        self.communityAttachNodeRef = sanitizePreviewValue(self.communityAttachNodeRef, "")
+        style.mutedText("NodeRef")
+        self.communityAttachNodeRef, _, _ = style.trackedTextField(nil, "##communityAttachNodeRef", self.communityAttachNodeRef, "$/#foobar", math.max(160, controlWidth - 30))
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.ReloadAlert .. "##communityAttachGenerateNodeRef") then
+            local generated = registry.generate(self.object)
+            if generated ~= "" then
+                self.communityAttachNodeRef = generated
+            end
+        end
+        style.pushButtonNoBG(false)
+        style.tooltip("Generate a unique NodeRef for this workspot.")
+
+        if sanitizePreviewValue(self.communityAttachNodeRef, "") == "" then
+            style.mutedText("NodeRef is empty and will be auto-generated on apply.")
+        end
+    end
+
+    local canApply = selectedCommunity ~= nil and selectedEntry ~= nil and selectedPhase ~= nil and selectedPeriod ~= nil
+    if self.communityAttachMode == "marking" then
+        canApply = canApply and sanitizePreviewValue(self.communityAttachMarking, "") ~= ""
+    end
+
+    if self.communityAttachStatus ~= "" then
+        style.mutedText(self.communityAttachStatus)
+    end
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.pushGreyedOut(not canApply)
+    if ImGui.Button("Add To Community##communityAttachApply") and canApply then
+        local success, status = self:applyCommunityAttachment(selectedCommunity, selectedEntry, selectedPhase, selectedPeriod)
+        self.communityAttachStatus = status or ""
+
+        if success then
+            ImGui.CloseCurrentPopup()
+        end
+    end
+    style.popGreyedOut(not canApply)
+
+    ImGui.SameLine()
+    if ImGui.Button("Cancel##communityAttachCancel") then
+        ImGui.CloseCurrentPopup()
+    end
+
+    ImGui.EndPopup()
+end
+
 function aiSpot:draw()
     visualized.draw(self)
 
@@ -761,14 +1359,6 @@ function aiSpot:draw()
         if ImGui.TreeNodeEx("Supported Rigs", ImGuiTreeNodeFlags.SpanFullWidth) then
             for _, rig in pairs(self.rigs) do
                 style.mutedText(rig)
-            end
-
-            ImGui.TreePop()
-        end
-
-        if ImGui.TreeNodeEx("NPC Appearances", ImGuiTreeNodeFlags.SpanFullWidth) then
-            for _, app in pairs(self.apps) do
-                style.mutedText(app)
             end
 
             ImGui.TreePop()
@@ -914,6 +1504,17 @@ function aiSpot:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.isWorkspotStatic, _ = style.trackedCheckbox(self.object, "##isWorkspotStatic", self.isWorkspotStatic)
+
+    if ImGui.Button("Add To Community") then
+        self.communityAttachStatus = ""
+        self.communityAttachNodeRef = sanitizePreviewValue(self.nodeRef, "")
+        if sanitizePreviewValue(self.communityAttachMarking, "") == "" then
+            self.communityAttachMarking = sanitizePreviewValue(self.markings and self.markings[1], "")
+        end
+        ImGui.OpenPopup(self:getCommunityAttachPopupId())
+    end
+    style.tooltip("Open a popup to add this workspot to a Community phase/time period.")
+    self:drawCommunityAttachPopup()
 
     if ImGui.TreeNodeEx("Markings", ImGuiTreeNodeFlags.SpanFullWidth) then
         for key, _ in pairs(self.markings) do

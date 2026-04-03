@@ -37,10 +37,6 @@ local PREVIEW_SIZE_CONFIG = {
     maxScale = PREVIEW_BASE_SCALE_MAX
 }
 
-local LIGHT_TYPE_TAB_INACTIVE_BG = colorUtil.packAABBGGRR({ 0.08, 0.15, 0.26 }, 0.85)
-local LIGHT_TYPE_TAB_INACTIVE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.30, 0.50 }, 1.0)
-local LIGHT_TYPE_TAB_INACTIVE_PRESSED = colorUtil.packAABBGGRR({ 0.10, 0.24, 0.41 }, 0.95)
-local LIGHT_TYPE_TAB_INACTIVE_TEXT = colorUtil.packAABBGGRR({ 0.82, 0.87, 0.93 }, 1.0)
 local COLOR_HEX_BADGE_BG = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95)
 local COLOR_HEX_BADGE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0)
 local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0)
@@ -630,24 +626,12 @@ function light:draw()
         end
 
         local selected = self.lightType == typeIndex
-        if selected then
-            ImGui.PushStyleColor(ImGuiCol.Button, style.selectedColor)
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.selectedColor)
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, style.selectedColor)
-            ImGui.PushStyleColor(ImGuiCol.Text, 0xFFFFFFFF)
-        else
-            ImGui.PushStyleColor(ImGuiCol.Button, LIGHT_TYPE_TAB_INACTIVE_BG)
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, LIGHT_TYPE_TAB_INACTIVE_HOVER)
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, LIGHT_TYPE_TAB_INACTIVE_PRESSED)
-            ImGui.PushStyleColor(ImGuiCol.Text, LIGHT_TYPE_TAB_INACTIVE_TEXT)
-        end
-
-        local clicked = ImGui.Button(
+        local clicked = style.switchTabButton(
             string.format("%s %s##lightTypeTab%d", self:getLightTypeIcon(typeIndex), self:getLightTypeLabel(typeIndex), typeIndex),
+            selected,
             lightTypeTabWidth,
             0
         )
-        ImGui.PopStyleColor(4)
 
         if clicked and self.lightType ~= typeIndex then
             if self.object then

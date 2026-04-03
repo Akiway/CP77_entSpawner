@@ -3,9 +3,14 @@
 local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
+local colorUtil = require("modules/utils/color")
 local dragBeingEdited = false
 local maxLightChannelsWidth = nil
 local maxTriggerChannelsWidth = nil
+local DEFAULT_TAB_INACTIVE_BG = colorUtil.packAABBGGRR({ 0.08, 0.15, 0.26 }, 0.85)
+local DEFAULT_TAB_INACTIVE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.30, 0.50 }, 1.0)
+local DEFAULT_TAB_INACTIVE_PRESSED = colorUtil.packAABBGGRR({ 0.10, 0.24, 0.41 }, 0.95)
+local DEFAULT_TAB_INACTIVE_TEXT = colorUtil.packAABBGGRR({ 0.82, 0.87, 0.93 }, 1.0)
 
 local style = {
     mutedColor = 0xFFA5A19B,
@@ -427,6 +432,50 @@ function style.toggleButton(text, state)
     end
 
     return state, false
+end
+
+---Draw a segmented-tab style button with shared selected/inactive visuals.
+---Use this for enum-like switch rows (for example light type or NodeRef/Marking tabs).
+---@param text string Button label / ID.
+---@param selected boolean Whether this tab is currently selected.
+---@param width number? Optional width in pixels (already scaled if desired).
+---@param height number? Optional height in pixels.
+---@param opts table? Optional colors:
+---`activeBg`, `activeHover`, `activePressed`, `activeText`,
+---`inactiveBg`, `inactiveHover`, `inactivePressed`, `inactiveText`.
+---@return boolean clicked
+function style.switchTabButton(text, selected, width, height, opts)
+    opts = opts or {}
+    local activeBg = opts.activeBg or style.selectedColor
+    local activeHover = opts.activeHover or activeBg
+    local activePressed = opts.activePressed or activeBg
+    local activeText = opts.activeText or 0xFFFFFFFF
+    local inactiveBg = opts.inactiveBg or DEFAULT_TAB_INACTIVE_BG
+    local inactiveHover = opts.inactiveHover or DEFAULT_TAB_INACTIVE_HOVER
+    local inactivePressed = opts.inactivePressed or DEFAULT_TAB_INACTIVE_PRESSED
+    local inactiveText = opts.inactiveText or DEFAULT_TAB_INACTIVE_TEXT
+
+    if selected then
+        ImGui.PushStyleColor(ImGuiCol.Button, activeBg)
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, activeHover)
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, activePressed)
+        ImGui.PushStyleColor(ImGuiCol.Text, activeText)
+    else
+        ImGui.PushStyleColor(ImGuiCol.Button, inactiveBg)
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, inactiveHover)
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, inactivePressed)
+        ImGui.PushStyleColor(ImGuiCol.Text, inactiveText)
+    end
+
+    local clicked
+    if width ~= nil or height ~= nil then
+        clicked = ImGui.Button(text, width or 0, height or 0)
+    else
+        clicked = ImGui.Button(text)
+    end
+
+    ImGui.PopStyleColor(4)
+    return clicked
 end
 
 ---Set next item width scaled by `style.viewSize`.
