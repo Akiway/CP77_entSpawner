@@ -34,17 +34,23 @@ function dummyArea:draw()
         local height = 0
 
         if utils.indexValue(paths, self.outlinePath) ~= -1 then
-            for _, child in pairs(self.object.sUI.getElementByPath(self.outlinePath).childs) do
-                if utils.isA(child, "spawnableElement") and child.spawnable.modulePath == "area/outlineMarker" then
-                    local offset = utils.subVector(child.spawnable.position, self.position)
+            local sUI = self.object and self.object.sUI or nil
+            local outline = sUI and sUI.getElementByPath and sUI.getElementByPath(self.outlinePath) or nil
 
-                    table.insert(markers, {
-                        ["$type"] = "Vector3",
-                        ["X"] = offset.x,
-                        ["Y"] = offset.y,
-                        ["Z"] = offset.z
-                    })
-                    height = child.spawnable.height
+            if outline and outline.childs then
+                for _, child in pairs(outline.childs) do
+                    local spawnable = child and child.spawnable or nil
+                    if utils.isA(child, "spawnableElement") and spawnable and spawnable.modulePath == "area/outlineMarker" and spawnable.position then
+                        local offset = utils.subVector(spawnable.position, self.position)
+
+                        table.insert(markers, {
+                            ["$type"] = "Vector3",
+                            ["X"] = offset.x,
+                            ["Y"] = offset.y,
+                            ["Z"] = offset.z
+                        })
+                        height = tonumber(spawnable.height) or height
+                    end
                 end
             end
         end

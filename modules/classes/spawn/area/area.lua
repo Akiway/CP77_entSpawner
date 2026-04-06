@@ -58,10 +58,18 @@ function area:getMarkersData()
     local paths = self:loadOutlinePaths()
 
     if utils.indexValue(paths, self.outlinePath) ~= -1 then
-        for _, child in ipairs(self.object.sUI.getElementByPath(self.outlinePath).childs) do
-            if utils.isA(child, "spawnableElement") and child.spawnable.modulePath == "area/outlineMarker" then
-                table.insert(markers, utils.fromVector(child.spawnable.position))
-                height = child.spawnable.height
+        local sUI = self.object and self.object.sUI or nil
+        local outline = sUI and sUI.getElementByPath and sUI.getElementByPath(self.outlinePath) or nil
+
+        if outline and outline.childs then
+            for _, child in ipairs(outline.childs) do
+                local spawnable = child and child.spawnable or nil
+                if utils.isA(child, "spawnableElement") and spawnable and spawnable.modulePath == "area/outlineMarker" then
+                    if spawnable.position then
+                        table.insert(markers, utils.fromVector(spawnable.position))
+                    end
+                    height = tonumber(spawnable.height) or height
+                end
             end
         end
     end
@@ -80,18 +88,34 @@ end
 
 function area:loadOutlinePaths()
     local paths = {}
-    local ownRoot = self.object:getRootParent()
+    local object = self.object
+    local sUI = object and object.sUI or nil
+    if not object or not sUI then
+        return paths
+    end
 
-    for _, container in pairs(self.object.sUI.containerPaths) do
-        if container.ref:getRootParent() == ownRoot then
+    if sUI.ensureCache then
+        sUI.ensureCache()
+    end
+
+    local ownRoot = object.getRootParent and object:getRootParent() or nil
+    if not ownRoot then
+        return paths
+    end
+
+    for _, container in pairs(sUI.containerPaths or {}) do
+        if container and container.ref and container.ref.getRootParent and container.ref:getRootParent() == ownRoot then
             local nMarkers = 0
-            for _, child in pairs(container.ref.childs) do
-                if utils.isA(child, "spawnableElement") and child.spawnable.modulePath == "area/outlineMarker" then
+            for _, child in pairs(container.ref.childs or {}) do
+                local spawnable = child and child.spawnable or nil
+                if utils.isA(child, "spawnableElement") and spawnable and spawnable.modulePath == "area/outlineMarker" then
                     nMarkers = nMarkers + 1
                 end
 
                 if nMarkers == 3 then
-                    table.insert(paths, container.path)
+                    if container.path and container.path ~= "" then
+                        table.insert(paths, container.path)
+                    end
                     break
                 end
             end

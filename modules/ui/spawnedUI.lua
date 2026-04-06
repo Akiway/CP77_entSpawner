@@ -850,29 +850,41 @@ end
 ---@param element element The element that was clicked on with range select active
 function spawnedUI.handleRangeSelect(element)
     local paths = spawnedUI.filter ~= "" and spawnedUI.filteredPaths or spawnedUI.paths
+    local firstSelected = spawnedUI.selectedPaths[1]
+    local anchor = firstSelected and firstSelected.ref or nil
 
-    if #spawnedUI.selectedPaths == 1 and spawnedUI.selectedPaths[1].ref == element then -- Select from first to element
+    -- Selection cache is refreshed per frame; a click can happen before selectedPaths is updated.
+    -- If we have no anchor yet, there is no valid range to select.
+    if not anchor or not element then
+        return
+    end
+
+    if #spawnedUI.selectedPaths == 1 and anchor == element then -- Select from first to element
         for _, entry in pairs(paths) do
-            if entry.ref == element then
-                break
-            end
-            if not entry.ref:isLocked() then
-                entry.ref:setSelected(true)
+            local ref = entry and entry.ref or nil
+            if ref then
+                if ref == element then
+                    break
+                end
+                if not ref:isLocked() then
+                    ref:setSelected(true)
+                end
             end
         end
     else
         local inRange = false
-        if spawnedUI.selectedPaths[1].ref == element then -- Bottom to top selection
+        if anchor == element then -- Bottom to top selection
             for i = #paths, 1, -1 do
-                if paths[i].ref == spawnedUI.selectedPaths[1].ref then
-                    break
-                end
-                if paths[i].ref.selected then
-                    inRange = true
-                end
-                if inRange then
-                    if not paths[i].ref:isLocked() then
-                        paths[i].ref:setSelected(true)
+                local ref = paths[i] and paths[i].ref or nil
+                if ref then
+                    if ref == anchor then
+                        break
+                    end
+                    if ref.selected then
+                        inRange = true
+                    end
+                    if inRange and not ref:isLocked() then
+                        ref:setSelected(true)
                     end
                 end
             end
@@ -880,24 +892,26 @@ function spawnedUI.handleRangeSelect(element)
 
         inRange = false
         for _, entry in pairs(paths) do
-            if entry.ref == spawnedUI.selectedPaths[1].ref then -- From first selected down to element
-                if inRange then
-                    break
-                else
-                    inRange = true
+            local ref = entry and entry.ref or nil
+            if ref then
+                if ref == anchor then -- From first selected down to element
+                    if inRange then
+                        break
+                    else
+                        inRange = true
+                    end
                 end
-            end
-            if entry.ref == element then -- From element down to first selected
-                if not inRange then
-                    inRange = true
-                else
-                    break
+                if ref == element then -- From element down to first selected
+                    if not inRange then
+                        inRange = true
+                    else
+                        break
+                    end
                 end
-            end
-            if inRange then
-                if not entry.ref:isLocked() then
-                    entry.ref:setSelected(true)
+                if inRange and not ref:isLocked() then
+                    ref:setSelected(true)
                 end
+
             end
         end
     end

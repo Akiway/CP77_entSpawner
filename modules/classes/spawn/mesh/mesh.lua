@@ -236,22 +236,44 @@ function mesh:getAssetPreviewTextAnchor()
 end
 
 function mesh:getAssetPreviewPosition()
+    local position, forward = spawnable.getAssetPreviewPosition(self, 0.75)
+
+    local entity = self:getEntity()
+    if not entity then
+        return position
+    end
+
+    local mesh = entity:FindComponentByName("mesh")
+    if not mesh then
+        return position
+    end
+
+    if not self.bBox or not self.bBox.min or not self.bBox.max then
+        return position
+    end
+
     -- Scale mesh to fit
-    local mesh = self:getEntity():FindComponentByName("mesh")
     local extents = { self.bBox.max.x - self.bBox.min.x, self.bBox.max.y - self.bBox.min.y, self.bBox.max.z - self.bBox.min.z }
-    local factor = 0.275 / math.max(table.unpack(extents))
+    local maxExtent = math.max(table.unpack(extents))
+    if maxExtent <= 0 then
+        maxExtent = 1
+    end
+    local factor = 0.275 / maxExtent
 
     self.scale = { x = factor, y = factor, z = factor }
     mesh.visualScale = Vector3.new(factor, factor, factor)
 
     -- Calculate rotation and cycle app
     local rotation = (((Cron.time - self.assetStartTime) % 4) / 4) * 360
-    local app = math.floor((((Cron.time - self.assetStartTime) % (#self.apps)) / (#self.apps)) * #self.apps)
-    if app ~= self.appIndex then
-        self.appIndex = app
-        self.app = self.apps[self.appIndex + 1] or "default"
-        mesh.meshAppearance = CName.new(self.app)
-        mesh:LoadAppearance()
+    local apps = self.apps or {}
+    if #apps > 0 then
+        local app = math.floor((((Cron.time - self.assetStartTime) % (#apps)) / (#apps)) * #apps)
+        if app ~= self.appIndex then
+            self.appIndex = app
+            self.app = apps[self.appIndex + 1] or "default"
+            mesh.meshAppearance = CName.new(self.app)
+            mesh:LoadAppearance()
+        end
     end
 
     mesh:SetLocalOrientation(EulerAngles.new(0, 7.5, rotation):ToQuat())
@@ -262,17 +284,18 @@ function mesh:getAssetPreviewPosition()
     diff = Vector4.RotateAxis(diff, Vector4.new(0, 0, 1, 0), Deg2Rad(rotation))
 
     -- Adjust for x offset in editor mode
-    local position, forward = spawnable.getAssetPreviewPosition(self, 0.75)
     diff = utils.addVector(diff, utils.multVector(forward, 0.275))
 
-    if extents[3] < math.max(table.unpack(extents)) * 0.1 then
+    if extents[3] < maxExtent * 0.1 then
         diff.z = diff.z - 0.075
     end
 
     mesh:SetLocalPosition(diff)
 
-    preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
-    preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
+    if preview.elements and preview.elements["previewFirstLine"] and preview.elements["previewSecondLine"] then
+        preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+        preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
+    end
 
     return position
 end
