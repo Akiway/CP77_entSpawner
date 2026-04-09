@@ -208,6 +208,9 @@ function baseUI.draw(spawner)
     end
 
     input.resetContext()
+    if baseUI.spawnedUI and baseUI.spawnedUI.resetHoveredEntries then
+        baseUI.spawnedUI.resetHoveredEntries()
+    end
     history.update()
     local screenWidth, screenHeight = GetDisplayResolution()
     local editorActive = editor.active
@@ -326,6 +329,12 @@ function baseUI.draw(spawner)
     end
 
     baseUI.spawnUI.drawPopup()
+    if baseUI.spawnedUI and baseUI.spawnedUI.drawPinnedHierarchyWindow then
+        baseUI.spawnedUI.drawPinnedHierarchyWindow()
+    end
+    if baseUI.spawnedUI and baseUI.spawnedUI.finalizeFrame then
+        baseUI.spawnedUI.finalizeFrame()
+    end
 
     input.context.viewport.hovered = not input.context.main.hovered
     input.context.viewport.focused = not input.context.main.focused

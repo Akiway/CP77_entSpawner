@@ -34,6 +34,7 @@ local visualized = require("modules/classes/spawn/visualized")
 ---@field clipper any
 ---@field visiblePathIndexById table<number, number>
 ---@field hoveredEntries element[]
+---@field pinnedHierarchy {open: boolean, groupId: number?}
 spawnedUI = {
     root = require("modules/classes/editor/element"):new(spawnedUI),
     multiSelectGroup = require("modules/classes/editor/positionableGroup"):new(spawnedUI),
@@ -54,6 +55,10 @@ spawnedUI = {
     },
     nameBeingEdited = false,
     hierarchyPickRequest = nil,
+    pinnedHierarchy = {
+        open = false,
+        groupId = nil
+    },
 
     clipboard = {},
 
@@ -519,6 +524,75 @@ function spawnedUI.setElementSpawnNewTarget(element)
     end
 
     spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
+end
+
+---Pins a group to the focused hierarchy window.
+---@param element element?
+function spawnedUI.openPinnedHierarchy(element)
+    if not element or not utils.isA(element, "positionableGroup") then
+        return
+    end
+
+    spawnedUI.pinnedHierarchy.groupId = element.id
+    spawnedUI.pinnedHierarchy.open = true
+end
+
+---Clears hovered markers from the previous frame.
+function spawnedUI.resetHoveredEntries()
+    for _, entry in pairs(spawnedUI.hoveredEntries) do
+        if entry.hovered then
+            entry:setHovered(false)
+        end
+    end
+    spawnedUI.hoveredEntries = {}
+end
+
+---@return {path: string, ref: element}?
+local function getPinnedHierarchyGroupEntry()
+    local pinnedId = spawnedUI.pinnedHierarchy.groupId
+    if not pinnedId then
+        return nil
+    end
+
+    for _, entry in pairs(spawnedUI.containerPaths) do
+        if entry.ref and entry.ref.id == pinnedId then
+            return entry
+        end
+    end
+
+    return nil
+end
+
+---@param rootEntry {path: string, ref: element}
+---@return {path: string, ref: element, depth: number}[]
+local function collectPinnedHierarchyEntries(rootEntry)
+    local entries = {
+        {
+            path = rootEntry.path,
+            ref = rootEntry.ref,
+            depth = 0
+        }
+    }
+
+    local function appendChildren(parent, depth)
+        for _, child in pairs(parent.childs) do
+            table.insert(entries, {
+                path = child:getPath(),
+                ref = child,
+                depth = depth
+            })
+
+            if child.expandable and child.headerOpen then
+                appendChildren(child, depth + 1)
+            end
+        end
+    end
+
+    if rootEntry.ref.expandable and rootEntry.ref.headerOpen then
+        appendChildren(rootEntry.ref, 1)
+    end
+
+    return entries
 end
 
 local function hotkeyRunConditionProperties()
@@ -1238,6 +1312,9 @@ function spawnedUI.drawContextMenu(element, path)
                 end
                 spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
             end
+            if ImGui.MenuItem(IconGlyphs.PinOutline .. " Open in new window") then
+                spawnedUI.openPinnedHierarchy(element)
+            end
         end
 
 		ImGui.Separator()
@@ -1892,7 +1969,8 @@ end
 
 ---@protected
 ---@param element element
-function spawnedUI.drawSideButtons(element)
+---@param rowHovered boolean?
+function spawnedUI.drawSideButtons(element, rowHovered)
     -- Right side buttons
     local totalX = spawnedUI.getSideButtonsWidth(element)
 
@@ -1904,7 +1982,7 @@ function spawnedUI.drawSideButtons(element)
     ImGui.SetCursorPosY(rowY)
 
     local elementLocked = element:isLocked()
-    local hoveredLocked = elementLocked and element.hovered
+    local hoveredLocked = elementLocked and (rowHovered == true)
     local sideButtonPadding = 1 * style.viewSize
 
     for icon, data in pairs(element.quickOperations) do
@@ -2081,7 +2159,9 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     local rowClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left)
     element:setSelected(newState)
     local isHovered = ImGui.IsItemHovered()
-    element:setHovered(isHovered)
+    if isHovered and not element.hovered then
+        element:setHovered(true)
+    end
     if isHovered then
         table.insert(spawnedUI.hoveredEntries, element)
     end
@@ -2200,7 +2280,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     end
     style.popStyleColor(hiddenText)
 
-    if element.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+    if isHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
         if not element:isLocked() then
             element.editName = true
             element.focusNameEdit = 1
@@ -2217,7 +2297,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
 
     ImGui.SameLine()
 
-    spawnedUI.drawSideButtons(element)
+    spawnedUI.drawSideButtons(element, isHovered)
 
     ImGui.PopStyleColor(2)
     ImGui.PopStyleVar(2)
@@ -2226,31 +2306,33 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     ImGui.PopID()
 end
 
-function spawnedUI.drawHierarchy()
+---@param options {entries: {path: string, ref: element, depth: number}[]?, childId: string?, tableId: string?, childHeight: number?}?
+function spawnedUI.drawHierarchy(options)
+    options = options or {}
+
     spawnedUI.elementCount = 0
     spawnedUI.cellPadding = 3 * style.viewSize
-
-    for _, entry in pairs(spawnedUI.hoveredEntries) do
-        if entry.hovered then
-            entry:setHovered(false)
-        end
-    end
-    spawnedUI.hoveredEntries = {}
 
     local _, ySpace = ImGui.GetContentRegionAvail()
 
     if ySpace < 0 then return end
 
-    if ySpace - settings.editorBottomSize < 75 * style.viewSize and not spawnedUI.spawner.baseUI.loadTabSize then
-        settings.editorBottomSize = ySpace - 75 * style.viewSize
+    local childHeight = options.childHeight
+    if childHeight == nil then
+        if ySpace - settings.editorBottomSize < 75 * style.viewSize and not spawnedUI.spawner.baseUI.loadTabSize then
+            settings.editorBottomSize = ySpace - 75 * style.viewSize
+        end
+        childHeight = ySpace - settings.editorBottomSize
     end
+
+    if childHeight < 0 then return end
+
     local rowHeight = spawnedUI.getRowHeight()
-    local childHeight = ySpace - settings.editorBottomSize
-    local nRows = math.floor(childHeight / rowHeight)
-    local entries = spawnedUI.filter == "" and spawnedUI.visiblePaths or spawnedUI.filteredPaths
+    local nRows = math.max(0, math.floor(childHeight / rowHeight))
+    local entries = options.entries or (spawnedUI.filter == "" and spawnedUI.visiblePaths or spawnedUI.filteredPaths)
     spawnedUI.prepareStateIconFrame()
 
-    ImGui.BeginChild("##hierarchy", 0, childHeight, false, ImGuiWindowFlags.NoMove)
+    ImGui.BeginChild(options.childId or "##hierarchy", 0, childHeight, false, ImGuiWindowFlags.NoMove)
     input.updateContext("hierarchy")
 
     local forceFullPass = false
@@ -2273,7 +2355,7 @@ function spawnedUI.drawHierarchy()
     -- Start the table
     ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
     ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
-    if ImGui.BeginTable("##hierarchyTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
+    if ImGui.BeginTable(options.tableId or "##hierarchyTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
         if forceFullPass then
             for idx, entry in ipairs(entries) do
                 spawnedUI.drawElement(entry, false, idx)
@@ -2306,6 +2388,42 @@ function spawnedUI.drawHierarchy()
     ImGui.PopStyleVar(2)
 
     ImGui.EndChild()
+end
+
+function spawnedUI.drawPinnedHierarchyWindow()
+    if not spawnedUI.pinnedHierarchy.open then
+        return
+    end
+
+    spawnedUI.ensureCache()
+
+    local groupEntry = getPinnedHierarchyGroupEntry()
+    if not groupEntry then
+        spawnedUI.pinnedHierarchy.open = false
+        spawnedUI.pinnedHierarchy.groupId = nil
+        return
+    end
+
+    local title = IconGlyphs.PinOutline .. " " .. groupEntry.ref.name .. "##focusedHierarchyWindow"
+    ImGui.SetNextWindowSize(400 * style.viewSize, 500 * style.viewSize, ImGuiCond.FirstUseEver)
+    spawnedUI.pinnedHierarchy.open = ImGui.Begin(title, true, ImGuiWindowFlags.NoCollapse)
+
+    if spawnedUI.pinnedHierarchy.open then
+        input.updateContext("main")
+
+        local focusedEntries = collectPinnedHierarchyEntries(groupEntry)
+        local _, ySpace = ImGui.GetContentRegionAvail()
+        if ySpace > 0 then
+            spawnedUI.drawHierarchy({
+                entries = focusedEntries,
+                childId = "##focusedHierarchy",
+                tableId = "##focusedHierarchyTable",
+                childHeight = ySpace
+            })
+        end
+
+        ImGui.End()
+    end
 end
 
 function spawnedUI.drawDivider()
@@ -2734,14 +2852,17 @@ function spawnedUI.draw()
         perf.measure("spawned.drawProperties", function ()
             spawnedUI.drawProperties()
         end)
-
-        -- Dropped on not a valid target
-        if spawnedUI.draggingSelected and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
-            spawnedUI.draggingSelected = false
-        end
     end)
 
     perf.drawPanel()
+end
+
+---Runs end-of-frame cleanup that must happen after all hierarchy windows are drawn.
+function spawnedUI.finalizeFrame()
+    -- Dropped on not a valid target
+    if spawnedUI.draggingSelected and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
+        spawnedUI.draggingSelected = false
+    end
 end
 
 return spawnedUI
