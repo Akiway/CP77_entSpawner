@@ -25,6 +25,7 @@ local workspotRigStore = {
     workspots = {}
 }
 local workspotRigStoreLoaded = false
+local COMMUNITY_ATTACH_POPUP_ID = "Add Workspot To Community"
 
 local function normalizeRigPath(path)
     if not path or path == "" then
@@ -984,10 +985,6 @@ function aiSpot:save()
     return data
 end
 
-function aiSpot:getCommunityAttachPopupId()
-    return "Add Workspot To Community##" .. tostring(self.object and self.object.id or 0)
-end
-
 ---@param communityTarget table
 ---@param entrySelection table
 ---@param phaseSelection table
@@ -1176,8 +1173,7 @@ function aiSpot:applyCommunityAttachment(communityTarget, entrySelection, phaseS
 end
 
 function aiSpot:drawCommunityAttachPopup()
-    local popupId = self:getCommunityAttachPopupId()
-    if not ImGui.BeginPopupModal(popupId, true, ImGuiWindowFlags.AlwaysAutoResize) then
+    if not ImGui.BeginPopupModal(COMMUNITY_ATTACH_POPUP_ID, true, ImGuiWindowFlags.AlwaysAutoResize) then
         return
     end
 
@@ -1511,7 +1507,7 @@ function aiSpot:draw()
         if sanitizePreviewValue(self.communityAttachMarking, "") == "" then
             self.communityAttachMarking = sanitizePreviewValue(self.markings and self.markings[1], "")
         end
-        ImGui.OpenPopup(self:getCommunityAttachPopupId())
+        ImGui.OpenPopup(COMMUNITY_ATTACH_POPUP_ID)
     end
     style.tooltip("Open a popup to add this workspot to a Community phase/time period.")
     self:drawCommunityAttachPopup()

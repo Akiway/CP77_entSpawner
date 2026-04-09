@@ -316,27 +316,33 @@ end
 ---@param opts table?
 ---@return number rowStartY
 function style.drawIconLabelRow(icon, label, opts)
+    ImGui.BeginGroup()
     opts = opts or {}
     local rowStartY = ImGui.GetCursorPosY()
     local iconOffset = (opts.iconOffset or 4) * (style.viewSize or 1)
     local labelOffset = (opts.labelOffset or 2) * (style.viewSize or 1)
 
-    ImGui.SetCursorPosY(rowStartY + iconOffset)
-    if opts.iconColor then
-        style.styledText(icon, opts.iconColor)
-    else
-        style.mutedText(icon)
+    if icon ~= nil then
+        ImGui.SetCursorPosY(rowStartY + iconOffset)
+        if opts.iconColor then
+            style.styledText(icon, opts.iconColor)
+        else
+            style.mutedText(icon)
+        end
+        ImGui.SameLine()
     end
-    ImGui.SameLine()
-    ImGui.SetCursorPosY(rowStartY + labelOffset)
-    style.mutedText(label)
-    ImGui.SameLine()
+    if label ~= nil then
+        ImGui.SetCursorPosY(rowStartY + labelOffset)
+        style.mutedText(label)
+        ImGui.SameLine()
+    end
     ImGui.SetCursorPosY(rowStartY)
 
     if opts.fieldX then
         ImGui.SetCursorPosX(opts.fieldX)
     end
 
+    ImGui.EndGroup()
     return rowStartY
 end
 
