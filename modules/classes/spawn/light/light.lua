@@ -55,6 +55,7 @@ local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0
 ---@field public flickerOffset number
 ---@field public lightType integer
 ---@field public localShadows boolean
+---@field public localShadowsForceStaticsOnly boolean
 ---@field private lightTypeNames table
 ---@field private lightTypeIcons table
 ---@field private lightTypeLabels table
@@ -120,6 +121,7 @@ function light:new()
     o.flickerOffset = 0
     o.lightType = LIGHT_TYPE_SPOT
     o.localShadows = true
+    o.localShadowsForceStaticsOnly = false
     o.lightTypeNames = utils.enumTable("ELightType")
     o.lightTypeIcons = {
         [LIGHT_TYPE_POINT] = IconGlyphs.LightbulbOn20,
@@ -483,6 +485,7 @@ function light:onAssemble(entity)
     component:SetFlickerParams(self.flickerStrength, self.flickerPeriod, self.flickerOffset)
     component.type = Enum.new("ELightType", self.lightType)
     component.enableLocalShadows = self.localShadows
+    component.enableLocalShadowsForceStaticsOnly = self.localShadowsForceStaticsOnly
     component.temperature = self.temperature
     component.scaleVolFog = self.scaleVolFog
     component.useInParticles = self.useInParticles
@@ -541,6 +544,7 @@ function light:save()
     data.sceneDiffuse = self.sceneDiffuse
     data.roughnessBias = self.roughnessBias
     data.localShadows = self.localShadows
+    data.localShadowsForceStaticsOnly = self.localShadowsForceStaticsOnly
     data.sourceRadius = self.sourceRadius
     data.directional = self.directional
     data.rayTracedShadowsPlatform = self.rayTracedShadowsPlatform
@@ -931,7 +935,7 @@ function light:draw()
     -- Other Settings
     if ImGui.TreeNodeEx("Shadow Settings") then
         if not self.maxShadowPropertiesWidth then
-            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Local Shadows (Statics Only)", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
 
         style.mutedText("Contact Shadows")
@@ -945,6 +949,14 @@ function light:draw()
             ImGui.SameLine()
             ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
             self.localShadows, changed = style.trackedCheckbox(self.object, "##localShadows", self.localShadows)
+            self:updateFull(changed)
+
+            style.mutedText("Local Shadows (Statics Only)")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+            ImGui.BeginDisabled(not self.localShadows)
+            self.localShadowsForceStaticsOnly, changed = style.trackedCheckbox(self.object, "##localShadowsForceStaticsOnly", self.localShadowsForceStaticsOnly)
+            ImGui.EndDisabled()
             self:updateFull(changed)
         end
 
@@ -1236,6 +1248,7 @@ function light:export()
             ["Alpha"] = 255
         },
         enableLocalShadows = self.localShadows and 1 or 0,
+        enableLocalShadowsForceStaticsOnly = self.localShadowsForceStaticsOnly and 1 or 0,
         flicker = {
             ["flickerPeriod"] = self.flickerPeriod,
             ["flickerStrength"] = self.flickerStrength,
