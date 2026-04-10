@@ -2356,9 +2356,11 @@ function spawnedUI.drawHierarchy(options)
     ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
     ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
     if ImGui.BeginTable(options.tableId or "##hierarchyTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
+        local lastRenderedRowIndex = 0
         if forceFullPass then
             for idx, entry in ipairs(entries) do
                 spawnedUI.drawElement(entry, false, idx)
+                lastRenderedRowIndex = idx
             end
         else
             spawnedUI.clipper = ImGuiListClipper.new()
@@ -2372,14 +2374,15 @@ function spawnedUI.drawHierarchy(options)
                     local entry = entries[idx]
                     if entry then
                         spawnedUI.drawElement(entry, false, idx)
+                        lastRenderedRowIndex = idx
                     end
                 end
             end
         end
 
         if spawnedUI.elementCount < nRows then
-            for _ = 1, nRows - spawnedUI.elementCount do
-                spawnedUI.drawElement(nil, true, #entries + spawnedUI.elementCount + 1)
+            for fillerOffset = 1, nRows - spawnedUI.elementCount do
+                spawnedUI.drawElement(nil, true, lastRenderedRowIndex + fillerOffset)
             end
         end
 
