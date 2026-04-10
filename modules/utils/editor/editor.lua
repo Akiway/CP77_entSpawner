@@ -66,16 +66,23 @@ local editor = {
     freeflyWasActive = false
 }
 
+---@return boolean
+local function isSpawnedNameEditActive()
+    return editor.spawnedUI
+        and type(editor.spawnedUI.isNameEditActive) == "function"
+        and editor.spawnedUI.isNameEditActive()
+end
+
 ---Checks whether the editor viewport currently has keyboard focus.
 ---@return boolean focused True when the editor is active and the viewport is focused.
 function viewportFocused()
-    return editor.active and input.context.viewport.focused
+    return editor.active and input.context.viewport.focused and not isSpawnedNameEditActive()
 end
 
 ---Checks whether the editor viewport is currently hovered by the mouse.
 ---@return boolean hovered True when the editor is active and the viewport is hovered.
 function viewportHovered()
-    return editor.active and input.context.viewport.hovered
+    return editor.active and input.context.viewport.hovered and not isSpawnedNameEditActive()
 end
 
 ---Ends active group-rotation drag state when the current selection is a group.
@@ -190,7 +197,7 @@ function editor.init(spawner)
         editor.confirmEditingTransform()
     end,
     function ()
-        return editor.active and input.context.viewport.hovered
+        return viewportHovered()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
@@ -207,11 +214,11 @@ function editor.init(spawner)
         editor.confirmEditingTransform()
     end,
     function ()
-        return editor.active and input.context.viewport.hovered
+        return viewportHovered()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.Tab }, editor.centerCamera, function ()
-        return editor.active and (input.context.viewport.focused or input.context.hierarchy.focused)
+        return not isSpawnedNameEditActive() and editor.active and (input.context.viewport.focused or input.context.hierarchy.focused)
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()

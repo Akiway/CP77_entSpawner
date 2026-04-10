@@ -690,6 +690,11 @@ local function hasActiveNameEdit()
     return hasActiveNameEditRecursive(spawnedUI.root)
 end
 
+---@return boolean
+function spawnedUI.isNameEditActive()
+    return hasActiveNameEdit()
+end
+
 function spawnedUI.saveAllRootGroups()
     if not hasRootChildren() then return end
 
@@ -760,7 +765,7 @@ function spawnedUI.registerHotkeys()
         history.requestRedo()
     end, hotkeyRunConditionGlobal)
     input.registerImGuiHotkey({ ImGuiKey.A, ImGuiKey.LeftCtrl }, function()
-        if spawnedUI.nameBeingEdited then return end
+        if hasActiveNameEdit() then return end
 
         for _, entry in pairs(spawnedUI.paths) do
             if not entry.ref:isLocked() then
@@ -769,17 +774,18 @@ function spawnedUI.registerHotkeys()
         end
     end, hotkeyRunConditionGlobal)
     input.registerImGuiHotkey({ ImGuiKey.S, ImGuiKey.LeftCtrl }, function()
+        if hasActiveNameEdit() then return end
         if not hasRootChildren() then return end
 
         spawnedUI.saveAllRootGroups()
     end)
     input.registerImGuiHotkey({ ImGuiKey.C, ImGuiKey.LeftCtrl }, function()
-        if #spawnedUI.selectedPaths == 0 or spawnedUI.nameBeingEdited then return end
+        if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
 
         spawnedUI.clipboard = spawnedUI.copy(true)
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.V, ImGuiKey.LeftCtrl }, function()
-        if not hasValidClipboardElements(spawnedUI.clipboard) or spawnedUI.nameBeingEdited then return end
+        if not hasValidClipboardElements(spawnedUI.clipboard) or hasActiveNameEdit() then return end
 
         local target
         if #spawnedUI.selectedPaths > 0 then
@@ -789,6 +795,7 @@ function spawnedUI.registerHotkeys()
         history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, target)))
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.X, ImGuiKey.LeftCtrl }, function ()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 then return end
 
         spawnedUI.cut(true)
@@ -803,12 +810,14 @@ function spawnedUI.registerHotkeys()
         end
     end, hotkeyRunConditionGlobal)
     input.registerImGuiHotkey({ ImGuiKey.D, ImGuiKey.LeftCtrl }, function()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 then return end
 
         local data = spawnedUI.copy(true)
         history.addAction(history.getInsert(spawnedUI.paste(data, spawnedUI.selectedPaths[1].ref)))
     end)
     input.registerImGuiHotkey({ ImGuiKey.G, ImGuiKey.LeftCtrl }, function()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 then return end
 
         spawnedUI.moveToNewGroup(true)
@@ -816,10 +825,11 @@ function spawnedUI.registerHotkeys()
 
     -- Inputs that might get pressed while using properties panel, so use hotkeyRunConditionProperties
     input.registerImGuiHotkey({ ImGuiKey.Backspace }, function()
-        if #spawnedUI.selectedPaths == 0 or spawnedUI.nameBeingEdited then return end
+        if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
         spawnedUI.moveToRoot(true)
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
+        if hasActiveNameEdit() then return end
         if spawnedUI.hierarchyPickRequest then
             spawnedUI.cancelHierarchyPick()
             return
@@ -828,7 +838,7 @@ function spawnedUI.registerHotkeys()
         spawnedUI.unselectAll()
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.H }, function()
-        if #spawnedUI.selectedPaths == 0 or spawnedUI.nameBeingEdited then return end
+        if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
 
         local changes = {}
         for _, entry in pairs(spawnedUI.selectedPaths) do
@@ -855,6 +865,7 @@ function spawnedUI.registerHotkeys()
     end, hotkeyRunConditionProperties)
 
     input.registerImGuiHotkey({ ImGuiKey.E, ImGuiKey.LeftCtrl }, function ()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 then return end
 
         local isMulti = #spawnedUI.selectedPaths > 1
@@ -867,6 +878,7 @@ function spawnedUI.registerHotkeys()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.N, ImGuiKey.LeftCtrl }, function ()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 then
             spawnedUI.spawner.baseUI.spawnUI.selectedGroup = 0
             return
@@ -876,6 +888,7 @@ function spawnedUI.registerHotkeys()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.F, ImGuiKey.LeftCtrl }, function ()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths ~= 1 then
             return
         end
@@ -889,6 +902,7 @@ function spawnedUI.registerHotkeys()
 
     -- Open context menu for selected from editor mode
     input.registerMouseAction(ImGuiMouseButton.Right, function()
+        if hasActiveNameEdit() then return end
         if #spawnedUI.selectedPaths == 0 or editor.grab or editor.rotate or editor.scale then return end
 
         spawnedUI.openContextMenu.state = true
