@@ -1821,6 +1821,14 @@ function spawnedUI.getStateIcons(element)
                     style.regularColor
                 )
             end
+            if spawnable.cameraFollowEnabled then
+                addStateIcon(
+                    stateIcons,
+                    IconGlyphs.CameraLockOutline,
+                    "Follow Camera is enabled",
+                    style.warnColor
+                )
+            end
             addStateIcon(
                 stateIcons,
                 IconGlyphs.SquareRounded,

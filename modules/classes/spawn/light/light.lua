@@ -8,6 +8,7 @@ local colorUtil = require("modules/utils/color")
 local lcHelper = require("modules/utils/lightChannelHelper")
 local lightPreview = require("modules/utils/previewUtils")
 local targeting = require("modules/utils/editor/targeting")
+local Cron = require("modules/utils/Cron")
 
 local LIGHT_TYPE_POINT = 0
 local LIGHT_TYPE_SPOT = 1
@@ -30,6 +31,7 @@ local PREVIEW_BASE_SCALE_MIN = PREVIEW_BASE_SCALE_MAX * (PREVIEW_INTENSITY_MIN /
 local PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER = 4
 local PREVIEW_PRISM_MESH = "base\\spawner\\triangular_prism.mesh"
 local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
+local CAMERA_FOLLOW_HIDE_PREVIEW_SPEED_THRESHOLD = 0.08
 local PREVIEW_SIZE_CONFIG = {
     minIntensity = PREVIEW_INTENSITY_MIN,
     maxIntensity = PREVIEW_INTENSITY_MAX,
@@ -96,6 +98,9 @@ local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0
 ---@field private radiusPreviewed boolean
 ---@field private colorHexText string
 ---@field private colorHexEditing boolean
+---@field private cameraFollowEnabled boolean
+---@field private cameraFollowCronID number?
+---@field private cameraFollowVisualizerVisible boolean?
 local light = setmetatable({}, { __index = visualized })
 
 function light:new()
@@ -174,6 +179,9 @@ function light:new()
     o.radiusPreviewed = false
     o.colorHexText = colorUtil.formatHexRGB(o.color)
     o.colorHexEditing = false
+    o.cameraFollowEnabled = false
+    o.cameraFollowCronID = nil
+    o.cameraFollowVisualizerVisible = nil
 
     setmetatable(o, { __index = self })
     o:updateLightTypeIcon()
@@ -316,6 +324,66 @@ function light:updateRadiusPreviewVisibility(entity)
     end
 end
 
+---@return boolean
+function light:isPlayerWalking()
+    local player = GetPlayer()
+    if not player or type(player.GetVelocity) ~= "function" then
+        return false
+    end
+
+    local okVelocity, velocity = pcall(function ()
+        return player:GetVelocity()
+    end)
+    if not okVelocity or not velocity then
+        return false
+    end
+
+    local horizontalSpeedSquared = velocity.x * velocity.x + velocity.y * velocity.y
+    return horizontalSpeedSquared > (CAMERA_FOLLOW_HIDE_PREVIEW_SPEED_THRESHOLD * CAMERA_FOLLOW_HIDE_PREVIEW_SPEED_THRESHOLD)
+end
+
+---@param entity entEntity?
+---@param visible boolean
+function light:setPreviewVisibilityForCameraFollow(entity, visible)
+    local target = entity or self:getEntity()
+    if not target then
+        return
+    end
+
+    local shouldShowBasePreview = visible and self.previewed
+    visualizer.toggleAll(target, shouldShowBasePreview)
+
+    local sphere = target:FindComponentByName("radius_sphere")
+    if not sphere then
+        return
+    end
+
+    local shouldShowRadiusPreview = visible and self:shouldShowRadiusPreview()
+    if sphere:IsEnabled() ~= shouldShowRadiusPreview then
+        sphere:Toggle(shouldShowRadiusPreview)
+    end
+end
+
+---@param entity entEntity?
+function light:updatePreviewVisibilityForMovement(entity)
+    local target = entity or self:getEntity()
+    if not target then
+        return
+    end
+
+    local shouldBeVisible = true
+    if self.cameraFollowEnabled then
+        shouldBeVisible = not self:isPlayerWalking()
+    end
+
+    if self.cameraFollowVisualizerVisible == shouldBeVisible then
+        return
+    end
+
+    self.cameraFollowVisualizerVisible = shouldBeVisible
+    self:setPreviewVisibilityForCameraFollow(target, shouldBeVisible)
+end
+
 ---@param entity entEntity?
 function light:applyPreviewAppearance(entity)
     local target = entity or self:getEntity()
@@ -413,6 +481,208 @@ function light:applyPreviewShapeRotation(entity)
     end
 end
 
+---@param angle number?
+---@return number
+local function normalizeAngleDeg(angle)
+    local value = tonumber(angle) or 0
+    value = value % 360
+    if value > 180 then
+        value = value - 360
+    end
+    return value
+end
+
+---@param rotationLike any
+---@return EulerAngles?
+local function toEulerAnglesSafe(rotationLike)
+    if not rotationLike then
+        return nil
+    end
+
+    if rotationLike.roll ~= nil and rotationLike.pitch ~= nil and rotationLike.yaw ~= nil then
+        return EulerAngles.new(rotationLike.roll, rotationLike.pitch, rotationLike.yaw)
+    end
+
+    local okEuler, euler = pcall(function ()
+        if type(rotationLike.ToEulerAngles) == "function" then
+            return rotationLike:ToEulerAngles()
+        end
+        return nil
+    end)
+    if okEuler and euler then
+        return euler
+    end
+
+    return nil
+end
+
+---@param entity entEntity?
+function light:updateArrowVisibilityForCameraFollow(entity)
+    local target = entity or self:getEntity()
+    if not target then
+        return
+    end
+
+    if self.cameraFollowEnabled then
+        visualizer.showArrows(target, false)
+        return
+    end
+
+    local showArrows = self.isHovered == true
+    if self.object and self.object.visualizerState ~= nil then
+        showArrows = self.object.visualizerState == true
+    end
+
+    visualizer.showArrows(target, showArrows)
+end
+
+---@return boolean teleported
+function light:teleportPlayerToLightCameraAligned()
+    local player = GetPlayer()
+    local teleportFacility = Game.GetTeleportationFacility and Game.GetTeleportationFacility() or nil
+    if not player or not teleportFacility or not self.position then
+        return false
+    end
+
+    local targetPlayerPosition = Vector4.new(self.position)
+    local playerPosition = player:GetWorldPosition()
+    local camera = player:GetFPPCameraComponent()
+    if playerPosition and camera then
+        local cameraTransform = camera:GetLocalToWorld()
+        if cameraTransform then
+            local cameraPosition = cameraTransform:GetTranslation()
+            if cameraPosition then
+                local cameraOffset = utils.subVector(cameraPosition, playerPosition)
+                targetPlayerPosition = utils.subVector(targetPlayerPosition, cameraOffset)
+            end
+        end
+    end
+
+    local targetPitch = self.rotation and self.rotation.pitch or 0
+    local targetYaw = self.rotation and self.rotation.yaw or 0
+
+    local cameraPitchOffset = 0
+    local cameraYawOffset = 0
+    if camera then
+        local cameraTransform = camera:GetLocalToWorld()
+        if cameraTransform then
+            local cameraEuler = toEulerAnglesSafe(cameraTransform:GetRotation())
+            local playerEuler = toEulerAnglesSafe(player:GetWorldOrientation())
+            if cameraEuler and playerEuler then
+                cameraPitchOffset = normalizeAngleDeg(cameraEuler.pitch - playerEuler.pitch)
+                cameraYawOffset = normalizeAngleDeg(cameraEuler.yaw - playerEuler.yaw)
+            end
+        end
+    end
+
+    local playerOrientation = EulerAngles.new(0, targetPitch - cameraPitchOffset, targetYaw - cameraYawOffset)
+
+    local okTeleport = pcall(function ()
+        teleportFacility:Teleport(player, targetPlayerPosition, playerOrientation)
+    end)
+    return okTeleport == true
+end
+
+---@return Vector4?, EulerAngles?
+function light:getCameraFollowTransform()
+    local player = GetPlayer()
+    if not player then
+        return nil, nil
+    end
+
+    local camera = player:GetFPPCameraComponent()
+    if not camera then
+        return nil, nil
+    end
+
+    local cameraTransform = camera:GetLocalToWorld()
+    if not cameraTransform then
+        return nil, nil
+    end
+
+    local cameraPosition = cameraTransform:GetTranslation()
+    local cameraRotation = cameraTransform:GetRotation()
+    local cameraForward = cameraRotation and cameraRotation:GetForward() or nil
+    if not cameraPosition or not cameraForward then
+        return nil, nil
+    end
+
+    local targetPosition = utils.addVector(cameraPosition, cameraForward)
+    local targetRotation = targeting.getLookAtRotation(self.rotation, cameraPosition, targetPosition)
+    if not targetRotation and cameraRotation then
+        targetRotation = toEulerAnglesSafe(cameraRotation)
+    end
+
+    return cameraPosition, targetRotation
+end
+
+---@return boolean updated
+function light:applyCameraFollowTransform()
+    local cameraPosition, cameraRotation = self:getCameraFollowTransform()
+    if not cameraPosition or not cameraRotation then
+        return false
+    end
+
+    self.position = Vector4.new(cameraPosition)
+    self.rotation = EulerAngles.new(cameraRotation)
+    self:update()
+    self:updateArrowVisibilityForCameraFollow()
+    self:updatePreviewVisibilityForMovement()
+
+    if self.object and self.object.sUI and self.object.sUI.bumpWireframeEpoch then
+        self.object.sUI.bumpWireframeEpoch()
+    end
+
+    return true
+end
+
+function light:stopCameraFollowUpdater()
+    if self.cameraFollowCronID then
+        Cron.Halt(self.cameraFollowCronID)
+        self.cameraFollowCronID = nil
+    end
+end
+
+function light:startCameraFollowUpdater()
+    if not self.cameraFollowEnabled or self.cameraFollowCronID then
+        return
+    end
+
+    self.cameraFollowCronID = Cron.OnUpdate(function ()
+        if not self.cameraFollowEnabled or not self:isSpawned() then
+            return
+        end
+
+        self:applyCameraFollowTransform()
+    end)
+end
+
+---@param enabled boolean
+function light:setCameraFollowEnabled(enabled)
+    self.cameraFollowEnabled = enabled == true
+    self.cameraFollowVisualizerVisible = nil
+
+    if self.cameraFollowEnabled and self.object and self.object.sUI
+        and type(self.object.sUI.cancelHierarchyPick) == "function"
+        and type(self.object.sUI.isHierarchyPickActive) == "function"
+        and self.object.sUI.isHierarchyPickActive(self.object) then
+        self.object.sUI.cancelHierarchyPick(self.object)
+    end
+
+    if not self.cameraFollowEnabled then
+        self:stopCameraFollowUpdater()
+        self:updateArrowVisibilityForCameraFollow()
+        self:updatePreviewVisibilityForMovement()
+        return
+    end
+
+    if self:isSpawned() then
+        self:applyCameraFollowTransform()
+        self:updateArrowVisibilityForCameraFollow()
+        self:startCameraFollowUpdater()
+    end
+end
+
 function light:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
@@ -423,6 +693,8 @@ function light:loadSpawnData(data, position, rotation)
     self:updatePreviewShape()
     self.colorHexText = colorUtil.formatHexRGB(self.color)
     self.colorHexEditing = false
+    self.cameraFollowEnabled = data.cameraFollowEnabled == true
+    self:stopCameraFollowUpdater()
 end
 
 ---@param entity entEntity
@@ -449,7 +721,9 @@ function light:onAfterPreviewAssemble(entity)
 
     self:applyPreviewAppearance(entity)
     self:applyPreviewShapeRotation(entity)
+    self:updateArrowVisibilityForCameraFollow(entity)
     self:updateRadiusPreviewVisibility(entity)
+    self:updatePreviewVisibilityForMovement(entity)
 end
 
 ---@param entity entEntity
@@ -465,7 +739,9 @@ function light:onAfterPreviewScale(entity)
 
     self:applyPreviewAppearance(entity)
     self:applyPreviewShapeRotation(entity)
+    self:updateArrowVisibilityForCameraFollow(entity)
     self:updateRadiusPreviewVisibility(entity)
+    self:updatePreviewVisibilityForMovement(entity)
 end
 
 function light:onAssemble(entity)
@@ -512,6 +788,18 @@ function light:onAssemble(entity)
     component.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
 
     entity:AddComponent(component)
+    self:updateArrowVisibilityForCameraFollow(entity)
+
+    if self.cameraFollowEnabled then
+        self:applyCameraFollowTransform()
+        self:startCameraFollowUpdater()
+    end
+end
+
+function light:despawn()
+    self.cameraFollowVisualizerVisible = nil
+    self:stopCameraFollowUpdater()
+    visualized.despawn(self)
 end
 
 function light:save()
@@ -556,6 +844,7 @@ function light:save()
     data.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
     data.lightChannels = utils.deepcopy(self.lightChannels)
     data.radiusPreviewed = self.radiusPreviewed
+    data.cameraFollowEnabled = self.cameraFollowEnabled
 
     return data
 end
@@ -576,8 +865,10 @@ function light:updateParameters()
 end
 
 function light:setPreview(state)
+    self.cameraFollowVisualizerVisible = nil
     visualized.setPreview(self, state)
     self:updateRadiusPreviewVisibility()
+    self:updatePreviewVisibilityForMovement()
 end
 
 function light:updateScale()
@@ -818,6 +1109,7 @@ function light:draw()
     
     if self.lightType == LIGHT_TYPE_AREA then
         style.drawIconLabelRow(IconGlyphs.Pill, "Capsule Length", { fieldX = self.maxBasePropertiesWidth })
+        ImGui.SameLine()
         self.capsuleLength, changed, finished = style.trackedDragFloat(self.object, "##capsuleLength", self.capsuleLength, 0.05, 0, 9999, "%.2fm", 60)
         self:updateFull(finished)
         if changed then
@@ -825,12 +1117,14 @@ function light:draw()
         end
         
         style.drawIconLabelRow(IconGlyphs.CircleHalfFull, "Spot Capsule", { fieldX = self.maxBasePropertiesWidth })
+        ImGui.SameLine()
         self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
         self:updateFull(changed)
     end
 
     if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
         style.drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = INNER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        ImGui.SameLine()
         self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
         applyRuntimeParameterChange(
@@ -843,6 +1137,7 @@ function light:draw()
         end
 
         style.drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = OUTER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        ImGui.SameLine()
         self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
         applyRuntimeParameterChange(
@@ -855,6 +1150,7 @@ function light:draw()
         end
 
         style.drawIconLabelRow(IconGlyphs.FormatLineWeight, "Softness", { fieldX = self.maxBasePropertiesWidth })
+        ImGui.SameLine()
         self.softness, _, finished = style.trackedDragFloat(self.object, "##softness", self.softness, 0.05, 0, 9999, "%.2f", 60)
         style.tooltip("Softens the transition between both angles")
         self:updateFull(finished)
@@ -862,75 +1158,118 @@ function light:draw()
     
     ImGui.Dummy(0, 4 * style.viewSize)
     
+    local rotationTargetingDisabled = self.object == nil or self.object:isLocked() or self.object.rotationLocked
+    local targetingDisabledByCameraFollow = self.cameraFollowEnabled == true
+
     -- Aim At ACTIONS
     if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
-        local rotationTargetingDisabled = self.object == nil or self.object:isLocked() or self.object.rotationLocked
-        local hasHierarchyPicker = self.object and self.object.sUI
-            and type(self.object.sUI.beginHierarchyPick) == "function"
-            and type(self.object.sUI.cancelHierarchyPick) == "function"
-            and type(self.object.sUI.isHierarchyPickActive) == "function"
-        local hierarchyPickActive = hasHierarchyPicker and self.object.sUI.isHierarchyPickActive(self.object)
-        local hierarchyPickDisabled = not hasHierarchyPicker or rotationTargetingDisabled
+        style.sectionHeaderStart("Direct the light")
+            local hasHierarchyPicker = self.object and self.object.sUI
+                and type(self.object.sUI.beginHierarchyPick) == "function"
+                and type(self.object.sUI.cancelHierarchyPick) == "function"
+                and type(self.object.sUI.isHierarchyPickActive) == "function"
+            local hierarchyPickActive = hasHierarchyPicker and self.object.sUI.isHierarchyPickActive(self.object)
+            local directTargetingDisabled = rotationTargetingDisabled or targetingDisabledByCameraFollow
+            local hierarchyPickDisabled = not hasHierarchyPicker or directTargetingDisabled
 
-        ImGui.BeginDisabled(rotationTargetingDisabled)
-        if ImGui.Button(IconGlyphs.TargetAccount .. " Aim At Player##lightAimAtPlayer") then
-            local player = GetPlayer()
-            if player then
-                targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
+            ImGui.BeginDisabled(directTargetingDisabled)
+            if ImGui.Button(IconGlyphs.TargetAccount .. " Aim at Player##lightAimAtPlayer") then
+                local player = GetPlayer()
+                if player then
+                    targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
+                end
             end
-        end
+            ImGui.EndDisabled()
+            if targetingDisabledByCameraFollow then
+                style.tooltip("Disable Follow Camera to target the player manually.")
+            elseif rotationTargetingDisabled and self.object and self.object.rotationLocked then
+                style.tooltip("Unlock rotation to target the player.")
+            else
+                style.tooltip("Rotate this light to point at the player's current world position.")
+            end
+
+            ImGui.SameLine()
+
+            ImGui.BeginDisabled(hierarchyPickDisabled)
+            local hierarchyButtonLabel = hierarchyPickActive and " Cancel Target Pick" or " Aim at Element"
+            local hierarchyButtonClicked = false
+            if hierarchyPickActive then
+                hierarchyButtonClicked = style.successButton(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+            else
+                hierarchyButtonClicked = ImGui.Button(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+            end
+            if hierarchyButtonClicked then
+                if hierarchyPickActive then
+                    self.object.sUI.cancelHierarchyPick(self.object)
+                else
+                    local sourceElement = self.object
+                    self.object.sUI.beginHierarchyPick(sourceElement, function(targetElement)
+                        if not targeting.canAimElementAtElement(sourceElement, targetElement) then
+                            return false
+                        end
+
+                        -- Completing the pick should not depend on whether rotation changed.
+                        targeting.aimElementAtElement(sourceElement, targetElement)
+                        return true
+                    end, {
+                        allowOwner = false,
+                        canPick = function(targetElement)
+                            return targeting.canAimElementAtElement(sourceElement, targetElement)
+                        end,
+                        restoreOwnerSelection = true
+                    })
+                end
+            end
+            ImGui.EndDisabled()
+            if targetingDisabledByCameraFollow then
+                style.tooltip("Disable Follow Camera to use hierarchy targeting.")
+            elseif hierarchyPickDisabled and self.object and self.object.rotationLocked then
+                style.tooltip("Unlock rotation to use hierarchy targeting.")
+            elseif hierarchyPickActive then
+                style.tooltip("Click an element in the hierarchy or click anywhere in the 3D world to aim this light.\nPress Esc or click this button again to cancel.")
+            else
+                style.tooltip("Pick a hierarchy element or click in the 3D world to rotate this light toward that target.")
+            end
+        style.sectionHeaderEnd(false)
+    end
+
+    style.sectionHeaderStart("Be the light")
+        local cameraFollowToggleDisabled = rotationTargetingDisabled and not self.cameraFollowEnabled
+        ImGui.BeginDisabled(cameraFollowToggleDisabled)
+        local newCameraFollowEnabled, cameraFollowChanged = style.toggleButton(
+            IconGlyphs.CameraLockOutline .. " Follow Camera##lightCameraFollow",
+            self.cameraFollowEnabled
+        )
         ImGui.EndDisabled()
-        if rotationTargetingDisabled and self.object and self.object.rotationLocked then
-            style.tooltip("Unlock rotation to target the player.")
+        if cameraFollowChanged then
+            if self.object then
+                history.addAction(history.getElementChange(self.object))
+            end
+            self:setCameraFollowEnabled(newCameraFollowEnabled)
+        end
+        if cameraFollowToggleDisabled and self.object and self.object.rotationLocked then
+            style.tooltip("Unlock rotation to enable camera follow.")
+        elseif self.cameraFollowEnabled then
+            style.tooltip("Light follows player camera position and direction.\nDisable to keep the current transform.")
         else
-            style.tooltip("Rotate this light to point at the player's current world position.")
+            style.tooltip("Attach this light to the player camera and align direction to camera view.")
         end
 
         ImGui.SameLine()
 
-        ImGui.BeginDisabled(hierarchyPickDisabled)
-        local hierarchyButtonLabel = hierarchyPickActive and " Cancel Target Pick" or " Aim At Element"
-        local hierarchyButtonClicked = false
-        if hierarchyPickActive then
-            hierarchyButtonClicked = style.successButton(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
-        else
-            hierarchyButtonClicked = ImGui.Button(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
-        end
-        if hierarchyButtonClicked then
-            if hierarchyPickActive then
-                self.object.sUI.cancelHierarchyPick(self.object)
-            else
-                local sourceElement = self.object
-                self.object.sUI.beginHierarchyPick(sourceElement, function(targetElement)
-                    if not targeting.canAimElementAtElement(sourceElement, targetElement) then
-                        return false
-                    end
-
-                    -- Completing the pick should not depend on whether rotation changed.
-                    targeting.aimElementAtElement(sourceElement, targetElement)
-                    return true
-                end, {
-                    allowOwner = false,
-                    canPick = function(targetElement)
-                        return targeting.canAimElementAtElement(sourceElement, targetElement)
-                    end,
-                    restoreOwnerSelection = true
-                })
-            end
+        local canTeleportPlayerToLight = GetPlayer() ~= nil
+            and Game.GetTeleportationFacility ~= nil
+            and Game.GetTeleportationFacility() ~= nil
+            and self.position ~= nil
+        ImGui.BeginDisabled(not canTeleportPlayerToLight)
+        if style.warnButton(IconGlyphs.RunFast .. "##lightTeleportCameraAligned") then
+            self:teleportPlayerToLightCameraAligned()
         end
         ImGui.EndDisabled()
-        if hierarchyPickDisabled and self.object and self.object.rotationLocked then
-            style.tooltip("Unlock rotation to use hierarchy targeting.")
-        elseif hierarchyPickActive then
-            style.tooltip("Click an element in the hierarchy or click anywhere in the 3D world to aim this light.\nPress Esc or click this button again to cancel.")
-        else
-            style.tooltip("Pick a hierarchy element or click in the 3D world to rotate this light toward that target.")
-        end
-        
-        ImGui.Dummy(0, 4 * style.viewSize)
-    end
+        style.tooltip("Teleport player so camera position and look direction match this light.")
+    style.sectionHeaderEnd(false)
     
-        ImGui.Dummy(0, 4 * style.viewSize)
+    ImGui.Dummy(0, 4 * style.viewSize)
 
     -- Other Settings
     if ImGui.TreeNodeEx("Shadow Settings") then
