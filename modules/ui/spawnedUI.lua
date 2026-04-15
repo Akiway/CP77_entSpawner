@@ -35,6 +35,7 @@ local visualized = require("modules/classes/spawn/visualized")
 ---@field visiblePathIndexById table<number, number>
 ---@field hoveredEntries element[]
 ---@field pinnedHierarchy {open: boolean, groupId: number?}
+---@field reorderPreview {x1: number, x2: number, y: number}?
 spawnedUI = {
     root = require("modules/classes/editor/element"):new(spawnedUI),
     multiSelectGroup = require("modules/classes/editor/positionableGroup"):new(spawnedUI),
@@ -72,6 +73,7 @@ spawnedUI = {
     clipper = nil,
     visiblePathIndexById = {},
     hoveredEntries = {},
+    reorderPreview = nil,
 
     lockedChildrenCache = {},
     cacheDirty = true,
@@ -103,6 +105,7 @@ spawnedUI.multiSelectGroup.sUI = spawnedUI
 local HIERARCHY_PICK_ELIGIBLE_BG = 0x5F007F00
 local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
 local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
+local HIERARCHY_REORDER_PREVIEW_SHADOW = 0x88000000
 
 ---@param element element?
 ---@return boolean
@@ -1006,12 +1009,40 @@ function spawnedUI.handleRangeSelect(element)
 end
 
 ---@protected
----@param element element
-function spawnedUI.handleReorder(element)
+---@return number
+local function getReorderShiftFromHoveredItem()
     local _, mouseY = ImGui.GetMousePos()
     local _, itemY = ImGui.GetItemRectMin()
-    local _ , sizeY = ImGui.GetItemRectSize()
-    local shift = ((mouseY - itemY) < sizeY / 2) and 0 or 1
+    local _, sizeY = ImGui.GetItemRectSize()
+    if sizeY <= 0 then
+        return 1
+    end
+
+    return ((mouseY - itemY) < sizeY / 2) and 0 or 1
+end
+
+---@protected
+---@param indentX number?
+function spawnedUI.captureReorderPreview(indentX)
+    local shift = getReorderShiftFromHoveredItem()
+    local minX, minY = ImGui.GetItemRectMin()
+    local maxX, maxY = ImGui.GetItemRectMax()
+    local padX = 6 * style.viewSize
+    local markerY = shift == 0 and minY or maxY
+    local markerX1 = indentX or minX
+    markerX1 = math.max(minX, math.min(maxX, markerX1))
+
+    spawnedUI.reorderPreview = {
+        x1 = markerX1,
+        x2 = math.max(markerX1, maxX - padX),
+        y = markerY
+    }
+end
+
+---@protected
+---@param element element
+function spawnedUI.handleReorder(element)
+    local shift = getReorderShiftFromHoveredItem()
 
     local adjust = 0
 
@@ -1029,25 +1060,29 @@ end
 
 ---@protected
 ---@param element element
-function spawnedUI.handleDrag(element)
+---@param indentX number?
+function spawnedUI.handleDrag(element, indentX)
+    local itemHovered = ImGui.IsItemHovered()
+    local reorderMode = spawnedUI.rangeSelectActive()
+
     if element:isLocked() then
-        if ImGui.IsItemHovered() and spawnedUI.draggingSelected then
+        if itemHovered and spawnedUI.draggingSelected then
             ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
         end
         return
     end
 
-    if ImGui.IsItemHovered() and ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnedUI.draggingSelected then -- Start dragging
+    if itemHovered and ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnedUI.draggingSelected then -- Start dragging
         if not element.selected then
             spawnedUI.unselectAll()
             element:setSelected(true)
         end
         spawnedUI.draggingSelected = true
-    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and ImGui.IsItemHovered() and spawnedUI.draggingSelected then -- Drop on element
+    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and itemHovered and spawnedUI.draggingSelected then -- Drop on element
         spawnedUI.draggingSelected = false
 
         if not element.selected then
-            if ImGui.IsKeyDown(ImGuiKey.LeftShift) and element:isValidDropTarget(spawnedUI.selectedPaths, false) then
+            if reorderMode and element:isValidDropTarget(spawnedUI.selectedPaths, false) then
                 spawnedUI.handleReorder(element)
             elseif element:isValidDropTarget(spawnedUI.selectedPaths, true) then
                 local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
@@ -1059,10 +1094,17 @@ function spawnedUI.handleDrag(element)
                 history.addAction(history.getMove(remove, insert))
             end
         end
-    elseif ImGui.IsItemHovered() and spawnedUI.draggingSelected then
+    elseif itemHovered and spawnedUI.draggingSelected then
         if element.selected then
             ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
-        elseif not ImGui.IsKeyDown(ImGuiKey.LeftShift) and not element:isValidDropTarget(spawnedUI.selectedPaths, true) then
+        elseif reorderMode then
+            if element:isValidDropTarget(spawnedUI.selectedPaths, false) then
+                spawnedUI.captureReorderPreview(indentX)
+                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
+            else
+                ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
+            end
+        elseif not element:isValidDropTarget(spawnedUI.selectedPaths, true) then
             ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
         else
             ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
@@ -1249,7 +1291,7 @@ function spawnedUI.drawDragWindow()
         ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Always)
         if ImGui.Begin("##drag", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then
             local text = #spawnedUI.selectedPaths == 1 and spawnedUI.selectedPaths[1].ref.name or (#spawnedUI.selectedPaths .. " elements")
-            text = (ImGui.IsKeyDown(ImGuiKey.LeftShift) and "Reorder " or "") .. text
+            text = (spawnedUI.rangeSelectActive() and "Reorder " or "") .. text
             ImGui.Text(text)
             ImGui.End()
         end
@@ -2155,13 +2197,17 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
 
     -- Base selectable
     ImGui.SetCursorPosX(rowDepth * 17 * style.viewSize) -- Indent element
+    local indentX = ImGui.GetCursorScreenPos()
     ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 15, spawnedUI.cellPadding * 2 + style.viewSize) -- + style.viewSize is a ugly fix to make the gaps smaller
 
     -- Grey out if getting dragged
     local suppressHeaderState = isGettingDragged or rowLocked
+    local suppressReorderHoverState = spawnedUI.draggingSelected and spawnedUI.rangeSelectActive()
     style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
     style.pushStyleColor(suppressHeaderState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
     style.pushStyleColor(suppressHeaderState, ImGuiCol.Header, 0, 0, 0, 0)
+    style.pushStyleColor(suppressReorderHoverState, ImGuiCol.HeaderHovered, 0, 0, 0, 0)
+    style.pushStyleColor(suppressReorderHoverState, ImGuiCol.HeaderActive, 0, 0, 0, 0)
     local hierarchyPickEligible = spawnedUI.isHierarchyPickEligible and spawnedUI.isHierarchyPickEligible(element)
     local highlightHierarchyPickEligible = hierarchyPickEligible and not suppressHeaderState
     style.pushStyleColor(highlightHierarchyPickEligible, ImGuiCol.Header, HIERARCHY_PICK_ELIGIBLE_BG)
@@ -2208,11 +2254,12 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
         spawnedUI.resolveHierarchyPick(element)
     end
 
-    spawnedUI.handleDrag(element)
+    spawnedUI.handleDrag(element, indentX)
 
     spawnedUI.drawContextMenu(element, elementPath)
 
     style.popStyleColor(highlightHierarchyPickEligible, 3)
+    style.popStyleColor(suppressReorderHoverState, 2)
     style.popStyleColor(suppressHeaderState, 3)
     ImGui.PopStyleVar()
 
@@ -2320,9 +2367,23 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     ImGui.PopID()
 end
 
+---@protected
+function spawnedUI.drawReorderPreview()
+    local preview = spawnedUI.reorderPreview
+    if not preview then
+        return
+    end
+
+    local drawList = ImGui.GetWindowDrawList()
+    local thickness = math.max(1, 2 * style.viewSize)
+    ImGui.ImDrawListAddLine(drawList, preview.x1, preview.y + 1, preview.x2, preview.y + 1, HIERARCHY_REORDER_PREVIEW_SHADOW, thickness + 1)
+    ImGui.ImDrawListAddLine(drawList, preview.x1, preview.y, preview.x2, preview.y, style.regularColor, thickness)
+end
+
 ---@param options {entries: {path: string, ref: element, depth: number}[]?, childId: string?, tableId: string?, childHeight: number?}?
 function spawnedUI.drawHierarchy(options)
     options = options or {}
+    spawnedUI.reorderPreview = nil
 
     spawnedUI.elementCount = 0
     spawnedUI.cellPadding = 3 * style.viewSize
@@ -2399,6 +2460,8 @@ function spawnedUI.drawHierarchy(options)
                 spawnedUI.drawElement(nil, true, lastRenderedRowIndex + fillerOffset)
             end
         end
+        spawnedUI.drawReorderPreview()
+        spawnedUI.reorderPreview = nil
 
         ImGui.EndTable()
     end
