@@ -23,6 +23,7 @@ local colors = colliderGenerics.colors
 --- @field meshType string
 --- @field material integer
 --- @field preset integer
+--- @field scale Vector3
 --- @field bBox table
 --- @field bBoxLoaded boolean
 --- @field apps table
@@ -49,6 +50,8 @@ function meshCollider:new(spawnUI)
     o.material = settings.defaultColliderMaterial
     o.preset = 33
 
+    o.scale = Vector3.new(1, 1, 1)
+
     o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
     o.bBoxLoaded = false
     o.apps = {}
@@ -64,6 +67,10 @@ end
 ---@param position Vector4
 ---@param rotation EulerAngles
 function meshCollider:loadSpawnData(data, position, rotation)
+    if (data.scale) then
+        self.scale = Vector3.new(data.scale.x, data.scale.y, data.scale.z)
+    end
+
     spawnable.loadSpawnData(self, data, position, rotation)
 
     --[[ 
@@ -161,6 +168,8 @@ function meshCollider:save()
     data.preset = self.preset
 
     data.previewed = self.previewed
+
+    data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
 
     return data
 end
@@ -433,9 +442,9 @@ function meshCollider:export()
 						},
 						["Scale"] = {
 							["$type"] = "Vector3",
-							["X"] = 1,
-							["Y"] = 1,
-							["Z"] = 1
+							["X"] = self.scale.x,
+							["Y"] = self.scale.y,
+							["Z"] = self.scale.z
 						}
 					}
 				}
@@ -456,7 +465,7 @@ function meshCollider:export()
 		["numScales"] = 1,
 		["numShapeIndices"] = 1,
 		["numShapeInfos"] = 1,
-		["numShapePositions"] = 0,
+		["numShapePositions"] = 1,
 		["numShapeRotations"] = 1,
         ["resourceVersion"] = 2, -- You little shit
         ["sectorHash"] = self.sectorHash,
