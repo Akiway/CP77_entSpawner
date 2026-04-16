@@ -87,6 +87,18 @@ function meshCollider:loadSpawnData(data, position, rotation)
         end
     end
 
+    local depot = GameInstance.GetResourceDepot()
+
+    if (depot:ArchiveExists("scc_collision.archive")) then
+        if (not depot:ResourceExists("scc\\generated\\geometry_cache\\collision\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent")) then
+            if (depot:ResourceExists("scc\\generated\\geometry_cache\\collision\\" .. "0" .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent")) then
+                self.sectorHash = "0"
+            else
+                print("No fallback resource found for " .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ", collider will not work correctly")
+            end
+        end
+    end
+
     if self.sectorHash and self.shapeHash and self.meshType then
         self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent"
     end
@@ -370,6 +382,7 @@ end
 function meshCollider:export()
     local rotation = self.rotation:ToQuat()
     local shapeType = self.meshType
+    local sectorHash = self.sectorHash
     local extends = {
         x = math.abs(self.bBox.max.x - self.bBox.min.x) / 2,
         y = math.abs(self.bBox.max.y - self.bBox.min.y) / 2,
@@ -378,6 +391,11 @@ function meshCollider:export()
 
     if shapeType == "BV4TriangleMesh" then
         shapeType = "TriangleMesh"
+    end
+
+    -- This just needs to be any non 0 value that isn't already a sector, the game defaults non existent sectors to the always loaded one
+    if sectorHash == "0" then
+        sectorHash = "1"
     end
 
     local data = spawnable.export(self)
@@ -468,7 +486,7 @@ function meshCollider:export()
 		["numShapePositions"] = 1,
 		["numShapeRotations"] = 1,
         ["resourceVersion"] = 2, -- You little shit
-        ["sectorHash"] = self.sectorHash,
+        ["sectorHash"] = sectorHash,
 		["staticCollisionShapeCategories"] = {
 			["$type"] = "worldStaticCollisionShapeCategories_CollisionNode",
 			["arr"] = {
