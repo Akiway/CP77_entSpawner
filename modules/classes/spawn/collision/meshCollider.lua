@@ -87,23 +87,11 @@ function meshCollider:loadSpawnData(data, position, rotation)
         end
     end
 
-    local depot = GameInstance.GetResourceDepot()
-
-    if (depot:ArchiveExists("scc_collision.archive")) then
-        if (not depot:ResourceExists("scc\\generated\\geometry_cache\\collision\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent")) then
-            if (depot:ResourceExists("scc\\generated\\geometry_cache\\collision\\" .. "0" .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent")) then
-                self.sectorHash = "0"
-            else
-                print("No fallback resource found for " .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ", collider will not work correctly")
-            end
-        end
+    if self.shapeHash then
+        self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.shapeHash .. ".ent"
     end
 
-    if self.sectorHash and self.shapeHash and self.meshType then
-        self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".ent"
-    end
-
-    local meshPath = "scc\\generated\\geometry_cache\\visual\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".mesh"
+    local meshPath = "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh"
 
     cache.tryGet(meshPath .. "_apps", meshPath .. "_bBox_max", meshPath .. "_bBox_min", meshPath .. "_occluder")
     .notFound(function (task)
@@ -165,7 +153,7 @@ function meshCollider:onAssemble(entity)
 
     visualizer.addMesh(entity,
         {x = 1, y = 1, z = 1},
-        "scc\\generated\\geometry_cache\\visual\\" .. self.sectorHash .. "_" .. self.shapeHash .. "_" .. self.meshType:lower() .. ".mesh",
+        "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh",
         colors[settings.colliderColor + 1])
 end
 
