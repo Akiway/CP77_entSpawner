@@ -1,5 +1,6 @@
 local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
+local gameUtils = require("modules/utils/gameUtils")
 local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
 local amm = require("modules/utils/ammUtils")
@@ -1227,10 +1228,14 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
         style.popGreyedOut(groupLoadActive)
 
         ImGui.SameLine()
-        if style.warnButton(IconGlyphs.RunFast) then
-            Game.GetTeleportationFacility():Teleport(Game.GetPlayer(), utils.getVector(group.pos), GetSingleton('Quaternion'):ToEulerAngles(Game.GetPlayer():GetWorldOrientation()))
+        local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
+        if style.warnButton(IconGlyphs.RunFast, {
+            tooltip = "Teleport player to group",
+            disabled = teleportDisabledByEditor,
+            disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
+        }) then
+            gameUtils.teleportPlayer(utils.getVector(group.pos))
         end
-	    style.tooltip("Teleport player to group")
 
         ImGui.SameLine()
         if ImGui.Button("Add to Export") then
@@ -1310,9 +1315,15 @@ function savedUI.drawObject(obj, spawner, fileName)
         style.popGreyedOut(pipelineBusy)
 
         ImGui.SameLine()
-        if ImGui.Button("TP to pos") then
-            Game.GetTeleportationFacility():Teleport(Game.GetPlayer(),  utils.getVector(obj.pos), GetSingleton('Quaternion'):ToEulerAngles(Game.GetPlayer():GetWorldOrientation()))
+        local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
+        if style.warnButton(IconGlyphs.RunFast, {
+            disabled = teleportDisabledByEditor,
+            tooltip = "Teleport player to group",
+            disabledTooltip = TELEPORT_DISABLED_EDITOR_TOOLTIP
+        }) then
+            gameUtils.teleportPlayer(utils.getVector(group.pos))
         end
+        
         ImGui.SameLine()
         if ImGui.Button("Delete") then
             savedUI.deleteData(obj)

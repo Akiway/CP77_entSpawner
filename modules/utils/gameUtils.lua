@@ -1,7 +1,64 @@
 local settings = require("modules/utils/settings")
+local Cron = require("modules/utils/Cron")
 
 local gameUtils = {}
 local locKeyCache = {}
+
+---@param rotationLike any
+---@return EulerAngles?
+local function toEulerAnglesSafe(rotationLike)
+    if not rotationLike then
+        return nil
+    end
+
+    if rotationLike.roll ~= nil and rotationLike.pitch ~= nil and rotationLike.yaw ~= nil then
+        return EulerAngles.new(rotationLike.roll, rotationLike.pitch, rotationLike.yaw)
+    end
+
+    local okEuler, euler = pcall(function ()
+        if type(rotationLike.ToEulerAngles) == "function" then
+            return rotationLike:ToEulerAngles()
+        end
+        return nil
+    end)
+    if okEuler and euler then
+        return euler
+    end
+
+    return nil
+end
+
+---@param euler EulerAngles?
+---@return EulerAngles
+local function cloneEulerOrDefault(euler)
+    if euler then
+        return EulerAngles.new(euler.roll or 0, euler.pitch or 0, euler.yaw or 0)
+    end
+
+    return EulerAngles.new(0, 0, 0)
+end
+
+---@param player any
+---@param fallbackRotation any?
+---@return EulerAngles
+local function resolveTeleportRotation(player, fallbackRotation)
+    local targetEuler = toEulerAnglesSafe(fallbackRotation)
+    if targetEuler then
+        return cloneEulerOrDefault(targetEuler)
+    end
+
+    if player then
+        local playerEuler = toEulerAnglesSafe(player:GetWorldOrientation())
+        if playerEuler then
+            return cloneEulerOrDefault(playerEuler)
+        end
+
+        local yaw = (type(player.GetWorldYaw) == "function" and player:GetWorldYaw()) or 0
+        return EulerAngles.new(0, 0, yaw)
+    end
+
+    return EulerAngles.new(0, 0, 0)
+end
 
 local function trimTextValue(value)
     return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
@@ -105,6 +162,52 @@ function gameUtils.setSceneTier(tier)
     local blackboardDefs = Game.GetAllBlackboardDefs()
     local blackboardPSM = Game.GetBlackboardSystem():GetLocalInstanced(GetPlayer():GetEntityID(), blackboardDefs.PlayerStateMachine)
     blackboardPSM:SetInt(blackboardDefs.PlayerStateMachine.SceneTier, tier, true)
+end
+
+
+---Converts a quaternion-like or Euler-like rotation value to Euler angles when possible.
+---@param rotationLike any
+---@return EulerAngles?
+function gameUtils.toEulerAnglesSafe(rotationLike)
+    return toEulerAnglesSafe(rotationLike)
+end
+
+---Teleports the player with robust rotation conversion and optional Freefly coordination.
+---By default, this temporarily pauses Freefly (if active), teleports, then restores Freefly.
+---@param position Vector4
+---@param rotationLike any?
+---@param opts table? Optional flags. Supports `pauseFreefly` (boolean, default `true`).
+function gameUtils.teleportPlayer(position, rotationLike, opts)
+    opts = opts or {}
+
+    local player = GetPlayer()
+    if not player or not position then
+        return false
+    end
+
+    local targetPosition = Vector4.new(position)
+    local targetRotation = resolveTeleportRotation(player, rotationLike)
+
+    local freefly = GetMod("freefly")
+    local freeflyWasActive = false
+    local shouldPauseFreefly = freefly and opts.pauseFreefly ~= false
+
+    if shouldPauseFreefly and freefly.runtimeData.active then
+        freeflyWasActive = true
+        freefly.runtimeData.active = false
+        freefly.logic.toggleFlight(freefly, freefly.runtimeData.active)
+    end
+
+    Game.GetTeleportationFacility():Teleport(player, targetPosition, targetRotation)
+
+    if freeflyWasActive then
+        Cron.NextTick(function ()
+            if freefly and freefly.runtimeData and freefly.logic and type(freefly.logic.toggleFlight) == "function" then
+                freefly.runtimeData.active = true
+                freefly.logic.toggleFlight(freefly, freefly.runtimeData.active)
+            end
+        end)
+    end
 end
 
 ---Resolve a dynamic NPC/entity handle by entity ID.

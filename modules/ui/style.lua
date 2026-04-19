@@ -373,20 +373,47 @@ function style.dangerButton(text, ...)
     return clicked
 end
 
+---@class warnButtonOpts
+---@field disabled boolean? Draw as disabled and suppress click handling.
+---@field tooltip string? Tooltip shown when enabled.
+---@field disabledTooltip string? Tooltip shown when disabled (falls back to `tooltip` when omitted).
+---@field tooltipOffsetX number? Optional cursor-relative X offset before drawing tooltip.
+---@field tooltipOffsetY number? Optional cursor-relative Y offset before drawing tooltip.
+
 ---Draw an orange warning button.
+---Supports optional disable state and tooltip handling through a trailing options table.
+---Usage: `style.warnButton(text, [w], [h], { disabled = bool, tooltip = "...", disabledTooltip = "..." })`.
 ---@param text string Button label / ID.
----@param ... any Optional size args forwarded to `ImGui.Button`.
+---@param opts warnButtonOpts? Optional flags. See `warnButtonOpts` for details.
 ---@return boolean clicked
-function style.warnButton(text, ...)
+function style.warnButton(text, opts)
+    opts = opts or {}
+    local disabled = opts.disabled == true or false
+    local tooltipText = disabled and opts.disabledTooltip or opts.tooltip
+    local tooltipOffsetX = opts.tooltipOffsetX
+    local tooltipOffsetY = opts.tooltipOffsetY
+
     local rgb = style.warnColor % 0x1000000
-    local defaultColor = 0xCC000000 + rgb
-    local activeColor = 0x99000000 + rgb
+    local defaultColor = disabled and style.greyedColor or 0xCC000000 + rgb
+    local hoveredColor = disabled and style.greyedColor or style.warnColor
+    local activeColor = disabled and style.greyedColor or 0x99000000 + rgb
+    local clicked = false
+
+    
     ImGui.PushStyleColor(ImGuiCol.Button, defaultColor)
-    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, style.warnColor)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, hoveredColor)
     ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeColor)
-    local clicked = ImGui.Button(text, ...)
+    clicked = ImGui.Button(text)
     ImGui.PopStyleColor(3)
-    return clicked
+
+    if tooltipText then
+        if tooltipOffsetX and tooltipOffsetY and ImGui.IsItemHovered() then
+            style.setCursorRelative(tooltipOffsetX, tooltipOffsetY)
+        end
+        style.tooltip(tooltipText)
+    end
+
+    return (not disabled) and clicked
 end
 
 ---Draw a green button matching default wireframe green styling.

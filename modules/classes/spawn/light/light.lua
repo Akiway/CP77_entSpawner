@@ -3,6 +3,7 @@ local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local utils = require("modules/utils/utils")
+local gameUtils = require("modules/utils/gameUtils")
 local field = require("modules/utils/field")
 local colorUtil = require("modules/utils/color")
 local lcHelper = require("modules/utils/lightChannelHelper")
@@ -536,11 +537,9 @@ function light:updateArrowVisibilityForCameraFollow(entity)
     visualizer.showArrows(target, showArrows)
 end
 
----@return boolean teleported
 function light:teleportPlayerToLightCameraAligned()
     local player = GetPlayer()
-    local teleportFacility = Game.GetTeleportationFacility and Game.GetTeleportationFacility() or nil
-    if not player or not teleportFacility or not self.position then
+    if not player or not self.position then
         return false
     end
 
@@ -577,10 +576,7 @@ function light:teleportPlayerToLightCameraAligned()
 
     local playerOrientation = EulerAngles.new(0, targetPitch - cameraPitchOffset, targetYaw - cameraYawOffset)
 
-    local okTeleport = pcall(function ()
-        teleportFacility:Teleport(player, targetPlayerPosition, playerOrientation)
-    end)
-    return okTeleport == true
+    gameUtils.teleportPlayer(targetPlayerPosition, playerOrientation)
 end
 
 ---@return Vector4?, EulerAngles?
@@ -1257,16 +1253,14 @@ function light:draw()
 
         ImGui.SameLine()
 
-        local canTeleportPlayerToLight = GetPlayer() ~= nil
-            and Game.GetTeleportationFacility ~= nil
-            and Game.GetTeleportationFacility() ~= nil
-            and self.position ~= nil
-        ImGui.BeginDisabled(not canTeleportPlayerToLight)
-        if style.warnButton(IconGlyphs.RunFast .. "##lightTeleportCameraAligned") then
+        local teleportDisabledByEditor = self.object and self.object.sUI and self.object.sUI.spawner.editor.active == true or false
+        if style.warnButton(IconGlyphs.RunFast .. "##lightTeleportCameraAligned", {
+            tooltip = "Teleport player so camera position and look direction match this light.",
+            disabled = teleportDisabledByEditor,
+            disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
+        }) then
             self:teleportPlayerToLightCameraAligned()
         end
-        ImGui.EndDisabled()
-        style.tooltip("Teleport player so camera position and look direction match this light.")
     style.sectionHeaderEnd(false)
     
     ImGui.Dummy(0, 4 * style.viewSize)

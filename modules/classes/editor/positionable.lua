@@ -537,11 +537,16 @@ function positionable:drawPosition(position, axes)
 	style.tooltip("Set to player position")
 
 	ImGui.SameLine()
-    if style.warnButton(IconGlyphs.RunFast) then
-		Game.GetTeleportationFacility():Teleport(GetPlayer(), self:getPosition(), GetPlayer():GetWorldOrientation():ToEulerAngles())
-    end
-	if ImGui.IsItemHovered() then style.setCursorRelative(5, 5) end
-	style.tooltip("Teleport player to asset")
+    local teleportDisabledByEditor = editor.active == true
+	if style.warnButton(IconGlyphs.RunFast, {
+        tooltip = "Teleport player to asset",
+        disabled = teleportDisabledByEditor,
+        disabledTooltip = "Teleportation disabled while in 3D-Editor mode",
+        tooltipOffsetX = 5,
+        tooltipOffsetY = 5
+    }) then
+		gameUtils.teleportPlayer(self:getPosition())
+	end
 
     style.pushButtonNoBG(false)
 end
