@@ -56,6 +56,8 @@ local config = require("modules/utils/config")
 ---@field public spawnedUIPerfEnabled boolean
 ---@field public spawnedUIPerfShowPanel boolean
 ---@field public colorPickerStyle integer
+---@field public rhtAddonReplacerMode string
+---@field public rhtAddonMeshTargetType string
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -108,6 +110,8 @@ local settingsData = {
     spawnedUIPerfEnabled = false,
     spawnedUIPerfShowPanel = false,
     colorPickerStyle = 2,
+    rhtAddonReplacerMode = "clone",
+    rhtAddonMeshTargetType = "Auto",
 
     filterTags = {},
     favoritesFilter = "",

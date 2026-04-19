@@ -4,6 +4,7 @@ local field = require("modules/utils/field")
 local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
 local perf = require("modules/utils/perf")
+local rht = require("modules/utils/rhtPlugin")
 
 local colliderColors = { "Red", "Green", "Blue" }
 local outlineColors = { "Green", "Red", "Blue", "Orange", "Yellow", "Light Blue", "White", "Black" }
@@ -183,6 +184,7 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("Mostly noticeable on heavy groups with thousands of elements")
 
+        ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
 
@@ -252,6 +254,7 @@ function settingsUI.draw(spawner)
         style.tooltip("When holding CTRL while dragging transform values, the step size will be multiplied by this value")
         style.sectionHeaderEnd(true)
 
+        ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
 
@@ -274,6 +277,7 @@ function settingsUI.draw(spawner)
         settings.cameraZoomSpeed, changed = ImGui.InputFloat("Camera Zoom Speed", settings.cameraZoomSpeed, 0, 10, "%.2f")
         if changed then settings.save() end
 
+        ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
 
@@ -359,7 +363,8 @@ function settingsUI.draw(spawner)
         end
         drawWireframeColorStyleTooltip()
         style.sectionHeaderEnd()
-
+    
+        ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
 
@@ -401,6 +406,8 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
+    rht.drawSettings()
+    
     if ImGui.TreeNodeEx("Debug", ImGuiTreeNodeFlags.SpanFullWidth) then
         if ImGui.TreeNodeEx("Cache Exclusions", ImGuiTreeNodeFlags.SpanFullWidth) then
             style.tooltip("Resource paths or glob patterns to exclude from cache reads. Use exact paths, * for any sequence, and ? for a single character.")
@@ -467,6 +474,7 @@ function settingsUI.draw(spawner)
         ImGui.EndDisabled()
         style.sectionHeaderEnd()
 
+        ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
 

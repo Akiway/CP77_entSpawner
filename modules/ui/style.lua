@@ -310,6 +310,20 @@ function style.styledText(text, color, size)
     ImGui.SetWindowFontScale(1)
 end
 
+---Draw wrapped text with optional color override and font scale.
+---@param text string Text to display.
+---@param color number? Optional color for `ImGuiCol.Text`.
+---@param size number? Optional window font scale (default `1`).
+function style.styledTextWrapped(text, color, size)
+    style.pushStyleColor(color ~= nil, ImGuiCol.Text, color)
+    ImGui.SetWindowFontScale(size or 1)
+
+    ImGui.TextWrapped(text)
+
+    style.popStyleColor(color ~= nil)
+    ImGui.SetWindowFontScale(1)
+end
+
 ---Draw an icon + label row with optional offsets and aligned field position.
 ---@param icon string
 ---@param label string
