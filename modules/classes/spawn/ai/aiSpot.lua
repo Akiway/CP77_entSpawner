@@ -342,27 +342,52 @@ local function getPreviewAppearanceOptions(apps, selected)
         end
     end
 
+    local cleanSelected = sanitizePreviewValue(selected, "")
+    if cleanSelected ~= "" and not dedupe[cleanSelected] then
+        table.insert(options, 1, cleanSelected)
+    end
+
     if #options == 0 then
-        local cleanSelected = sanitizePreviewValue(selected, "default")
-        table.insert(options, cleanSelected)
+        table.insert(options, "default")
     end
 
     return options
 end
 
+local function getPreferredPreviewAppearanceOption(options)
+    for _, option in ipairs(options or {}) do
+        local cleanOption = sanitizePreviewValue(option, "")
+        if cleanOption ~= "" and string.find(string.lower(cleanOption), "default", 1, true) then
+            return cleanOption
+        end
+    end
+
+    local firstOption = sanitizePreviewValue(options and options[1] or "", "")
+    if firstOption ~= "" then
+        return firstOption
+    end
+
+    return "default"
+end
+
 local function resolvePreferredPreviewAppearance(selected, apps)
-    local cleanSelected = sanitizePreviewValue(selected, "default")
+    local cleanSelected = sanitizePreviewValue(selected, "")
     local normalizedApps = apps or {}
+    local fallbackAppearance = getPreferredPreviewAppearanceOption(normalizedApps)
 
-    if #normalizedApps == 0 then
+    if cleanSelected == "" then
+        return fallbackAppearance
+    end
+
+    if #normalizedApps == 0 or utils.indexValue(normalizedApps, cleanSelected) ~= -1 then
         return cleanSelected
     end
 
-    if utils.indexValue(normalizedApps, cleanSelected) ~= -1 then
-        return cleanSelected
+    if string.lower(cleanSelected) == "default" then
+        return fallbackAppearance
     end
 
-    return normalizedApps[1]
+    return cleanSelected
 end
 
 local function containsValue(list, value)
@@ -766,7 +791,10 @@ function aiSpot:spawn()
         end
         previewRigs = normalizeRigList(previewRigs or {})
 
-        if #previewRigs > 0 and not isRecordSupportedForRigs(self.previewNPC, previewRigs) then
+        ensureCharacterRecordsLoaded()
+        local previewRecord = sanitizePreviewValue(self.previewNPC, "")
+        local isKnownRecord = previewRecord ~= "" and utils.indexValue(characterRecords or {}, previewRecord) ~= -1
+        if #previewRigs > 0 and isKnownRecord and not isRecordSupportedForRigs(previewRecord, previewRigs) then
             local compatibleRecords = getCompatibleRecordsForRigs(previewRigs)
             local fallbackRecord = compatibleRecords[1]
             if fallbackRecord and fallbackRecord ~= "" then
@@ -1385,7 +1413,18 @@ function aiSpot:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         local finished = false
-        self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdown(self.object, "##previewNPCRigPicker", "Character.", self.previewNPC, self.previewNPCSearch, compatibleRecords, 250)
+        self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdown(
+            self.object,
+            "##previewNPCRigPicker",
+            "Character.",
+            self.previewNPC,
+            self.previewNPCSearch,
+            compatibleRecords,
+            250,
+            false,
+            true
+        )
+        style.tooltip("Select a compatible character record, or type one and choose 'Use custom: ...'.")
         if finished then
             self.previewNPCAppearance = "default"
             self.previewNPCAppearanceSearch = ""
@@ -1428,11 +1467,12 @@ function aiSpot:draw()
             self.previewNPCAppearanceSearch,
             previewAppOptions,
             250,
+            true,
             true
         )
         style.tooltip(#self.apps > 0
-            and "Appearance used when spawning the preview NPC in this workspot."
-            or "No cached appearances yet for this character record. 'default' will be used until loaded.")
+            and "Appearance used when spawning the preview NPC in this workspot. You can also type one and choose 'Use custom: ...'."
+            or "No cached appearances yet for this character record. 'default' will be used until loaded, but you can still use a custom value.")
         if changed then
             self:respawn()
         end

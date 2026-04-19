@@ -114,12 +114,12 @@ local function resolvePreferredOption(selected, options, fallback)
     end
 
     local cleanSelected = sanitizeValue(selected)
-    if #options == 0 then
-        return cleanFallback
+    if cleanSelected ~= "" then
+        return cleanSelected
     end
 
-    if cleanSelected ~= "" and utils.indexValue(options, cleanSelected) ~= -1 then
-        return cleanSelected
+    if #options == 0 then
+        return cleanFallback
     end
 
     if utils.indexValue(options, cleanFallback) ~= -1 then
@@ -501,9 +501,9 @@ function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
 
         local searchKey = string.format("%s|%s|%s", tostring(entryKey), tostring(phaseKey), tostring(appKey))
         local search = self.phaseAppearanceSearch[searchKey] or ""
-        local options = copyList(baseAppearanceOptions)
-        local fallbackAppearance = getPreferredAppearanceOption(options)
-        local currentValue = resolvePreferredOption(phase.appearances[appKey], options, fallbackAppearance)
+        local fallbackAppearance = getPreferredAppearanceOption(baseAppearanceOptions)
+        local currentValue = resolvePreferredOption(phase.appearances[appKey], baseAppearanceOptions, fallbackAppearance)
+        local options = buildSelectorOptions(baseAppearanceOptions, currentValue)
         phase.appearances[appKey] = currentValue
         phase.appearances[appKey], search, _ = style.trackedSearchDropdown(
             self.object,
@@ -513,12 +513,13 @@ function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
             search,
             options,
             style.getMaxWidth(220) - 110,
+            true,
             true
         )
         self.phaseAppearanceSearch[searchKey] = search
         style.tooltip(loaded
-            and "Select an appearance from the selected character record."
-            or "Appearances are loading for the selected character record. 'default' is available until the list is cached.")
+            and "Select an appearance from the selected character record, or type one and choose 'Use custom: ...'."
+            or "Appearances are loading for the selected character record. 'default' is available until the list is cached. You can still use a custom value.")
 
         local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicateAppearance", "deleteAppearance")
         if duplicateClicked then
@@ -904,10 +905,11 @@ function community:drawEntries()
                 recordSearch,
                 recordOptions,
                 200,
+                true,
                 true
             )
             self.entryRecordSearch[entryKey] = recordSearch
-            style.tooltip("Select the character record (TweakDBID) for this community entry.")
+            style.tooltip("Select the character record (TweakDBID) for this community entry, or type one and choose 'Use custom: ...'.")
 
             ImGui.SameLine()
             if drawIconActionButton(IconGlyphs.CogOutline, "entrySettings", nil) then

@@ -909,15 +909,17 @@ end
 ---@param options table List of selectable values.
 ---@param width number? Combo width in unscaled style units (default `100`).
 ---@param matchContentWidth boolean? When true, popup max width expands up to the longest option text.
+---@param allowCustom boolean? When true, allows selecting typed search text as a custom value.
 ---@return string value
 ---@return string searchValue
 ---@return boolean finished
-function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth)
+function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth, allowCustom)
     value = value or ""
     searchValue = searchValue or ""
     options = options or {}
     width = width or 100
     matchContentWidth = matchContentWidth == true
+    allowCustom = allowCustom == true
 
     local finished = false
     local selectedValue = tostring(value)
@@ -944,34 +946,54 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
         style.pushButtonNoBG(false)
 
         local xButton, _ = ImGui.GetItemRectSize()
+        local customValue = tostring(searchValue or "")
+        customValue = customValue:gsub("^%s+", ""):gsub("%s+$", "")
+        customValue = customValue:gsub("[\128-\255]", "")
+        local showCustomOption = allowCustom and customValue ~= "" and utils.indexValue(options, customValue) == -1
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
-            for _, option in pairs(options) do
-                local optionText = tostring(option)
-                if utils.safePatternMatch(optionText:lower(), searchValue:lower()) then
-                    local selected = optionText == selectedValue
-                    if selected then
-                        local rowX, rowY = ImGui.GetCursorScreenPos()
-                        local rowWidth = ImGui.GetContentRegionAvail()
-                        local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
-                        local drawList = ImGui.GetWindowDrawList()
-                        ImGui.ImDrawListAddRectFilled(
-                            drawList,
-                            rowX,
-                            rowY - (0.5 * ImGui.GetStyle().FramePadding.y),
-                            rowX + rowWidth,
-                            rowY + rowHeight,
-                            style.selectedColor,
-                            3 * style.viewSize
-                        )
+            if showCustomOption then
+                if ImGui.Selectable("Use custom: " .. customValue) then
+                    if element then
+                        history.addAction(history.getElementChange(element))
                     end
+                    value = customValue
+                    finished = true
+                    ImGui.CloseCurrentPopup()
+                end
+                if next(options) ~= nil then
+                    ImGui.Separator()
+                end
+            end
 
-                    if ImGui.Selectable(optionText) then
-                        if element then
-                            history.addAction(history.getElementChange(element))
+            if not finished then
+                for _, option in pairs(options) do
+                    local optionText = tostring(option)
+                    if utils.safePatternMatch(optionText:lower(), searchValue:lower()) then
+                        local selected = optionText == selectedValue
+                        if selected then
+                            local rowX, rowY = ImGui.GetCursorScreenPos()
+                            local rowWidth = ImGui.GetContentRegionAvail()
+                            local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
+                            local drawList = ImGui.GetWindowDrawList()
+                            ImGui.ImDrawListAddRectFilled(
+                                drawList,
+                                rowX,
+                                rowY - (0.5 * ImGui.GetStyle().FramePadding.y),
+                                rowX + rowWidth,
+                                rowY + rowHeight,
+                                style.selectedColor,
+                                3 * style.viewSize
+                            )
                         end
-                        value = optionText
-                        finished = true
-                        ImGui.CloseCurrentPopup()
+
+                        if ImGui.Selectable(optionText) then
+                            if element then
+                                history.addAction(history.getElementChange(element))
+                            end
+                            value = optionText
+                            finished = true
+                            ImGui.CloseCurrentPopup()
+                        end
                     end
                 end
             end
