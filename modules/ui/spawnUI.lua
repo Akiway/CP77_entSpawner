@@ -120,6 +120,9 @@ local AMM = nil
 ---@field lightSuppressionTargetsCache table?
 ---@field lightSuppressionTargetsCacheEpoch number
 ---@field activeLightSuppressionStates table
+---@field flashlightSuppressionComponent IComponent?
+---@field flashlightSuppressionCaptured boolean
+---@field flashlightSuppressionPreviousOverride number?
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -147,6 +150,9 @@ spawnUI = {
     lightSuppressionTargetsCache = nil,
     lightSuppressionTargetsCacheEpoch = -1,
     activeLightSuppressionStates = {},
+    flashlightSuppressionComponent = nil,
+    flashlightSuppressionCaptured = false,
+    flashlightSuppressionPreviousOverride = nil,
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -307,6 +313,83 @@ local function setComponentEnabled(component, enabled)
     end)
 end
 
+---Returns the `flashlight` mod logic table when available.
+---Uses nil-safe checks because this integration is optional.
+---@return table?
+local function getExternalFlashlightLogic()
+    local flashlightMod = GetMod("flashlight")
+    if not flashlightMod or not flashlightMod.logic then
+        return nil
+    end
+
+    return flashlightMod.logic
+end
+
+---Returns the external flashlight light component if it can be resolved safely.
+---Falls back to `nil` when the mod is missing, unloaded, or errors.
+---@return IComponent?
+local function getExternalFlashlightComponent()
+    local flashlightLogic = getExternalFlashlightLogic()
+    if not flashlightLogic or type(flashlightLogic.getComponent) ~= "function" then
+        return nil
+    end
+
+    local okComponent, component = pcall(flashlightLogic.getComponent)
+    if not okComponent then
+        return nil
+    end
+
+    return component
+end
+
+---Suppresses light contribution from the external flashlight mod while preview is active.
+---Primary path sets `brightnessOverride = 0` in flashlight logic, matching how the mod computes light.
+---A component-level `SetStrength(0)` call is kept as defensive fallback.
+local function suppressExternalFlashlightDuringPreview()
+    local flashlightLogic = getExternalFlashlightLogic()
+    if flashlightLogic then
+        if not spawnUI.flashlightSuppressionCaptured then
+            spawnUI.flashlightSuppressionCaptured = true
+            spawnUI.flashlightSuppressionPreviousOverride = flashlightLogic.brightnessOverride
+        end
+
+        flashlightLogic.brightnessOverride = 0
+    end
+
+    local component = spawnUI.flashlightSuppressionComponent
+    if not component then
+        component = getExternalFlashlightComponent()
+    end
+
+    if not component then
+        spawnUI.flashlightSuppressionComponent = nil
+        return
+    end
+
+    local okSuppressed = pcall(function ()
+        component:SetStrength(0)
+    end)
+
+    if okSuppressed then
+        spawnUI.flashlightSuppressionComponent = component
+    else
+        spawnUI.flashlightSuppressionComponent = nil
+    end
+end
+
+---Restores external flashlight state after preview is hidden.
+---Only restores `brightnessOverride` if WB captured an original value when suppression began.
+local function restoreExternalFlashlightAfterPreview()
+    local flashlightLogic = getExternalFlashlightLogic()
+    if flashlightLogic and spawnUI.flashlightSuppressionCaptured then
+        flashlightLogic.brightnessOverride = spawnUI.flashlightSuppressionPreviousOverride
+    end
+
+    spawnUI.flashlightSuppressionComponent = nil
+    spawnUI.flashlightSuppressionCaptured = false
+    spawnUI.flashlightSuppressionPreviousOverride = nil
+end
+
 ---@return table
 local function buildLightSuppressionTargets()
     local targets = {}
@@ -366,6 +449,9 @@ function spawnUI.setAssetPreviewActive(state)
 
     if shouldBeActive then
         spawnUI.activeLightSuppressionStates = {}
+        spawnUI.flashlightSuppressionComponent = nil
+        spawnUI.flashlightSuppressionCaptured = false
+        spawnUI.flashlightSuppressionPreviousOverride = nil
 
         for _, target in ipairs(spawnUI.getLightSuppressionTargets()) do
             local stateEntry = {
@@ -394,6 +480,8 @@ function spawnUI.setAssetPreviewActive(state)
             table.insert(spawnUI.activeLightSuppressionStates, stateEntry)
         end
 
+        suppressExternalFlashlightDuringPreview()
+
         return
     end
 
@@ -414,6 +502,7 @@ function spawnUI.setAssetPreviewActive(state)
     end
 
     spawnUI.activeLightSuppressionStates = {}
+    restoreExternalFlashlightAfterPreview()
 end
 
 function spawnUI.stopActiveAssetPreview()
@@ -478,6 +567,10 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
 end
 
 function spawnUI.updateAssetPreview()
+    if spawnUI.assetPreviewActive then
+        suppressExternalFlashlightDuringPreview()
+    end
+
     if spawnUI.previewInstance and spawnUI.previewInstance:isSpawned() then
         spawnUI.previewInstance:assetPreviewSetPosition()
     end
