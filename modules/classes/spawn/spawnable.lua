@@ -114,7 +114,7 @@ function spawnable:new()
     o.outline = 0
 
     o.assetPreviewType = "none"
-    o.assetPreviewDelay = 0.2
+    o.assetPreviewDelay = 0.1
     o.isAssetPreview = false
     o.assetPreviewLensDistortion = false
 

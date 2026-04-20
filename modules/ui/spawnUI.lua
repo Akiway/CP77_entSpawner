@@ -116,6 +116,10 @@ local AMM = nil
 ---@field previewInstance spawnable?
 ---@field previewTimer number?
 ---@field hoveredEntry table?
+---@field assetPreviewActive boolean
+---@field lightSuppressionTargetsCache table?
+---@field lightSuppressionTargetsCacheEpoch number
+---@field activeLightSuppressionStates table
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -139,6 +143,10 @@ spawnUI = {
     previewInstance = nil,
     previewTimer = nil,
     hoveredEntry = nil,
+    assetPreviewActive = false,
+    lightSuppressionTargetsCache = nil,
+    lightSuppressionTargetsCacheEpoch = -1,
+    activeLightSuppressionStates = {},
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -253,19 +261,181 @@ function spawnUI.updateVariant()
     spawnUI.refresh()
 end
 
+local LIGHT_MODULE_PATH = "light/light"
+local DEFAULT_HOVER_PREVIEW_DEBOUNCE_SECONDS = 0.1
+local LIGHT_VISUALIZER_COMPONENT_NAMES = {
+    "box",
+    "sphere",
+    "cone",
+    "cone_inner",
+    "capsule_body",
+    "capsule_top",
+    "capsule_bottom",
+    "mesh",
+    "mesh_inner",
+    "radius_sphere",
+    "arrows"
+}
+
+---@param component IComponent?
+---@return boolean
+local function getComponentEnabledState(component)
+    if not component then
+        return false
+    end
+
+    local okEnabled, isEnabled = pcall(function ()
+        return component:IsEnabled()
+    end)
+
+    return okEnabled and isEnabled == true
+end
+
+---@param component IComponent?
+---@param enabled boolean
+local function setComponentEnabled(component, enabled)
+    if not component then
+        return
+    end
+
+    if getComponentEnabledState(component) == enabled then
+        return
+    end
+
+    pcall(function ()
+        component:Toggle(enabled)
+    end)
+end
+
+---@return table
+local function buildLightSuppressionTargets()
+    local targets = {}
+    if not spawnUI.spawnedUI or not spawnUI.spawnedUI.root then
+        return targets
+    end
+
+    for _, entry in ipairs(spawnUI.spawnedUI.root:getPathsRecursive(true)) do
+        local ref = entry.ref
+        if utils.isA(ref, "spawnableElement") and ref.spawnable and ref.spawnable.modulePath == LIGHT_MODULE_PATH then
+            local entity = ref.spawnable:getEntity()
+            if entity then
+                local target = {
+                    spawnable = ref.spawnable,
+                    lightComponent = entity:FindComponentByName("light"),
+                    visualizerComponents = {}
+                }
+
+                for _, componentName in ipairs(LIGHT_VISUALIZER_COMPONENT_NAMES) do
+                    local component = entity:FindComponentByName(componentName)
+                    if component then
+                        table.insert(target.visualizerComponents, component)
+                    end
+                end
+
+                table.insert(targets, target)
+            end
+        end
+    end
+
+    return targets
+end
+
+---@return table
+function spawnUI.getLightSuppressionTargets()
+    local epoch = -1
+    if spawnUI.spawnedUI then
+        epoch = spawnUI.spawnedUI.cacheEpoch or -1
+    end
+
+    if not spawnUI.lightSuppressionTargetsCache or spawnUI.lightSuppressionTargetsCacheEpoch ~= epoch then
+        spawnUI.lightSuppressionTargetsCache = buildLightSuppressionTargets()
+        spawnUI.lightSuppressionTargetsCacheEpoch = epoch
+    end
+
+    return spawnUI.lightSuppressionTargetsCache
+end
+
+---@param state boolean
+function spawnUI.setAssetPreviewActive(state)
+    local shouldBeActive = state == true
+    if spawnUI.assetPreviewActive == shouldBeActive then
+        return
+    end
+
+    spawnUI.assetPreviewActive = shouldBeActive
+
+    if shouldBeActive then
+        spawnUI.activeLightSuppressionStates = {}
+
+        for _, target in ipairs(spawnUI.getLightSuppressionTargets()) do
+            local stateEntry = {
+                target = target,
+                lightSuppressed = false,
+                lightWasEnabled = false,
+                visualizerWasEnabled = {}
+            }
+
+            if target.lightComponent and target.spawnable and target.spawnable.cameraFollowEnabled == true then
+                stateEntry.lightSuppressed = true
+                stateEntry.lightWasEnabled = getComponentEnabledState(target.lightComponent)
+                if stateEntry.lightWasEnabled then
+                    setComponentEnabled(target.lightComponent, false)
+                end
+            end
+
+            for idx, component in ipairs(target.visualizerComponents) do
+                local wasEnabled = getComponentEnabledState(component)
+                stateEntry.visualizerWasEnabled[idx] = wasEnabled
+                if wasEnabled then
+                    setComponentEnabled(component, false)
+                end
+            end
+
+            table.insert(spawnUI.activeLightSuppressionStates, stateEntry)
+        end
+
+        return
+    end
+
+    for _, stateEntry in ipairs(spawnUI.activeLightSuppressionStates) do
+        local target = stateEntry.target
+        if stateEntry.lightSuppressed and target and target.lightComponent then
+            setComponentEnabled(target.lightComponent, stateEntry.lightWasEnabled)
+        end
+
+        if target and target.visualizerComponents then
+            for idx, component in ipairs(target.visualizerComponents) do
+                local wasEnabled = stateEntry.visualizerWasEnabled[idx]
+                if wasEnabled ~= nil then
+                    setComponentEnabled(component, wasEnabled)
+                end
+            end
+        end
+    end
+
+    spawnUI.activeLightSuppressionStates = {}
+end
+
+function spawnUI.stopActiveAssetPreview()
+    if spawnUI.previewTimer then
+        Cron.Halt(spawnUI.previewTimer)
+        spawnUI.previewTimer = nil
+    end
+
+    if spawnUI.previewInstance then
+        spawnUI.previewInstance:assetPreview(false)
+    end
+
+    spawnUI.setAssetPreviewActive(false)
+end
+
 ---@param entry table|favorite
 ---@param isFavorite boolean
 function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
     if spawnUI.hoveredEntry ~= entry then
-        if spawnUI.previewInstance then
-            spawnUI.previewInstance:assetPreview(false)
-        end
+        spawnUI.stopActiveAssetPreview()
 
         spawnUI.hoveredEntry = entry
-
-        if spawnUI.previewTimer then
-            Cron.Halt(spawnUI.previewTimer)
-        end
 
         local assetPreviewType = spawnUI.getActiveSpawnList().assetPreviewType
         local assetPreviewDelay = spawnUI.getActiveSpawnList().assetPreviewDelay
@@ -281,7 +451,8 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
 
         if assetPreviewType == "none" then return end
 
-        spawnUI.previewTimer = Cron.After(assetPreviewDelay, function ()
+        local previewDelay = assetPreviewDelay or DEFAULT_HOVER_PREVIEW_DEBOUNCE_SECONDS
+        spawnUI.previewTimer = Cron.After(previewDelay, function ()
             spawnUI.previewTimer = nil
             if not spawnUI.hoveredEntry then return end
 
@@ -301,6 +472,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
 
             spawnUI.previewInstance:assetPreview(true)
+            spawnUI.setAssetPreviewActive(true)
         end)
     end
 end
@@ -541,13 +713,9 @@ function spawnUI.drawAll()
             end
             if ImGui.IsItemHovered() and settings.assetPreviewEnabled[spawnUI.getActiveSpawnList().modulePath] then
                 spawnUI.handleAssetPreviewHovered(entry, false)
-            elseif spawnUI.hoveredEntry == entry and spawnUI.previewInstance then
+            elseif spawnUI.hoveredEntry == entry and (spawnUI.previewInstance or spawnUI.previewTimer) then
                 spawnUI.hoveredEntry = nil
-                if spawnUI.previewTimer then
-                    Cron.Halt(spawnUI.previewTimer)
-                else
-                    spawnUI.previewInstance:assetPreview(false)
-                end
+                spawnUI.stopActiveAssetPreview()
             end
             if settings.spawnUIOnlyNames then
                 style.tooltip(entry.name)
@@ -580,11 +748,7 @@ function spawnUI.drawAll()
     end
 
     if #spawnUI.filteredList == 0 then
-        if spawnUI.previewTimer then
-            Cron.Halt(spawnUI.previewTimer)
-        elseif spawnUI.previewInstance then
-            spawnUI.previewInstance:assetPreview(false)
-        end
+        spawnUI.stopActiveAssetPreview()
     end
 
     ImGui.EndChild()
@@ -609,14 +773,10 @@ function spawnUI.draw()
 end
 
 function spawnUI.hidden()
-    if not spawnUI.previewInstance then return end
+    if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive then return end
 
     spawnUI.hoveredEntry = nil
-    if spawnUI.previewTimer then
-        Cron.Halt(spawnUI.previewTimer)
-    else
-        spawnUI.previewInstance:assetPreview(false)
-    end
+    spawnUI.stopActiveAssetPreview()
 end
 
 function spawnUI.getSpawnNewPosition()
@@ -694,12 +854,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
     }
 
     -- Cleanup preview
-    if spawnUI.previewTimer then
-        Cron.Halt(spawnUI.previewTimer)
-    end
-    if spawnUI.previewInstance then
-        spawnUI.previewInstance:assetPreview(false)
-    end
+    spawnUI.stopActiveAssetPreview()
 
     local parent = spawnUI.spawnedUI.root
     if spawnUI.selectedGroup ~= 0 and spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup] then

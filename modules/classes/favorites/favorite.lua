@@ -2,7 +2,6 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
-local Cron = require("modules/utils/Cron")
 
 ---@class favorite
 ---@field name string
@@ -220,13 +219,9 @@ function favorite:draw(context)
     -- Asset preview
     if self.data.modulePath == "modules/classes/editor/spawnableElement" and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
-    elseif self.spawnUI.hoveredEntry == self and self.spawnUI.previewInstance then
+    elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer) then
         self.spawnUI.hoveredEntry = nil
-        if self.spawnUI.previewTimer then
-            Cron.Halt(self.spawnUI.previewTimer)
-        else
-            self.spawnUI.previewInstance:assetPreview(false)
-        end
+        self.spawnUI.stopActiveAssetPreview()
     end
 
 	context.row = context.row + 1
