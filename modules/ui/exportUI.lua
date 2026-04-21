@@ -107,7 +107,7 @@ end
 local function drawVariantsTooltip()
     ImGui.SameLine()
     ImGui.Text(IconGlyphs.InformationOutline)
-    style.tooltip("All objects placed within the root of the group will be part of the default variant\nYou can assign to each group what variant they should belong to")
+    style.tooltip("All objects placed within the root of the group will be part of the default variant\nLeave variant name empty (or set it to \"default\") to treat it as default/non-variant")
 end
 
 ---@param name string
@@ -139,7 +139,7 @@ local function buildVariantDataFromBlob(blob, existingVariantData)
         if isSerializedGroupEntry(child) and child.name then
             local existing = existingVariantData and existingVariantData[child.name]
             variants[child.name] = {
-                name = existing and existing.name or "default",
+                name = existing and existing.name or "",
                 ref = existing and existing.ref or "",
                 defaultOn = existing == nil or existing.defaultOn ~= false
             }
@@ -147,6 +147,42 @@ local function buildVariantDataFromBlob(blob, existingVariantData)
     end
 
     return variants
+end
+
+---@param variantName string?
+---@return string, boolean
+local function normalizeVariantName(variantName)
+    local normalized = tostring(variantName or "")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if normalized == "" or normalized:lower() == "default" then
+        return "default", true
+    end
+
+    return normalized, false
+end
+
+---@param variantData table?
+---@return string[]
+local function getSortedVariantGroupNames(variantData)
+    local names = {}
+
+    for name, _ in pairs(variantData or {}) do
+        table.insert(names, name)
+    end
+
+    table.sort(names, function(a, b)
+        local aName = tostring(a or ""):lower()
+        local bName = tostring(b or ""):lower()
+
+        if aName == bName then
+            return tostring(a or "") < tostring(b or "")
+        end
+
+        return aName < bName
+    end)
+
+    return names
 end
 
 ---@param blob table?
@@ -295,51 +331,73 @@ function exportUI.drawGroups()
                 ImGui.PopStyleVar()
 
                 if not exportUI.sectorPropertiesWidth then
-                    exportUI.sectorPropertiesWidth = utils.getTextMaxWidth({ "Group file name", "Sector Category", "Sector Level" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+                    exportUI.sectorPropertiesWidth = utils.getTextMaxWidth({ "Sector Category", "Sector Level" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
                 end
 
                 if ImGui.TreeNodeEx("Variants", ImGuiTreeNodeFlags.SpanFullWidth) then
                     drawVariantsTooltip()
 
+                    local baseCursorX = ImGui.GetCursorPosX()
                     style.mutedText("Variant Node Ref")
                     ImGui.SameLine()
                     group.variantRef = ImGui.InputTextWithHint('##variantRef', '$/#foobar', group.variantRef, 100)
 
-                    for name, _ in pairs(group.variantData) do
-                        ImGui.PushID(name)
-                        ImGui.SetNextItemWidth(100 * style.viewSize)
-                        group.variantData[name].name = ImGui.InputTextWithHint('##variantName', 'default', group.variantData[name].name, 100)
-                        ImGui.SameLine()
-                        ImGui.SetNextItemWidth(185 * style.viewSize)
-                        local default = group.variantData[name].name == "default"
-                        style.pushGreyedOut(default)
-                        group.variantData[name].defaultOn, changed = ImGui.Checkbox("Default On", group.variantData[name].defaultOn)
-                        style.popGreyedOut(default)
-                        if default then
-                            group.variantData[name].defaultOn = true
-                        end
-                        if changed and not default then
-                            for variant, _ in pairs(group.variantData) do
-                                if group.variantData[variant].name == group.variantData[name].name then
-                                    group.variantData[variant].defaultOn = group.variantData[name].defaultOn
+                    style.mutedText("Variant name")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(baseCursorX + 100 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    style.mutedText("Default state")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    style.mutedText("Group name")
+                    ImGui.Separator()
+
+
+                    for _, name in ipairs(getSortedVariantGroupNames(group.variantData)) do
+                        local variantData = group.variantData[name]
+
+                        if variantData ~= nil then
+                            ImGui.PushID(name)
+                            ImGui.SetNextItemWidth(100 * style.viewSize)
+                            local previousName = variantData.name or ""
+                            local _, previousIsDefaultName = normalizeVariantName(previousName)
+                            variantData.name = ImGui.InputTextWithHint('##variantName', 'default', variantData.name, 100)
+                            ImGui.SameLine()
+                            local normalizedName, isDefaultName = normalizeVariantName(variantData.name)
+                            local changed = false
+                            ImGui.BeginDisabled(isDefaultName)
+                            variantData.defaultOn, changed = style.toggleButton(IconGlyphs.EyeOutline, variantData.defaultOn)
+                            ImGui.SameLine()
+                            ImGui.Text(variantData.defaultOn and "Visible" or "Hidden")
+                            ImGui.EndDisabled()
+                            if isDefaultName then
+                                variantData.defaultOn = true
+                            elseif previousName ~= variantData.name and previousIsDefaultName then
+                                -- If the name was changed from default/non-variant, toggle off defaultOn
+                                variantData.defaultOn = false
+                                changed = true
+                            end
+                            if changed and not isDefaultName then
+                                for variant, _ in pairs(group.variantData) do
+                                    local siblingName = group.variantData[variant] and group.variantData[variant].name
+                                    local siblingNormalizedName, siblingIsDefaultName = normalizeVariantName(siblingName)
+                                    if not siblingIsDefaultName and siblingNormalizedName == normalizedName then
+                                        group.variantData[variant].defaultOn = variantData.defaultOn
+                                    end
                                 end
                             end
-                        end
-                        ImGui.SameLine()
-                        style.mutedText(name)
+                            ImGui.SameLine()
+                            ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                            style.mutedText(name)
 
-                        ImGui.PopID()
+                            ImGui.PopID()
+                        end
                     end
 
+                    ImGui.Dummy(0, 4 * style.viewSize)
                     ImGui.TreePop()
                 else
                     drawVariantsTooltip()
                 end
-
-                style.mutedText("Group file name")
-                ImGui.SameLine()
-                ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
-                ImGui.Text(group.name)
 
                 style.mutedText("Sector Category")
                 style.tooltip("Select the type of the sector for the group, if in doubt use Interior or Exterior")
@@ -458,6 +516,7 @@ function exportUI.drawGroups()
                     table.remove(exportUI.groups, key)
                 end
 
+                ImGui.Dummy(0, 4 * style.viewSize)
                 ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
                 ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
                 ImGui.TreePop()
@@ -1582,9 +1641,11 @@ function exportUI.exportGroup(group)
 
     -- Group and bring the nodes in order, based on their variant, starting with default
     for groupName, variant in pairs(group.variantData) do
-        if not variantNodes[variant.name] then
-            variantNodes[variant.name] = {}
-            variantInfo[variant.name] = {
+        local variantName = normalizeVariantName(variant.name)
+
+        if not variantNodes[variantName] then
+            variantNodes[variantName] = {}
+            variantInfo[variantName] = {
                 defaultOn = variant.defaultOn
             }
         end
@@ -1593,7 +1654,7 @@ function exportUI.exportGroup(group)
         if node then
             for _, entry in pairs(node:getPathsRecursive(false)) do
                 if utils.isA(entry.ref, "spawnableElement") and not entry.ref.spawnable.noExport and shouldExportNode(entry.ref) then
-                    table.insert(variantNodes[variant.name], entry)
+                    table.insert(variantNodes[variantName], entry)
                 end
             end
         end

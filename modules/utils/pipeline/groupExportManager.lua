@@ -236,6 +236,19 @@ local function shouldExportNode(runtime, node)
     return true
 end
 
+---@param variantName string?
+---@return string, boolean
+local function normalizeVariantName(variantName)
+    local normalized = tostring(variantName or "")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if normalized == "" or normalized:lower() == "default" then
+        return "default", true
+    end
+
+    return normalized, false
+end
+
 local function prepareCurrentGroupForExport(runtime)
     local current = runtime.current
     if not current or not current.root then
@@ -281,16 +294,16 @@ local function prepareCurrentGroupForExport(runtime)
     local variantSeen = {}
 
     for _, variant in pairs(group.variantData or {}) do
-        local variantName = variant.name or "default"
+        local variantName, isDefaultVariant = normalizeVariantName(variant.name)
         if not variantNodes[variantName] then
             variantNodes[variantName] = {}
         end
         if not variantInfo[variantName] then
             variantInfo[variantName] = {
-                defaultOn = variant.defaultOn
+                defaultOn = variant and variant.defaultOn
             }
         end
-        if variantName ~= "default" and not variantSeen[variantName] then
+        if not isDefaultVariant and not variantSeen[variantName] then
             variantSeen[variantName] = true
             table.insert(variantOrder, variantName)
         end
@@ -304,7 +317,7 @@ local function prepareCurrentGroupForExport(runtime)
                 local top = getTopRootChild(root, node)
                 local variant = top and group.variantData and group.variantData[top.name]
                 if variant then
-                    local variantName = variant.name or "default"
+                    local variantName = normalizeVariantName(variant and variant.name)
                     if not variantNodes[variantName] then
                         variantNodes[variantName] = {}
                     end
