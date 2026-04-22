@@ -1952,6 +1952,84 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
     end
 end
 
+---@param component table
+---@return string
+local function getComponentDisplayName(component)
+    if type(component) ~= "table" then
+        return "Entity"
+    end
+
+    if component.name and component.name["$value"] then
+        return tostring(component.name["$value"])
+    end
+
+    return "Entity"
+end
+
+---@param componentKey string|number
+---@param componentName string
+---@return number
+local function getComponentSortPriority(componentKey, componentName)
+    local normalizedName = string.lower(componentName)
+    local normalizedKey = string.lower(tostring(componentKey))
+
+    if normalizedKey == "0" or normalizedName == "entity" then
+        return 0
+    end
+
+    if normalizedName == "controller" then
+        return 1
+    end
+
+    return 2
+end
+
+---Builds sorted component entries for the Spawned tab component list.
+---@return table
+function entity:getSortedComponents()
+    local entries = {}
+
+    for key, component in pairs(self.defaultComponentData) do
+        if type(component) ~= "table" then
+            component = {}
+        end
+
+        local componentName = getComponentDisplayName(component)
+        local componentType = tostring(component["$type"] or "Unknown")
+
+        table.insert(entries, {
+            key = key,
+            component = component,
+            componentName = componentName,
+            componentType = componentType,
+            name = componentType .. " | " .. componentName,
+            priority = getComponentSortPriority(key, componentName)
+        })
+    end
+
+    table.sort(entries, function(a, b)
+        if a.priority ~= b.priority then
+            return a.priority < b.priority
+        end
+
+        local aType = string.lower(a.componentType)
+        local bType = string.lower(b.componentType)
+        if aType ~= bType then
+            return aType < bType
+        end
+
+        local aName = string.lower(a.componentName)
+        local bName = string.lower(b.componentName)
+        if aName ~= bName then
+            return aName < bName
+        end
+
+        return string.lower(tostring(a.key)) < string.lower(tostring(b.key))
+    end)
+
+    return entries
+end
+
 function entity:drawInstanceData()
     local nDefaultData = utils.tableLength(self.defaultComponentData)
     if nDefaultData <= 1 then
@@ -1980,12 +2058,16 @@ function entity:drawInstanceData()
         style.pushButtonNoBG(false)
     end
 
-    for key, component in pairs(self.defaultComponentData) do
-        local name = component["$type"]
-        local componentName = (component.name and component.name["$value"] or "Entity")
-        name = name .. " | " .. componentName
+    local search = self.instanceDataSearch:lower()
+    for _, entry in ipairs(self:getSortedComponents()) do
+        local key = entry.key
+        local component = entry.component
+        local componentName = entry.componentName
+        local name = entry.name
 
-        if self.instanceDataSearch == "" or (componentName:lower():match(self.instanceDataSearch:lower()) or name:lower():match(self.instanceDataSearch:lower())) ~= nil then
+        if self.instanceDataSearch == ""
+            or string.find(componentName:lower(), search, 1, true) ~= nil
+            or string.find(name:lower(), search, 1, true) ~= nil then
             style.pushStyleColor(not self.instanceDataChanges[key], ImGuiCol.Text, style.mutedColor)
 
             local expanded = false
