@@ -53,6 +53,7 @@ function device:new()
     o.maxPropertyWidth = nil
     o.controllerComponent = ""
     o.showPositionMarker = false
+    o.showDoorsHelper = true
 
     setmetatable(o, { __index = self })
    	return o
@@ -102,6 +103,7 @@ function device:save()
     data.persistent = self.persistent
     data.controllerComponent = self.controllerComponent
     data.showPositionMarker = self.showPositionMarker
+    data.showDoorsHelper = self.showDoorsHelper
 
     return data
 end
@@ -258,6 +260,13 @@ function device:getProperties()
                 self:respawn()
             end
             style.tooltip("Draw a sphere marker at the entity position.")
+
+            if self.deviceClassName == "LiftControllerPS" then
+                style.mutedText("Show doors helper")
+                ImGui.SameLine()
+                self.showDoorsHelper, _ = style.trackedCheckbox(self.object, "##showDoorsHelperDevice", self.showDoorsHelper)
+                style.tooltip("Draw numbered door helper markers around the lift.")
+            end
         end
     })
     return properties

@@ -24,6 +24,15 @@ local projectedWireframe = {}
 ---@field fadeLimit number|nil Max edge alpha fade factor over distance.
 ---@field minFrontAlpha integer|nil Minimum alpha for front edges after fade.
 ---@field minBackAlpha integer|nil Minimum alpha for back edges after fade.
+---@class projectedWireframeMarkerOptions
+---@field color integer|nil Marker fill/badge background color.
+---@field labelColor integer|nil Marker inner dot and text color.
+---@field text string|number|nil Optional badge text displayed near the marker.
+---@field radius number|nil Outer marker radius in pixels.
+---@field innerRadius number|nil Inner marker radius in pixels.
+---@field badgeOffsetY number|nil Vertical offset for badge placement.
+---@field fontRatio number|nil Text size multiplier relative to overlay font size.
+---@field clampToScreen boolean|nil When true, marker is clamped to screen bounds.
 
 local cubeEdgeVertices = {
     { 1, 2 }, { 2, 4 }, { 3, 4 }, { 1, 3 },
@@ -346,6 +355,39 @@ end
 ---Ends the overlay window started by `beginOverlay`.
 function projectedWireframe.endOverlay()
     ImGui.End()
+end
+
+---Draws a projected world-space marker with optional badge text.
+---@param drawList table ImGui draw list obtained from `beginOverlay`.
+---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.
+---@param position Vector4 Marker world-space position.
+---@param options projectedWireframeMarkerOptions|nil Rendering options.
+---@return boolean drawn True when marker was projected and rendered.
+function projectedWireframe.drawWorldMarker(drawList, screen, position, options)
+    options = options or {}
+
+    local markerColor = options.color or 0xFF0000FF
+    local labelColor = options.labelColor or 0xFFDCD8D1
+    local text = options.text
+    local radius = options.radius or 5
+    local innerRadius = options.innerRadius or math.max(1, radius * 0.6)
+    local badgeOffsetY = options.badgeOffsetY or -12
+    local fontRatio = options.fontRatio or 0.8
+    local clampToScreen = options.clampToScreen ~= false
+
+    local origin = clampToScreen and projectWorldPointClamped(screen, position) or projectWorldPoint(screen, position)
+    if not origin or origin.behind then
+        return false
+    end
+
+    drawCircle(drawList, origin, markerColor, radius)
+    drawCircle(drawList, origin, labelColor, innerRadius)
+
+    if text ~= nil and tostring(text) ~= "" then
+        drawBadge(drawList, screen, origin, tostring(text), true, badgeOffsetY, markerColor, labelColor, fontRatio)
+    end
+
+    return true
 end
 
 ---Draws an oriented 3D box projected to screen-space with edge/fill fading and distance badge.
