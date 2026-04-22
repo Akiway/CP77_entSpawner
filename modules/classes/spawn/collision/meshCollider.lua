@@ -27,6 +27,7 @@ local colors = colliderGenerics.colors
 --- @field bBox table
 --- @field bBoxLoaded boolean
 --- @field apps table
+--- @field previewArchiveInstalled boolean
 --- @field previewed boolean
 --- @field maxPropertyWidth number
 local meshCollider = setmetatable({}, { __index = spawnable })
@@ -55,6 +56,7 @@ function meshCollider:new(spawnUI)
     o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
     o.bBoxLoaded = false
     o.apps = {}
+    o.previewArchiveInstalled = false
 
     o.previewed = true
     o.maxPropertyWidth = nil
@@ -67,6 +69,8 @@ end
 ---@param position Vector4
 ---@param rotation EulerAngles
 function meshCollider:loadSpawnData(data, position, rotation)
+    self.previewArchiveInstalled = ModArchiveExists("scc_collision.archive")
+
     if (data.scale) then
         self.scale = Vector3.new(data.scale.x, data.scale.y, data.scale.z)
     end
@@ -85,6 +89,12 @@ function meshCollider:loadSpawnData(data, position, rotation)
             self.shapeHash = split[2]
             self.meshType = split[3]
         end
+    end
+
+    if not self.previewArchiveInstalled then
+        self.previewed = false
+        self.spawnData = "base\\spawner\\empty_entity.ent"
+        return
     end
 
     if self.shapeHash then
@@ -137,6 +147,8 @@ end
 
 function meshCollider:onAssemble(entity)
     spawnable.onAssemble(self, entity)
+
+    if not self.previewArchiveInstalled then return end
 
     local component = entity:FindComponentByName("collision_mesh_0")
     if not component then
@@ -228,12 +240,22 @@ function meshCollider:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth({ "Preview Shape", "Collision Preset", "Collision Material" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
+    local noPreview = not self.previewArchiveInstalled
+
     style.mutedText("Preview Shape")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.trackedCheckbox(self.object, "##collisionPreview", self.previewed)
+    style.pushGreyedOut(noPreview)
+    self.previewed, changed = style.trackedCheckbox(self.object, "##collisionPreview", self.previewed, noPreview)
+    style.popGreyedOut(noPreview)
     if changed then
         visualizer.toggleAll(self:getEntity(), self.previewed)
+    end
+
+    if noPreview then
+        ImGui.SameLine()
+        style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
+        style.tooltip("Preview disabled due to missing scc_collision.archive\nIf you wish to have collision mesh previews, please download the optional \"Collision Mesh Preview\" archive and install it.")
     end
 
     style.mutedText("Collision Preset")

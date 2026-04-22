@@ -205,6 +205,10 @@ function spawnable:update()
     entity:SetWorldTransform(transform)
 end
 
+---@param finished boolean
+---@param delta Vector4
+function spawnable:updateScale(finished, delta) end
+
 function spawnable:onParentChanged(newParent) end
 
 function spawnable:onObjectRemoved() end
