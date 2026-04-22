@@ -83,6 +83,16 @@ end
 
 function device:onAssemble(entRef)
     entity.onAssemble(self, entRef)
+
+    for _, component in pairs(entRef:GetComponents()) do
+        if component:IsA("gameDeviceComponent") then
+            -- Is used to identify the correct component for the device, which is required for loading the persistent state of the device properly.
+            -- The component name is used as part of the key when storing the persistent state in the .psrep file, so it needs to be consistent and correctly set.
+            -- Otherwise the game will look for the wrong component in the .psrep file and fail to load it.
+            self.controllerComponent = component.name.value
+        end
+    end
+
     self:updatePositionMarker()
 end
 
