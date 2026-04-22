@@ -1,4 +1,8 @@
 local utils = require("modules/utils/utils")
+local settings = require("modules/utils/settings")
+local style = require("modules/ui/style")
+local history = require("modules/utils/history")
+local visualizer = require("modules/utils/visualizer")
 
 local colliderGenerics = {
     -- it's cursed, but I ain't scrolling to the end of the line for that
@@ -12,4 +16,169 @@ local colliderGenerics = {
 colliderGenerics.materials = utils.deepcopy(colliderGenerics.originalMaterials)
 table.sort(colliderGenerics.materials, function(a, b) return a < b end)
 
-return colliderGenerics
+local spawnable = require("modules/classes/spawn/spawnable")
+
+---Base class for colliders
+---@class colliderBase : spawnable
+---@field material number
+---@field preset number
+---@field previewed boolean
+---@field maxPropertyWidth number?
+local colliderBase = setmetatable({}, { __index = spawnable })
+
+function colliderBase:new()
+	local o = spawnable.new(self)
+
+    o.modulePath = "entity/colliderBase"
+    o.icon = IconGlyphs.TextureBox
+
+    o.material = settings.defaultColliderMaterial
+    o.preset = 33
+
+    o.previewed = true
+
+    setmetatable(o, { __index = self })
+   	return o
+end
+
+function colliderBase.getColliderGenerics()
+    return colliderGenerics
+end
+
+---Respawn the collider to update parameters, if changed
+---@param changed boolean
+---@protected
+function colliderBase:updateFull(changed)
+    if changed and self:isSpawned() then self:respawn() end
+end
+
+function colliderBase:draw()
+    spawnable.draw(self)
+
+    style.mutedText("Collision Preset")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.preset, changed = style.trackedCombo(self.object, "##preset", self.preset, colliderGenerics.presets, 125)
+    self:updateFull(changed)
+    style.tooltip(colliderGenerics.hints[self.preset + 1])
+
+    style.mutedText("Collision Material")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.material, changed = style.trackedCombo(self.object, "##material", self.material, colliderGenerics.materials, 200)
+    self:updateFull(changed)
+end
+
+function colliderBase:getProperties()
+    local properties = spawnable.getProperties(self)
+
+    table.insert(properties, {
+        id = self.node,
+        name = "Collider",
+        defaultHeader = true,
+        draw = function()
+            self:draw()
+        end
+    })
+
+    return properties
+end
+
+function colliderBase:getGroupedProperties()
+    local properties = spawnable.getGroupedProperties(self)
+
+    properties["visualization"] = {
+		name = "Visualization",
+        id = "colliderVisualization",
+		data = {},
+		draw = function(_, entries)
+            ImGui.Text("Collider")
+
+            ImGui.SameLine()
+
+            ImGui.PushID("collider")
+
+			if ImGui.Button("Off") then
+                history.addAction(history.getMultiSelectChange(entries))
+
+				for _, entry in ipairs(entries) do
+                    if entry.spawnable.node == "worldCollisionNode" then
+                        entry.spawnable.previewed = false
+                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                    end
+				end
+			end
+
+            ImGui.SameLine()
+
+            if ImGui.Button("On") then
+                history.addAction(history.getMultiSelectChange(entries))
+
+				for _, entry in ipairs(entries) do
+                    if entry.spawnable.node == "worldCollisionNode" then
+                        entry.spawnable.previewed = true
+                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                    end
+				end
+			end
+
+            ImGui.PopID()
+		end,
+		entries = { self.object }
+	}
+
+    properties["collider"] = {
+		name = "Collider",
+        id = "colliderMaterial",
+		data = {
+            material = settings.defaultColliderMaterial
+        },
+		draw = function(element, entries)
+            style.mutedText("Collision Material")
+            ImGui.SameLine()
+            ImGui.SetNextItemWidth(150 * style.viewSize)
+            element.groupOperationData["collider"].material, _ = ImGui.Combo("##collisionMaterial", element.groupOperationData["collider"].material, colliderGenerics.materials, #colliderGenerics.materials)
+
+            ImGui.SameLine()
+
+            if ImGui.Button("Apply") then
+                history.addAction(history.getMultiSelectChange(entries))
+                local nApplied = 0
+
+                for _, entry in ipairs(entries) do
+                    if entry.spawnable.node == self.node then
+                        entry.spawnable.material = element.groupOperationData["collider"].material
+                        entry.spawnable:updateFull(true)
+                        nApplied = nApplied + 1
+                    end
+                end
+
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Applied collision material to %s nodes", nApplied)))
+            end
+            style.tooltip("Apply the selected collision material to all selected colliders.")
+
+            if ImGui.Button("Fix Material Indices") then
+                history.addAction(history.getMultiSelectChange(entries))
+                local nApplied = 0
+
+                for _, entry in ipairs(entries) do
+                    if entry.spawnable.node == self.node then
+                        local oldMaterial = colliderGenerics.originalMaterials[entry.spawnable.material + 1]
+                        local newIndex = utils.indexValue(colliderGenerics.materials, oldMaterial) - 1
+                        entry.spawnable.material = newIndex
+                        entry.spawnable:updateFull(true)
+                        nApplied = nApplied + 1
+                    end
+                end
+
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Fixed collision material for %s nodes", nApplied)))
+            end
+            style.tooltip("Recalculates selected material indices, to fix an oversight with 1.0.7's material sorting\nIf you do not know what this means, ignore it.")
+        end,
+		entries = { self.object }
+	}
+
+    return properties
+end
+
+return colliderBase
