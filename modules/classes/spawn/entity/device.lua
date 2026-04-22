@@ -43,7 +43,7 @@ function device:new()
     o.description = "Spawns an entity (.ent), as a worldDeviceNode. This allows it to be connected to other worldDeviceNodes."
     o.previewNote = "Device connections / functionality is not previewed."
 
-    o.icon = IconGlyphs.DesktopClassic
+    o.icon = IconGlyphs.AlphaDBoxOutline
 
     o.deviceConnections = {}
     o.connectionNodeRefSearch = {}

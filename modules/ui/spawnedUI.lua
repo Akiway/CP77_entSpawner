@@ -2280,7 +2280,9 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
     style.pushStyleColor(isGettingDragged, ImGuiCol.Text, style.extraMutedColor)
 
-    local leftOffset = 25 * style.viewSize -- Accounts for icon
+    local primaryIcon = element.icon or ""
+    local secondaryIcon = element.secondaryIcon or ""
+    local leftOffset = 25 * style.viewSize -- Accounts for primary icon and/or expand button
     local hiddenText = not element.visible
     style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
     local projectTag = projectTagUtil.getRootGroupTag(element)
@@ -2291,10 +2293,28 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     local stateIconLeadPad = (#stateIcons > 0) and (STATE_ICON_GRID_PADDING * style.viewSize) or 0
     local rowMetaWidth = projectTagWidth + stateIconsWidth + projectTagLeadPad + stateIconLeadPad
 
-    -- Icon or expand button
-    if not element.expandable and element.icon ~= "" then
+    local function drawRowIcon(icon, drawSameLine)
+        if icon == "" then
+            return false
+        end
+
+        if drawSameLine then
+            ImGui.SameLine()
+        end
+
         ImGui.AlignTextToFramePadding()
-        ImGui.Text(element.icon)
+        ImGui.Text(icon)
+
+        return true
+    end
+
+    -- Icon or expand button
+    if not element.expandable then
+        local drewPrimary = drawRowIcon(primaryIcon, false)
+        local drewSecondary = drawRowIcon(secondaryIcon, drewPrimary)
+        if drewSecondary then
+            leftOffset = leftOffset + 20 * style.viewSize
+        end
     elseif element.expandable then
         ImGui.PushID(element.name)
         local text = element.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline
@@ -2308,11 +2328,14 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
             end
         end
 
-        if element.icon ~= "" then
-            ImGui.SameLine()
-            ImGui.AlignTextToFramePadding()
-            ImGui.Text(element.icon)
+        local drewPrimary = drawRowIcon(primaryIcon, true)
+        local drewSecondary = drawRowIcon(secondaryIcon, true)
+
+        if drewPrimary then
             leftOffset = 45 * style.viewSize
+        end
+        if drewSecondary then
+            leftOffset = drewPrimary and (leftOffset + 20 * style.viewSize) or (45 * style.viewSize)
         end
 
         ImGui.PopID()

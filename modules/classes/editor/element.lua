@@ -22,6 +22,7 @@ local backup = require("modules/utils/backup")
 ---@field locked boolean
 ---@field lockedByParent boolean
 ---@field icon string
+---@field secondaryIcon string
 ---@field class string[]
 ---@field hovered boolean
 ---@field editName boolean
@@ -88,6 +89,7 @@ function element:new(sUI)
 	o.groupOperationData = {}
 
 	o.icon = ""
+	o.secondaryIcon = ""
 
 	o.modulePath = "modules/classes/editor/element"
 	o.id = math.random(1, 1000000000)

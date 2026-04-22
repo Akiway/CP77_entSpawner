@@ -13,6 +13,57 @@ local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
 local appearanceHelper = require("modules/utils/appearanceHelper")
 
+local deviceClassSecondaryIconByName = {
+    LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
+    ForkliftControllerPS = IconGlyphs.Forklift,
+    ComputerControllerPS = IconGlyphs.DesktopClassic,
+    SpeakerControllerPS = IconGlyphs.Speaker,
+    RadioControllerPS = IconGlyphs.Radio,
+    TVControllerPS = IconGlyphs.TelevisionClassic,
+    LcdScreenControllerPS = IconGlyphs.Television,
+    DoorControllerPS = IconGlyphs.Door,
+    ReflectorControllerPS = IconGlyphs.Spotlight,
+    ElectricLightControllerPS = IconGlyphs.LightbulbSpot,
+    DataTermControllerPS = IconGlyphs.DoorSlidingOpen,
+    SecurityGateControllerPS = IconGlyphs.MagnifyScan,
+    SecurityLockerControllerPS = IconGlyphs.Locker,
+    BaseDestructibleControllerPS = IconGlyphs.GlassFragile,
+    DestructibleMasterDeviceControllerPS = IconGlyphs.GlassFragile,
+    TrafficIntersectionManagerControllerPS = IconGlyphs.TrafficLightOutline,
+    TrafficZebraControllerPS = IconGlyphs.Walk,
+    IceMachineControllerPS = IconGlyphs.IceCream,
+    ArcadeMachineControllerPS = IconGlyphs.GamepadVariantOutline,
+    VendingMachineControllerPS = IconGlyphs.Store,
+    VentilationEffectorControllerPS = IconGlyphs.Hvac,
+    VentilationAreaControllerPS = IconGlyphs.Hvac,
+    DoorProximityDetectorControllerPS = IconGlyphs.MotionSensor,
+    RoadBlockControllerPS = IconGlyphs.BoomGate,
+    SecurityAreaControllerPS = IconGlyphs.Security,
+    SecurityAlarmControllerPS = IconGlyphs.AlarmBell,
+    SecuritySystemControllerPS = IconGlyphs.SecurityNetwork,
+    SecurityTurretControllerPS = IconGlyphs.Pistol,
+    SecurityGateLockControllerPS = IconGlyphs.DoorClosedLock,
+    AccessPointControllerPS = IconGlyphs.AccessPointNetwork,
+    LaserDetectorControllerPS = IconGlyphs.LaserPointer,
+    RoadBlockTrapControllerPS = IconGlyphs.BoomGateAlert,
+    HoloFeederControllerPS = IconGlyphs.Projector,
+    HoloTableControllerPS = IconGlyphs.TableFurniture,
+    RetractableAdControllerPS = IconGlyphs.Advertisements,
+    NcartTimetableControllerPS = IconGlyphs.TimelineClockOutline,
+    NetrunnerChairControllerPS = IconGlyphs.Seat,
+    ExplosiveDeviceControllerPS = IconGlyphs.Bomb,
+    SurveillanceCameraControllerPS = IconGlyphs.Cctv,
+    SimpleSwitchControllerPS = IconGlyphs.ToggleSwitchOffOutline,
+    TerminalControllerPS = IconGlyphs.GestureTapButton,
+    ElevatorFloorTerminalControllerPS = IconGlyphs.GestureSwipeVertical,
+    VendingTerminalControllerPS = IconGlyphs.CartOutline,
+    SmartHouseControllerPS = IconGlyphs.HomeAutomation,
+    ElectricBoxControllerPS = IconGlyphs.MeterElectricOutline,
+    SmartWindowControllerPS = IconGlyphs.WindowOpenVariant,
+    WindowBlindersControllerPS = IconGlyphs.BlindsHorizontal,
+    WindowControllerPS = IconGlyphs.WindowClosedVariant
+}
+
 ---Class for base entity handling
 ---@class entity : spawnable
 ---@field public apps table
@@ -56,6 +107,7 @@ function entity:new()
     o.enumInfo = {}
     o.locKeyPreviewCache = {}
     o.deviceClassName = ""
+    o.secondaryIcon = ""
     o.instanceDataSearch = ""
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
@@ -70,6 +122,29 @@ function entity:new()
 
     setmetatable(o, { __index = self })
    	return o
+end
+
+---@param value any
+---@return string
+local function sanitizeDeviceClassName(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+    return sanitized
+end
+
+---@param className string?
+---@return string
+function entity:getDeviceSecondaryIcon(className)
+    return deviceClassSecondaryIconByName[sanitizeDeviceClassName(className)] or ""
+end
+
+function entity:updateDeviceSecondaryIcon()
+    self.secondaryIcon = self:getDeviceSecondaryIcon(self.deviceClassName)
+
+    if self.object then
+        self.object.secondaryIcon = self.secondaryIcon
+    end
 end
 
 ---@protected
@@ -131,6 +206,8 @@ function entity:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.appSearch = self.appSearch or ""
     self.appSearch = string.gsub(self.appSearch, "[\128-\255]", "")
+    self.deviceClassName = sanitizeDeviceClassName(self.deviceClassName)
+    self:updateDeviceSecondaryIcon()
     self:loadAppearanceData(false)
 end
 
@@ -440,10 +517,12 @@ function entity:onAssemble(entRef)
     for _, component in pairs(entRef:GetComponents()) do
         if component:IsA("gameDeviceComponent") then
             if self.deviceClassName == "" and component.persistentState then
-                self.deviceClassName = component.persistentState:GetClassName().value
+                self.deviceClassName = sanitizeDeviceClassName(component.persistentState:GetClassName().value)
             end
         end
     end
+
+    self:updateDeviceSecondaryIcon()
 
     self:assetPreviewAssemble(entRef)
 end

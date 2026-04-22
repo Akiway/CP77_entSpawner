@@ -38,6 +38,7 @@ local preview = require("modules/utils/previewUtils")
 ---@field public description string
 ---@field public previewNote string
 ---@field public icon string
+---@field public secondaryIcon string
 ---@field private rotationRelative boolean
 ---@field protected outline integer
 ---@field private spawnedAndCachedCallback function[]
@@ -81,6 +82,7 @@ function spawnable:new()
     o.description = ""
     o.previewNote = "---"
     o.icon = ""
+    o.secondaryIcon = ""
 
     o.spawnData = "base\\spawner\\empty_entity.ent"
     o.app = "default"
