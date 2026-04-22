@@ -5,6 +5,8 @@ local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
+local builder = require("modules/utils/entityBuilder")
+local cache = require("modules/utils/cache")
 
 local colliderGenerics = require("modules/classes/spawn/collision/colliderGenerics")
 local originalMaterials = colliderGenerics.originalMaterials
@@ -13,161 +15,203 @@ local presets = colliderGenerics.presets
 local hints = colliderGenerics.hints
 local colors = colliderGenerics.colors
 
+--- Class for worldCollisionNode with convex or triangle collision mesh
+--- @see spawnable
+--- @class meshCollider : spawnable
+--- @field sectorHash string
+--- @field shapeHash string
+--- @field meshType string
+--- @field material integer
+--- @field preset integer
+--- @field scale Vector3
+--- @field bBox table
+--- @field bBoxLoaded boolean
+--- @field apps table
+--- @field previewed boolean
+--- @field maxPropertyWidth number
+local meshCollider = setmetatable({}, { __index = spawnable })
 
+---@param spawnUI spawnUI
+function meshCollider:new(spawnUI)
+    local o = spawnable:new(spawnUI)
 
----Class for worldCollisionNode
----@class collider : spawnable
----@field private shape integer
----@field private material integer
----@field private preset integer
----@field private shapeTypes table
----@field public previewed boolean
----@field public maxPropertyWidth number
-local collider = setmetatable({}, { __index = spawnable })
-
-function collider:new()
-	local o = spawnable.new(self)
-
-    o.spawnListType = "files"
-    o.dataType = "Collision Shape"
+    o.spawnListType = "list"
+    o.dataType = "Collision Mesh"
     o.spawnDataPath = "data/spawnables/colliders/"
-    o.modulePath = "collision/collider"
+    o.modulePath = "collision/meshCollider"
     o.node = "worldCollisionNode"
-    o.description = "A collision shape, can be a box, capsule or sphere"
+    o.description = "A collision mesh."
     o.icon = IconGlyphs.TextureBox
 
-    o.shape = 0
+    o.sectorHash = nil
+    o.shapeHash = nil
+    o.meshType = nil
+
     o.material = settings.defaultColliderMaterial
     o.preset = 33
 
-    o.shapeTypes = { "Box", "Capsule", "Sphere" }
+    o.scale = Vector3.new(1, 1, 1)
 
-    o.scale = { x = 1, y = 1, z = 1 }
+    o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
+    o.bBoxLoaded = false
+    o.apps = {}
+
     o.previewed = true
     o.maxPropertyWidth = nil
-    o.currentAxis = 0
 
-    setmetatable(o, { __index = self })
-   	return o
+    self.__index = self
+    return setmetatable(o, self)
 end
 
-function collider:loadSpawnData(data, position, rotation)
+---@param data table
+---@param position Vector4
+---@param rotation EulerAngles
+function meshCollider:loadSpawnData(data, position, rotation)
+    if (data.scale) then
+        self.scale = Vector3.new(data.scale.x, data.scale.y, data.scale.z)
+    end
+
     spawnable.loadSpawnData(self, data, position, rotation)
 
-    if data.radius then
-        if self.shape == 0 then
-            self.scale = data.extents
-        elseif self.shape == 1 then
-            self.scale = { x = data.radius, y = data.radius, z = data.height }
-        elseif self.shape == 2 then
-            self.scale = { x = data.radius, y = data.radius, z = data.radius }
+    --[[ 
+    a bit cursed but eh, spawnUI sets the the display / index value which is intended to be a 
+    resource path to the resource, but for collision meshes it's using the sectorHash, shapeHash and meshType
+    instead so this needs to reparse it to avoid modifying spawnUI
+    ]]--
+    if (not string.find(data.spawnData, "%.")) then
+        local split = utils.split(data.spawnData, " ")
+        if #split == 3 then
+            self.sectorHash = split[1]
+            self.shapeHash = split[2]
+            self.meshType = split[3]
         end
     end
-end
 
-function collider:onAssemble(entity)
-    spawnable.onAssemble(self, entity)
-
-    local component = entColliderComponent.new()
-    component.name = "collider"
-    local actor
-    local color = colors[settings.colliderColor + 1]
-
-    if self.shape == 0 then
-        actor = physicsColliderBox.new()
-        actor.halfExtents = ToVector3(self.scale)
-        visualizer.addBox(entity, self.scale, color)
-    elseif self.shape == 1 then
-        actor = physicsColliderCapsule.new()
-        actor.height = self.scale.z
-        actor.radius = self.scale.x
-        visualizer.addCapsule(entity, self.scale.x, self.scale.z, color)
-    elseif self.shape == 2 then
-        actor = physicsColliderSphere.new()
-        actor.radius = self.scale.x
-        visualizer.addSphere(entity, self.scale, color)
+    if self.shapeHash then
+        self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.shapeHash .. ".ent"
     end
 
-    actor.material = materials[self.material + 1]
+    local meshPath = "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh"
 
-    component.colliders = { actor }
+    cache.tryGet(meshPath .. "_apps", meshPath .. "_bBox_max", meshPath .. "_bBox_min", meshPath .. "_occluder")
+    .notFound(function (task)
+        self.bBox.max = Vector4.new(0.5, 0.5, 0.5, 0) -- Temp values, so that onAssemble//updateScale can work
+        self.bBox.min = Vector4.new(-0.5, -0.5, -0.5, 0)
 
-    local filterData = physicsFilterData.new()
-    filterData.preset = self.preset
+        builder.registerLoadResource(meshPath, function (resource)
+            local apps = {}
+            for _, appearance in ipairs(resource.appearances) do
+                table.insert(apps, appearance.name.value)
+            end
 
-    local query = physicsQueryFilter.new()
-    query.mask1 = 0
-    query.mask2 = 70107400
+            self.bBox.min = resource.boundingBox.Min
+            self.bBox.max = resource.boundingBox.Max
 
-    local sim = physicsSimulationFilter.new()
-    sim.mask1 = 114696
-    sim.mask2 = 23627
+            local occluder = false
+            for _, param in pairs(resource.parameters) do
+                if param:IsA("meshMeshParamOccluderData") then
+                    occluder = true
+                    break
+                end
+            end
 
-    filterData.queryFilter = query
-    filterData.simulationFilter = sim
-    component.filterData = filterData
+            -- Save to cache
+            cache.addValue(meshPath .. "_apps", apps)
+            cache.addValue(meshPath .. "_bBox_max", utils.fromVector(self.bBox.max))
+            cache.addValue(meshPath .. "_bBox_min", utils.fromVector(self.bBox.min))
+            cache.addValue(meshPath .. "_occluder", occluder)
 
-    entity:AddComponent(component)
+            task:taskCompleted()
 
-    visualizer.toggleAll(entity, self.previewed)
+            if self:isSpawned() and self.isAssetPreview then
+                self:assetPreviewSetPosition()
+            end
+        end)
+    end)
+    .found(function ()
+        self.bBox.max = cache.getValue(meshPath .. "_bBox_max")
+        self.bBox.min = cache.getValue(meshPath .. "_bBox_min")
+        self.bBoxLoaded = true
+    end)
 end
 
-function collider:save()
+function meshCollider:onAssemble(entity)
+    spawnable.onAssemble(self, entity)
+
+    local component = entity:FindComponentByName("collision_mesh_0")
+    if not component then
+        print("Error: collision_mesh_0 component not found on entity. Cannot set up mesh collider.")
+        return
+    end
+    component.filterData.preset = self.preset
+    component.colliders[1].material = materials[self.material + 1]
+
+    if not self.sectorHash or not self.shapeHash or not self.meshType then
+        print("Error: Missing sectorHash, shapeHash, or meshType. Cannot add visualizer mesh.")
+        return
+    end
+
+    visualizer.addMesh(entity,
+        {x = 1, y = 1, z = 1},
+        "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh",
+        colors[settings.colliderColor + 1])
+end
+
+function meshCollider:save()
     local data = spawnable.save(self)
-    data.shape = self.shape
+
+    data.sectorHash = self.sectorHash
+    data.shapeHash = self.shapeHash
+    data.meshType = self.meshType
+
     data.material = self.material
     data.preset = self.preset
+
     data.previewed = self.previewed
+
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
-    if data.previewed == nil then data.previewed = true end
 
     return data
 end
 
-function collider:getPresetIndexByName(preset)
+function meshCollider:getPresetIndexByName(preset)
     return utils.indexValue(presets, preset) - 1
 end
 
-function collider:getMaterialIndexByName(material)
+function meshCollider:getMaterialIndexByName(material)
     return utils.indexValue(materials, material) - 1
 end
 
-function collider:getSize()
-    if self.shape == 1 then
-        return { x = self.scale.x * 2, y = self.scale.x * 2, z = self.scale.z + self.scale.x * 2 }
-    end
-    return { x = self.scale.x * 2, y = self.scale.y * 2, z = self.scale.z * 2 }
+function meshCollider:getSize()
+    return { x = 1, y = 1, z = 1 }
 end
 
-function collider:getArrowSize()
-    local max = math.max(self.scale.x, self.scale.y, self.scale.z)
-
-    max = math.max(max, 1) * 0.5
-
-    return { x = max, y = max, z = max }
+function meshCollider:getArrowSize()
+    return { x = 1, y = 1, z = 1 }
 end
 
-function collider:calculateIntersection(origin, ray)
-    if not self:getEntity() or not self.previewed then
+function meshCollider:calculateIntersection(origin, ray)
+    if not self:getEntity() then
         return { hit = false }
     end
 
-    local scaledBBox = {
-        min = {  x = - self.scale.x, y = - self.scale.y, z = - self.scale.z },
-        max = {  x = self.scale.x, y = self.scale.y, z = self.scale.z }
-    }
-    local result
+    local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
 
-    if self.shape == 2 then
-        result = intersection.getSphereIntersection(origin, ray, self.position, self.scale.x)
-    else
-        result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
+    local scaledBBox = {
+        min = {  x = self.bBox.min.x * scaleFactor.x, y = self.bBox.min.y * scaleFactor.y, z = self.bBox.min.z * scaleFactor.z },
+        max = {  x = self.bBox.max.x * scaleFactor.x, y = self.bBox.max.y * scaleFactor.y, z = self.bBox.max.z * scaleFactor.z }
+    }
+    local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
+
+    local unscaledHit
+    if result.hit then
+        unscaledHit = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, intersection.unscaleBBox(self.spawnData, self:getSize(), scaledBBox))
     end
 
     return {
         hit = result.hit,
         position = result.position,
-        unscaledHit = result.position,
+        unscaledHit = unscaledHit and unscaledHit.position or result.position,
         collisionType = "bbox",
         distance = result.distance,
         bBox = scaledBBox,
@@ -177,62 +221,11 @@ function collider:calculateIntersection(origin, ray)
     }
 end
 
----Respawn the collider to update parameters, if changed
----@param changed boolean
----@protected
-function collider:updateFull(changed)
-    if changed and self:isSpawned() then self:respawn() end
-end
-
----@protected
-function collider:updateScale(finished, delta)
-    self.scale.x = math.max(self.scale.x, 0)
-    self.scale.y = math.max(self.scale.y, 0)
-    self.scale.z = math.max(self.scale.z, 0)
-
-    if self.shape == 1 then
-        if math.abs(delta.y) > 0 then
-            self.currentAxis = 0
-        elseif math.abs(delta.x) > 0 then
-            self.currentAxis = 1
-        end
-
-        if finished then
-            if self.currentAxis == 0 then
-                self.scale.x = self.scale.y
-            else
-                self.scale.y = self.scale.x
-            end
-        end
-    elseif self.shape == 2 then
-        local radius = math.max(self.scale.x, self.scale.y, self.scale.z)
-        self.scale = { x = radius, y = radius, z = radius }
-    end
-
-    if finished then
-        self:respawn()
-        return
-    end
-
-    local entity = self:getEntity()
-    if not entity then return end
-
-    visualizer.updateScale(entity, self:getArrowSize(), "arrows")
-
-    if self.shape == 0 then
-        visualizer.updateScale(entity, self.scale, "box")
-    elseif self.shape == 1 then
-        visualizer.updateCapsuleScale(self:getEntity(), self.currentAxis == 1 and self.scale.x or self.scale.y, self.scale.z)
-    elseif self.shape == 2 then
-        visualizer.updateScale(entity, self.scale, "sphere")
-    end
-end
-
-function collider:draw()
+function meshCollider:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Preview Shape", "Collision Shape", "Collision Preset", "Collision Material" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Preview Shape", "Collision Preset", "Collision Material" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     style.mutedText("Preview Shape")
@@ -241,14 +234,6 @@ function collider:draw()
     self.previewed, changed = style.trackedCheckbox(self.object, "##collisionPreview", self.previewed)
     if changed then
         visualizer.toggleAll(self:getEntity(), self.previewed)
-    end
-
-    style.mutedText("Collision Shape")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.shape, changed = style.trackedCombo(self.object, "##type", self.shape, self.shapeTypes, 100)
-    if changed then
-        self:updateScale(true, { x = 0, y = 0, z = 0 })
     end
 
     style.mutedText("Collision Preset")
@@ -265,7 +250,7 @@ function collider:draw()
     self:updateFull(changed)
 end
 
-function collider:getProperties()
+function meshCollider:getProperties()
     local properties = spawnable.getProperties(self)
     table.insert(properties, {
         id = self.node,
@@ -278,7 +263,7 @@ function collider:getProperties()
     return properties
 end
 
-function collider:getGroupedProperties()
+function meshCollider:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
     properties["visualization"] = {
@@ -375,27 +360,31 @@ function collider:getGroupedProperties()
     return properties
 end
 
-function collider:export()
-	local extents
-    local shapeType
-    local size
-	if self.shape == 0 then
-		local max = math.max(self.scale.x, self.scale.y, self.scale.z)
-		extents = Vector4.new(max, max, max)
-        shapeType = "Box"
-        size = self.scale
-	elseif self.shape == 1 then
-		local max = math.max(self.scale.y, self.scale.z)
-		extents = Vector4.new(max, max, max)
-        shapeType = "Capsule"
-        size = Vector4.new(self.scale.y, self.scale.z, 0, 0)
-	elseif self.shape == 2 then
-		extents = Vector4.new(self.scale.x, self.scale.x, self.scale.x)
-        shapeType = "Sphere"
-        size = Vector4.new(self.scale.x, 0, 0, 0)
-	end
+---Respawn the collider to update parameters, if changed
+---@param changed boolean
+---@protected
+function meshCollider:updateFull(changed)
+    if changed and self:isSpawned() then self:respawn() end
+end
 
+function meshCollider:export()
     local rotation = self.rotation:ToQuat()
+    local shapeType = self.meshType
+    local sectorHash = self.sectorHash
+    local extends = {
+        x = math.abs(self.bBox.max.x - self.bBox.min.x) / 2,
+        y = math.abs(self.bBox.max.y - self.bBox.min.y) / 2,
+        z = math.abs(self.bBox.max.z - self.bBox.min.z) / 2
+    }
+
+    if shapeType == "BV4TriangleMesh" then
+        shapeType = "TriangleMesh"
+    end
+
+    -- This just needs to be any non 0 value that isn't already a sector, the game defaults non existent sectors to the always loaded one
+    if sectorHash == "0" then
+        sectorHash = "1"
+    end
 
     local data = spawnable.export(self)
     data.type = "worldCollisionNode"
@@ -425,19 +414,20 @@ function collider:export()
 						["Shapes"] = {
 							{
 								["ShapeType"] = shapeType,
+                                ["Hash"] = self.shapeHash,
+                                ["Position"] = {
+									["$type"] = "Vector3",
+									["X"] = 0,
+									["Y"] = 0,
+									["Z"] = 0
+								},
                                 ["Rotation"] = {
                                     ["$type"] = "Quaternion",
                                     ["i"] = rotation.i,
                                     ["j"] = rotation.j,
                                     ["k"] = rotation.k,
                                     ["r"] = rotation.r
-                                  },
-								["Size"] = {
-									["$type"] = "Vector3",
-									["X"] = size.x,
-									["Y"] = size.y,
-									["Z"] = size.z
-								},
+                                },
 								["Preset"] = {
 									["$type"] = "CName",
 									["$storage"] = "string",
@@ -450,14 +440,17 @@ function collider:export()
 										["$storage"] = "string",
 										["$value"] = materials[self.material + 1]
 									}
-								}
+								},
+                                ["Uk1"] = 0,
+                                ["Uk2"] = 0,
+                                ["Uk3"] = 0
 							}
 						},
 						["Scale"] = {
 							["$type"] = "Vector3",
-							["X"] = 1,
-							["Y"] = 1,
-							["Z"] = 1
+							["X"] = self.scale.x,
+							["Y"] = self.scale.y,
+							["Z"] = self.scale.z
 						}
 					}
 				}
@@ -466,9 +459,9 @@ function collider:export()
 		["extents"] = {
 			["$type"] = "Vector4",
 			["W"] = 0,
-			["X"] = extents.x,
-			["Y"] = extents.y,
-			["Z"] = extents.z
+			["X"] = extends.x,
+			["Y"] = extends.y,
+			["Z"] = extends.z
 		},
 		["lod"] = 1,
 		["numActors"] = 1,
@@ -478,9 +471,10 @@ function collider:export()
 		["numScales"] = 1,
 		["numShapeIndices"] = 1,
 		["numShapeInfos"] = 1,
-		["numShapePositions"] = 0,
+		["numShapePositions"] = 1,
 		["numShapeRotations"] = 1,
         ["resourceVersion"] = 2, -- You little shit
+        ["sectorHash"] = sectorHash,
 		["staticCollisionShapeCategories"] = {
 			["$type"] = "worldStaticCollisionShapeCategories_CollisionNode",
 			["arr"] = {
@@ -499,4 +493,4 @@ function collider:export()
     return data
 end
 
-return collider
+return meshCollider

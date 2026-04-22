@@ -4,6 +4,17 @@ local miscUtils = {
     data = {}
 }
 
+
+---@param str string
+---@return table<string>
+function miscUtils.split(str, sep)
+    local result = {}
+    for match in (str .. sep):gmatch("(.-)" .. sep) do
+        table.insert(result, match)
+    end
+    return result
+end
+
 ---@param origin table
 ---@return table
 function miscUtils.deepcopy(origin)
