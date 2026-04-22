@@ -17,11 +17,21 @@ local propertyNames = {
 ---Class for worldDeviceNode
 ---@class device : entity
 ---@field public deviceConnections {deviceClassName : string, nodeRef : string}[]
+---@field public connectionNodeRefSearch table<string, string>
 ---@field public connectionsHeaderState boolean
 ---@field public persistent boolean
 ---@field private maxPropertyWidth number?
 ---@field public controllerComponent string
 local device = setmetatable({}, { __index = entity })
+
+---@param value any
+---@return string
+local function sanitizeConnectionValue(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+    return sanitized
+end
 
 function device:new()
 	local o = entity.new(self)
@@ -36,6 +46,7 @@ function device:new()
     o.icon = IconGlyphs.DesktopClassic
 
     o.deviceConnections = {}
+    o.connectionNodeRefSearch = {}
     o.connectionsHeaderState = false
     o.persistent = false
 
@@ -85,6 +96,46 @@ function device:save()
     return data
 end
 
+---@param currentValue string
+---@return table
+function device:getConnectionNodeRefOptions(currentValue)
+    registry.update()
+
+    local options = {}
+    local root = self.object and self.object:getRootParent()
+    local rootRefs = root and registry.refs[root.name] or nil
+
+    if rootRefs then
+        for ref, _ in pairs(rootRefs) do
+            if ref ~= self.nodeRef then
+                table.insert(options, ref)
+            end
+        end
+    end
+
+    table.sort(options)
+
+    local cleanCurrentValue = sanitizeConnectionValue(currentValue)
+    if cleanCurrentValue ~= "" and utils.indexValue(options, cleanCurrentValue) == -1 then
+        table.insert(options, 1, cleanCurrentValue)
+    end
+
+    return options
+end
+
+---@param nodeRef string
+---@return string?
+function device:resolveConnectionClassName(nodeRef)
+    local spawnable = registry.getSpawnableByNodeRef(self.object, nodeRef)
+    local className = spawnable and sanitizeConnectionValue(spawnable.deviceClassName) or ""
+
+    if className ~= "" then
+        return className
+    end
+
+    return nil
+end
+
 function device:draw()
     self:drawEntityBaseProperties()
 
@@ -113,19 +164,50 @@ function device:draw()
     self.connectionsHeaderState = ImGui.TreeNodeEx("Device Connections")
 
     if self.connectionsHeaderState then
-        for index, connection in pairs(self.deviceConnections) do
-            ImGui.PushID(key)
+        for index, connection in ipairs(self.deviceConnections) do
+            ImGui.PushID(index)
+
+            connection.deviceClassName = sanitizeConnectionValue(connection.deviceClassName)
+            connection.nodeRef = sanitizeConnectionValue(connection.nodeRef)
 
             connection.deviceClassName, _, _ = style.trackedTextField(self.object, "##className", connection.deviceClassName, "gameDeviceComponentPS", 150)
             style.tooltip("Device class name of the connected device. Name of the gameDeviceComponentPS used in the devices gameDeviceComponent")
+
             ImGui.SameLine()
-            connection.nodeRef, _ = registry.drawNodeRefSelector(style.getMaxWidth(250) - 30, connection.nodeRef, self.object, true)
-            style.tooltip("NodeRef of the connected device. Can be set using \"World Node\" section of the target device")
-            ImGui.SameLine()
-            if ImGui.Button(IconGlyphs.Delete) then
-                history.addAction(history.getElementChange(self.object))
-                table.remove(self.deviceConnections, index)
+            local searchKey = tostring(connection)
+            local searchValue = sanitizeConnectionValue(self.connectionNodeRefSearch[searchKey] or "")
+            local nodeRefOptions = self:getConnectionNodeRefOptions(connection.nodeRef)
+            local nodeRefChanged
+            connection.nodeRef, searchValue, nodeRefChanged = style.trackedSearchDropdown(
+                self.object,
+                "##nodeRef",
+                "Search node ref...",
+                connection.nodeRef,
+                searchValue,
+                nodeRefOptions,
+                style.getMaxWidth(250) - 30,
+                true,
+                true
+            )
+            connection.nodeRef = sanitizeConnectionValue(connection.nodeRef)
+            self.connectionNodeRefSearch[searchKey] = searchValue
+            style.tooltip("NodeRef of the connected device. Select one from this root group, or type and choose 'Use custom: ...'.")
+            if nodeRefChanged then
+                local resolvedClassName = self:resolveConnectionClassName(connection.nodeRef)
+                if resolvedClassName and resolvedClassName ~= connection.deviceClassName then
+                    connection.deviceClassName = resolvedClassName
+                end
             end
+
+            ImGui.SameLine()
+            if style.dangerButton(IconGlyphs.DeleteOutline .. "##deleteDeviceConnection") then
+                history.addAction(history.getElementChange(self.object))
+                self.connectionNodeRefSearch[searchKey] = nil
+                table.remove(self.deviceConnections, index)
+                ImGui.PopID()
+                break
+            end
+            style.tooltip("Delete")
 
             ImGui.PopID()
         end

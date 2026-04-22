@@ -7,6 +7,7 @@ local history = require("modules/utils/history")
 ---@field ref string Full NodeRef string (for example `$/mod/group/#root_name`).
 ---@field path string Hierarchy path of the owning spawned UI entry.
 ---@field duplicate boolean True when the same NodeRef exists on multiple entries under the same root.
+---@field spawnable spawnable? Spawnable owning this NodeRef (first seen in case of duplicates).
 
 ---@class nodeRefRegistry
 ---@field spawnedUI spawnedUI? Cached reference to the spawned hierarchy used for indexing.
@@ -55,12 +56,42 @@ function registry.update()
             if registry.refs[root.name][node.ref.spawnable.nodeRef] then
                 registry.refs[root.name][node.ref.spawnable.nodeRef].duplicate = true
             else
-                registry.refs[root.name][node.ref.spawnable.nodeRef] = { ref = node.ref.spawnable.nodeRef, path = node.path, duplicate = false }
+                registry.refs[root.name][node.ref.spawnable.nodeRef] = {
+                    ref = node.ref.spawnable.nodeRef,
+                    path = node.path,
+                    duplicate = false,
+                    spawnable = node.ref.spawnable
+                }
             end
         end
     end
 
     registry.dirty = false
+end
+
+---Resolve a spawnable by NodeRef in the same root group as `object`.
+---@param object positionable
+---@param ref string
+---@return spawnable?
+function registry.getSpawnableByNodeRef(object, ref)
+    if not object or not object.getRootParent then
+        return nil
+    end
+
+    if not ref or ref == "" then
+        return nil
+    end
+
+    registry.update()
+
+    local root = object:getRootParent()
+    if not root or not root.name then
+        return nil
+    end
+
+    local rootRefs = registry.refs[root.name]
+    local entry = rootRefs and rootRefs[ref]
+    return entry and entry.spawnable or nil
 end
 
 ---Generate a unique NodeRef for one object under its root group.
