@@ -10,11 +10,12 @@ config = {}
 ---@class ConfigSpawnPathEntry
 ---@field data ConfigSpawnPathData wrapper holding one list line as spawn data
 ---@field lastSpawned any always initialized to `nil` by the loader
----@field name string original line from the source list file
+---@field name string parsed spawn path
 ---@field fileName string file name extracted from `name`
 
 ---@class ConfigSpawnPathData
 ---@field spawnData string raw spawn path read from a `.txt` line
+---@field deviceClassName string? optional device class name parsed from list line (`{className} {path}`)
 
 ---Checks whether a file can be opened for reading.
 ---@param filename string Relative or absolute file path.
@@ -222,19 +223,60 @@ function config.loadFiles(path, files)
 end
 
 ---Recursively loads spawn paths from `.txt` files in a directory.
----Each line becomes one spawn entry with `data.spawnData = line`.
+---Each line becomes one spawn entry with `data.spawnData` and optional `data.deviceClassName`.
+---Accepted line formats:
+--- - `{path}`
+--- - `{className} {path}`
+--- - ` {path}` (explicit empty class name)
 ---@param path string Directory path (callers pass a trailing `/`).
 ---@param paths ConfigSpawnPathEntry[]? Optional accumulator for recursive calls.
 ---@return ConfigSpawnPathEntry[] paths Sorted by `name` in ascending order.
 function config.loadLists(path, paths)
     local paths = paths or {}
 
+    ---Parses one list line into optional class name + spawn path.
+    ---@param line string
+    ---@return string className
+    ---@return string spawnPath
+    local function parseSpawnListLine(line)
+        local raw = tostring(line or "")
+        local trimmed = raw:gsub("^%s+", ""):gsub("%s+$", "")
+
+        if trimmed == "" then
+            return "", ""
+        end
+
+        if trimmed:find("//", 1, true) == 1 or trimmed:find("#", 1, true) == 1 or trimmed:find(";", 1, true) == 1 then
+            return "", ""
+        end
+
+        local firstToken, rest = trimmed:match("^(%S+)%s+(.+)$")
+        if not firstToken or not rest then
+            return "", trimmed
+        end
+
+        -- Path-only line with no class prefix.
+        if firstToken:find("\\", 1, true) or firstToken:find("/", 1, true) then
+            return "", trimmed
+        end
+
+        return firstToken, rest:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
     for _, file in pairs(dir(path)) do
         local extension = file.name:match("^.+(%..+)$")
         if extension and extension:lower() == ".txt" then
             local data = io.open(path .. file.name)
             for line in data:lines() do
-                table.insert(paths, {data = { spawnData = line }, lastSpawned = nil, name = line, fileName = utils.getFileName(line) })
+                local className, spawnPath = parseSpawnListLine(line)
+                if spawnPath ~= "" then
+                    table.insert(paths, {
+                        data = { spawnData = spawnPath, deviceClassName = className },
+                        lastSpawned = nil,
+                        name = spawnPath,
+                        fileName = utils.getFileName(spawnPath)
+                    })
+                end
             end
 
             data:close()

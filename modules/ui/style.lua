@@ -1021,6 +1021,220 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
     return value, searchValue, finished
 end
 
+---@class SearchableMultiSelectComboOpts
+---@field comboId string Hidden ImGui ID used for the combo (for example `##deviceClassFilterCombo`).
+---@field previewLabel string
+---@field searchHint string?
+---@field searchValue string?
+---@field options table?
+---@field getOptions fun(): table? Optional lazy options provider called only while popup is open.
+---@field selections table<string, boolean>?
+---@field comboWidth number?
+---@field searchWidth number?
+---@field maxPopupHeight number?
+---@field emptyText string?
+---@field noMatchText string?
+---@field searchInputId string?
+---@field searchClearButtonId string?
+---@field selectAllButtonId string?
+---@field unselectAllButtonId string?
+---@field optionIdPrefix string?
+---@field selectAllTooltip string?
+---@field unselectAllTooltip string?
+---@field showClearSelectionButton boolean? Show a pre-combo icon button that clears selected options.
+---@field clearSelectionButtonId string? Unique ID suffix for the clear-selection icon button.
+---@field clearSelectionTooltip string? Tooltip shown on the clear-selection icon button.
+---@field showAndFilterToggle boolean? Show an optional AND/OR mode toggle button in the combo header row.
+---@field andFilterState boolean? Current state of the optional AND/OR mode toggle.
+---@field onAndFilterChanged fun(nextState: boolean)? Callback fired when the optional AND/OR mode toggle changes.
+---@field andFilterTooltip string? Tooltip shown on the optional AND/OR mode toggle.
+---@field andFilterIcon string? Icon text used for the optional AND/OR mode toggle.
+---@field getOptionKey fun(option: table, idx: integer): string?
+---@field getOptionLabel fun(option: table, idx: integer): string?
+---@field matchesOption fun(option: table, searchValue: string, idx: integer): boolean?
+
+---Draw a searchable multi-select combo with select-all / unselect-all controls.
+---Selection state is externalized through `selections` where keys map to booleans.
+---The caller owns visible label layout; this component renders only the combo widget by `comboId`.
+---@param opts SearchableMultiSelectComboOpts
+---@return boolean changed
+---@return string searchValue
+function style.drawSearchableMultiSelectCombo(opts)
+    opts = opts or {}
+
+    local comboId = tostring(opts.comboId or opts.comboLabel or "##multiSelectCombo")
+    if not comboId:match("^##") and not comboId:match("^###") then
+        comboId = "##" .. comboId
+    end
+
+    local previewLabel = tostring(opts.previewLabel or "")
+    local searchHint = tostring(opts.searchHint or "Search...")
+    local searchValue = tostring(opts.searchValue or "")
+    local staticOptions = opts.options
+    local getOptions = opts.getOptions
+    local selections = opts.selections or {}
+    local comboWidth = opts.comboWidth or (260 * style.viewSize)
+    local searchWidth = opts.searchWidth or (220 * style.viewSize)
+    local maxPopupHeight = opts.maxPopupHeight or (520 * style.viewSize)
+    local emptyText = tostring(opts.emptyText or "No options available")
+    local noMatchText = tostring(opts.noMatchText or "No matching options")
+    local searchInputId = tostring(opts.searchInputId or "##multiSelectSearch")
+    local searchClearButtonId = tostring(opts.searchClearButtonId or "##multiSelectSearchClear")
+    local selectAllButtonId = tostring(opts.selectAllButtonId or "##multiSelectSelectAll")
+    local unselectAllButtonId = tostring(opts.unselectAllButtonId or "##multiSelectUnselectAll")
+    local optionIdPrefix = tostring(opts.optionIdPrefix or "##multiSelectOption")
+    local showClearSelectionButton = opts.showClearSelectionButton == true
+    local clearSelectionButtonId = tostring(opts.clearSelectionButtonId or "##multiSelectClearSelection")
+    local clearSelectionTooltip = tostring(opts.clearSelectionTooltip or "Clear selected filters")
+    local showAndFilterToggle = opts.showAndFilterToggle == true
+    local andFilterState = opts.andFilterState == true
+    local onAndFilterChanged = opts.onAndFilterChanged
+    local andFilterTooltip = tostring(opts.andFilterTooltip or "AND filter mode (Leave off for OR filter)")
+    local andFilterIcon = tostring(opts.andFilterIcon or IconGlyphs.SetCenter)
+    local getOptionKey = opts.getOptionKey or function (option)
+        return tostring(option or "")
+    end
+    local getOptionLabel = opts.getOptionLabel or function (option)
+        return tostring(option or "")
+    end
+    local matchesOption = opts.matchesOption or function ()
+        return true
+    end
+
+    local changed = false
+
+    ImGui.PushItemWidth(comboWidth)
+    ImGui.SetNextWindowSizeConstraints(1, 1, 10000, maxPopupHeight)
+    if ImGui.BeginCombo(comboId, previewLabel) then
+        local options = staticOptions
+        if type(getOptions) == "function" then
+            options = getOptions()
+        end
+        options = options or {}
+
+        ImGui.SetNextItemWidth(searchWidth)
+        local nextSearchValue, searchChanged = ImGui.InputTextWithHint(searchInputId, searchHint, searchValue, 100)
+        if searchChanged then
+            searchValue = nextSearchValue
+        end
+
+        if searchValue ~= "" then
+            ImGui.SameLine()
+            style.pushButtonNoBG(true)
+            if ImGui.Button(IconGlyphs.Close .. searchClearButtonId) then
+                searchValue = ""
+            end
+            style.pushButtonNoBG(false)
+        end
+
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.ExpandAllOutline .. selectAllButtonId) then
+            for idx, option in ipairs(options) do
+                local optionKey = tostring(getOptionKey(option, idx) or "")
+                if optionKey ~= "" then
+                    selections[optionKey] = true
+                end
+            end
+            changed = true
+        end
+        if opts.selectAllTooltip then
+            style.tooltip(opts.selectAllTooltip)
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button(IconGlyphs.CollapseAllOutline .. unselectAllButtonId) then
+            for optionKey, _ in pairs(selections) do
+                selections[optionKey] = nil
+            end
+            changed = true
+        end
+        if opts.unselectAllTooltip then
+            style.tooltip(opts.unselectAllTooltip)
+        end
+
+        if showAndFilterToggle then
+            ImGui.SameLine()
+            local nextAndFilterState, andFilterChanged = style.toggleButton(andFilterIcon, andFilterState)
+            if andFilterChanged then
+                andFilterState = nextAndFilterState
+                if type(onAndFilterChanged) == "function" then
+                    onAndFilterChanged(nextAndFilterState)
+                end
+            end
+
+            if andFilterTooltip ~= "" then
+                style.tooltip(andFilterTooltip)
+            end
+        end
+
+        style.pushButtonNoBG(false)
+
+        ImGui.Separator()
+
+        if #options == 0 then
+            style.mutedText(emptyText)
+        else
+            local hasVisibleOption = false
+            for idx, option in ipairs(options) do
+                if matchesOption(option, searchValue, idx) then
+                    hasVisibleOption = true
+
+                    local optionKey = tostring(getOptionKey(option, idx) or "")
+                    if optionKey ~= "" then
+                        local optionLabel = tostring(getOptionLabel(option, idx) or optionKey)
+                        local checked, toggled = ImGui.Checkbox(optionLabel .. optionIdPrefix .. tostring(idx), selections[optionKey] == true)
+                        if toggled then
+                            if checked then
+                                selections[optionKey] = true
+                            else
+                                selections[optionKey] = nil
+                            end
+                            changed = true
+                        end
+                    end
+                end
+            end
+
+            if not hasVisibleOption then
+                style.mutedText(noMatchText)
+            end
+        end
+
+        ImGui.EndCombo()
+    end
+
+    if showClearSelectionButton then
+        local canClearSelections = false
+        for _, isSelected in pairs(selections) do
+            if isSelected == true then
+                canClearSelections = true
+                break
+            end
+        end
+
+        if canClearSelections then
+            ImGui.SameLine()
+            style.pushButtonNoBG(true)
+            local clearPressed = ImGui.Button(IconGlyphs.FilterRemoveOutline .. clearSelectionButtonId)
+            style.pushButtonNoBG(false)
+
+            if clearSelectionTooltip ~= "" then
+                style.tooltip(clearSelectionTooltip)
+            end
+
+            if clearPressed then
+                for optionKey, _ in pairs(selections) do
+                    selections[optionKey] = nil
+                end
+                changed = true
+            end
+        end
+    end
+    ImGui.PopItemWidth()
+
+    return changed, searchValue
+end
+
 ---Draw a no-background button only when the condition is true.
 ---@param condition boolean Whether to draw the button.
 ---@param text string Button label / ID.

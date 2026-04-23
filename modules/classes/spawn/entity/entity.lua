@@ -30,6 +30,7 @@ local deviceClassSecondaryIconByName = {
     BaseDestructibleControllerPS = IconGlyphs.GlassFragile,
     DestructibleMasterDeviceControllerPS = IconGlyphs.GlassFragile,
     TrafficIntersectionManagerControllerPS = IconGlyphs.TrafficLightOutline,
+    CrossingLightControllerPS = IconGlyphs.TrafficLightOutline,
     TrafficZebraControllerPS = IconGlyphs.Walk,
     IceMachineControllerPS = IconGlyphs.IceCream,
     ArcadeMachineControllerPS = IconGlyphs.GamepadVariantOutline,
@@ -49,9 +50,32 @@ local deviceClassSecondaryIconByName = {
     HoloFeederControllerPS = IconGlyphs.Projector,
     HoloTableControllerPS = IconGlyphs.TableFurniture,
     RetractableAdControllerPS = IconGlyphs.Advertisements,
+    AlarmLightControllerPS = IconGlyphs.AlarmLightOutline,
+    BillboardDeviceControllerPS = IconGlyphs.Billboard,
+    FanControllerPS = IconGlyphs.Fan,
+    FrameControllerPS = IconGlyphs.ImageFrame,
+    FuseBoxControllerPS = IconGlyphs.FuseBlade,
+    FuseControllerPS = IconGlyphs.Fuse,
+    LadderControllerPS = IconGlyphs.Ladder,
+    SlidingLadderControllerPS = IconGlyphs.Ladder,
+    SmokeMachineControllerPS = IconGlyphs.Smoke,
+    SoundSystemControllerPS = IconGlyphs.SurroundSound,
+    JukeboxControllerPS = IconGlyphs.Music,
+    StashControllerPS = IconGlyphs.TreasureChestOutline,
+    C4ControllerPS = IconGlyphs.Bomb,
+    CandleControllerPS = IconGlyphs.Candle,
+    CleaningMachineControllerPS = IconGlyphs.WashingMachine,
+    DisposalDeviceControllerPS = IconGlyphs.Coffin,
+    RoboticArmsControllerPS = IconGlyphs.RobotIndustrial,
+    ServerNodeControllerPS = IconGlyphs.ServerNetworkOutline,
+    InvisibleSceneStashControllerPS = IconGlyphs.TreasureChestOutline,
+    ToiletControllerPS = IconGlyphs.Toilet,
     NcartTimetableControllerPS = IconGlyphs.TimelineClockOutline,
     NetrunnerChairControllerPS = IconGlyphs.Seat,
     ExplosiveDeviceControllerPS = IconGlyphs.Bomb,
+    TrafficLightControllerPS = IconGlyphs.TrafficLightOutline,
+    vehicleControllerPS = IconGlyphs.CarEstate,
+    WardrobeControllerPS = IconGlyphs.WardrobeOutline,
     SurveillanceCameraControllerPS = IconGlyphs.Cctv,
     SimpleSwitchControllerPS = IconGlyphs.ToggleSwitchOffOutline,
     TerminalControllerPS = IconGlyphs.GestureTapButton,
@@ -62,6 +86,12 @@ local deviceClassSecondaryIconByName = {
     SmartWindowControllerPS = IconGlyphs.WindowOpenVariant,
     WindowBlindersControllerPS = IconGlyphs.BlindsHorizontal,
     WindowControllerPS = IconGlyphs.WindowClosedVariant
+}
+
+local deviceClassSourceByModulePath = {
+    ["entity/entityTemplate"] = true,
+    ["entity/device"] = true,
+    ["entity/ammEntity"] = true
 }
 
 ---Class for base entity handling
@@ -124,6 +154,7 @@ function entity:new()
    	return o
 end
 
+---Normalizes a device class name for lookup/caching (trim + strip non-ASCII).
 ---@param value any
 ---@return string
 local function sanitizeDeviceClassName(value)
@@ -133,14 +164,65 @@ local function sanitizeDeviceClassName(value)
     return sanitized
 end
 
----@param className string?
+---Public wrapper for device class normalization used across modules.
+---@param value any
 ---@return string
-function entity:getDeviceSecondaryIcon(className)
-    return deviceClassSecondaryIconByName[sanitizeDeviceClassName(className)] or ""
+function entity.sanitizeDeviceClassName(value)
+    return sanitizeDeviceClassName(value)
 end
 
+---Returns whether a spawn module can provide/resolve device class names.
+---@param modulePath string?
+---@return boolean
+function entity.supportsDeviceClassSource(modulePath)
+    return modulePath ~= nil and deviceClassSourceByModulePath[modulePath] == true
+end
+
+---Resolves a device class name for a spawn-list entry.
+---Primary source is list metadata (`deviceClassName`), fallback is runtime cache by spawn path.
+---@param entry table?
+---@param modulePath string?
+---@return string
+function entity.resolveDeviceClassNameForEntry(entry, modulePath)
+    if not entry or not entity.supportsDeviceClassSource(modulePath) then
+        return ""
+    end
+
+    local listClassName = entity.sanitizeDeviceClassName(entry.data and entry.data.deviceClassName or nil)
+    if listClassName ~= "" then
+        return listClassName
+    end
+
+    local spawnPath = entry.data and entry.data.spawnData or nil
+    if type(spawnPath) ~= "string" or spawnPath == "" then
+        return ""
+    end
+
+    return entity.sanitizeDeviceClassName(cache.getValue(spawnPath .. "_deviceClassName"))
+end
+
+---Maps a device class name to the configured secondary icon glyph.
+---@param className string?
+---@return string
+function entity.getDeviceSecondaryIcon(className)
+    return deviceClassSecondaryIconByName[entity.sanitizeDeviceClassName(className)] or ""
+end
+
+---Refreshes instance secondary icon state and keeps the class-name cache in sync.
 function entity:updateDeviceSecondaryIcon()
-    self.secondaryIcon = self:getDeviceSecondaryIcon(self.deviceClassName)
+    self.secondaryIcon = entity.getDeviceSecondaryIcon(self.deviceClassName)
+
+    local cacheKey = (self.spawnData and self.spawnData ~= "") and (self.spawnData .. "_deviceClassName") or nil
+    if cacheKey then
+        local currentClassName = entity.sanitizeDeviceClassName(self.deviceClassName)
+        local cachedClassName = cache.getValue(cacheKey)
+
+        if currentClassName ~= "" and cachedClassName ~= currentClassName then
+            cache.addValue(cacheKey, currentClassName)
+        elseif currentClassName == "" and cachedClassName ~= nil then
+            cache.removeValue(cacheKey)
+        end
+    end
 
     if self.object then
         self.object.secondaryIcon = self.secondaryIcon

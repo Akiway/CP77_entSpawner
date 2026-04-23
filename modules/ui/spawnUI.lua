@@ -7,13 +7,15 @@ local history = require("modules/utils/history")
 local editor = require("modules/utils/editor/editor")
 local Cron = require("modules/utils/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
+local entity = require("modules/classes/spawn/entity/entity")
+local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 
 local types = {
     ["Entity"] = {
         variants = {
             ["Template"] = { class = require("modules/classes/spawn/entity/entityTemplate"), index = 1},
             ["Template (AMM)"] = { class = require("modules/classes/spawn/entity/ammEntity"), index = 2},
-            ["Record"] = { class = require("modules/classes/spawn/entity/entityRecord"), index = 3},
+            ["Record"] = { class = entityRecordClass, index = 3},
             ["Device"] = { class = require("modules/classes/spawn/entity/device"), index = 4}
         },
         index = 1
@@ -123,6 +125,10 @@ local AMM = nil
 ---@field flashlightSuppressionComponent IComponent?
 ---@field flashlightSuppressionCaptured boolean
 ---@field flashlightSuppressionPreviousOverride number?
+---@field deviceClassFilterSelectionsByModule table<string, table<string, boolean>>
+---@field deviceClassFilterSearchByModule table<string, string>
+---@field recordTypeFilterSelectionsByModule table<string, table<string, boolean>>
+---@field recordTypeFilterSearchByModule table<string, string>
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -153,6 +159,10 @@ spawnUI = {
     flashlightSuppressionComponent = nil,
     flashlightSuppressionCaptured = false,
     flashlightSuppressionPreviousOverride = nil,
+    deviceClassFilterSelectionsByModule = {},
+    deviceClassFilterSearchByModule = {},
+    recordTypeFilterSelectionsByModule = {},
+    recordTypeFilterSearchByModule = {},
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -163,10 +173,15 @@ function spawnUI.loadSpawnData(spawner)
     variantNames = {}
     spawnData = {}
     modulePathToSpawnList = {}
+    spawnUI.deviceClassFilterSelectionsByModule = {}
+    spawnUI.deviceClassFilterSearchByModule = {}
+    spawnUI.recordTypeFilterSelectionsByModule = {}
+    spawnUI.recordTypeFilterSearchByModule = {}
 
     AMM = GetMod("AppearanceMenuMod")
     spawnUI.spawnedUI = spawner.baseUI.spawnedUI
     spawnUI.spawner = spawner
+    spawnUI.filter = tostring(settings.spawnUIFilter or "")
 
     for dataName, dataType in pairs(types) do
         spawnData[dataName] = {}
@@ -207,26 +222,671 @@ function spawnUI.getActiveSpawnList()
     return spawnData[typeNames[spawnUI.selectedType + 1]][variantNames[spawnUI.selectedVariant + 1]]
 end
 
+local deviceClassFilterListByModulePath = {
+    ["entity/entityTemplate"] = true,
+    ["entity/device"] = true
+}
+
+local recordTypeFilterListByModulePath = {
+    ["entity/entityRecord"] = true
+}
+
+---Returns whether a filter is supported by the active spawn list module.
+---@param spawnList table?
+---@param moduleSupportMap table<string, boolean>
+---@return boolean
+local function supportsFilterForModule(spawnList, moduleSupportMap)
+    return spawnList ~= nil and moduleSupportMap[spawnList.modulePath] == true
+end
+
+---Resolves the effective device class name for a list entry.
+---Delegates the actual source/fallback logic to entity-domain helpers.
+---@param entry table
+---@param spawnList table
+---@return string
+local function getEntryDeviceClassName(entry, spawnList)
+    if not entry or not spawnList then
+        return ""
+    end
+
+    return entity.resolveDeviceClassNameForEntry(entry, spawnList.modulePath)
+end
+
+---Returns whether the Device Class filter should be shown for the active variant.
+---@param spawnList table?
+---@return boolean
+local function supportsDeviceClassFilter(spawnList)
+    return supportsFilterForModule(spawnList, deviceClassFilterListByModulePath)
+end
+
+---Returns whether the Record Type filter should be shown for the active variant.
+---@param spawnList table?
+---@return boolean
+local function supportsRecordTypeFilter(spawnList)
+    return supportsFilterForModule(spawnList, recordTypeFilterListByModulePath)
+end
+
+---Gets or lazily creates the per-module multi-select state map for a filter.
+---@param spawnList table?
+---@param moduleSupportMap table<string, boolean>
+---@param selectionsByModule table<string, table<string, boolean>>
+---@return table<string, boolean>?
+local function getFilterSelectionsForModule(spawnList, moduleSupportMap, selectionsByModule)
+    if not supportsFilterForModule(spawnList, moduleSupportMap) then
+        return nil
+    end
+
+    local modulePath = spawnList.modulePath
+    local selections = selectionsByModule[modulePath]
+    if not selections then
+        selections = {}
+        selectionsByModule[modulePath] = selections
+    end
+
+    return selections
+end
+
+---Gets the per-module search text used inside a filter popin.
+---Returns an empty string when unsupported or uninitialized.
+---@param spawnList table?
+---@param moduleSupportMap table<string, boolean>
+---@param searchByModule table<string, string>
+---@return string
+local function getFilterSearchForModule(spawnList, moduleSupportMap, searchByModule)
+    if not supportsFilterForModule(spawnList, moduleSupportMap) then
+        return ""
+    end
+
+    local modulePath = spawnList.modulePath
+    local searchValue = searchByModule[modulePath]
+    if type(searchValue) ~= "string" then
+        searchValue = ""
+        searchByModule[modulePath] = searchValue
+    end
+
+    return searchValue
+end
+
+---Sets the per-module search text used inside a filter popin.
+---@param spawnList table?
+---@param moduleSupportMap table<string, boolean>
+---@param searchByModule table<string, string>
+---@param value string
+local function setFilterSearchForModule(spawnList, moduleSupportMap, searchByModule, value)
+    if not supportsFilterForModule(spawnList, moduleSupportMap) then
+        return
+    end
+
+    searchByModule[spawnList.modulePath] = tostring(value or "")
+end
+
+---Gets the current Device Class selection state for the active module.
+---@param spawnList table?
+---@return table<string, boolean>?
+local function getDeviceClassFilterSelections(spawnList)
+    return getFilterSelectionsForModule(
+        spawnList,
+        deviceClassFilterListByModulePath,
+        spawnUI.deviceClassFilterSelectionsByModule
+    )
+end
+
+---Gets the current Record Type selection state for the active module.
+---@param spawnList table?
+---@return table<string, boolean>?
+local function getRecordTypeFilterSelections(spawnList)
+    return getFilterSelectionsForModule(
+        spawnList,
+        recordTypeFilterListByModulePath,
+        spawnUI.recordTypeFilterSelectionsByModule
+    )
+end
+
+---Returns true when at least one option is selected in a filter map.
+---@param selections table<string, boolean>?
+---@return boolean
+local function hasSelectedFilterOption(selections)
+    if not selections then
+        return false
+    end
+
+    for _, isSelected in pairs(selections) do
+        if isSelected then
+            return true
+        end
+    end
+
+    return false
+end
+
+---Builds the selector preview label from current selection state.
+---Shows "all" label when none are selected, item label for one, count label otherwise.
+---@param selections table<string, boolean>?
+---@param allLabel string
+---@param multiLabelFormat string
+---@return string
+local function getFilterPreviewLabel(selections, allLabel, multiLabelFormat)
+    local selectedCount = 0
+    local singleSelectedKey = ""
+
+    if selections then
+        for key, isSelected in pairs(selections) do
+            if isSelected then
+                selectedCount = selectedCount + 1
+                singleSelectedKey = key
+            end
+        end
+    end
+
+    if selectedCount == 0 then
+        return allLabel
+    end
+
+    if selectedCount == 1 then
+        return singleSelectedKey
+    end
+
+    return string.format(multiLabelFormat, selectedCount)
+end
+
+---Gets the in-popin search text for the Device Class filter.
+---@param spawnList table?
+---@return string
+local function getDeviceClassFilterSearch(spawnList)
+    return getFilterSearchForModule(
+        spawnList,
+        deviceClassFilterListByModulePath,
+        spawnUI.deviceClassFilterSearchByModule
+    )
+end
+
+---Sets the in-popin search text for the Device Class filter.
+---@param spawnList table?
+---@param value string
+local function setDeviceClassFilterSearch(spawnList, value)
+    setFilterSearchForModule(
+        spawnList,
+        deviceClassFilterListByModulePath,
+        spawnUI.deviceClassFilterSearchByModule,
+        value
+    )
+end
+
+---Gets the in-popin search text for the Record Type filter.
+---@param spawnList table?
+---@return string
+local function getRecordTypeFilterSearch(spawnList)
+    return getFilterSearchForModule(
+        spawnList,
+        recordTypeFilterListByModulePath,
+        spawnUI.recordTypeFilterSearchByModule
+    )
+end
+
+---Sets the in-popin search text for the Record Type filter.
+---@param spawnList table?
+---@param value string
+local function setRecordTypeFilterSearch(spawnList, value)
+    setFilterSearchForModule(
+        spawnList,
+        recordTypeFilterListByModulePath,
+        spawnUI.recordTypeFilterSearchByModule,
+        value
+    )
+end
+
+---Draws a clear-selection icon button for one multi-select filter map.
+---Returns whether selection changed and whether the button was rendered.
+---@param selections table<string, boolean>?
+---@param buttonId string
+---@param tooltip string
+---@param sameLine boolean?
+---@return boolean changed
+---@return boolean drawn
+local function drawMultiSelectClearButton(selections, buttonId, tooltip, sameLine)
+    local hasSelection = hasSelectedFilterOption(selections)
+    if not hasSelection then
+        return false, false
+    end
+
+    if sameLine then
+        ImGui.SameLine()
+    end
+
+    style.pushButtonNoBG(true)
+    local clicked = ImGui.Button(IconGlyphs.FilterRemoveOutline .. buttonId)
+    style.pushButtonNoBG(false)
+
+    if tooltip ~= "" then
+        style.tooltip(tooltip)
+    end
+
+    if clicked and selections then
+        for key, _ in pairs(selections) do
+            selections[key] = nil
+        end
+        return true, true
+    end
+
+    return false, true
+end
+
+---@param spawnList table
+---@param entry table
+---@return string
+local function getEntrySearchName(spawnList, entry)
+    if spawnList.isPaths and settings.spawnUIOnlyNames then
+        return entry.fileName or entry.name or ""
+    end
+
+    return entry.name or ""
+end
+
+---@param spawnList table
+---@param entry table
+---@return boolean
+local function matchesSearchFilter(spawnList, entry)
+    if spawnUI.filter == "" then
+        return true
+    end
+
+    return utils.matchSearch(getEntrySearchName(spawnList, entry), spawnUI.filter)
+end
+
+---Applies selector-popin search matching to an option label.
+---@param optionName string
+---@param filterValue string
+---@return boolean
+local function matchesSelectorOptionFilter(optionName, filterValue)
+    local searchValue = string.lower(tostring(filterValue or ""))
+    if searchValue == "" then
+        return true
+    end
+
+    return utils.safePatternMatch(string.lower(tostring(optionName or "")), searchValue)
+end
+
+---Collects all currently available option keys for a filter from the active spawn list.
+---@param spawnList table
+---@param resolveKey fun(entry: table, spawnList: table): string
+---@return table<string, boolean>
+local function collectAvailableFilterKeys(spawnList, resolveKey)
+    local availableKeys = {}
+
+    for _, entry in ipairs(spawnList.data) do
+        local key = tostring(resolveKey(entry, spawnList) or "")
+        if key ~= "" then
+            availableKeys[key] = true
+        end
+    end
+
+    return availableKeys
+end
+
+---Removes selected keys that no longer exist in the available option set.
+---@param selections table<string, boolean>?
+---@param availableKeys table<string, boolean>
+local function pruneUnavailableFilterSelections(selections, availableKeys)
+    if not selections then
+        return
+    end
+
+    for key, _ in pairs(selections) do
+        if not availableKeys[key] then
+            selections[key] = nil
+        end
+    end
+end
+
+---@class SpawnDeviceClassFilterOption
+---@field className string
+---@field icon string
+---@field count number
+
+---Builds Device Class filter options (icon + label + count) for the active list.
+---@param spawnList table
+---@return SpawnDeviceClassFilterOption[]
+local function getDeviceClassFilterOptions(spawnList)
+    local optionsByClassName = {}
+
+    for _, entry in ipairs(spawnList.data) do
+        local className = getEntryDeviceClassName(entry, spawnList)
+        if className ~= "" then
+            local option = optionsByClassName[className]
+            if not option then
+                option = {
+                    className = className,
+                    icon = entity.getDeviceSecondaryIcon(className),
+                    count = 0
+                }
+                optionsByClassName[className] = option
+            end
+
+            if matchesSearchFilter(spawnList, entry) then
+                option.count = option.count + 1
+            end
+        end
+    end
+
+    local options = {}
+    for _, option in pairs(optionsByClassName) do
+        if option.count > 0 then
+            table.insert(options, option)
+        end
+    end
+
+    table.sort(options, function(a, b)
+        return string.lower(a.className) < string.lower(b.className)
+    end)
+
+    return options
+end
+
+---Builds preview text for the Device Class selector.
+---@param spawnList table?
+---@return string
+local function getDeviceClassFilterPreviewLabel(spawnList)
+    return getFilterPreviewLabel(getDeviceClassFilterSelections(spawnList), "All classes", "%d classes selected")
+end
+
+---Extracts a record type prefix for one entry (for example `AttachableObject`).
+---@param entry table
+---@param spawnList table
+---@return string
+local function getEntryRecordTypePrefix(entry, spawnList)
+    if not entry or not spawnList or not supportsRecordTypeFilter(spawnList) then
+        return ""
+    end
+
+    local spawnData = entry.data and entry.data.spawnData or nil
+    return entityRecordClass.getTypePrefix(spawnData)
+end
+
+---@class SpawnRecordTypeFilterOption
+---@field typeName string
+---@field icon string
+---@field count number
+
+---Builds Record Type filter options (icon + label + count) for the active list.
+---@param spawnList table
+---@return SpawnRecordTypeFilterOption[]
+local function getRecordTypeFilterOptions(spawnList)
+    local optionsByType = {}
+
+    for _, entry in ipairs(spawnList.data) do
+        local typeName = getEntryRecordTypePrefix(entry, spawnList)
+        if typeName ~= "" then
+            local option = optionsByType[typeName]
+            if not option then
+                option = {
+                    typeName = typeName,
+                    icon = IconGlyphs.AlphaRBoxOutline,
+                    count = 0
+                }
+                optionsByType[typeName] = option
+            end
+
+            if matchesSearchFilter(spawnList, entry) then
+                option.count = option.count + 1
+            end
+        end
+    end
+
+    local options = {}
+    for _, option in pairs(optionsByType) do
+        if option.count > 0 then
+            table.insert(options, option)
+        end
+    end
+
+    table.sort(options, function(a, b)
+        return string.lower(a.typeName) < string.lower(b.typeName)
+    end)
+
+    return options
+end
+
+---Builds preview text for the Record Type selector.
+---@param spawnList table?
+---@return string
+local function getRecordTypeFilterPreviewLabel(spawnList)
+    return getFilterPreviewLabel(getRecordTypeFilterSelections(spawnList), "All record types", "%d record types selected")
+end
+
+---Resolves the secondary icon displayed between the main icon and entry label in search results.
+---Only device/template entries with a known class icon return a value.
+---@param entry table
+---@param spawnList table
+---@return string
+local function getSearchResultSecondaryIcon(entry, spawnList)
+    if not entry or not spawnList then
+        return ""
+    end
+
+    local className = getEntryDeviceClassName(entry, spawnList)
+    if className == "" then
+        return ""
+    end
+
+    return entity.getDeviceSecondaryIcon(className)
+end
+
+---Formats a search result label while reserving width for an optional secondary icon prefix.
+---@param text string
+---@param width number
+---@param secondaryIcon string?
+---@return string
+local function formatSearchResultButtonText(text, width, secondaryIcon)
+    local icon = tostring(secondaryIcon or "")
+    if icon == "" then
+        return utils.shortenPath(text, width, true)
+    end
+
+    local iconPrefix = icon .. " "
+    local iconWidth, _ = ImGui.CalcTextSize(iconPrefix)
+    local contentWidth = math.max(1, width - iconWidth)
+
+    return iconPrefix .. utils.shortenPath(text, contentWidth, true)
+end
+
+---Persists Spawn New search text only when it actually changed.
+local function saveSpawnUIFilterIfChanged()
+    local nextFilter = tostring(spawnUI.filter or "")
+    if settings.spawnUIFilter == nextFilter then
+        return
+    end
+
+    settings.spawnUIFilter = nextFilter
+    settings.save()
+end
+
 ---Regenerate the filteredList based on the active filter and the currently selected active spawn list
 function spawnUI.updateFilter()
-    settings.spawnUIFilter = spawnUI.filter
-    settings.save()
 
-    if spawnUI.filter == "" then
-        spawnUI.filteredList = spawnUI.getActiveSpawnList().data
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    local classSelections = getDeviceClassFilterSelections(activeSpawnList)
+    if classSelections then
+        local availableClassKeys = collectAvailableFilterKeys(activeSpawnList, getEntryDeviceClassName)
+        pruneUnavailableFilterSelections(classSelections, availableClassKeys)
+    end
+    local classFilterEnabled = hasSelectedFilterOption(classSelections)
+
+    local recordTypeSelections = getRecordTypeFilterSelections(activeSpawnList)
+    if recordTypeSelections then
+        local availableRecordTypeKeys = collectAvailableFilterKeys(activeSpawnList, getEntryRecordTypePrefix)
+        pruneUnavailableFilterSelections(recordTypeSelections, availableRecordTypeKeys)
+    end
+    local recordTypeFilterEnabled = hasSelectedFilterOption(recordTypeSelections)
+
+    if spawnUI.filter == "" and not classFilterEnabled and not recordTypeFilterEnabled then
+        spawnUI.filteredList = activeSpawnList.data
         return
     end
 
     spawnUI.filteredList = {}
-    for _, data in pairs(spawnUI.getActiveSpawnList().data) do
-        local name = data.name
-        if spawnUI.getActiveSpawnList().isPaths and settings.spawnUIOnlyNames then
-            name = data.fileName
-        end
-        if utils.matchSearch(name, spawnUI.filter) then
-            table.insert(spawnUI.filteredList, data)
+    for _, data in ipairs(activeSpawnList.data) do
+        if matchesSearchFilter(activeSpawnList, data) then
+            local include = true
+
+            if classFilterEnabled then
+                local className = getEntryDeviceClassName(data, activeSpawnList)
+                include = className ~= "" and classSelections[className] == true
+            end
+
+            if include and recordTypeFilterEnabled then
+                local recordTypeName = getEntryRecordTypePrefix(data, activeSpawnList)
+                include = recordTypeName ~= "" and recordTypeSelections[recordTypeName] == true
+            end
+
+            if include then
+                table.insert(spawnUI.filteredList, data)
+            end
         end
     end
+end
+
+---Draws the Device Class Name multi-select filter selector for entity template/device variants.
+---@return boolean changed
+function spawnUI.drawDeviceClassFilterSelector()
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if not supportsDeviceClassFilter(activeSpawnList) then
+        return false
+    end
+
+    local selections = getDeviceClassFilterSelections(activeSpawnList)
+    local previewLabel = getDeviceClassFilterPreviewLabel(activeSpawnList)
+    local popupSearch = getDeviceClassFilterSearch(activeSpawnList)
+    local _, screenHeight = GetDisplayResolution()
+    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+    local changed = false
+
+    ImGui.AlignTextToFramePadding()
+    style.mutedText("Device Class Name")
+    ImGui.SameLine()
+
+    local comboChanged, nextPopupSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##deviceClassFilterCombo",
+        previewLabel = previewLabel,
+        searchHint = "Search class name...",
+        searchValue = popupSearch,
+        getOptions = function ()
+            return getDeviceClassFilterOptions(activeSpawnList)
+        end,
+        selections = selections,
+        comboWidth = 260 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        maxPopupHeight = maxPopupHeight,
+        emptyText = "No class names available",
+        noMatchText = "No matching class names",
+        searchInputId = "##deviceClassFilterSearch",
+        searchClearButtonId = "##deviceClassFilterSearchClear",
+        selectAllButtonId = "##deviceClassSelectAll",
+        unselectAllButtonId = "##deviceClassUnselectAll",
+        optionIdPrefix = "##deviceClassOption",
+        selectAllTooltip = "Select all class names",
+        unselectAllTooltip = "Unselect all class names (default behavior: show all)",
+        getOptionKey = function (option)
+            return option.className
+        end,
+        getOptionLabel = function (option)
+            local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
+            return string.format("%s%s (%d)", labelIcon, option.className, option.count)
+        end,
+        matchesOption = function (option, searchValue)
+            return matchesSelectorOptionFilter(option.className, searchValue)
+        end
+    })
+    if comboChanged then
+        changed = true
+    end
+
+    if nextPopupSearch ~= popupSearch then
+        setDeviceClassFilterSearch(activeSpawnList, nextPopupSearch)
+    end
+
+    local clearChanged = drawMultiSelectClearButton(
+        selections,
+        "##deviceClassFilterSelectionClear",
+        "Clear selected class-name filters",
+        true
+    )
+    if clearChanged then
+        changed = true
+    end
+
+    return changed
+end
+
+---Draws the Record Type multi-select filter selector for entity record variants.
+---@return boolean changed
+function spawnUI.drawRecordTypeFilterSelector()
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if not supportsRecordTypeFilter(activeSpawnList) then
+        return false
+    end
+
+    local selections = getRecordTypeFilterSelections(activeSpawnList)
+    local previewLabel = getRecordTypeFilterPreviewLabel(activeSpawnList)
+    local popupSearch = getRecordTypeFilterSearch(activeSpawnList)
+    local _, screenHeight = GetDisplayResolution()
+    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+    local changed = false
+
+    ImGui.AlignTextToFramePadding()
+    style.mutedText("Record type")
+    ImGui.SameLine()
+
+    local comboChanged, nextPopupSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##recordTypeFilterCombo",
+        previewLabel = previewLabel,
+        searchHint = "Search record type...",
+        searchValue = popupSearch,
+        getOptions = function ()
+            return getRecordTypeFilterOptions(activeSpawnList)
+        end,
+        selections = selections,
+        comboWidth = 200 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        maxPopupHeight = maxPopupHeight,
+        emptyText = "No record types available",
+        noMatchText = "No matching record types",
+        searchInputId = "##recordTypeFilterSearch",
+        searchClearButtonId = "##recordTypeFilterSearchClear",
+        selectAllButtonId = "##recordTypeSelectAll",
+        unselectAllButtonId = "##recordTypeUnselectAll",
+        optionIdPrefix = "##recordTypeOption",
+        selectAllTooltip = "Select all record types",
+        unselectAllTooltip = "Unselect all record types (default behavior: show all)",
+        getOptionKey = function (option)
+            return option.typeName
+        end,
+        getOptionLabel = function (option)
+            local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
+            return string.format("%s%s (%d)", labelIcon, option.typeName, option.count)
+        end,
+        matchesOption = function (option, searchValue)
+            return matchesSelectorOptionFilter(option.typeName, searchValue)
+        end
+    })
+    if comboChanged then
+        changed = true
+    end
+
+    if nextPopupSearch ~= popupSearch then
+        setRecordTypeFilterSearch(activeSpawnList, nextPopupSearch)
+    end
+
+    local clearChanged = drawMultiSelectClearButton(
+        selections,
+        "##recordTypeFilterSelectionClear",
+        "Clear selected record-type filters",
+        true
+    )
+    if clearChanged then
+        changed = true
+    end
+
+    return changed
 end
 
 ---Refresh the filtering and sorting
@@ -669,36 +1329,15 @@ function spawnUI.drawTargetGroupSelector()
         spawnUI.selectedGroup = 0
     end
 
-	ImGui.PushItemWidth(150 * style.viewSize)
-    ImGui.Text("Target group")
+    style.mutedText("Target group")
     ImGui.SameLine()
+	ImGui.PushItemWidth(200 * style.viewSize)
 	spawnUI.selectedGroup = ImGui.Combo("##newSpawnGroup", spawnUI.selectedGroup, groups, #groups)
     style.tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned UI\" to set this selector to the currently selected group.")
 	ImGui.PopItemWidth()
 end
 
 function spawnUI.drawAll()
-    ImGui.SetNextItemWidth(300 * style.viewSize)
-    spawnUI.filter, changed = ImGui.InputTextWithHint('##Filter', 'Search by name... (Supports pattern matching)', spawnUI.filter, 500)
-    if changed then
-        spawnUI.updateFilter()
-    end
-
-    if spawnUI.filter ~= '' then
-        ImGui.SameLine()
-
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            spawnUI.filter = ''
-            spawnUI.updateFilter()
-        end
-        style.pushButtonNoBG(false)
-    end
-
-    ImGui.SameLine()
-    style.mutedText(IconGlyphs.InformationOutline)
-    style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
-
     spawnUI.drawTargetGroupSelector()
 
     if ImGui.TreeNodeEx("Options", ImGuiTreeNodeFlags.SpanFullWidth) then
@@ -724,8 +1363,6 @@ function spawnUI.drawAll()
 
 	ImGui.PopItemWidth()
 
-    ImGui.SameLine()
-
     if variantNames[spawnUI.selectedVariant + 1] == "Template (AMM)" then
         ImGui.SameLine()
 
@@ -744,8 +1381,45 @@ function spawnUI.drawAll()
 
     style.spacedSeparator()
 
+    ImGui.SetNextItemWidth(300 * style.viewSize)
+    spawnUI.filter, changed = ImGui.InputTextWithHint('##Filter', 'Search by name... (Supports pattern matching)', spawnUI.filter, 500)
+    if changed then
+        saveSpawnUIFilterIfChanged()
+        spawnUI.updateFilter()
+    end
+
+    if spawnUI.filter ~= '' then
+        ImGui.SameLine()
+
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.Close) then
+            spawnUI.filter = ''
+            saveSpawnUIFilterIfChanged()
+            spawnUI.updateFilter()
+        end
+        style.pushButtonNoBG(false)
+    end
+
+    ImGui.SameLine()
+    style.mutedText(IconGlyphs.InformationOutline)
+    style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
+
+    local extraFilterChanged = false
+    if spawnUI.drawDeviceClassFilterSelector() then
+        extraFilterChanged = true
+    end
+    if spawnUI.drawRecordTypeFilterSelector() then
+        extraFilterChanged = true
+    end
+    if extraFilterChanged then
+        spawnUI.updateFilter()
+    end
+
+    style.spacedSeparator()
+
     ImGui.BeginChild("list")
 
+    local activeSpawnList = spawnUI.getActiveSpawnList()
     local clipper = ImGuiListClipper.new()
     clipper:Begin(#spawnUI.filteredList, -1)
 
@@ -778,12 +1452,16 @@ function spawnUI.drawAll()
             end
 
             local buttonText = entry.name
-            if spawnUI.getActiveSpawnList().isPaths and settings.spawnUIOnlyNames then
+            if activeSpawnList.isPaths and settings.spawnUIOnlyNames then
                 buttonText = utils.getFileName(entry.name)
             end
 
-            if ImGui.Button(utils.shortenPath(buttonText, xSpace - ImGui.GetCursorPosX(), true)) and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
-                local class = spawnUI.getActiveSpawnList().class
+            local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
+            local buttonWidth = xSpace - ImGui.GetCursorPosX()
+            local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
+
+            if ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
+                local class = activeSpawnList.class
                 entry.lastSpawned = spawnUI.spawnNew(entry, class, false)
             elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnUI.dragging and ImGui.IsItemHovered() then
                 spawnUI.dragging = true
@@ -793,7 +1471,7 @@ function spawnUI.drawAll()
                     local ray = editor.getScreenToWorldRay()
                     spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
 
-                    local class = spawnUI.getActiveSpawnList().class
+                    local class = activeSpawnList.class
                     spawnUI.dragData.lastSpawned = spawnUI.spawnNew(spawnUI.dragData, class, false)
                 end
 
@@ -804,7 +1482,7 @@ function spawnUI.drawAll()
             if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
                 ImGui.SetClipboardText(entry.name)
             end
-            if ImGui.IsItemHovered() and settings.assetPreviewEnabled[spawnUI.getActiveSpawnList().modulePath] then
+            if ImGui.IsItemHovered() and settings.assetPreviewEnabled[activeSpawnList.modulePath] then
                 spawnUI.handleAssetPreviewHovered(entry, false)
             elseif spawnUI.hoveredEntry == entry and (spawnUI.previewInstance or spawnUI.previewTimer) then
                 spawnUI.hoveredEntry = nil
@@ -818,7 +1496,7 @@ function spawnUI.drawAll()
                 if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
                     local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
                     local data = utils.deepcopy(entry.data)
-                    data.modulePath = spawnUI.getActiveSpawnList().class:new().modulePath
+                    data.modulePath = activeSpawnList.class:new().modulePath
                     data.position = { x = 0, y = 0, z = 0, w = 0 }
                     data.rotation = { roll = 0, pitch = 0, yaw = 0 }
 
@@ -1079,6 +1757,7 @@ end
 
 function spawnUI.drawPopupVariant(typeName, variantName)
     local _, screenHeight = GetDisplayResolution()
+    local popupSpawnList = spawnData[typeName][variantName]
 
     if spawnUI.currentPopupVariant ~= variantName then
         ImGui.SetKeyboardFocusHere()
@@ -1104,7 +1783,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
         xSpace = xSpace + x + ImGui.GetStyle().ItemSpacing.x
     end
 
-    if spawnUI.popupFilter ~= "" or #spawnData[typeName][variantName].data < 100 then
+    if spawnUI.popupFilter ~= "" or #popupSpawnList.data < 100 then
         local y = #spawnUI.popupData * ImGui.GetFrameHeightWithSpacing()
 
         if ImGui.BeginChild("##list", xSpace, math.max(math.min(y, screenHeight / 2), 1)) then
@@ -1114,10 +1793,16 @@ function spawnUI.drawPopupVariant(typeName, variantName)
             while (clipper:Step()) do
                 for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
                     ImGui.PushID(spawnUI.popupData[i].name)
+                    local secondaryIcon = getSearchResultSecondaryIcon(spawnUI.popupData[i], popupSpawnList)
+                    local popupButtonText = formatSearchResultButtonText(
+                        spawnUI.popupData[i].name,
+                        xSpace - ImGui.GetStyle().ItemSpacing.x * 3,
+                        secondaryIcon
+                    )
 
-                    if ImGui.Button(utils.shortenPath(spawnUI.popupData[i].name, xSpace - ImGui.GetStyle().ItemSpacing.x * 3, true)) then
+                    if ImGui.Button(popupButtonText) then
                         if not settings.spawnAtCursor then spawnUI.popupSpawnHit = nil end
-                        local class = spawnData[typeName][variantName].class
+                        local class = popupSpawnList.class
                         spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], class, false)
                         ImGui.CloseCurrentPopup()
                     end

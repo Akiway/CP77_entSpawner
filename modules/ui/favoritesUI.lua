@@ -147,15 +147,130 @@ function favoritesUI.getAllTags(filter)
     return tags
 end
 
+---Builds a stable preview label for a tag multi-select state map.
+---@param selections table<string, boolean>?
+---@param allLabel string
+---@param multiLabelFormat string
+---@return string
+local function getTagSelectionPreviewLabel(selections, allLabel, multiLabelFormat)
+    local selectedTags = {}
+
+    if selections then
+        for tag, isSelected in pairs(selections) do
+            if isSelected == true then
+                table.insert(selectedTags, tostring(tag))
+            end
+        end
+    end
+
+    table.sort(selectedTags, function(a, b)
+        return string.lower(a) < string.lower(b)
+    end)
+
+    if #selectedTags == 0 then
+        return allLabel
+    end
+
+    if #selectedTags == 1 then
+        return selectedTags[1]
+    end
+
+    return string.format(multiLabelFormat, #selectedTags)
+end
+
+---Removes selected tag keys that are no longer available in the current tag option list.
+---@param selections table<string, boolean>?
+---@param options string[]
+local function pruneTagSelections(selections, options)
+    if not selections then
+        return
+    end
+
+    local available = {}
+    for _, tag in ipairs(options or {}) do
+        available[tostring(tag)] = true
+    end
+
+    for tag, _ in pairs(selections) do
+        if not available[tostring(tag)] then
+            selections[tag] = nil
+        end
+    end
+end
+
+---Matches one tag option against the combo search query.
+---@param tagName string
+---@param filterValue string
+---@return boolean
+local function matchesTagSelectorOption(tagName, filterValue)
+    local searchValue = string.lower(tostring(filterValue or ""))
+    if searchValue == "" then
+        return true
+    end
+
+    return utils.safePatternMatch(string.lower(tostring(tagName or "")), searchValue)
+end
+
+---Draws a clear-selection icon button for a tag multi-select filter.
+---When the button is clicked, all currently selected tags are cleared.
+---@param selections table<string, boolean>?
+---@param buttonId string
+---@param tooltip string
+---@param sameLine boolean?
+---@return boolean changed
+---@return boolean drawn
+local function drawTagClearButton(selections, buttonId, tooltip, sameLine)
+    local hasSelection = false
+    for _, isSelected in pairs(selections or {}) do
+        if isSelected == true then
+            hasSelection = true
+            break
+        end
+    end
+
+    if not hasSelection then
+        return false, false
+    end
+
+    if sameLine then
+        ImGui.SameLine()
+    end
+
+    local changed = false
+    style.pushButtonNoBG(true)
+    local clicked = ImGui.Button(IconGlyphs.FilterRemoveOutline .. buttonId)
+    style.pushButtonNoBG(false)
+
+    if tooltip ~= "" then
+        style.tooltip(tooltip)
+    end
+
+    if clicked and selections then
+        for key, _ in pairs(selections) do
+            selections[key] = nil
+        end
+        changed = true
+    end
+
+    return changed, true
+end
+
+---Draws the label prefix for a tag multi-select filter row.
+---@param label string
+local function drawTagMultiSelectLabel(label)
+    ImGui.AlignTextToFramePadding()
+    style.mutedText(label)
+    ImGui.SameLine()
+end
+
 ---@param selected table Hashtable of selected tags
 ---@param canAdd boolean Whether new tags can be added
 ---@param filter string Filter for tags
----@param showANDFilter boolean
 ---@return table selected
 ---@return boolean changed
 ---@return table size
 ---@return string filter
-function favoritesUI.drawTagSelect(selected, canAdd, filter, showANDFilter)
+function favoritesUI.drawTagSelect(selected, canAdd, filter)
     local x, y = 0, 0
 
     -- Search in existing tags
@@ -201,15 +316,6 @@ function favoritesUI.drawTagSelect(selected, canAdd, filter, showANDFilter)
         edited = true
     end
     style.pushButtonNoBG(false)
-    if showANDFilter then
-        ImGui.SameLine()
-        local nextAndFilter, andFilterChanged = style.toggleButton(IconGlyphs.SetCenter, settings.favoritesTagsAND)
-        if andFilterChanged then
-            settings.favoritesTagsAND = nextAndFilter
-            settings.save()
-        end
-        style.tooltip("AND filter mode (Leave off for OR filter)")
-    end
 
     -- Draw table of tags
     local nColumns = 3
@@ -327,7 +433,7 @@ function favoritesUI.drawEditFavoritePopup()
             local _, screenHeight = GetDisplayResolution()
             local tagsMaxHeight = math.min(400 * style.viewSize, (screenHeight - 16) * 0.55)
             if ImGui.BeginChild("##tags", favoritesUI.tagAddSize.x, math.min(favoritesUI.tagAddSize.y, tagsMaxHeight), false) then
-                favoritesUI.popupItem.tags, changed, favoritesUI.tagAddSize, favoritesUI.tagAddFilter = favoritesUI.drawTagSelect(favoritesUI.popupItem.tags, true, favoritesUI.tagAddFilter, false)
+                favoritesUI.popupItem.tags, changed, favoritesUI.tagAddSize, favoritesUI.tagAddFilter = favoritesUI.drawTagSelect(favoritesUI.popupItem.tags, true, favoritesUI.tagAddFilter)
                 if changed and not noCategory then
                     if favoritesUI.popupItem.category.grouped then
                         favoritesUI.popupItem.category:loadVirtualGroups()
@@ -578,13 +684,46 @@ function favoritesUI.drawMain()
 end
 
 function favoritesUI.drawMergeTags()
-    if ImGui.TreeNodeEx("Tags to rename / merge", ImGuiTreeNodeFlags.SpanFullWidth) then
-        if ImGui.BeginChild("##mergeTags", -1, math.min(favoritesUI.tagMergeSize.y, 300 * style.viewSize), false) then
-            favoritesUI.tagMergeTags, _, favoritesUI.tagMergeSize, favoritesUI.tagMergeFilter = favoritesUI.drawTagSelect(favoritesUI.tagMergeTags, false, favoritesUI.tagMergeFilter, false)
-            ImGui.EndChild()
+    local mergeTagOptions = favoritesUI.getAllTags("")
+    pruneTagSelections(favoritesUI.tagMergeTags, mergeTagOptions)
+    local mergePreview = getTagSelectionPreviewLabel(favoritesUI.tagMergeTags, "No tags selected", "%d tags selected")
+
+    local _, screenHeight = GetDisplayResolution()
+    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+
+    drawTagMultiSelectLabel("Tags to rename / merge")
+
+    local _, nextMergeSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##tagMergeFilterCombo",
+        previewLabel = mergePreview,
+        searchHint = "Search tag...",
+        searchValue = favoritesUI.tagMergeFilter,
+        options = mergeTagOptions,
+        selections = favoritesUI.tagMergeTags,
+        comboWidth = 160 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        maxPopupHeight = maxPopupHeight,
+        emptyText = "No tags available",
+        noMatchText = "No matching tags",
+        searchInputId = "##tagMergeSearch",
+        searchClearButtonId = "##tagMergeSearchClear",
+        selectAllButtonId = "##tagMergeSelectAll",
+        unselectAllButtonId = "##tagMergeUnselectAll",
+        optionIdPrefix = "##tagMergeOption",
+        selectAllTooltip = "Select all tags",
+        unselectAllTooltip = "Unselect all tags",
+        matchesOption = function (option, searchValue)
+            return matchesTagSelectorOption(option, searchValue)
         end
-        ImGui.TreePop()
-    end
+    })
+    favoritesUI.tagMergeFilter = nextMergeSearch
+
+    drawTagClearButton(
+        favoritesUI.tagMergeTags,
+        "##tagMergeSelectionClear",
+        "Clear selected tags to rename/merge",
+        true
+    )
 
     style.mutedText("New tag name")
     ImGui.SameLine()
@@ -595,49 +734,46 @@ function favoritesUI.drawMergeTags()
     local affectedCount = favoritesUI.getTagMergeAffectedCount(favoritesUI.tagMergeTags, favoritesUI.newMergeTag)
     style.mutedText("Selected tags: " .. selectedTagCount .. " | Affected favorites: " .. affectedCount)
 
-    local showApplyButton = favoritesUI.newMergeTag ~= ""
-    local canApply = showApplyButton and selectedTagCount > 0 and affectedCount > 0
+    local canApply = favoritesUI.newMergeTag ~= "" and selectedTagCount > 0 and affectedCount > 0
 
-    if showApplyButton then
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        style.pushGreyedOut(not canApply)
-        local clicked = ImGui.Button(IconGlyphs.CheckCircleOutline)
-        style.popGreyedOut(not canApply)
-        style.pushButtonNoBG(false)
+    ImGui.SameLine()
+    style.pushButtonNoBG(true)
+    style.pushGreyedOut(not canApply)
+    local clicked = ImGui.Button(IconGlyphs.CheckCircleOutline)
+    style.popGreyedOut(not canApply)
+    style.pushButtonNoBG(false)
 
-        if clicked and canApply then
-            local changedAnyCategory = false
-            for _, category in pairs(favoritesUI.categories) do
-                changedAnyCategory = category:renameTags(favoritesUI.tagMergeTags, favoritesUI.newMergeTag) or changedAnyCategory
-            end
+    if clicked and canApply then
+        local changedAnyCategory = false
+        for _, category in pairs(favoritesUI.categories) do
+            changedAnyCategory = category:renameTags(favoritesUI.tagMergeTags, favoritesUI.newMergeTag) or changedAnyCategory
+        end
 
-            -- Keep active search-tag filters aligned with the merge target so merged entries stay visible.
-            local changedFilterTags = false
-            if changedAnyCategory then
-                for oldTag, _ in pairs(favoritesUI.tagMergeTags) do
-                    if oldTag ~= favoritesUI.newMergeTag and settings.filterTags[oldTag] then
-                        settings.filterTags[oldTag] = nil
-                        settings.filterTags[favoritesUI.newMergeTag] = true
-                        changedFilterTags = true
-                    end
+        -- Keep active search-tag filters aligned with the merge target so merged entries stay visible.
+        local changedFilterTags = false
+        if changedAnyCategory then
+            for oldTag, _ in pairs(favoritesUI.tagMergeTags) do
+                if oldTag ~= favoritesUI.newMergeTag and settings.filterTags[oldTag] then
+                    settings.filterTags[oldTag] = nil
+                    settings.filterTags[favoritesUI.newMergeTag] = true
+                    changedFilterTags = true
                 end
             end
-
-            -- Run cleanup immediately so stale tags do not hide entries until the next frame.
-            favoritesUI.removeUnusedTags()
-
-            if changedFilterTags then
-                settings.save()
-            end
-
-            favoritesUI.newMergeTag = ""
-            favoritesUI.tagMergeTags = {}
         end
 
-        if not canApply then
-            style.tooltip("Select at least one source tag and a new name that affects favorites.")
+        -- Run cleanup immediately so stale tags do not hide entries until the next frame.
+        favoritesUI.removeUnusedTags()
+
+        if changedFilterTags then
+            settings.save()
         end
+
+        favoritesUI.newMergeTag = ""
+        favoritesUI.tagMergeTags = {}
+    end
+
+    if not canApply then
+        style.tooltip("Select at least one source tag and enter a new name that affects favorites.")
     end
 end
 
@@ -645,6 +781,32 @@ function favoritesUI.draw()
     favoritesUI.removeUnusedTags()
 
     local changed = false
+
+    if favoritesUI.drawActiveTagFilters() then
+        settings.save()
+    end
+
+    if ImGui.TreeNodeEx("Spawn Options", ImGuiTreeNodeFlags.SpanFullWidth) then
+        favoritesUI.spawnUI.drawTargetGroupSelector()
+        favoritesUI.spawnUI.drawSpawnPosition()
+
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Add Category", ImGuiTreeNodeFlags.SpanFullWidth) then
+        favoritesUI.drawAddCategory()
+
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Rename Tags", ImGuiTreeNodeFlags.SpanFullWidth) then
+        favoritesUI.drawMergeTags()
+
+        ImGui.TreePop()
+    end
+
+    style.spacedSeparator()
+
     ImGui.SetNextItemWidth(300 * style.viewSize)
     settings.favoritesFilter, changed = ImGui.InputTextWithHint("##filter", "Search by name... (Supports pattern matching)", settings.favoritesFilter, 100)
     if changed then
@@ -670,39 +832,53 @@ function favoritesUI.draw()
     style.pushButtonNoBG(false)
     style.tooltip("Reload favorites from disk")
 
-    if favoritesUI.drawActiveTagFilters() then
-        settings.save()
-    end
+    local searchTagOptions = favoritesUI.getAllTags("")
+    pruneTagSelections(settings.filterTags, searchTagOptions)
+    local searchTagPreview = getTagSelectionPreviewLabel(settings.filterTags, "All tags", "%d tags selected")
+    local _, screenHeight = GetDisplayResolution()
+    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
 
-    if ImGui.TreeNodeEx("Spawn Options", ImGuiTreeNodeFlags.SpanFullWidth) then
-        favoritesUI.spawnUI.drawTargetGroupSelector()
-        favoritesUI.spawnUI.drawSpawnPosition()
+    drawTagMultiSelectLabel("Search Tags")
 
-        ImGui.TreePop()
-    end
-
-    if ImGui.TreeNodeEx("Add Category", ImGuiTreeNodeFlags.SpanFullWidth) then
-        favoritesUI.drawAddCategory()
-
-        ImGui.TreePop()
-    end
-
-    if ImGui.TreeNodeEx("Rename Tags", ImGuiTreeNodeFlags.SpanFullWidth) then
-        favoritesUI.drawMergeTags()
-
-        ImGui.TreePop()
-    end
-
-    if ImGui.TreeNodeEx("Search Tags", ImGuiTreeNodeFlags.SpanFullWidth) then
-        if ImGui.BeginChild("##searchTags", -1, math.min(favoritesUI.tagFilterSize.y, 300 * style.viewSize), false) then
-            settings.filterTags, changed, favoritesUI.tagFilterSize, favoritesUI.tagFilterFilter = favoritesUI.drawTagSelect(settings.filterTags, false, favoritesUI.tagFilterFilter, true)
-            if changed then
-                settings.save()
-            end
-
-            ImGui.EndChild()
+    local tagsChanged, nextTagSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##searchTagsFilterCombo",
+        previewLabel = searchTagPreview,
+        searchHint = "Search tag...",
+        searchValue = favoritesUI.tagFilterFilter,
+        options = searchTagOptions,
+        selections = settings.filterTags,
+        comboWidth = 160 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        maxPopupHeight = maxPopupHeight,
+        emptyText = "No tags available",
+        noMatchText = "No matching tags",
+        searchInputId = "##searchTagsFilterSearch",
+        searchClearButtonId = "##searchTagsFilterSearchClear",
+        selectAllButtonId = "##searchTagsSelectAll",
+        unselectAllButtonId = "##searchTagsUnselectAll",
+        optionIdPrefix = "##searchTagsOption",
+        selectAllTooltip = "Select all tags",
+        unselectAllTooltip = "Unselect all tags (default behavior: show all)",
+        showAndFilterToggle = true,
+        andFilterState = settings.favoritesTagsAND,
+        andFilterTooltip = "AND filter mode (Leave off for OR filter)",
+        onAndFilterChanged = function (nextAndFilter)
+            settings.favoritesTagsAND = nextAndFilter
+            settings.save()
+        end,
+        matchesOption = function (option, searchValue)
+            return matchesTagSelectorOption(option, searchValue)
         end
-        ImGui.TreePop()
+    })
+    favoritesUI.tagFilterFilter = nextTagSearch
+    local searchTagSelectionChanged = drawTagClearButton(
+        settings.filterTags,
+        "##searchTagsSelectionClear",
+        "Clear selected tag filters",
+        true
+    )
+    if tagsChanged or searchTagSelectionChanged then
+        settings.save()
     end
 
     style.spacedSeparator()
