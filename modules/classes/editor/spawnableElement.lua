@@ -145,6 +145,7 @@ function spawnableElement:setVisualizerDirection(direction)
 	positionable.setVisualizerDirection(self, direction)
 
 	if not self.spawnable:isSpawned() then return end
+
 	local color = "none"
 	if direction == "x" or direction == "relX" or direction == "pitch" or direction == "scaleX" then color = "x" end
 	if direction == "y" or direction == "relY" or direction == "roll" or direction == "scaleY" then color = "y" end

@@ -18,6 +18,8 @@ local element = require("modules/classes/editor/element")
 ---@field relativeOffset table
 ---@field visualizerState boolean
 ---@field visualizerDirection string
+---@field visualizerNewDirection string
+---@field visualizerChanged boolean
 ---@field controlsHovered boolean
 ---@field randomizationSettings table
 ---@field scatterConfig scatteredConfig
@@ -42,6 +44,9 @@ function positionable:new(sUI)
 
 	o.visualizerState = false
 	o.visualizerDirection = "none"
+	o.visualizerNewDirection = "none"
+	o.visualizerChanged = false
+
 	o.controlsHovered = false
 	o.applyRotationWhenDropped = true
 
@@ -82,7 +87,10 @@ function positionable:drawTransform()
 	local position = self:getPosition()
 	local rotation = self:getRotation()
 	local scale = self:getScale()
+
 	self.controlsHovered = false
+	self.visualizerChanged = false
+	self.visualizerNewDirection = "none"
 
 	self:drawPosition(position)
 	self:drawRelativePosition()
@@ -94,6 +102,12 @@ function positionable:drawTransform()
 			self:setVisualizerState(false) -- Set vis state first, as loading the mesh app (vis direction) can screw with it
 		end
 		self:setVisualizerDirection("none")
+		return
+	end
+
+	-- Only update once, to avoid "ghost arrows" from doing multiple LoadAppearance() calls in a single frame
+	if self.visualizerChanged and self.visualizerNewDirection ~= self.visualizerDirection then
+		self:setVisualizerDirection(self.visualizerNewDirection)
 	end
 end
 
@@ -155,7 +169,7 @@ function positionable:getGroupedProperties()
 			end
 		}
 	end
-	
+
 	return properties
 end
 
@@ -300,8 +314,13 @@ function positionable:drawProp(prop, name, axis, disableInput)
 
     local newValue, changed = ImGui.DragFloat("##" .. name, prop, steps, -99999, 99999, formatText .. " " .. name, flags)
 	self.controlsHovered = (ImGui.IsItemHovered() or ImGui.IsItemActive()) or self.controlsHovered
-	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) and axis ~= self.visualizerDirection then
-		self:setVisualizerDirection(axis)
+	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) then
+		-- Active item should have priority over hovered
+		if not self.visualizerChanged or ImGui.IsItemActive() then
+			self.visualizerNewDirection = axis
+		end
+
+		self.visualizerChanged = true
 	end
 
 	local finished = ImGui.IsItemDeactivatedAfterEdit()

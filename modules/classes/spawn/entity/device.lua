@@ -41,6 +41,18 @@ function device:new()
    	return o
 end
 
+function device:onAssemble(entRef)
+    entity.onAssemble(self, entRef)
+
+    for _, component in pairs(entRef:GetComponents()) do
+        if component:IsA("gameDeviceComponent") then
+            self.controllerComponent = component.name.value
+
+            break
+        end
+    end
+end
+
 function device:save()
     local data = entity.save(self)
     data.deviceConnections = utils.deepcopy(self.deviceConnections)

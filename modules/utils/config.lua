@@ -1,4 +1,3 @@
-local utils = require("modules/utils/utils")
 config = {}
 
 function config.fileExists(filename)
@@ -53,6 +52,7 @@ function config.loadFiles(path, files)
 end
 
 function config.loadLists(path, paths)
+    local utils = require("modules/utils/utils")
     local paths = paths or {}
 
     for _, file in pairs(dir(path)) do
