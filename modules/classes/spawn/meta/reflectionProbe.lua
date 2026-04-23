@@ -40,7 +40,7 @@ function reflection:new()
     o.ambientModes = utils.enumTable("envUtilsReflectionProbeAmbientContributionMode")
     o.neighborModes = utils.enumTable("envUtilsNeighborMode")
 
-    o.ambientMode = 2
+    o.ambientMode = 3
     o.neighborMode = 3
     o.emissiveScale = 1
     o.streamingDistance = 50
