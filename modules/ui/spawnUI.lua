@@ -129,6 +129,7 @@ local AMM = nil
 ---@field deviceClassFilterSearchByModule table<string, string>
 ---@field recordTypeFilterSelectionsByModule table<string, table<string, boolean>>
 ---@field recordTypeFilterSearchByModule table<string, string>
+---@field pathOriginFilterSelectionsByModule table<string, table<string, boolean>>
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -163,6 +164,7 @@ spawnUI = {
     deviceClassFilterSearchByModule = {},
     recordTypeFilterSelectionsByModule = {},
     recordTypeFilterSearchByModule = {},
+    pathOriginFilterSelectionsByModule = {},
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -177,6 +179,7 @@ function spawnUI.loadSpawnData(spawner)
     spawnUI.deviceClassFilterSearchByModule = {}
     spawnUI.recordTypeFilterSelectionsByModule = {}
     spawnUI.recordTypeFilterSearchByModule = {}
+    spawnUI.pathOriginFilterSelectionsByModule = {}
 
     AMM = GetMod("AppearanceMenuMod")
     spawnUI.spawnedUI = spawner.baseUI.spawnedUI
@@ -231,6 +234,12 @@ local recordTypeFilterListByModulePath = {
     ["entity/entityRecord"] = true
 }
 
+local pathOriginTagInfoByKey = {
+    base = { label = "Base game", tag = "Base", color = 0xFF00A6B2 },
+    plDlc = { label = "PL DLC", tag = "DLC", color = 0xFF0808A9 },
+    modded = { label = "Modded", tag = "Mod", color = 0xFFA55987 }
+}
+
 ---Returns whether a filter is supported by the active spawn list module.
 ---@param spawnList table?
 ---@param moduleSupportMap table<string, boolean>
@@ -264,6 +273,46 @@ end
 ---@return boolean
 local function supportsRecordTypeFilter(spawnList)
     return supportsFilterForModule(spawnList, recordTypeFilterListByModulePath)
+end
+
+---Returns whether the path origin filter should be shown for the active variant.
+---@param spawnList table?
+---@return boolean
+local function supportsPathOriginFilter(spawnList)
+    return spawnList ~= nil and spawnList.isPaths == true
+end
+
+---Gets or lazily creates the per-module Content Origin checkbox state map.
+---All options default to checked.
+---@param spawnList table?
+---@return table<string, boolean>?
+local function getPathOriginFilterSelections(spawnList)
+    if not supportsPathOriginFilter(spawnList) then
+        return nil
+    end
+
+    local modulePath = spawnList.modulePath
+    local selections = spawnUI.pathOriginFilterSelectionsByModule[modulePath]
+    if not selections then
+        selections = {
+            base = true,
+            plDlc = true,
+            modded = true
+        }
+        spawnUI.pathOriginFilterSelectionsByModule[modulePath] = selections
+    else
+        if selections.base == nil then
+            selections.base = true
+        end
+        if selections.plDlc == nil then
+            selections.plDlc = true
+        end
+        if selections.modded == nil then
+            selections.modded = true
+        end
+    end
+
+    return selections
 end
 
 ---Gets or lazily creates the per-module multi-select state map for a filter.
@@ -493,6 +542,93 @@ local function matchesSearchFilter(spawnList, entry)
     return utils.matchSearch(getEntrySearchName(spawnList, entry), spawnUI.filter)
 end
 
+---Returns the asset path used for path-origin matching and tagging.
+---@param entry table
+---@param spawnList table?
+---@return string
+local function getEntryAssetPath(entry, spawnList)
+    if not entry then
+        return ""
+    end
+
+    if spawnList and spawnList.isPaths and entry.data and type(entry.data.spawnData) == "string" then
+        return entry.data.spawnData
+    end
+
+    if type(entry.name) == "string" then
+        return entry.name
+    end
+
+    return ""
+end
+
+---Resolves a normalized path origin key from the first segment of a path.
+---Supported roots: `base`, `ep1`, `mod`, `mods`.
+---@param path string
+---@return string?
+local function getPathOriginKeyFromPath(path)
+    local normalizedPath = tostring(path or ""):gsub("/", "\\"):gsub("^%s+", ""):gsub("%s+$", "")
+    if normalizedPath == "" then
+        return nil
+    end
+
+    local firstSegment = normalizedPath:match("^([^\\]+)")
+    if not firstSegment then
+        return nil
+    end
+
+    local segment = string.lower(firstSegment)
+    if segment == "base" then
+        return "base"
+    end
+
+    if segment == "ep1" then
+        return "plDlc"
+    end
+
+    if segment == "mod" or segment == "mods" then
+        return "modded"
+    end
+
+    return nil
+end
+
+---Gets the path origin key for one search-list entry.
+---@param entry table
+---@param spawnList table?
+---@return string?
+local function getEntryPathOriginKey(entry, spawnList)
+    if not supportsPathOriginFilter(spawnList) then
+        return nil
+    end
+
+    return getPathOriginKeyFromPath(getEntryAssetPath(entry, spawnList))
+end
+
+---Returns true when the content-origin filter should actively constrain results.
+---@param selections table<string, boolean>?
+---@return boolean
+local function isPathOriginFilterEnabled(selections)
+    if not selections then
+        return false
+    end
+
+    return not (selections.base == true and selections.plDlc == true and selections.modded == true)
+end
+
+---Gets tag display metadata for one search-list entry origin.
+---@param entry table
+---@param spawnList table?
+---@return table?
+local function getEntryPathOriginTagInfo(entry, spawnList)
+    local originKey = getEntryPathOriginKey(entry, spawnList)
+    if not originKey then
+        return nil
+    end
+
+    return pathOriginTagInfoByKey[originKey]
+end
+
 ---Applies selector-popin search matching to an option label.
 ---@param optionName string
 ---@param filterValue string
@@ -689,6 +825,58 @@ local function formatSearchResultButtonText(text, width, secondaryIcon)
     return iconPrefix .. utils.shortenPath(text, contentWidth, true)
 end
 
+local PATH_ORIGIN_TAG_TEXT_COLOR = style.regularColor
+
+---Draws a non-clickable rounded tag chip styled like a compact button.
+---@param tagInfo table?
+local function drawPathOriginTagChip(tagInfo)
+    if not tagInfo then
+        return
+    end
+
+    local label = tostring(tagInfo.tag or "")
+    if label == "" then
+        return
+    end
+
+    local scale = style.viewSize or 1
+    local textWidth, textHeight = ImGui.CalcTextSize(label)
+    local frameHeight = ImGui.GetFrameHeight()
+    local paddingX = 7 * scale
+    local chipWidth = math.max(textWidth + (paddingX * 2), 34 * scale)
+    local chipX, chipY = ImGui.GetCursorScreenPos()
+    local drawList = ImGui.GetWindowDrawList()
+    local cornerRadius = 6 * scale
+    local borderSize = math.max(1, math.floor(1 * scale))
+    local borderColor = 0xCC000000
+
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        chipX,
+        chipY,
+        chipX + chipWidth,
+        chipY + frameHeight,
+        borderColor,
+        cornerRadius
+    )
+
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        chipX + borderSize,
+        chipY + borderSize,
+        chipX + chipWidth - borderSize,
+        chipY + frameHeight - borderSize,
+        tagInfo.color,
+        math.max(0, cornerRadius - borderSize)
+    )
+
+    local textX = chipX + math.floor((chipWidth - textWidth) / 2)
+    local textY = chipY + math.floor((frameHeight - textHeight) / 2)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), textX, textY, PATH_ORIGIN_TAG_TEXT_COLOR, label)
+
+    ImGui.Dummy(chipWidth, frameHeight)
+end
+
 ---Persists Spawn New search text only when it actually changed.
 local function saveSpawnUIFilterIfChanged()
     local nextFilter = tostring(spawnUI.filter or "")
@@ -718,7 +906,10 @@ function spawnUI.updateFilter()
     end
     local recordTypeFilterEnabled = hasSelectedFilterOption(recordTypeSelections)
 
-    if spawnUI.filter == "" and not classFilterEnabled and not recordTypeFilterEnabled then
+    local pathOriginSelections = getPathOriginFilterSelections(activeSpawnList)
+    local pathOriginFilterEnabled = isPathOriginFilterEnabled(pathOriginSelections)
+
+    if spawnUI.filter == "" and not classFilterEnabled and not recordTypeFilterEnabled and not pathOriginFilterEnabled then
         spawnUI.filteredList = activeSpawnList.data
         return
     end
@@ -736,6 +927,11 @@ function spawnUI.updateFilter()
             if include and recordTypeFilterEnabled then
                 local recordTypeName = getEntryRecordTypePrefix(data, activeSpawnList)
                 include = recordTypeName ~= "" and recordTypeSelections[recordTypeName] == true
+            end
+
+            if include and pathOriginFilterEnabled then
+                local originKey = getEntryPathOriginKey(data, activeSpawnList)
+                include = originKey ~= nil and pathOriginSelections[originKey] == true
             end
 
             if include then
@@ -885,6 +1081,40 @@ function spawnUI.drawRecordTypeFilterSelector()
     if clearChanged then
         changed = true
     end
+
+    return changed
+end
+
+---Draws the Content Origin filter as 3 inline checkboxes for path-based variants.
+---@return boolean changed
+function spawnUI.drawPathOriginFilterSelector()
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if not supportsPathOriginFilter(activeSpawnList) then
+        return false
+    end
+
+    local selections = getPathOriginFilterSelections(activeSpawnList)
+    if not selections then
+        return false
+    end
+
+    local changed = false
+
+    ImGui.AlignTextToFramePadding()
+    style.mutedText("Asset origin")
+    ImGui.SameLine()
+
+    local optionChanged = false
+    selections.base, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.base.label .. "##pathOriginBase", selections.base == true)
+    changed = changed or optionChanged
+    ImGui.SameLine()
+
+    selections.plDlc, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.plDlc.label .. "##pathOriginPlDlc", selections.plDlc == true)
+    changed = changed or optionChanged
+    ImGui.SameLine()
+
+    selections.modded, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.modded.label .. "##pathOriginModded", selections.modded == true)
+    changed = changed or optionChanged
 
     return changed
 end
@@ -1405,6 +1635,9 @@ function spawnUI.drawAll()
     style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
 
     local extraFilterChanged = false
+    if spawnUI.drawPathOriginFilterSelector() then
+        extraFilterChanged = true
+    end
     if spawnUI.drawDeviceClassFilterSelector() then
         extraFilterChanged = true
     end
@@ -1454,6 +1687,12 @@ function spawnUI.drawAll()
             local buttonText = entry.name
             if activeSpawnList.isPaths and settings.spawnUIOnlyNames then
                 buttonText = utils.getFileName(entry.name)
+            end
+
+            local originTagInfo = getEntryPathOriginTagInfo(entry, activeSpawnList)
+            if originTagInfo then
+                drawPathOriginTagChip(originTagInfo)
+                ImGui.SameLine()
             end
 
             local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
