@@ -168,6 +168,21 @@ spawnUI = {
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
+---@return string[]
+local function getSortedTypeNames()
+    local names = utils.getKeys(types)
+    table.sort(names, function(a, b) return types[a].index < types[b].index end)
+    return names
+end
+
+---@param typeName string
+---@return string[]
+local function getSortedVariantNames(typeName)
+    local names = utils.getKeys(types[typeName].variants)
+    table.sort(names, function(a, b) return types[typeName].variants[a].index < types[typeName].variants[b].index end)
+    return names
+end
+
 ---Loads the spawn data (Either list of e.g. paths, or exported object files) for each data variant
 ---@param spawner spawner
 function spawnUI.loadSpawnData(spawner)
@@ -192,12 +207,19 @@ function spawnUI.loadSpawnData(spawner)
         for variantName, variant in pairs(dataType.variants) do
             local variantInstance = variant.class:new()
             local info = { node = variantInstance.node, description = variantInstance.description, previewNote = variantInstance.previewNote }
-            if variantInstance.spawnListType == "list" then
-                spawnData[dataName][variantName] = { data = config.loadLists(variantInstance.spawnDataPath), class = variant.class, modulePath = variantInstance.modulePath, info = info, isPaths = true, assetPreviewDelay = variantInstance.assetPreviewDelay, assetPreviewType = variantInstance.assetPreviewType }
-            else
-                spawnData[dataName][variantName] = { data = config.loadFiles(variantInstance.spawnDataPath), class = variant.class, modulePath = variantInstance.modulePath, info = info, isPaths = false, assetPreviewDelay = variantInstance.assetPreviewDelay, assetPreviewType = variantInstance.assetPreviewType }
-            end
-            modulePathToSpawnList[variantInstance.modulePath] = spawnData[dataName][variantName]
+            local isPaths = variantInstance.spawnListType == "list"
+            local loadSpawnDataFn = isPaths and config.loadLists or config.loadFiles
+            local spawnList = {
+                data = loadSpawnDataFn(variantInstance.spawnDataPath),
+                class = variant.class,
+                modulePath = variantInstance.modulePath,
+                info = info,
+                isPaths = isPaths,
+                assetPreviewDelay = variantInstance.assetPreviewDelay,
+                assetPreviewType = variantInstance.assetPreviewType
+            }
+            spawnData[dataName][variantName] = spawnList
+            modulePathToSpawnList[variantInstance.modulePath] = spawnList
 
             if settings.assetPreviewEnabled[variantInstance.modulePath] == nil then
                 settings.assetPreviewEnabled[variantInstance.modulePath] = true
@@ -206,13 +228,11 @@ function spawnUI.loadSpawnData(spawner)
         end
     end
 
-    typeNames = utils.getKeys(types)
-    table.sort(typeNames, function(a, b) return types[a].index < types[b].index end)
+    typeNames = getSortedTypeNames()
 
     spawnUI.selectedType = math.max(utils.indexValue(typeNames, settings.selectedType) - 1, 0)
 
-    variantNames = utils.getKeys(types[typeNames[spawnUI.selectedType + 1]].variants)
-    table.sort(variantNames, function(a, b) return types[typeNames[spawnUI.selectedType + 1]].variants[a].index < types[typeNames[spawnUI.selectedType + 1]].variants[b].index end)
+    variantNames = getSortedVariantNames(typeNames[spawnUI.selectedType + 1])
 
     spawnUI.selectedVariant = math.max(utils.indexValue(variantNames, settings.lastVariants[settings.selectedType]) - 1, 0)
 
@@ -250,6 +270,12 @@ local pathOriginTagInfoByKey = {
      }
 }
 
+local pathOriginFilterOptionOrder = {
+    { key = "base", checkboxIdSuffix = "Base" },
+    { key = "plDlc", checkboxIdSuffix = "PlDlc" },
+    { key = "modded", checkboxIdSuffix = "Modded" }
+}
+
 ---Returns whether a filter is supported by the active spawn list module.
 ---@param spawnList table?
 ---@param moduleSupportMap table<string, boolean>
@@ -264,25 +290,7 @@ end
 ---@param spawnList table
 ---@return string
 local function getEntryDeviceClassName(entry, spawnList)
-    if not entry or not spawnList then
-        return ""
-    end
-
     return entity.resolveDeviceClassNameForEntry(entry, spawnList.modulePath)
-end
-
----Returns whether the Device Class filter should be shown for the active variant.
----@param spawnList table?
----@return boolean
-local function supportsDeviceClassFilter(spawnList)
-    return supportsFilterForModule(spawnList, deviceClassFilterListByModulePath)
-end
-
----Returns whether the Record Type filter should be shown for the active variant.
----@param spawnList table?
----@return boolean
-local function supportsRecordTypeFilter(spawnList)
-    return supportsFilterForModule(spawnList, recordTypeFilterListByModulePath)
 end
 
 ---Returns whether the path origin filter should be shown for the active variant.
@@ -310,16 +318,6 @@ local function getPathOriginFilterSelections(spawnList)
             modded = true
         }
         spawnUI.pathOriginFilterSelectionsByModule[modulePath] = selections
-    else
-        if selections.base == nil then
-            selections.base = true
-        end
-        if selections.plDlc == nil then
-            selections.plDlc = true
-        end
-        if selections.modded == nil then
-            selections.modded = true
-        end
     end
 
     return selections
@@ -448,64 +446,16 @@ local function getFilterPreviewLabel(selections, allLabel, multiLabelFormat)
     return string.format(multiLabelFormat, selectedCount)
 end
 
----Gets the in-popin search text for the Device Class filter.
----@param spawnList table?
----@return string
-local function getDeviceClassFilterSearch(spawnList)
-    return getFilterSearchForModule(
-        spawnList,
-        deviceClassFilterListByModulePath,
-        spawnUI.deviceClassFilterSearchByModule
-    )
-end
-
----Sets the in-popin search text for the Device Class filter.
----@param spawnList table?
----@param value string
-local function setDeviceClassFilterSearch(spawnList, value)
-    setFilterSearchForModule(
-        spawnList,
-        deviceClassFilterListByModulePath,
-        spawnUI.deviceClassFilterSearchByModule,
-        value
-    )
-end
-
----Gets the in-popin search text for the Record Type filter.
----@param spawnList table?
----@return string
-local function getRecordTypeFilterSearch(spawnList)
-    return getFilterSearchForModule(
-        spawnList,
-        recordTypeFilterListByModulePath,
-        spawnUI.recordTypeFilterSearchByModule
-    )
-end
-
----Sets the in-popin search text for the Record Type filter.
----@param spawnList table?
----@param value string
-local function setRecordTypeFilterSearch(spawnList, value)
-    setFilterSearchForModule(
-        spawnList,
-        recordTypeFilterListByModulePath,
-        spawnUI.recordTypeFilterSearchByModule,
-        value
-    )
-end
-
 ---Draws a clear-selection icon button for one multi-select filter map.
----Returns whether selection changed and whether the button was rendered.
+---Returns whether selection changed.
 ---@param selections table<string, boolean>?
 ---@param buttonId string
 ---@param tooltip string
 ---@param sameLine boolean?
 ---@return boolean changed
----@return boolean drawn
 local function drawMultiSelectClearButton(selections, buttonId, tooltip, sameLine)
-    local hasSelection = hasSelectedFilterOption(selections)
-    if not hasSelection then
-        return false, false
+    if not hasSelectedFilterOption(selections) then
+        return false
     end
 
     if sameLine then
@@ -520,14 +470,14 @@ local function drawMultiSelectClearButton(selections, buttonId, tooltip, sameLin
         style.tooltip(tooltip)
     end
 
-    if clicked and selections then
+    if clicked then
         for key, _ in pairs(selections) do
             selections[key] = nil
         end
-        return true, true
+        return true
     end
 
-    return false, true
+    return false
 end
 
 ---@param spawnList table
@@ -728,19 +678,12 @@ local function getDeviceClassFilterOptions(spawnList)
     return options
 end
 
----Builds preview text for the Device Class selector.
----@param spawnList table?
----@return string
-local function getDeviceClassFilterPreviewLabel(spawnList)
-    return getFilterPreviewLabel(getDeviceClassFilterSelections(spawnList), "All classes", "%d classes selected")
-end
-
 ---Extracts a record type prefix for one entry (for example `AttachableObject`).
 ---@param entry table
----@param spawnList table
+---@param _spawnList table
 ---@return string
-local function getEntryRecordTypePrefix(entry, spawnList)
-    if not entry or not spawnList or not supportsRecordTypeFilter(spawnList) then
+local function getEntryRecordTypePrefix(entry, _spawnList)
+    if not entry then
         return ""
     end
 
@@ -790,13 +733,6 @@ local function getRecordTypeFilterOptions(spawnList)
     end)
 
     return options
-end
-
----Builds preview text for the Record Type selector.
----@param spawnList table?
----@return string
-local function getRecordTypeFilterPreviewLabel(spawnList)
-    return getFilterPreviewLabel(getRecordTypeFilterSelections(spawnList), "All record types", "%d record types selected")
 end
 
 ---Resolves the secondary icon displayed between the main icon and entry label in search results.
@@ -955,13 +891,17 @@ end
 ---@return boolean changed
 function spawnUI.drawDeviceClassFilterSelector()
     local activeSpawnList = spawnUI.getActiveSpawnList()
-    if not supportsDeviceClassFilter(activeSpawnList) then
+    if not supportsFilterForModule(activeSpawnList, deviceClassFilterListByModulePath) then
         return false
     end
 
     local selections = getDeviceClassFilterSelections(activeSpawnList)
-    local previewLabel = getDeviceClassFilterPreviewLabel(activeSpawnList)
-    local popupSearch = getDeviceClassFilterSearch(activeSpawnList)
+    local previewLabel = getFilterPreviewLabel(selections, "All classes", "%d classes selected")
+    local popupSearch = getFilterSearchForModule(
+        activeSpawnList,
+        deviceClassFilterListByModulePath,
+        spawnUI.deviceClassFilterSearchByModule
+    )
     local _, screenHeight = GetDisplayResolution()
     local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
     local changed = false
@@ -1007,7 +947,12 @@ function spawnUI.drawDeviceClassFilterSelector()
     end
 
     if nextPopupSearch ~= popupSearch then
-        setDeviceClassFilterSearch(activeSpawnList, nextPopupSearch)
+        setFilterSearchForModule(
+            activeSpawnList,
+            deviceClassFilterListByModulePath,
+            spawnUI.deviceClassFilterSearchByModule,
+            nextPopupSearch
+        )
     end
 
     local clearChanged = drawMultiSelectClearButton(
@@ -1027,13 +972,17 @@ end
 ---@return boolean changed
 function spawnUI.drawRecordTypeFilterSelector()
     local activeSpawnList = spawnUI.getActiveSpawnList()
-    if not supportsRecordTypeFilter(activeSpawnList) then
+    if not supportsFilterForModule(activeSpawnList, recordTypeFilterListByModulePath) then
         return false
     end
 
     local selections = getRecordTypeFilterSelections(activeSpawnList)
-    local previewLabel = getRecordTypeFilterPreviewLabel(activeSpawnList)
-    local popupSearch = getRecordTypeFilterSearch(activeSpawnList)
+    local previewLabel = getFilterPreviewLabel(selections, "All record types", "%d record types selected")
+    local popupSearch = getFilterSearchForModule(
+        activeSpawnList,
+        recordTypeFilterListByModulePath,
+        spawnUI.recordTypeFilterSearchByModule
+    )
     local _, screenHeight = GetDisplayResolution()
     local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
     local changed = false
@@ -1079,7 +1028,12 @@ function spawnUI.drawRecordTypeFilterSelector()
     end
 
     if nextPopupSearch ~= popupSearch then
-        setRecordTypeFilterSearch(activeSpawnList, nextPopupSearch)
+        setFilterSearchForModule(
+            activeSpawnList,
+            recordTypeFilterListByModulePath,
+            spawnUI.recordTypeFilterSearchByModule,
+            nextPopupSearch
+        )
     end
 
     local clearChanged = drawMultiSelectClearButton(
@@ -1104,39 +1058,27 @@ function spawnUI.drawPathOriginFilterSelector()
     end
 
     local selections = getPathOriginFilterSelections(activeSpawnList)
-    if not selections then
-        return false
-    end
-
     local changed = false
 
     ImGui.AlignTextToFramePadding()
     style.mutedText("Asset origin")
-    ImGui.SameLine()
+    for _, option in ipairs(pathOriginFilterOptionOrder) do
+        ImGui.SameLine()
 
-    local optionChanged = false
-    local baseTagInfo = pathOriginTagInfoByKey.base
-    selections.base, optionChanged = ImGui.Checkbox(baseTagInfo.label .. "##pathOriginBase", selections.base == true)
-    if tostring(baseTagInfo.tooltip or "") ~= "" then
-        style.tooltip(baseTagInfo.tooltip)
-    end
-    changed = changed or optionChanged
-    ImGui.SameLine()
+        local optionChanged = false
+        local tagInfo = pathOriginTagInfoByKey[option.key]
+        selections[option.key], optionChanged = ImGui.Checkbox(
+            tagInfo.label .. "##pathOrigin" .. option.checkboxIdSuffix,
+            selections[option.key] == true
+        )
+        if tostring(tagInfo.tooltip or "") ~= "" then
+            style.tooltip(tagInfo.tooltip)
+        end
 
-    local plDlcTagInfo = pathOriginTagInfoByKey.plDlc
-    selections.plDlc, optionChanged = ImGui.Checkbox(plDlcTagInfo.label .. "##pathOriginPlDlc", selections.plDlc == true)
-    if tostring(plDlcTagInfo.tooltip or "") ~= "" then
-        style.tooltip(plDlcTagInfo.tooltip)
+        if optionChanged then
+            changed = true
+        end
     end
-    changed = changed or optionChanged
-    ImGui.SameLine()
-
-    local moddedTagInfo = pathOriginTagInfoByKey.modded
-    selections.modded, optionChanged = ImGui.Checkbox(moddedTagInfo.label .. "##pathOriginModded", selections.modded == true)
-    if tostring(moddedTagInfo.tooltip or "") ~= "" then
-        style.tooltip(moddedTagInfo.tooltip)
-    end
-    changed = changed or optionChanged
 
     return changed
 end
@@ -1152,31 +1094,53 @@ function spawnUI.refresh()
     end
 end
 
-function spawnUI.getCategoryIndex(category)
-    return types[category].index
-end
-
-function spawnUI.getVariantIndex(category, sub)
-    return types[category].variants[sub].index
-end
-
+---Applies and persists the selected category, then refreshes variant list and results.
 function spawnUI.updateCategory()
     settings.selectedType = typeNames[spawnUI.selectedType + 1]
     settings.save()
 
-    variantNames = utils.getKeys(types[typeNames[spawnUI.selectedType + 1]].variants)
-    table.sort(variantNames, function(a, b) return types[typeNames[spawnUI.selectedType + 1]].variants[a].index < types[typeNames[spawnUI.selectedType + 1]].variants[b].index end)
+    variantNames = getSortedVariantNames(typeNames[spawnUI.selectedType + 1])
 
     spawnUI.selectedVariant = math.max(utils.indexValue(variantNames, settings.lastVariants[settings.selectedType]) - 1, 0)
 
     spawnUI.refresh()
 end
 
+---Applies and persists the selected variant, then refreshes results.
 function spawnUI.updateVariant()
     settings.lastVariants[settings.selectedType] = variantNames[spawnUI.selectedVariant + 1]
     settings.save()
 
     spawnUI.refresh()
+end
+
+---Selects a spawn type and variant by display names.
+---Returns false when either name is unknown.
+---@param typeName string
+---@param variantName string
+---@return boolean
+function spawnUI.selectTypeAndVariant(typeName, variantName)
+    if not types[typeName] or not types[typeName].variants[variantName] then
+        return false
+    end
+
+    local typeIndex = utils.indexValue(typeNames, typeName)
+    if typeIndex < 1 then
+        return false
+    end
+
+    spawnUI.selectedType = typeIndex - 1
+    spawnUI.updateCategory()
+
+    local variantIndex = utils.indexValue(variantNames, variantName)
+    if variantIndex < 1 then
+        return false
+    end
+
+    spawnUI.selectedVariant = variantIndex - 1
+    spawnUI.updateVariant()
+
+    return true
 end
 
 local LIGHT_MODULE_PATH = "light/light"
@@ -1399,16 +1363,14 @@ function spawnUI.setAssetPreviewActive(state)
 
     for _, stateEntry in ipairs(spawnUI.activeLightSuppressionStates) do
         local target = stateEntry.target
-        if stateEntry.lightSuppressed and target and target.lightComponent then
+        if stateEntry.lightSuppressed and target.lightComponent then
             setComponentEnabled(target.lightComponent, stateEntry.lightWasEnabled)
         end
 
-        if target and target.visualizerComponents then
-            for idx, component in ipairs(target.visualizerComponents) do
-                local wasEnabled = stateEntry.visualizerWasEnabled[idx]
-                if wasEnabled ~= nil then
-                    setComponentEnabled(component, wasEnabled)
-                end
+        for idx, component in ipairs(target.visualizerComponents) do
+            local wasEnabled = stateEntry.visualizerWasEnabled[idx]
+            if wasEnabled ~= nil then
+                setComponentEnabled(component, wasEnabled)
             end
         end
     end
@@ -1417,6 +1379,7 @@ function spawnUI.setAssetPreviewActive(state)
     restoreExternalFlashlightAfterPreview()
 end
 
+---Stops pending hover preview timers and disables the active preview instance.
 function spawnUI.stopActiveAssetPreview()
     if spawnUI.previewTimer then
         Cron.Halt(spawnUI.previewTimer)
@@ -1438,8 +1401,9 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
 
         spawnUI.hoveredEntry = entry
 
-        local assetPreviewType = spawnUI.getActiveSpawnList().assetPreviewType
-        local assetPreviewDelay = spawnUI.getActiveSpawnList().assetPreviewDelay
+        local activeSpawnList = spawnUI.getActiveSpawnList()
+        local assetPreviewType = activeSpawnList.assetPreviewType
+        local assetPreviewDelay = activeSpawnList.assetPreviewDelay
         if isFavorite then
             -- If its favorite, then entry is just the favorite instance
             if entry.data.modulePath ~= "modules/classes/editor/spawnableElement" then
@@ -1462,12 +1426,12 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
                 spawnUI.previewInstance = require("modules/classes/spawn/" .. data.spawnable.modulePath):new()
                 data = data.spawnable
             else
-                spawnUI.previewInstance = spawnUI.getActiveSpawnList().class:new()
+                spawnUI.previewInstance = activeSpawnList.class:new()
                 data.modulePath = spawnUI.previewInstance.modulePath
             end
 
             local pos, _ = spawnUI.getSpawnNewPosition()
-            rot = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation()
+            local rot = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation()
             rot.yaw = rot.yaw - 180
             rot.pitch = -rot.pitch
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
@@ -1478,6 +1442,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
     end
 end
 
+---Runs per-frame maintenance for asset previews.
 function spawnUI.updateAssetPreview()
     if spawnUI.assetPreviewActive then
         suppressExternalFlashlightDuringPreview()
@@ -1488,6 +1453,8 @@ function spawnUI.updateAssetPreview()
     end
 end
 
+---Draws spawn-position controls and returns the alignment X coordinate.
+---@return number
 function spawnUI.drawSpawnPosition()
     ImGui.Text("Spawn position")
     ImGui.SameLine()
@@ -1510,6 +1477,7 @@ function spawnUI.drawSpawnPosition()
     return x
 end
 
+---Draws a small drag-follow window while dragging an entry.
 function spawnUI.drawDragWindow()
     if not spawnUI.dragging then return end
 
@@ -1523,6 +1491,7 @@ function spawnUI.drawDragWindow()
     end
 end
 
+---Draws the fallback action when no path entries match the search text.
 function spawnUI.drawNoMatch()
     if #spawnUI.filteredList ~= 0 or not spawnUI.getActiveSpawnList().isPaths then return end
 
@@ -1537,13 +1506,15 @@ function spawnUI.drawNoMatch()
     end
 end
 
+---Draws Spawn New options for display mode, preview mode, and spawn placement.
 function spawnUI.drawOptions()
     local activeList = spawnUI.getActiveSpawnList()
     if activeList.isPaths then
         ImGui.Text("Strip paths")
         ImGui.SameLine()
-        settings.spawnUIOnlyNames, changed = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
-        if changed then
+        local stripPathsChanged
+        settings.spawnUIOnlyNames, stripPathsChanged = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
+        if stripPathsChanged then
             spawnUI.refresh()
         end
         style.tooltip("Only show the name of the file, without the full path")
@@ -1552,8 +1523,9 @@ function spawnUI.drawOptions()
     if activeList.assetPreviewType ~= "none" then
         ImGui.Text("Asset Preview")
         ImGui.SameLine()
-        settings.assetPreviewEnabled[activeList.modulePath], changed = ImGui.Checkbox("##assetPreview", settings.assetPreviewEnabled[activeList.modulePath])
-        if changed then
+        local assetPreviewChanged
+        settings.assetPreviewEnabled[activeList.modulePath], assetPreviewChanged = ImGui.Checkbox("##assetPreview", settings.assetPreviewEnabled[activeList.modulePath])
+        if assetPreviewChanged then
             settings.save()
         end
         style.tooltip("Preview the asset when hovered. Is Experimental.")
@@ -1571,6 +1543,7 @@ function spawnUI.drawOptions()
     spawnUI.drawSpawnPosition()
 end
 
+---Draws the target group selector used for new spawns.
 function spawnUI.drawTargetGroupSelector()
     local groups = { "Root" }
 	for _, group in pairs(spawnUI.spawnedUI.containerPaths) do
@@ -1589,6 +1562,7 @@ function spawnUI.drawTargetGroupSelector()
 	ImGui.PopItemWidth()
 end
 
+---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
     spawnUI.drawTargetGroupSelector()
 
@@ -1600,15 +1574,17 @@ function spawnUI.drawAll()
     style.spacedSeparator()
 
     ImGui.PushItemWidth(120 * style.viewSize)
-	spawnUI.selectedType, changed = ImGui.Combo("Object type", spawnUI.selectedType, typeNames, #typeNames)
-    if changed then
+	local typeChanged
+	spawnUI.selectedType, typeChanged = ImGui.Combo("Object type", spawnUI.selectedType, typeNames, #typeNames)
+    if typeChanged then
         spawnUI.updateCategory()
     end
 
     ImGui.SameLine()
 
-	spawnUI.selectedVariant, changed = ImGui.Combo("Object variant", spawnUI.selectedVariant, variantNames, #variantNames)
-    if changed then
+	local variantChanged
+	spawnUI.selectedVariant, variantChanged = ImGui.Combo("Object variant", spawnUI.selectedVariant, variantNames, #variantNames)
+    if variantChanged then
         spawnUI.updateVariant()
     end
     style.spawnableInfo(spawnUI.getActiveSpawnList().info)
@@ -1634,8 +1610,9 @@ function spawnUI.drawAll()
     style.spacedSeparator()
 
     ImGui.SetNextItemWidth(300 * style.viewSize)
-    spawnUI.filter, changed = ImGui.InputTextWithHint('##Filter', 'Search by name... (Supports pattern matching)', spawnUI.filter, 500)
-    if changed then
+    local filterChanged
+    spawnUI.filter, filterChanged = ImGui.InputTextWithHint('##Filter', 'Search by name... (Supports pattern matching)', spawnUI.filter, 500)
+    if filterChanged then
         saveSpawnUIFilterIfChanged()
         spawnUI.updateFilter()
     end
@@ -1712,7 +1689,7 @@ function spawnUI.drawAll()
             end
 
             local originTagInfo = getEntryPathOriginTagInfo(entry, activeSpawnList)
-            if originTagInfo then
+            if originTagInfo and entry.lastSpawned == nil then
                 drawPathOriginTagChip(originTagInfo)
                 ImGui.SameLine()
             end
@@ -1786,6 +1763,7 @@ function spawnUI.drawAll()
     ImGui.EndChild()
 end
 
+---Draws the Spawn UI tab bar and delegates per-tab content.
 function spawnUI.draw()
     spawnUI.drawDragWindow()
     spawnUI.updateAssetPreview()
@@ -1804,6 +1782,7 @@ function spawnUI.draw()
     end
 end
 
+---Handles Spawn UI being hidden by clearing active preview state.
 function spawnUI.hidden()
     if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive then return end
 
@@ -1811,6 +1790,9 @@ function spawnUI.hidden()
     spawnUI.stopActiveAssetPreview()
 end
 
+---Computes default spawn transform using current settings and selection.
+---@return Vector4
+---@return EulerAngles
 function spawnUI.getSpawnNewPosition()
     if not GetPlayer() then
         return Vector4.new(0, 0, 0, 0), EulerAngles.new(0, 0, 0)
@@ -1869,7 +1851,12 @@ local function isFavoriteGroupData(data)
     return false
 end
 
+---Spawns a new entry (or favorite/group) and records history metadata.
+---@param entry table|favorite
+---@param class table
+---@param isFavorite boolean
 ---@param options table?
+---@return any
 function spawnUI.spawnNew(entry, class, isFavorite, options)
     if groupLoadManager.isActive() then
         return nil
@@ -1993,6 +1980,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
     return new
 end
 
+---Repeats the last successful spawn operation using cached context.
 function spawnUI.repeatLastSpawn()
     if not spawnUI.lastSpawnedClass or not spawnUI.lastSpawnedEntry then return end
 
@@ -2004,6 +1992,9 @@ function spawnUI.repeatLastSpawn()
     spawnUI.popupSpawnHit = nil
 end
 
+---Builds popup search results for a specific type/variant.
+---@param typeName string
+---@param variantName string
 function spawnUI.loadPopupData(typeName, variantName)
     local data = {}
 
@@ -2016,6 +2007,9 @@ function spawnUI.loadPopupData(typeName, variantName)
     spawnUI.popupData = data
 end
 
+---Draws one popup variant submenu and handles spawn selection clicks.
+---@param typeName string
+---@param variantName string
 function spawnUI.drawPopupVariant(typeName, variantName)
     local _, screenHeight = GetDisplayResolution()
     local popupSpawnList = spawnData[typeName][variantName]
@@ -2025,9 +2019,10 @@ function spawnUI.drawPopupVariant(typeName, variantName)
         spawnUI.loadPopupData(typeName, variantName)
         spawnUI.currentPopupVariant = variantName
     end
-    spawnUI.popupFilter, changed = ImGui.InputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
+    local popupFilterChanged
+    spawnUI.popupFilter, popupFilterChanged = ImGui.InputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
     local xSpace, _ = ImGui.GetItemRectSize()
-    if changed then
+    if popupFilterChanged then
         spawnUI.loadPopupData(typeName, variantName)
     end
 
@@ -2037,7 +2032,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
         style.pushButtonNoBG(true)
         if ImGui.Button(IconGlyphs.Close) then
             spawnUI.popupFilter = ''
-            spawnUI.updateFilter()
+            spawnUI.loadPopupData(typeName, variantName)
         end
         style.pushButtonNoBG(false)
         local x, _ = ImGui.GetItemRectSize()
@@ -2062,7 +2057,14 @@ function spawnUI.drawPopupVariant(typeName, variantName)
                     )
 
                     if ImGui.Button(popupButtonText) then
-                        if not settings.spawnAtCursor then spawnUI.popupSpawnHit = nil end
+                        if settings.spawnAtCursor then
+                            if not spawnUI.popupSpawnHit then
+                                local ray = editor.getScreenToWorldRay()
+                                spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
+                            end
+                        else
+                            spawnUI.popupSpawnHit = nil
+                        end
                         local class = popupSpawnList.class
                         spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], class, false)
                         ImGui.CloseCurrentPopup()
@@ -2079,6 +2081,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
     end
 end
 
+---Draws and manages the quick spawn popup.
 function spawnUI.drawPopup()
     local x, y = ImGui.GetMousePos()
     ImGui.SetNextWindowPos(x + 10 * style.viewSize, y - 4 * ImGui.GetFrameHeight(), ImGuiCond.Appearing)
@@ -2092,30 +2095,32 @@ function spawnUI.drawPopup()
         ImGui.Text("At cursor")
         ImGui.SameLine()
         ImGui.SetCursorPosX(x)
-        settings.spawnAtCursor, changed = ImGui.Checkbox("##cursor", settings.spawnAtCursor)
-        if changed then settings.save() end
+        local spawnAtCursorChanged
+        settings.spawnAtCursor, spawnAtCursorChanged = ImGui.Checkbox("##cursor", settings.spawnAtCursor)
+        if spawnAtCursorChanged then settings.save() end
         style.tooltip("Spawn the object under the cursor.")
 
         ImGui.Text("Strip paths")
         ImGui.SameLine()
         ImGui.SetCursorPosX(x)
-        settings.spawnUIOnlyNames, changed = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
-        if changed then settings.save() end
+        local stripPathsChanged
+        settings.spawnUIOnlyNames, stripPathsChanged = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
+        if stripPathsChanged then settings.save() end
         style.tooltip("Only show the name of the file, without the full path")
 
         ImGui.Text("Reset search")
         ImGui.SameLine()
         ImGui.SetCursorPosX(x)
-        settings.resetSpawnPopupSearch, changed = ImGui.Checkbox("##reset", settings.resetSpawnPopupSearch)
-        if changed then settings.save() end
+        local resetSearchChanged
+        settings.resetSpawnPopupSearch, resetSearchChanged = ImGui.Checkbox("##reset", settings.resetSpawnPopupSearch)
+        if resetSearchChanged then settings.save() end
         style.tooltip("Resets the search when spawning something or closing the popup")
 
         ImGui.Separator()
 
         for _, typeName in pairs(typeNames) do
             if ImGui.BeginMenu(typeName) then
-                local variantKeys = utils.getKeys(types[typeName].variants)
-                table.sort(variantKeys, function(a, b) return types[typeName].variants[a].index < types[typeName].variants[b].index end)
+                local variantKeys = getSortedVariantNames(typeName)
 
                 for _, variantName in pairs(variantKeys) do
                     if ImGui.BeginMenu(variantName) then
@@ -2139,8 +2144,12 @@ function spawnUI.drawPopup()
             spawnUI.popupFilter = ""
         end
 
-        local ray = editor.getScreenToWorldRay()
-        spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
+        if settings.spawnAtCursor then
+            local ray = editor.getScreenToWorldRay()
+            spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
+        else
+            spawnUI.popupSpawnHit = nil
+        end
 
         ImGui.OpenPopup("##spawnNew")
     end

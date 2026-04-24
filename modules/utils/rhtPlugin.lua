@@ -545,25 +545,13 @@ local function setSpawnSelection(category, sub)
         return false
     end
 
-    local okCategory, categoryIndex = pcall(function()
-        return rht.spawnUI.getCategoryIndex(category)
+    local okSelect, wasSelected = pcall(function()
+        return rht.spawnUI.selectTypeAndVariant(category, sub)
     end)
-    if not okCategory or not categoryIndex then
+    if not okSelect or not wasSelected then
         return false
     end
 
-    rht.spawnUI.selectedType = categoryIndex - 1
-    rht.spawnUI.updateCategory()
-
-    local okVariant, variantIndex = pcall(function()
-        return rht.spawnUI.getVariantIndex(category, sub)
-    end)
-    if not okVariant or not variantIndex then
-        return false
-    end
-
-    rht.spawnUI.selectedVariant = variantIndex - 1
-    rht.spawnUI.updateVariant()
     return true
 end
 
