@@ -130,6 +130,8 @@ local AMM = nil
 ---@field recordTypeFilterSelectionsByModule table<string, table<string, boolean>>
 ---@field recordTypeFilterSearchByModule table<string, string>
 ---@field pathOriginFilterSelectionsByModule table<string, table<string, boolean>>
+---@field filteredHierarchyTree table?
+---@field hierarchyOpenStateByKey table<string, boolean>
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -165,6 +167,8 @@ spawnUI = {
     recordTypeFilterSelectionsByModule = {},
     recordTypeFilterSearchByModule = {},
     pathOriginFilterSelectionsByModule = {},
+    filteredHierarchyTree = nil,
+    hierarchyOpenStateByKey = {},
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -195,6 +199,8 @@ function spawnUI.loadSpawnData(spawner)
     spawnUI.recordTypeFilterSelectionsByModule = {}
     spawnUI.recordTypeFilterSearchByModule = {}
     spawnUI.pathOriginFilterSelectionsByModule = {}
+    spawnUI.filteredHierarchyTree = nil
+    spawnUI.hierarchyOpenStateByKey = {}
 
     AMM = GetMod("AppearanceMenuMod")
     spawnUI.spawnedUI = spawner.baseUI.spawnedUI
@@ -522,6 +528,45 @@ local function getEntryAssetPath(entry, spawnList)
     return ""
 end
 
+---Normalizes one asset path for hierarchy splitting.
+---Converts slashes to `\` and trims surrounding whitespace.
+---@param path string?
+---@return string
+local function normalizeHierarchyAssetPath(path)
+    return tostring(path or ""):gsub("/", "\\"):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+---Splits an asset path into non-empty hierarchy segments.
+---@param path string?
+---@return string[] segments
+---@return string normalizedPath
+local function splitHierarchyAssetPath(path)
+    local normalizedPath = normalizeHierarchyAssetPath(path)
+    local segments = {}
+
+    for segment in normalizedPath:gmatch("[^\\]+") do
+        if segment ~= "" then
+            table.insert(segments, segment)
+        end
+    end
+
+    return segments, normalizedPath
+end
+
+---Creates one hierarchy tree node used by Spawn New path-tree rendering.
+---@param label string
+---@param key string
+---@return table
+local function createHierarchyTreeNode(label, key)
+    return {
+        label = label,
+        key = key,
+        children = {},
+        childOrder = {},
+        entries = {}
+    }
+end
+
 ---Resolves a normalized path origin key from the first segment of a path.
 ---Supported roots: `base`, `ep1`, `mod`, `mods`.
 ---@param path string
@@ -834,6 +879,81 @@ local function saveSpawnUIFilterIfChanged()
     settings.save()
 end
 
+---Builds a cached hierarchy tree from current filtered path results.
+---Tree folders map to path segments; leaves map to filtered spawn entries.
+function spawnUI.rebuildHierarchyTree()
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if not activeSpawnList or not activeSpawnList.isPaths then
+        spawnUI.filteredHierarchyTree = nil
+        return
+    end
+
+    local root = createHierarchyTreeNode("", "__root__:" .. tostring(activeSpawnList.modulePath or ""))
+
+    for _, entry in ipairs(spawnUI.filteredList) do
+        local segments, normalizedPath = splitHierarchyAssetPath(getEntryAssetPath(entry, activeSpawnList))
+        local node = root
+
+        if #segments == 0 then
+            local fallbackLabel = tostring(entry.fileName or entry.name or "")
+            table.insert(root.entries, {
+                entry = entry,
+                label = fallbackLabel,
+                sortKey = string.lower(fallbackLabel),
+                pathKey = fallbackLabel
+            })
+        else
+            for idx = 1, #segments - 1 do
+                local segment = segments[idx]
+                local child = node.children[segment]
+                if not child then
+                    local childKey = node.key .. "\\" .. segment
+                    child = createHierarchyTreeNode(segment, childKey)
+                    node.children[segment] = child
+                    table.insert(node.childOrder, segment)
+                end
+
+                node = child
+            end
+
+            local leafLabel = segments[#segments]
+            table.insert(node.entries, {
+                entry = entry,
+                label = leafLabel,
+                sortKey = string.lower(leafLabel),
+                pathKey = normalizedPath ~= "" and normalizedPath or tostring(entry.name or leafLabel)
+            })
+        end
+    end
+
+    local function sortHierarchyTreeNode(nodeRef)
+        table.sort(nodeRef.childOrder, function(a, b)
+            local aLower = string.lower(a)
+            local bLower = string.lower(b)
+            if aLower == bLower then
+                return a < b
+            end
+
+            return aLower < bLower
+        end)
+
+        table.sort(nodeRef.entries, function(a, b)
+            if a.sortKey == b.sortKey then
+                return tostring(a.pathKey or "") < tostring(b.pathKey or "")
+            end
+
+            return a.sortKey < b.sortKey
+        end)
+
+        for _, childKey in ipairs(nodeRef.childOrder) do
+            sortHierarchyTreeNode(nodeRef.children[childKey])
+        end
+    end
+
+    sortHierarchyTreeNode(root)
+    spawnUI.filteredHierarchyTree = root
+end
+
 ---Regenerate the filteredList based on the active filter and the currently selected active spawn list
 function spawnUI.updateFilter()
 
@@ -854,9 +974,11 @@ function spawnUI.updateFilter()
 
     local pathOriginSelections = getPathOriginFilterSelections(activeSpawnList)
     local pathOriginFilterEnabled = isPathOriginFilterEnabled(pathOriginSelections)
+    local hasSelectedPathOrigin = hasSelectedFilterOption(pathOriginSelections)
 
     if spawnUI.filter == "" and not classFilterEnabled and not recordTypeFilterEnabled and not pathOriginFilterEnabled then
         spawnUI.filteredList = activeSpawnList.data
+        spawnUI.rebuildHierarchyTree()
         return
     end
 
@@ -877,7 +999,11 @@ function spawnUI.updateFilter()
 
             if include and pathOriginFilterEnabled then
                 local originKey = getEntryPathOriginKey(data, activeSpawnList)
-                include = originKey ~= nil and pathOriginSelections[originKey] == true
+                if hasSelectedPathOrigin then
+                    include = originKey ~= nil and pathOriginSelections[originKey] == true
+                else
+                    include = originKey == nil
+                end
             end
 
             if include then
@@ -885,6 +1011,8 @@ function spawnUI.updateFilter()
             end
         end
     end
+
+    spawnUI.rebuildHierarchyTree()
 end
 
 ---Draws the Device Class Name multi-select filter selector for entity template/device variants.
@@ -1062,6 +1190,7 @@ function spawnUI.drawPathOriginFilterSelector()
 
     ImGui.AlignTextToFramePadding()
     style.mutedText("Asset origin")
+    style.tooltip("Filter entries based on where they come from.\nThis is determined by the starting path of the asset, for example 'base/' or 'mod/'.\nChecking all options will show all entries, while unchecking all will show only entries that don't match any known origin.")
     for _, option in ipairs(pathOriginFilterOptionOrder) do
         ImGui.SameLine()
 
@@ -1491,6 +1620,283 @@ function spawnUI.drawDragWindow()
     end
 end
 
+---Returns tree-node flags used for Spawn New hierarchy folder rendering.
+---@return number
+local function getSpawnHierarchyFolderNodeFlags()
+    local treeFlags = ImGuiTreeNodeFlags or {}
+    local drawLinesFlag = treeFlags.DrawLinesFull
+        or ImGuiTreeNodeFlags_DrawLinesFull
+        or treeFlags.DrawLines
+        or treeFlags.DrawLinesToNodes
+        or 0
+    local spanWidthFlag = treeFlags.SpanFullWidth
+        or treeFlags.SpanAvailWidth
+        or 0
+
+    return spanWidthFlag + drawLinesFlag
+end
+
+---Draws one interactive search-result row.
+---Used by both the classic flat list and the hierarchy tree leaves.
+---@param entry table
+---@param activeSpawnList table
+---@param xSpace number
+---@param buttonTextOverride string?
+---@param showFullPathTooltip boolean?
+local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTextOverride, showFullPathTooltip)
+    local pushedButtonStyle = false
+    local forcePathTooltip = showFullPathTooltip == true
+
+    ImGui.PushID(entry.name)
+
+    if entry.lastSpawned ~= nil then
+        ImGui.PushStyleColor(ImGuiCol.Button, 0xff009933)
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0xff009900)
+        pushedButtonStyle = true
+    end
+
+    if entry.lastSpawned ~= nil and entry.lastSpawned.parent == nil then entry.lastSpawned = nil end
+
+    if entry.lastSpawned ~= nil then
+        if ImGui.Button("Despawn") then
+            history.addAction(history.getRemove({ entry.lastSpawned }))
+            entry.lastSpawned:remove()
+            entry.lastSpawned = nil
+        end
+        ImGui.SameLine()
+    end
+
+    local buttonText = buttonTextOverride or entry.name
+    if not buttonTextOverride and activeSpawnList.isPaths and settings.spawnUIOnlyNames then
+        buttonText = utils.getFileName(entry.name)
+    end
+
+    local originTagInfo = getEntryPathOriginTagInfo(entry, activeSpawnList)
+    if originTagInfo and entry.lastSpawned == nil then
+        drawPathOriginTagChip(originTagInfo)
+        ImGui.SameLine()
+    end
+
+    local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
+    local buttonWidth = xSpace - ImGui.GetCursorPosX()
+    local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
+
+    local clicked = ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold)
+
+    if clicked then
+        local class = activeSpawnList.class
+        entry.lastSpawned = spawnUI.spawnNew(entry, class, false)
+    elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnUI.dragging and ImGui.IsItemHovered() then
+        spawnUI.dragging = true
+        spawnUI.dragData = entry
+    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and spawnUI.dragging then
+        if not ImGui.IsItemHovered() then
+            local ray = editor.getScreenToWorldRay()
+            spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
+
+            local class = activeSpawnList.class
+            spawnUI.dragData.lastSpawned = spawnUI.spawnNew(spawnUI.dragData, class, false)
+        end
+
+        spawnUI.dragging = false
+        spawnUI.dragData = nil
+        spawnUI.popupSpawnHit = nil
+    end
+    if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
+        ImGui.SetClipboardText(entry.name)
+    end
+    if ImGui.IsItemHovered() and settings.assetPreviewEnabled[activeSpawnList.modulePath] then
+        spawnUI.handleAssetPreviewHovered(entry, false)
+    elseif spawnUI.hoveredEntry == entry and (spawnUI.previewInstance or spawnUI.previewTimer) then
+        spawnUI.hoveredEntry = nil
+        spawnUI.stopActiveAssetPreview()
+    end
+
+    if settings.spawnUIOnlyNames or forcePathTooltip then
+        style.tooltip(entry.name)
+    end
+
+    if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
+        if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
+            local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
+            local data = utils.deepcopy(entry.data)
+            data.modulePath = activeSpawnList.class:new().modulePath
+            data.position = { x = 0, y = 0, z = 0, w = 0 }
+            data.rotation = { roll = 0, pitch = 0, yaw = 0 }
+
+            new:load({
+                name = utils.getFileName(entry.name),
+                modulePath = new.modulePath,
+                spawnable = data
+            })
+
+            spawnUI.favoritesUI.addNewItem(new:serialize(), new.name, new.icon)
+        end
+
+        ImGui.EndPopup()
+    end
+
+    if pushedButtonStyle then
+        ImGui.PopStyleColor(2)
+    end
+
+    ImGui.PopID()
+end
+
+---Draws classic flat search results with clipper-based virtualization.
+---@param activeSpawnList table
+---@param xSpace number
+local function drawFlatSpawnResults(activeSpawnList, xSpace)
+    local clipper = ImGuiListClipper.new()
+    clipper:Begin(#spawnUI.filteredList, -1)
+
+    while (clipper:Step()) do
+        for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
+            drawSpawnResultEntryRow(spawnUI.filteredList[i], activeSpawnList, xSpace)
+        end
+    end
+end
+
+---Returns the only child folder when a node contains exactly one folder and no assets.
+---@param node table
+---@return table?
+local function getSingleFolderOnlyChild(node)
+    if #node.entries ~= 0 then
+        return nil
+    end
+
+    if #node.childOrder ~= 1 then
+        return nil
+    end
+
+    return node.children[node.childOrder[1]]
+end
+
+---Expands the linear single-child folder chain below `node`.
+---@param node table
+local function expandSingleChildFolderChain(node)
+    local current = node
+    while current do
+        local child = getSingleFolderOnlyChild(current)
+        if not child then
+            break
+        end
+
+        spawnUI.hierarchyOpenStateByKey[child.key] = true
+        current = child
+    end
+end
+
+---Recursively assigns open-state for every folder node under `node`.
+---@param node table
+---@param isOpen boolean
+local function setHierarchyNodeOpenStateRecursive(node, isOpen)
+    for _, childKey in ipairs(node.childOrder) do
+        local child = node.children[childKey]
+        spawnUI.hierarchyOpenStateByKey[child.key] = isOpen
+        setHierarchyNodeOpenStateRecursive(child, isOpen)
+    end
+end
+
+---Draws expand/collapse icon buttons at the top of hierarchy search results.
+---@param hierarchyRoot table
+local function drawHierarchyResultControls(hierarchyRoot)
+    local hasFolders = #hierarchyRoot.childOrder > 0
+    local expandIcon = IconGlyphs.ExpandAllOutline or IconGlyphs.ArrowExpandAll or IconGlyphs.ExpandAll or "+"
+    local collapseIcon = IconGlyphs.CollapseAllOutline or IconGlyphs.ArrowCollapseAll or IconGlyphs.CollapseAll or "-"
+
+    ImGui.BeginDisabled(not hasFolders)
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(expandIcon .. "##spawnHierarchyExpandAll") then
+        setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Expand all folders")
+
+    ImGui.SameLine()
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(collapseIcon .. "##spawnHierarchyCollapseAll") then
+        setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Collapse all folders")
+
+    ImGui.EndDisabled()
+    ImGui.Separator()
+end
+
+---Recursively draws one hierarchy folder node and its children/leaves.
+---@param node table
+---@param activeSpawnList table
+---@param xSpace number
+local function drawHierarchySpawnResultNode(node, activeSpawnList, xSpace)
+    if node.label == "" then
+        for _, childKey in ipairs(node.childOrder) do
+            drawHierarchySpawnResultNode(node.children[childKey], activeSpawnList, xSpace)
+        end
+
+        for _, leaf in ipairs(node.entries) do
+            drawSpawnResultEntryRow(leaf.entry, activeSpawnList, xSpace, leaf.label, true)
+        end
+        return
+    end
+
+    local requestedOpenState = spawnUI.hierarchyOpenStateByKey[node.key]
+    if requestedOpenState ~= nil then
+        ImGui.SetNextItemOpen(requestedOpenState, ImGuiCond.Always)
+    end
+
+    local nodeLabel = string.format("%s##spawnResultHierarchyNode:%s", node.label, node.key)
+    local open = ImGui.TreeNodeEx(nodeLabel, getSpawnHierarchyFolderNodeFlags())
+    local toggledOpen = ImGui.IsItemToggledOpen()
+    if toggledOpen then
+        spawnUI.hierarchyOpenStateByKey[node.key] = open
+        if open then
+            expandSingleChildFolderChain(node)
+        end
+    elseif requestedOpenState == nil then
+        spawnUI.hierarchyOpenStateByKey[node.key] = open
+    end
+
+    if not open then
+        return
+    end
+
+    for _, childKey in ipairs(node.childOrder) do
+        drawHierarchySpawnResultNode(node.children[childKey], activeSpawnList, xSpace)
+    end
+
+    for _, leaf in ipairs(node.entries) do
+        drawSpawnResultEntryRow(leaf.entry, activeSpawnList, xSpace, leaf.label, true)
+    end
+
+    ImGui.TreePop()
+end
+
+---Draws hierarchy-based path results from the cached `filteredHierarchyTree`.
+---@param activeSpawnList table
+---@param xSpace number
+local function drawHierarchySpawnResults(activeSpawnList, xSpace)
+    if not spawnUI.filteredHierarchyTree then
+        spawnUI.rebuildHierarchyTree()
+    end
+
+    local hierarchyRoot = spawnUI.filteredHierarchyTree
+    if not hierarchyRoot then
+        drawFlatSpawnResults(activeSpawnList, xSpace)
+        return
+    end
+
+    if #spawnUI.filteredList == 0 then
+        return
+    end
+
+    drawHierarchyResultControls(hierarchyRoot)
+    drawHierarchySpawnResultNode(hierarchyRoot, activeSpawnList, xSpace)
+end
+
 ---Draws the fallback action when no path entries match the search text.
 function spawnUI.drawNoMatch()
     if #spawnUI.filteredList ~= 0 or not spawnUI.getActiveSpawnList().isPaths then return end
@@ -1633,6 +2039,21 @@ function spawnUI.drawAll()
     style.mutedText(IconGlyphs.InformationOutline)
     style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
 
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if activeSpawnList.isPaths then
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
+        local hierarchyTreeChanged
+        settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
+            IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
+            settings.spawnUIHierarchyTree
+        )
+        if hierarchyTreeChanged then
+            settings.save()
+        end
+        style.tooltip("Toggle hierarchy tree results")
+    end
+
     local extraFilterChanged = false
     if spawnUI.drawPathOriginFilterSelector() then
         extraFilterChanged = true
@@ -1651,109 +2072,15 @@ function spawnUI.drawAll()
 
     ImGui.BeginChild("list")
 
-    local activeSpawnList = spawnUI.getActiveSpawnList()
-    local clipper = ImGuiListClipper.new()
-    clipper:Begin(#spawnUI.filteredList, -1)
-
     local xSpace, _ = ImGui.GetItemRectSize() - 2 * ImGui.GetStyle().WindowPadding.x - (ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0)
 
     spawnUI.drawNoMatch()
 
-    while (clipper:Step()) do
-        for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
-            local entry = spawnUI.filteredList[i]
-            local isSpawned = false
-
-            ImGui.PushID(entry.name)
-
-            if entry.lastSpawned ~= nil then
-                ImGui.PushStyleColor(ImGuiCol.Button, 0xff009933)
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0xff009900)
-                isSpawned = true
-            end
-
-            if entry.lastSpawned ~= nil and entry.lastSpawned.parent == nil then entry.lastSpawned = nil end
-
-            if entry.lastSpawned ~= nil then
-                if ImGui.Button("Despawn") then
-                    history.addAction(history.getRemove({ entry.lastSpawned }))
-                    entry.lastSpawned:remove()
-                    entry.lastSpawned = nil
-                end
-                ImGui.SameLine()
-            end
-
-            local buttonText = entry.name
-            if activeSpawnList.isPaths and settings.spawnUIOnlyNames then
-                buttonText = utils.getFileName(entry.name)
-            end
-
-            local originTagInfo = getEntryPathOriginTagInfo(entry, activeSpawnList)
-            if originTagInfo and entry.lastSpawned == nil then
-                drawPathOriginTagChip(originTagInfo)
-                ImGui.SameLine()
-            end
-
-            local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
-            local buttonWidth = xSpace - ImGui.GetCursorPosX()
-            local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
-
-            if ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
-                local class = activeSpawnList.class
-                entry.lastSpawned = spawnUI.spawnNew(entry, class, false)
-            elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnUI.dragging and ImGui.IsItemHovered() then
-                spawnUI.dragging = true
-                spawnUI.dragData = entry
-            elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and spawnUI.dragging then
-                if not ImGui.IsItemHovered() then
-                    local ray = editor.getScreenToWorldRay()
-                    spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-
-                    local class = activeSpawnList.class
-                    spawnUI.dragData.lastSpawned = spawnUI.spawnNew(spawnUI.dragData, class, false)
-                end
-
-                spawnUI.dragging = false
-                spawnUI.dragData = nil
-                spawnUI.popupSpawnHit = nil
-            end
-            if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
-                ImGui.SetClipboardText(entry.name)
-            end
-            if ImGui.IsItemHovered() and settings.assetPreviewEnabled[activeSpawnList.modulePath] then
-                spawnUI.handleAssetPreviewHovered(entry, false)
-            elseif spawnUI.hoveredEntry == entry and (spawnUI.previewInstance or spawnUI.previewTimer) then
-                spawnUI.hoveredEntry = nil
-                spawnUI.stopActiveAssetPreview()
-            end
-            if settings.spawnUIOnlyNames then
-                style.tooltip(entry.name)
-            end
-
-            if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
-                if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
-                    local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
-                    local data = utils.deepcopy(entry.data)
-                    data.modulePath = activeSpawnList.class:new().modulePath
-                    data.position = { x = 0, y = 0, z = 0, w = 0 }
-                    data.rotation = { roll = 0, pitch = 0, yaw = 0 }
-
-                    new:load({
-                        name = utils.getFileName(entry.name),
-                        modulePath = new.modulePath,
-                        spawnable = data
-                    })
-
-                    spawnUI.favoritesUI.addNewItem(new:serialize(), new.name, new.icon)
-                end
-
-                ImGui.EndPopup()
-            end
-
-            if isSpawned then ImGui.PopStyleColor(2) end
-
-            ImGui.PopID()
-        end
+    local useHierarchyTree = settings.spawnUIHierarchyTree and activeSpawnList.isPaths
+    if useHierarchyTree then
+        drawHierarchySpawnResults(activeSpawnList, xSpace)
+    else
+        drawFlatSpawnResults(activeSpawnList, xSpace)
     end
 
     if #spawnUI.filteredList == 0 then
