@@ -248,7 +248,7 @@ function collider:export()
 
     local rotation = self.rotation:ToQuat()
 
-    local data = spawnable.export(self)
+    local data = colliderBase.export(self)
     data.type = "worldCollisionNode"
     data.data = {
 		["compiledData"] = {

@@ -1,9 +1,9 @@
 local settings = require("modules/utils/settings")
 
 local miscUtils = {
-    data = {}
+    data = {},
+    archives = {}
 }
-
 
 ---@param str string
 ---@return table<string>
@@ -708,6 +708,14 @@ function miscUtils.matchSearch(text, query)
     end
 
     return anyMatch
+end
+
+function miscUtils.archiveInstalled(name)
+    if not miscUtils.archives[name] then
+        miscUtils.archives[name] = ModArchiveExists(name)
+    end
+
+    return miscUtils.archives[name]
 end
 
 return miscUtils

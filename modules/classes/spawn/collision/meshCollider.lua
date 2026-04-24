@@ -1,4 +1,3 @@
-local spawnable = require("modules/classes/spawn/spawnable")
 local style = require("modules/ui/style")
 local visualizer = require("modules/utils/visualizer")
 local settings = require("modules/utils/settings")
@@ -58,7 +57,7 @@ end
 ---@param position Vector4
 ---@param rotation EulerAngles
 function meshCollider:loadSpawnData(data, position, rotation)
-    self.previewArchiveInstalled = ModArchiveExists("scc_collision.archive")
+    self.previewArchiveInstalled = utils.archiveInstalled("scc_collision.archive")
 
     if (data.scale) then
         self.scale = Vector3.new(data.scale.x, data.scale.y, data.scale.z)
@@ -259,7 +258,7 @@ function meshCollider:export()
         sectorHash = "1"
     end
 
-    local data = spawnable.export(self)
+    local data = colliderBase.export(self)
     data.type = "worldCollisionNode"
     data.data = {
 		["compiledData"] = {
