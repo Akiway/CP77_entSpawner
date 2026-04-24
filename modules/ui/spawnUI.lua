@@ -1585,7 +1585,7 @@ end
 ---Draws spawn-position controls and returns the alignment X coordinate.
 ---@return number
 function spawnUI.drawSpawnPosition()
-    ImGui.Text("Spawn position")
+    style.mutedText("Spawn position")
     ImGui.SameLine()
     local x = ImGui.GetCursorPosX()
     ImGui.PushItemWidth(100 * style.viewSize)
@@ -1618,22 +1618,6 @@ function spawnUI.drawDragWindow()
         ImGui.Text(spawnUI.dragData.name)
         ImGui.End()
     end
-end
-
----Returns tree-node flags used for Spawn New hierarchy folder rendering.
----@return number
-local function getSpawnHierarchyFolderNodeFlags()
-    local treeFlags = ImGuiTreeNodeFlags or {}
-    local drawLinesFlag = treeFlags.DrawLinesFull
-        or ImGuiTreeNodeFlags_DrawLinesFull
-        or treeFlags.DrawLines
-        or treeFlags.DrawLinesToNodes
-        or 0
-    local spanWidthFlag = treeFlags.SpanFullWidth
-        or treeFlags.SpanAvailWidth
-        or 0
-
-    return spanWidthFlag + drawLinesFlag
 end
 
 ---Draws one interactive search-result row.
@@ -1849,7 +1833,7 @@ local function drawHierarchySpawnResultNode(node, activeSpawnList, xSpace)
     end
 
     local nodeLabel = string.format("%s##spawnResultHierarchyNode:%s", node.label, node.key)
-    local open = ImGui.TreeNodeEx(nodeLabel, getSpawnHierarchyFolderNodeFlags())
+    local open = ImGui.TreeNodeEx(nodeLabel, ImGuiTreeNodeFlags.SpanFullWidth)
     local toggledOpen = ImGui.IsItemToggledOpen()
     if toggledOpen then
         spawnUI.hierarchyOpenStateByKey[node.key] = open
@@ -1916,7 +1900,7 @@ end
 function spawnUI.drawOptions()
     local activeList = spawnUI.getActiveSpawnList()
     if activeList.isPaths then
-        ImGui.Text("Strip paths")
+        style.mutedText("Strip paths")
         ImGui.SameLine()
         local stripPathsChanged
         settings.spawnUIOnlyNames, stripPathsChanged = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
@@ -1927,7 +1911,7 @@ function spawnUI.drawOptions()
     end
 
     if activeList.assetPreviewType ~= "none" then
-        ImGui.Text("Asset Preview")
+        style.mutedText("Asset Preview")
         ImGui.SameLine()
         local assetPreviewChanged
         settings.assetPreviewEnabled[activeList.modulePath], assetPreviewChanged = ImGui.Checkbox("##assetPreview", settings.assetPreviewEnabled[activeList.modulePath])
@@ -1949,6 +1933,48 @@ function spawnUI.drawOptions()
     spawnUI.drawSpawnPosition()
 end
 
+local SPAWN_NEW_OPTIONS_POPIN_ID = "##spawnNewOptionsPopin"
+
+---Draws right-aligned search-row controls (hierarchy toggle + options popin).
+---@param activeSpawnList table
+local function drawSpawnNewSearchRowControls(activeSpawnList)
+    local compactButtonWidth = 25 * style.viewSize
+    local controlsCount = activeSpawnList.isPaths and 2 or 1
+    local spacingX = ImGui.GetStyle().ItemSpacing.x
+    local controlsWidth = compactButtonWidth * controlsCount + spacingX * (controlsCount - 1)
+
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - controlsWidth)
+
+    if activeSpawnList.isPaths then
+        local hierarchyTreeChanged
+        settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
+            IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
+            settings.spawnUIHierarchyTree
+        )
+        if hierarchyTreeChanged then
+            settings.save()
+        end
+        style.tooltip("Toggle hierarchy tree results")
+
+        ImGui.SameLine()
+    end
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.CogOutline .. "##spawnNewOptionsButton") then
+        ImGui.OpenPopup(SPAWN_NEW_OPTIONS_POPIN_ID)
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Options")
+
+    if ImGui.BeginPopup(SPAWN_NEW_OPTIONS_POPIN_ID) then
+        ImGui.PushID("spawnNewOptionsPopin")
+        spawnUI.drawOptions()
+        ImGui.PopID()
+        ImGui.EndPopup()
+    end
+end
+
 ---Draws the target group selector used for new spawns.
 function spawnUI.drawTargetGroupSelector()
     local groups = { "Root" }
@@ -1960,22 +1986,20 @@ function spawnUI.drawTargetGroupSelector()
         spawnUI.selectedGroup = 0
     end
 
-    style.mutedText("Target group")
+    ImGui.BeginGroup()
+    style.drawIconLabelRow(IconGlyphs.PlusBoxOutline, "Target group")
+    --style.mutedText(IconGlyphs.PlusBoxOutline .. " Target group")
     ImGui.SameLine()
 	ImGui.PushItemWidth(200 * style.viewSize)
 	spawnUI.selectedGroup = ImGui.Combo("##newSpawnGroup", spawnUI.selectedGroup, groups, #groups)
-    style.tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned UI\" to set this selector to the currently selected group.")
+    ImGui.EndGroup()
+    style.tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned\" tab to set this selector to the currently selected group.")
 	ImGui.PopItemWidth()
 end
 
 ---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
     spawnUI.drawTargetGroupSelector()
-
-    if ImGui.TreeNodeEx("Options", ImGuiTreeNodeFlags.SpanFullWidth) then
-        spawnUI.drawOptions()
-        ImGui.TreePop()
-    end
 
     style.spacedSeparator()
 
@@ -2040,19 +2064,7 @@ function spawnUI.drawAll()
     style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
 
     local activeSpawnList = spawnUI.getActiveSpawnList()
-    if activeSpawnList.isPaths then
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
-        local hierarchyTreeChanged
-        settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
-            IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
-            settings.spawnUIHierarchyTree
-        )
-        if hierarchyTreeChanged then
-            settings.save()
-        end
-        style.tooltip("Toggle hierarchy tree results")
-    end
+    drawSpawnNewSearchRowControls(activeSpawnList)
 
     local extraFilterChanged = false
     if spawnUI.drawPathOriginFilterSelector() then

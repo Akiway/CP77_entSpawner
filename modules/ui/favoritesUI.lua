@@ -81,6 +81,29 @@ local function flushFavoritesFilterSave()
     settings.save()
 end
 
+local FAVORITES_SPAWN_OPTIONS_POPIN_ID = "##favoritesSpawnOptionsPopin"
+
+local function drawFavoritesSpawnOptionsRow()
+    if not favoritesUI.spawnUI then
+        return
+    end
+
+    favoritesUI.spawnUI.drawTargetGroupSelector()
+end
+
+local function drawFavoritesSpawnOptionsPopup()
+    if not favoritesUI.spawnUI then
+        return
+    end
+
+    if ImGui.BeginPopup(FAVORITES_SPAWN_OPTIONS_POPIN_ID) then
+        ImGui.PushID("favoritesSpawnOptionsPopin")
+        favoritesUI.spawnUI.drawSpawnPosition()
+        ImGui.PopID()
+        ImGui.EndPopup()
+    end
+end
+
 ---@param spawner spawner
 function favoritesUI.init(spawner)
     favoritesUI.spawnUI = spawner.baseUI.spawnUI
@@ -786,12 +809,7 @@ function favoritesUI.draw()
         settings.save()
     end
 
-    if ImGui.TreeNodeEx("Spawn Options", ImGuiTreeNodeFlags.SpanFullWidth) then
-        favoritesUI.spawnUI.drawTargetGroupSelector()
-        favoritesUI.spawnUI.drawSpawnPosition()
-
-        ImGui.TreePop()
-    end
+    drawFavoritesSpawnOptionsRow()
 
     if ImGui.TreeNodeEx("Add Category", ImGuiTreeNodeFlags.SpanFullWidth) then
         favoritesUI.drawAddCategory()
@@ -822,8 +840,12 @@ function favoritesUI.draw()
     style.mutedText(IconGlyphs.InformationOutline)
     style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
 
+    local compactButtonWidth = 25 * style.viewSize
+    local controlsCount = 2
+    local controlsWidth = compactButtonWidth * controlsCount + ImGui.GetStyle().ItemSpacing.x * (controlsCount - 1)
+
     ImGui.SameLine()
-    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - controlsWidth)
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.Reload) then
         favoritesUI.categories = {}
@@ -831,6 +853,16 @@ function favoritesUI.draw()
     end
     style.pushButtonNoBG(false)
     style.tooltip("Reload favorites from disk")
+
+    ImGui.SameLine()
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.CogOutline .. "##favoritesSpawnOptionsButton") then
+        ImGui.OpenPopup(FAVORITES_SPAWN_OPTIONS_POPIN_ID)
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Favorites spawn options")
+
+    drawFavoritesSpawnOptionsPopup()
 
     local searchTagOptions = favoritesUI.getAllTags("")
     pruneTagSelections(settings.filterTags, searchTagOptions)
