@@ -236,8 +236,18 @@ local recordTypeFilterListByModulePath = {
 
 local pathOriginTagInfoByKey = {
     base = { label = "Base game", tag = "Base", color = 0xFF00A6B2 },
-    plDlc = { label = "PL DLC", tag = "DLC", color = 0xFF0808A9 },
-    modded = { label = "Modded", tag = "Mod", color = 0xFFA55987 }
+    plDlc = {
+        label = "PL DLC",
+        tag = "DLC",
+        color = 0xFF0808A9,
+        tooltip = "Phantom Liberty DLC\nUsing these assets means the player will require the DLC for your mod."
+    },
+    modded = {
+        label = "Modded",
+        tag = "Mod",
+        color = 0xFFA55987,
+        tooltip = "Only assets with starting path 'mod/' or 'mods/' are recognized as modded."
+     }
 }
 
 ---Returns whether a filter is supported by the active spawn list module.
@@ -1105,15 +1115,27 @@ function spawnUI.drawPathOriginFilterSelector()
     ImGui.SameLine()
 
     local optionChanged = false
-    selections.base, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.base.label .. "##pathOriginBase", selections.base == true)
+    local baseTagInfo = pathOriginTagInfoByKey.base
+    selections.base, optionChanged = ImGui.Checkbox(baseTagInfo.label .. "##pathOriginBase", selections.base == true)
+    if tostring(baseTagInfo.tooltip or "") ~= "" then
+        style.tooltip(baseTagInfo.tooltip)
+    end
     changed = changed or optionChanged
     ImGui.SameLine()
 
-    selections.plDlc, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.plDlc.label .. "##pathOriginPlDlc", selections.plDlc == true)
+    local plDlcTagInfo = pathOriginTagInfoByKey.plDlc
+    selections.plDlc, optionChanged = ImGui.Checkbox(plDlcTagInfo.label .. "##pathOriginPlDlc", selections.plDlc == true)
+    if tostring(plDlcTagInfo.tooltip or "") ~= "" then
+        style.tooltip(plDlcTagInfo.tooltip)
+    end
     changed = changed or optionChanged
     ImGui.SameLine()
 
-    selections.modded, optionChanged = ImGui.Checkbox(pathOriginTagInfoByKey.modded.label .. "##pathOriginModded", selections.modded == true)
+    local moddedTagInfo = pathOriginTagInfoByKey.modded
+    selections.modded, optionChanged = ImGui.Checkbox(moddedTagInfo.label .. "##pathOriginModded", selections.modded == true)
+    if tostring(moddedTagInfo.tooltip or "") ~= "" then
+        style.tooltip(moddedTagInfo.tooltip)
+    end
     changed = changed or optionChanged
 
     return changed
