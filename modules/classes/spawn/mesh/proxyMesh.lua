@@ -27,7 +27,7 @@ end
 
 function proxyMesh:draw()
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = math.max(self.maxPropertyWidth, utils.getTextMaxWidth({ "Near Auto Hide Distance" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX())
+        self.maxPropertyWidth = math.max(utils.getTextMaxWidth({ "Near Auto Hide Distance" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX())
     end
     mesh.draw(self)
 
