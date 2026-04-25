@@ -1557,6 +1557,9 @@ local STATE_ICON_GRID_PADDING = 16
 local PROJECT_TAG_FRAME_PADDING_X = 6
 local PROJECT_TAG_FRAME_PADDING_Y = 2
 local PROJECT_TAG_FONT_SCALE = 0.75
+local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
+local ELEVATOR_FLOOR_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
+local DOOR_CONTROLLER_CLASS = "DoorControllerPS"
 local CONNECTION_COUNT_ICONS = {
     [0] = IconGlyphs.Numeric0CircleOutline,
     [1] = IconGlyphs.Numeric1CircleOutline,
@@ -1568,6 +1571,18 @@ local CONNECTION_COUNT_ICONS = {
     [7] = IconGlyphs.Numeric7CircleOutline,
     [8] = IconGlyphs.Numeric8CircleOutline,
     [9] = IconGlyphs.Numeric9CircleOutline
+}
+local LIFT_FLOOR_COUNT_ICONS = {
+    [0] = IconGlyphs.Numeric0BoxOutline,
+    [1] = IconGlyphs.Numeric1BoxOutline,
+    [2] = IconGlyphs.Numeric2BoxOutline,
+    [3] = IconGlyphs.Numeric3BoxOutline,
+    [4] = IconGlyphs.Numeric4BoxOutline,
+    [5] = IconGlyphs.Numeric5BoxOutline,
+    [6] = IconGlyphs.Numeric6BoxOutline,
+    [7] = IconGlyphs.Numeric7BoxOutline,
+    [8] = IconGlyphs.Numeric8BoxOutline,
+    [9] = IconGlyphs.Numeric9BoxOutline
 }
 
 ---@param x number
@@ -1606,6 +1621,56 @@ local function getConnectionCountIcon(count)
     end
 
     return CONNECTION_COUNT_ICONS[math.max(0, math.min(9, count))] or IconGlyphs.Numeric0CircleOutline
+end
+
+---@param count number
+---@return string
+local function getLiftFloorCountIcon(count)
+    if count >= 10 then
+        return IconGlyphs.Numeric9PlusBoxOutline
+    end
+
+    return LIFT_FLOOR_COUNT_ICONS[math.max(0, math.min(9, count))] or IconGlyphs.Numeric0BoxOutline
+end
+
+---@param connections table[]?
+---@return number
+local function getLiftFloorConnectionCount(connections)
+    local totalConnections = 0
+    local floorConnections = 0
+
+    for _, connection in ipairs(connections or {}) do
+        if type(connection) == "table" then
+            totalConnections = totalConnections + 1
+            if tostring(connection.deviceClassName or "") == ELEVATOR_FLOOR_CONTROLLER_CLASS then
+                floorConnections = floorConnections + 1
+            end
+        end
+    end
+
+    if floorConnections > 0 then
+        return floorConnections
+    end
+
+    return totalConnections
+end
+
+---@param connections table[]?
+---@param className string
+---@return boolean
+local function hasDeviceConnectionClass(connections, className)
+    local targetClassName = string.lower(tostring(className or ""))
+    if targetClassName == "" then
+        return false
+    end
+
+    for _, connection in ipairs(connections or {}) do
+        if type(connection) == "table" and string.lower(tostring(connection.deviceClassName or "")) == targetClassName then
+            return true
+        end
+    end
+
+    return false
 end
 
 local function getRootId(element)
@@ -1755,6 +1820,27 @@ function spawnedUI.getStateIcons(element)
     if utils.isA(element, "spawnableElement") and element.spawnable then
         local spawnable = element.spawnable
         local text = ""
+
+        if spawnable.modulePath == "entity/device" and tostring(spawnable.deviceClassName or "") == LIFT_CONTROLLER_CLASS then
+            local floorCount = getLiftFloorConnectionCount(spawnable.deviceConnections)
+            addStateIcon(
+                stateIcons,
+                getLiftFloorCountIcon(floorCount),
+                string.format("%d floor connection%s", floorCount, floorCount == 1 and "" or "s"),
+                floorCount == 0 and style.warnColor or style.mutedColor
+            )
+        end
+
+        if spawnable.modulePath == "entity/device"
+            and tostring(spawnable.deviceClassName or "") == ELEVATOR_FLOOR_CONTROLLER_CLASS
+            and hasDeviceConnectionClass(spawnable.deviceConnections, DOOR_CONTROLLER_CLASS) then
+            addStateIcon(
+                stateIcons,
+                IconGlyphs.DoorSliding,
+                "Terminal has a door connected to it",
+                style.mutedColor
+            )
+        end
 
         if spawnable.visualizeStreamingRange then
             local playerPosition = spawnedUI.stateIconPlayerPosition

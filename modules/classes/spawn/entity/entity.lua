@@ -1536,13 +1536,54 @@ end
 ---@param key string
 ---@return table { typeName: string, isEnum: boolean, propType: CName }
 function entity:getPropTypeInfo(componentID, path, key)
+    local function inferTypeInfo(value)
+        local valueType = type(value)
+
+        if valueType == "table" then
+            if type(value["$type"]) == "string" then
+                return { typeName = value["$type"], isEnum = false, propType = nil }
+            end
+
+            return { typeName = "table", isEnum = false, propType = nil }
+        elseif valueType == "number" then
+            if value == math.floor(value) then
+                return { typeName = "Int32", isEnum = false, propType = nil }
+            end
+
+            return { typeName = "Float", isEnum = false, propType = nil }
+        elseif valueType == "boolean" then
+            return { typeName = "Bool", isEnum = false, propType = nil }
+        elseif valueType == "string" then
+            return { typeName = "String", isEnum = false, propType = nil }
+        elseif valueType == "nil" then
+            return { typeName = "Unknown", isEnum = false, propType = nil }
+        end
+
+        return { typeName = valueType, isEnum = false, propType = nil }
+    end
+
+    local function getNested(source, nestedPath)
+        if type(source) ~= "table" then
+            return nil
+        end
+
+        return utils.getNestedValue(source, nestedPath)
+    end
+
+    local defaultComponent = self.defaultComponentData[componentID]
+    local changedComponent = self.instanceDataChanges[componentID]
+
     -- Step one up, so we can get class of parent, then use that to get property type
     local parentPath = utils.deepcopy(path)
     table.remove(parentPath, #parentPath)
 
-    local value = utils.getNestedValue(self.defaultComponentData[componentID], parentPath)
-    if not value then -- Might be a custom array entry, only present in instanceDataChanges
-        value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+    local value = getNested(defaultComponent, parentPath)
+    if value == nil then -- Might be a custom array entry, only present in instanceDataChanges
+        value = getNested(changedComponent, parentPath)
+    end
+
+    if type(value) ~= "table" then
+        return inferTypeInfo(value)
     end
 
     -- Handle or array entry
@@ -1554,14 +1595,19 @@ function entity:getPropTypeInfo(componentID, path, key)
         if type(key) == "number" then -- Is array entry
             if value["HandleId"] then
                 -- Type of handle, by stepping down
-                return { typeName = value["Data"]["$type"], isEnum = false, propType = nil}
+                if type(value["Data"]) == "table" then
+                    return inferTypeInfo(value["Data"])
+                end
+
+                return inferTypeInfo(value["Data"])
             else
                 -- If its not a handle, parentPath will be prop which exists on default data (value ~= nil), but the actual array entry does only exist in instanceDataChanges
                 if not value[key] then
-                    value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+                    value = getNested(changedComponent, parentPath)
                 end
 
-                local typeName = type(value[key]) == "table" and value[key]["$type"] or nil
+                local entryValue = type(value) == "table" and value[key] or nil
+                local typeName = type(entryValue) == "table" and entryValue["$type"] or nil
                 local isEnum = false
 
                 if not typeName then -- Is simple type
@@ -1570,14 +1616,24 @@ function entity:getPropTypeInfo(componentID, path, key)
 
                     local fullPath = table.concat(path, "/")
                     if not self.typeInfo[fullPath] then
-                        local parentData = utils.getNestedValue(self.instanceDataChanges[componentID] or self.defaultComponentData[componentID], parentParent)
+                        local parentData = getNested(changedComponent, parentParent)
+                        if parentData == nil then
+                            parentData = getNested(defaultComponent, parentParent)
+                        end
 
-                        local parentType = parentData["$type"]
-                        local propType = Reflection.GetClass(parentType):GetProperty(parentPath[#parentPath]):GetType():GetInnerType()
-                        isEnum = propType:IsEnum()
-                        typeName = propType:GetName().value
+                        local parentType = type(parentData) == "table" and parentData["$type"] or nil
+                        local reflectedClass = type(parentType) == "string" and Reflection.GetClass(parentType) or nil
+                        local reflectedProp = reflectedClass and parentPath[#parentPath] and reflectedClass:GetProperty(tostring(parentPath[#parentPath])) or nil
+                        local reflectedType = reflectedProp and reflectedProp:GetType() or nil
+                        local innerType = reflectedType and reflectedType:GetInnerType() or nil
 
-                        self.typeInfo[fullPath] = { typeName = typeName, isEnum = isEnum, propType = nil }
+                        if innerType then
+                            isEnum = innerType:IsEnum()
+                            typeName = innerType:GetName().value
+                            self.typeInfo[fullPath] = { typeName = typeName, isEnum = isEnum, propType = nil }
+                        else
+                            self.typeInfo[fullPath] = inferTypeInfo(entryValue)
+                        end
                     else
                         return self.typeInfo[fullPath]
                     end
@@ -1588,18 +1644,29 @@ function entity:getPropTypeInfo(componentID, path, key)
         end
     end
 
-    value = utils.getNestedValue(self.defaultComponentData[componentID], parentPath) -- Re-Fetch, in case it was a handle and we changed the path
-    if not value then -- Array entry, only present in instanceDataChanges
-        value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+    value = getNested(defaultComponent, parentPath) -- Re-Fetch, in case it was a handle and we changed the path
+    if value == nil then -- Array entry, only present in instanceDataChanges
+        value = getNested(changedComponent, parentPath)
+    end
+
+    if type(value) ~= "table" then
+        return inferTypeInfo(value)
     end
 
     local fullPath = table.concat(path, "/")
     if not self.typeInfo[fullPath] then
-        local propType = Reflection.GetClass(value["$type"]):GetProperty(key):GetType()
-        local propEnum = propType:IsEnum()
-        local propTypeName = propType:GetName().value
+        local className = value["$type"]
+        local reflectedClass = type(className) == "string" and Reflection.GetClass(className) or nil
+        local reflectedProp = reflectedClass and reflectedClass:GetProperty(tostring(key)) or nil
+        local propType = reflectedProp and reflectedProp:GetType() or nil
 
-        self.typeInfo[fullPath] = { typeName = propTypeName, isEnum = propEnum, propType = propType }
+        if propType then
+            local propEnum = propType:IsEnum()
+            local propTypeName = propType:GetName().value
+            self.typeInfo[fullPath] = { typeName = propTypeName, isEnum = propEnum, propType = propType }
+        else
+            self.typeInfo[fullPath] = inferTypeInfo(value[key])
+        end
     end
 
     return self.typeInfo[fullPath]
