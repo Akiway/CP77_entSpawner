@@ -111,6 +111,7 @@ local deviceClassSourceByModulePath = {
 ---@field protected assetPreviewTimer number
 ---@field protected assetPreviewBackplane mesh?
 ---@field protected instanceDataSearch string
+---@field protected instanceDataSearchInProperties boolean
 ---@field protected psControllerID string
 local entity = setmetatable({}, { __index = spawnable })
 
@@ -139,6 +140,7 @@ function entity:new()
     o.deviceClassName = ""
     o.secondaryIcon = ""
     o.instanceDataSearch = ""
+    o.instanceDataSearchInProperties = false
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
@@ -1883,11 +1885,15 @@ end
 ---@param data any
 ---@param path table Path to the data, from the root of the component
 ---@param max number Maximum width of a label text
-function entity:drawTableProp(componentID, key, data, path, max, modified)
+---@param propertySearch string?
+---@param showAllChildren boolean?
+local matchesPropertySearchEntry
+
+function entity:drawTableProp(componentID, key, data, path, max, modified, propertySearch, showAllChildren)
     -- Step one down, to avoid handle structure, gets really fucking ugly later
     if data.HandleId then
         table.insert(path, "Data")
-        self:drawInstanceDataProperty(componentID, key, data.Data, path, max)
+        self:drawInstanceDataProperty(componentID, key, data.Data, path, max, propertySearch, showAllChildren)
         return
     end
 
@@ -2046,7 +2052,7 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
             local entry = data[propKey]
             local propPath = utils.deepcopy(path)
             table.insert(propPath, propKey)
-            self:drawInstanceDataProperty(componentID, propKey, entry, propPath, max)
+            self:drawInstanceDataProperty(componentID, propKey, entry, propPath, max, propertySearch, showAllChildren)
         end
 
         self:drawAddArrayEntry(info.propType, componentID, path, data)
@@ -2065,8 +2071,20 @@ end
 ---@param data table
 ---@param path table Path to the data, from the root of the component
 ---@param max number Maximum width of a text
-function entity:drawInstanceDataProperty(componentID, key, data, path, max)
+---@param propertySearch string?
+---@param showAllChildren boolean?
+function entity:drawInstanceDataProperty(componentID, key, data, path, max, propertySearch, showAllChildren)
     if key == "$type" or key == "$storage" or key == "Flags" then return end
+
+    local propertyFilterActive = type(propertySearch) == "string" and propertySearch ~= ""
+    if propertyFilterActive and not showAllChildren then
+        local matchesSearch, directMatch = matchesPropertySearchEntry(key, data, propertySearch, {})
+        if not matchesSearch then
+            return
+        end
+
+        showAllChildren = directMatch
+    end
 
     local modified = false
     if self.instanceDataChanges[componentID] and self.instanceDataChanges[componentID][path[1]] then
@@ -2076,7 +2094,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
     end
 
     if type(data) == "table" then
-        self:drawTableProp(componentID, key, data, path, max, modified)
+        self:drawTableProp(componentID, key, data, path, max, modified, propertySearch, showAllChildren)
     else
         style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
 
@@ -2258,6 +2276,96 @@ function entity:getSortedComponents()
     return entries
 end
 
+---@param value any
+---@param search string
+---@return boolean
+local function matchesInstanceDataSearch(value, search)
+    return string.find(string.lower(tostring(value or "")), search, 1, true) ~= nil
+end
+
+---@param key any
+---@return boolean
+local function shouldSkipInstanceDataPropertyKey(key)
+    return key == "$type" or key == "$storage" or key == "Flags"
+end
+
+---@param key any
+---@param value any
+---@param search string
+---@param visited table<table, boolean>
+---@return boolean hasMatch
+---@return boolean directMatch
+matchesPropertySearchEntry = function(key, value, search, visited)
+    if shouldSkipInstanceDataPropertyKey(key) then
+        return false, false
+    end
+
+    local directMatch = matchesInstanceDataSearch(key, search)
+    local valueType = type(value)
+
+    if valueType == "table" then
+        if visited[value] then
+            return directMatch, directMatch
+        end
+        visited[value] = true
+
+        local hasChildMatch = false
+        for childKey, childValue in pairs(value) do
+            local childHasMatch = matchesPropertySearchEntry(childKey, childValue, search, visited)
+            if childHasMatch then
+                hasChildMatch = true
+                break
+            end
+        end
+
+        return directMatch or hasChildMatch, directMatch
+    end
+
+    if valueType ~= "nil" and valueType ~= "function" and valueType ~= "thread" then
+        if matchesInstanceDataSearch(value, search) then
+            directMatch = true
+        end
+    end
+
+    return directMatch, directMatch
+end
+
+---@param component table
+---@param componentChanges table?
+---@param search string
+---@return boolean
+local function matchesComponentPropertiesSearch(component, componentChanges, search)
+    local topLevelKeys = {}
+
+    if type(component) == "table" then
+        for key, _ in pairs(component) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    if type(componentChanges) == "table" then
+        for key, _ in pairs(componentChanges) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    for key, _ in pairs(topLevelKeys) do
+        local value = nil
+        if type(componentChanges) == "table" and componentChanges[key] ~= nil then
+            value = componentChanges[key]
+        elseif type(component) == "table" then
+            value = component[key]
+        end
+
+        local hasMatch = matchesPropertySearchEntry(key, value, search, {})
+        if hasMatch then
+            return true
+        end
+    end
+
+    return false
+end
+
 function entity:drawInstanceData()
     local nDefaultData = utils.tableLength(self.defaultComponentData)
     if nDefaultData <= 1 then
@@ -2273,6 +2381,8 @@ function entity:drawInstanceData()
         end
     end
 
+    self.instanceDataSearchInProperties = self.instanceDataSearchInProperties == true
+
     ImGui.PushItemWidth(200 * style.viewSize)
     self.instanceDataSearch = ImGui.InputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
     ImGui.PopItemWidth()
@@ -2286,16 +2396,27 @@ function entity:drawInstanceData()
         style.pushButtonNoBG(false)
     end
 
+    ImGui.SameLine()
+    self.instanceDataSearchInProperties, _ = ImGui.Checkbox("Search in properties##instanceDataPropertySearch", self.instanceDataSearchInProperties)
+    style.tooltip("Include component property names and values in the filter.")
+
     local search = self.instanceDataSearch:lower()
+    local propertySearch = (self.instanceDataSearchInProperties and search ~= "") and search or nil
     for _, entry in ipairs(self:getSortedComponents()) do
         local key = entry.key
         local component = entry.component
         local componentName = entry.componentName
         local name = entry.name
 
-        if self.instanceDataSearch == ""
+        local matchesSearch = self.instanceDataSearch == ""
             or string.find(componentName:lower(), search, 1, true) ~= nil
-            or string.find(name:lower(), search, 1, true) ~= nil then
+            or string.find(name:lower(), search, 1, true) ~= nil
+
+        if not matchesSearch and self.instanceDataSearchInProperties and search ~= "" then
+            matchesSearch = matchesComponentPropertiesSearch(component, self.instanceDataChanges[key], search)
+        end
+
+        if matchesSearch then
             style.pushStyleColor(not self.instanceDataChanges[key], ImGuiCol.Text, style.mutedColor)
 
             local expanded = false
@@ -2311,7 +2432,7 @@ function entity:drawInstanceData()
                     if modified then entry = self.instanceDataChanges[key][propKey] end
 
                     style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
-                    self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max)
+                    self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max, propertySearch, false)
 
                     style.popStyleColor(true)
                 end
