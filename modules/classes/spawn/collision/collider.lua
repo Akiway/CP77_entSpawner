@@ -1,73 +1,26 @@
-local spawnable = require("modules/classes/spawn/spawnable")
+local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local style = require("modules/ui/style")
 local visualizer = require("modules/utils/visualizer")
 local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
 
-local originalMaterials = { "meatbag.physmat","linoleum.physmat","trash.physmat","plastic.physmat","character_armor.physmat","furniture_upholstery.physmat","metal_transparent.physmat","tire_car.physmat","meat.physmat","metal_car_pipe_steam.physmat","character_flesh.physmat","brick.physmat","character_flesh_head.physmat","leaves.physmat","flesh.physmat","water.physmat","plastic_road.physmat","metal_hollow.physmat","cyberware_flesh.physmat","plaster.physmat","plexiglass.physmat","character_vr.physmat","vehicle_chassis.physmat","sand.physmat","glass_electronics.physmat","leaves_stealth.physmat","tarmac.physmat","metal_car.physmat","tiles.physmat","glass_car.physmat","grass.physmat","concrete.physmat","carpet_techpiercable.physmat","wood_hedge.physmat","stone.physmat","leaves_semitransparent.physmat","metal_catwalk.physmat","upholstery_car.physmat","cyberware_metal.physmat","paper.physmat","leather.physmat","metal_pipe_steam.physmat","metal_pipe_water.physmat","metal_semitransparent.physmat","neon.physmat","glass_dst.physmat","plastic_car.physmat","mud.physmat","dirt.physmat","metal_car_pipe_water.physmat","furniture_leather.physmat","asphalt.physmat","wood_bamboo_poles.physmat","glass_opaque.physmat","carpet.physmat","food.physmat","cyberware_metal_head.physmat","metal_road.physmat","wood_tree.physmat","wood_player_npc_semitransparent.physmat","wood.physmat","metal_car_ricochet.physmat","cardboard.physmat","wood_crown.physmat","metal_ricochet.physmat","plastic_electronics.physmat","glass_semitransparent.physmat","metal_painted.physmat","rubber.physmat","ceramic.physmat","glass_bulletproof.physmat","metal_car_electronics.physmat","trash_bag.physmat","character_cyberflesh.physmat","metal_heavypiercable.physmat","metal.physmat","plastic_car_electronics.physmat","oil_spill.physmat","fabrics.physmat","glass.physmat","metal_techpiercable.physmat","concrete_water_puddles.physmat","character_metal.physmat" }
-local materials = utils.deepcopy(originalMaterials)
-local presets = { "World Dynamic","Player Collision","Player Hitbox","NPC Collision","NPC Trace Obstacle","NPC Hitbox","Big NPC Collision","Player Blocker","Block Player and Vehicles","Vehicle Blocker","Block PhotoMode Camera","Ragdoll","Ragdoll Inner","RagdollVehicle","Terrain","Sight Blocker","Moving Kinematic","Interaction Object","Particle","Destructible","Debris","Debris Cluster","Foliage Debris","ItemDrop","Shooting","Moving Platform","Water","Window","Device transparent","Device solid visible","Vehicle Device","Environment transparent","Bullet logic","World Static","Simple Environment Collision","Complex Environment Collision","Foliage Trunk","Foliage Trunk Destructible","Foliage Low Trunk","Foliage Crown","Vehicle Part","Vehicle Proxy","Vehicle Part Query Only Exception","Vehicle Chassis","Chassis Bottom","Chassis Bottom Traffic","Vehicle Chassis Traffic","AV Chassis","Tank Chassis","Vehicle Chassis LOD3","Vehicle Chassis Traffic LOD3","Tank Chassis LOD3","Drone","Prop Interaction","Nameplate","Road Barrier Simple Collision","Road Barrier Complex Collision","Lootable Corpse","Spider Tank"}
-local hints = { "Dynamic + Visibility + PhotoModeCamera + VehicleBlocker + TankBlocker + Shooting","Visibility","Player + Shooting","AI + PhotoModeCamera + NPCCollision","NPCTraceObstacle","AI","AI + PhotoModeCamera + VehicleBlocker + TankBlocker + NPCCollision","PlayerBlocker","PlayerBlocker + VehicleBlocker + TankBlocker","VehicleBlocker + TankBlocker","PhotoModeCamera","Ragdoll + Shooting","Ragdoll Inner","Ragdoll + Shooting","Terrain + Visibility + Shooting + PhotoModeCamera + VehicleBlocker + TankBlocker + PlayerBlocker","Visibility","Dynamic + PhotoModeCamera + Visibility + VehicleBlocker + TankBlocker + PlayerBlocker","Interaction","Particle","Destructible + PhotoModeCamera + Visibility + PlayerBlocker","Debris + Visibility","Destructible + PhotoModeCamera + Visibility + PlayerBlocker","Debris + Visibility","Interaction","Shooting","Visibility + Dynamic + Shooting + PhotoModeCamera + NPCBlocker + VehicleBlocker + TankBlocker + PlayerBlocker","Water","Collider + Visibility","Dynamic + Collider + Interaction + PhotoModeCamera + PlayerBlocker + VehicleBlocker + TankBlocker + Visibility","Dynamic + Collider + VehicleBlocker + TankBlocker + Visibility + Interaction + PhotoModeCamera + PlayerBlocker + NPCBlocker","Dynamic + Collider + Visibility + Interaction + PhotoModeCamera + PlayerBlocker","Collider + PlayerBlocker + VehicleBlocker + TankBlocker","Player + AI + Dynamic + Destructible + Terrain + Collider + Particle + Ragdoll + Debris + Shooting","Static + Visibility + Shooting + VehicleBlocker + PhotoModeCamera + VehicleBlocker + TankBlocker + PlayerBlocker","Static + VehicleBlocker + TankBlocker + PlayerBlocker + NPCBlocker + PhotoModeCamera","Shooting + Visibility","Shooting + PlayerBlocker + VehicleBlocker + Visibility + PhotoModeCamera","Shooting + PlayerBlocker + VehicleBlocker + Visibility + PhotoModeCamera + FoliageDestructible","Shooting + PlayerBlocker + Visibility + PhotoModeCamera","Visibility","Vehicle + Visibility + Shooting + PhotoModeCamera + Interaction","Visibility + Shooting + PhotoModeCamera","PlayerBlocker + Shooting + Visibility + Interaction","Vehicle + Interaction","Vehicle","Vehicle","Vehicle + Interaction","Vehicle + Interaction","Vehicle + Tank + Interaction","Vehicle + Interaction + Shooting","Vehicle + Interaction + Shooting","Vehicle + Tank + Interaction + Shooting","PlayerBlocker + Visibility + Shooting","Interaction + Visibility","NPCNameplate + Cloth","PlayerBlocker + VehicleBlocker + TankBlocker","Dynamic + Visibility + Shooting + PhotoModeCamera","Visibility + Interaction + PhotoModeCamera + Shooting","Tank + PlayerBlocker + VehicleBlocker + TankBlocker + Visibility + Shooting" }
-local colors = { "red", "green", "blue" }
-local groupScaleAxes = { "X", "Y", "Z", "All" }
-
-table.sort(materials, function(a, b) return a < b end)
-
----@param value string
----@return string
-local function toReadableMaterialLabel(value)
-    local label = tostring(value or "")
-    label = label:gsub("%.physmat$", "")
-    label = label:gsub("_", " ")
-    label = label:gsub("%s+", " ")
-    label = label:gsub("^%s*(.-)%s*$", "%1")
-
-    return label:gsub("(%a)([%w']*)", function(first, rest)
-        return string.upper(first) .. string.lower(rest)
-    end)
-end
-
-local materialDisplayOptions = {}
-local materialDisplayToIndex = {}
-local presetToIndex = {}
-
-for i, material in ipairs(materials) do
-    local label = toReadableMaterialLabel(material)
-
-    -- Keep labels stable/unique in case two source values normalize to the same text.
-    if materialDisplayToIndex[label] ~= nil then
-        label = string.format("%s (%s)", label, material)
-    end
-
-    materialDisplayOptions[i] = label
-    materialDisplayToIndex[label] = i - 1
-end
-
-for i, preset in ipairs(presets) do
-    presetToIndex[preset] = i - 1
-end
-
----@param index number?
----@return string
-local function getMaterialDisplayByIndex(index)
-    local safeIndex = math.max(0, tonumber(index) or 0) + 1
-    return materialDisplayOptions[safeIndex] or materialDisplayOptions[1] or ""
-end
+local materials = colliderBase.getColliderGenerics().materials
+local presets = colliderBase.getColliderGenerics().presets
+local colors = colliderBase.getColliderGenerics().colors
 
 ---Class for worldCollisionNode
----@class collider : spawnable
+---@class collider : colliderBase
 ---@field private shape integer
 ---@field private material integer
 ---@field private preset integer
 ---@field private shapeTypes table
 ---@field public previewed boolean
 ---@field public maxPropertyWidth number
-local collider = setmetatable({}, { __index = spawnable })
+local collider = setmetatable({}, { __index = colliderBase })
 
 function collider:new()
-	local o = spawnable.new(self)
+	local o = colliderBase.new(self)
 
     o.spawnListType = "files"
     o.dataType = "Collision Shape"
@@ -75,17 +28,11 @@ function collider:new()
     o.modulePath = "collision/collider"
     o.node = "worldCollisionNode"
     o.description = "A collision shape, can be a box, capsule or sphere"
-    o.icon = IconGlyphs.TextureBox
 
     o.shape = 0
-    o.material = settings.defaultColliderMaterial
-    o.preset = 33
-
     o.shapeTypes = { "Box", "Capsule", "Sphere" }
 
     o.scale = { x = 1, y = 1, z = 1 }
-    o.previewed = true
-    o.maxPropertyWidth = nil
     o.currentAxis = 0
     o.materialSearch = ""
     o.presetSearch = ""
@@ -95,7 +42,7 @@ function collider:new()
 end
 
 function collider:loadSpawnData(data, position, rotation)
-    spawnable.loadSpawnData(self, data, position, rotation)
+    colliderBase.loadSpawnData(self, data, position, rotation)
 
     if self.shape == 0 then
         if data.extents then
@@ -123,7 +70,7 @@ function collider:loadSpawnData(data, position, rotation)
 end
 
 function collider:onAssemble(entity)
-    spawnable.onAssemble(self, entity)
+    colliderBase.onAssemble(self, entity)
 
     local component = entColliderComponent.new()
     component.name = "collider"
@@ -170,7 +117,8 @@ function collider:onAssemble(entity)
 end
 
 function collider:save()
-    local data = spawnable.save(self)
+    local data = colliderBase.save(self)
+
     data.shape = self.shape
     data.material = self.material
     data.preset = self.preset
@@ -231,13 +179,6 @@ function collider:calculateIntersection(origin, ray)
     }
 end
 
----Respawn the collider to update parameters, if changed
----@param changed boolean
----@protected
-function collider:updateFull(changed)
-    if changed and self:isSpawned() then self:respawn() end
-end
-
 ---@protected
 function collider:updateScale(finished, delta)
     self.scale.x = math.max(self.scale.x, 0)
@@ -283,8 +224,6 @@ function collider:updateScale(finished, delta)
 end
 
 function collider:draw()
-    spawnable.draw(self)
-
     if not self.maxPropertyWidth then
         self.maxPropertyWidth = utils.getTextMaxWidth({ "Preview Shape", "Collision Shape", "Collision Preset", "Collision Material" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
@@ -305,220 +244,7 @@ function collider:draw()
         self:updateScale(true, { x = 0, y = 0, z = 0 })
     end
 
-    style.mutedText("Collision Preset")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local selectedPreset = presets[self.preset + 1] or presets[1] or ""
-    selectedPreset, self.presetSearch, changed = style.trackedSearchDropdown(
-        self.object,
-        "##preset",
-        "Search preset...",
-        selectedPreset,
-        self.presetSearch,
-        presets,
-        200,
-        true
-    )
-    if changed then
-        self.preset = presetToIndex[selectedPreset] or self.preset
-    end
-    self:updateFull(changed)
-    style.tooltip(hints[self.preset + 1])
-
-    style.mutedText("Collision Material")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local selectedMaterial = getMaterialDisplayByIndex(self.material)
-    local materialChanged
-    selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdown(
-        self.object,
-        "##material",
-        "Search material...",
-        selectedMaterial,
-        self.materialSearch,
-        materialDisplayOptions,
-        200,
-        true
-    )
-    if materialChanged then
-        self.material = materialDisplayToIndex[selectedMaterial] or self.material
-    end
-    self:updateFull(materialChanged)
-    style.tooltip(materials[self.material + 1] or "")
-end
-
-function collider:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = "Collider",
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
-end
-
-function collider:getGroupedProperties()
-    local properties = spawnable.getGroupedProperties(self)
-
-    properties["visualization"] = {
-		name = "Visualization",
-        id = "colliderVisualization",
-		data = {},
-		draw = function(_, entries)
-            ImGui.Text("Collider")
-
-            ImGui.SameLine()
-
-            ImGui.PushID("collider")
-
-			if ImGui.Button("Off") then
-                history.addAction(history.getMultiSelectChange(entries))
-
-				for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable:setPreview(false)
-                    end
-				end
-			end
-
-            ImGui.SameLine()
-
-            if ImGui.Button("On") then
-                history.addAction(history.getMultiSelectChange(entries))
-
-				for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable:setPreview(true)
-                    end
-				end
-			end
-
-            ImGui.PopID()
-		end,
-		entries = { self.object }
-	}
-
-    properties["collider"] = {
-		name = "Collider",
-        id = "colliderMaterial",
-		data = {
-            material = settings.defaultColliderMaterial,
-            materialSearch = "",
-            scaleAxis = 3,
-            scaleValue = 1
-        },
-		draw = function(element, entries)
-            style.mutedText("Collision Material")
-            ImGui.SameLine()
-            local groupData = element.groupOperationData["collider"]
-            groupData.materialSearch = groupData.materialSearch or ""
-
-            local selectedMaterial = getMaterialDisplayByIndex(groupData.material)
-            local materialChanged
-            selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdown(
-                nil,
-                "##collisionMaterial",
-                "Search material...",
-                selectedMaterial,
-                groupData.materialSearch,
-                materialDisplayOptions,
-                150,
-                true
-            )
-            if materialChanged then
-                groupData.material = materialDisplayToIndex[selectedMaterial] or groupData.material
-            end
-            style.tooltip(materials[groupData.material + 1] or "")
-
-            ImGui.SameLine()
-
-            if ImGui.Button("Apply") then
-                history.addAction(history.getMultiSelectChange(entries))
-                local nApplied = 0
-
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == self.node then
-                        entry.spawnable.material = groupData.material
-                        entry.spawnable:updateFull(true)
-                        nApplied = nApplied + 1
-                    end
-                end
-
-                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Applied collision material to %s nodes", nApplied)))
-            end
-            style.tooltip("Apply the selected collision material to all selected colliders.")
-
-            style.mutedText("Scale")
-            ImGui.SameLine()
-            ImGui.SetNextItemWidth(70 * style.viewSize)
-            groupData.scaleAxis, _ = ImGui.Combo("##groupColliderScaleAxis", groupData.scaleAxis, groupScaleAxes, #groupScaleAxes)
-
-            ImGui.SameLine()
-            ImGui.SetNextItemWidth(80 * style.viewSize)
-            groupData.scaleValue, _ = ImGui.InputFloat("##groupColliderScaleValue", groupData.scaleValue, 0, 0, "%.3f")
-
-            ImGui.SameLine()
-            if ImGui.Button("Apply Scale") then
-                history.addAction(history.getMultiSelectChange(entries))
-                local nApplied = 0
-                local data = groupData
-                local axis = data.scaleAxis
-                local value = math.max(0, tonumber(data.scaleValue) or 0)
-                data.scaleValue = value
-
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == self.node then
-                        local delta = { x = 0, y = 0, z = 0 }
-
-                        if axis == 0 or axis == 3 then
-                            delta.x = value - entry.spawnable.scale.x
-                            entry.spawnable.scale.x = value
-                        end
-
-                        if axis == 1 or axis == 3 then
-                            delta.y = value - entry.spawnable.scale.y
-                            entry.spawnable.scale.y = value
-                        end
-
-                        if axis == 2 or axis == 3 then
-                            delta.z = value - entry.spawnable.scale.z
-                            entry.spawnable.scale.z = value
-                        end
-
-                        entry.spawnable:updateScale(true, delta)
-                        nApplied = nApplied + 1
-                    end
-                end
-
-                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Applied scale to %s colliders", nApplied)))
-            end
-            style.tooltip("Apply the selected scale value to the selected axis for all selected colliders.")
-
-            if ImGui.Button("Fix Material Indices") then
-                history.addAction(history.getMultiSelectChange(entries))
-                local nApplied = 0
-
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == self.node then
-                        local oldMaterial = originalMaterials[entry.spawnable.material + 1]
-                        local newIndex = utils.indexValue(materials, oldMaterial) - 1
-                        entry.spawnable.material = newIndex
-                        entry.spawnable:updateFull(true)
-                        nApplied = nApplied + 1
-                    end
-                end
-
-                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Fixed collision material for %s nodes", nApplied)))
-            end
-            style.tooltip("Recalculates selected material indices, to fix an oversight with 1.0.7's material sorting\nIf you do not know what this means, ignore it.")
-        end,
-		entries = { self.object }
-	}
-
-    return properties
+    colliderBase.draw(self)
 end
 
 function collider:export()
@@ -543,7 +269,7 @@ function collider:export()
 
     local rotation = self.rotation:ToQuat()
 
-    local data = spawnable.export(self)
+    local data = colliderBase.export(self)
     data.type = "worldCollisionNode"
     data.data = {
 		["compiledData"] = {

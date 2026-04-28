@@ -30,6 +30,8 @@ local backup = require("modules/utils/backup")
 ---@field quickOperations {[string]: {condition : fun(PARAM: element) : boolean, operation : fun(PARAM: element)}}
 ---@field groupOperationData table
 ---@field selected boolean
+---@field lockedRename boolean
+---@field lockedRemove boolean
 element = {}
 
 local SPAWNABLE_MODULE_PATH = "modules/classes/editor/spawnableElement"
@@ -100,6 +102,9 @@ function element:new(sUI)
 	o.hovered = false
 	o.editName = false
 	o.focusNameEdit = 0
+
+	o.lockedRemove = false
+	o.lockedRename = false
 
 	o.sUI = sUI
 
@@ -180,6 +185,7 @@ end
 ---Update file name to new given
 ---@param name string
 function element:rename(name)
+	if self.lockedRename then return end
 	if self:isLocked() then return end
 
 	local oldPath = self:getPath()
@@ -216,6 +222,7 @@ end
 ---@param parent element
 ---@param index number?
 function element:setParent(parent, index)
+	if self.lockedRemove then return end
 	if self.parent then
 		self.parent:removeChild(self)
 	end
@@ -227,6 +234,7 @@ end
 
 ---Removes self from parent
 function element:remove()
+	if self.lockedRemove then return end
 	if self.parent ~= nil then
 		self.parent:removeChild(self)
 	end

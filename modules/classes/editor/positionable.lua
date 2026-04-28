@@ -6,6 +6,8 @@ local style = require("modules/ui/style")
 local field = require("modules/utils/field")
 local editor = require("modules/utils/editor/editor")
 
+local scatteredConfig = require("modules/classes/editor/scatteredConfig")
+
 local element = require("modules/classes/editor/element")
 
 ---Element with position, rotation and optionally scale, handles the rendering / editing of those. Values have to be provided by the inheriting class
@@ -18,8 +20,11 @@ local element = require("modules/classes/editor/element")
 ---@field relativeOffset table
 ---@field visualizerState boolean
 ---@field visualizerDirection string
+---@field visualizerNewDirection string
+---@field visualizerChanged boolean
 ---@field controlsHovered boolean
 ---@field randomizationSettings table
+---@field scatterConfig scatteredConfig
 ---@field applyRotationWhenDropped boolean
 local positionable = setmetatable({}, { __index = element })
 
@@ -130,12 +135,17 @@ function positionable:new(sUI)
 
 	o.visualizerState = false
 	o.visualizerDirection = "none"
+	o.visualizerNewDirection = "none"
+	o.visualizerChanged = false
+
 	o.controlsHovered = false
 	o.applyRotationWhenDropped = true
 
 	o.randomizationSettings = {
 		probability = 0.5
 	}
+
+	o.scatterConfig = scatteredConfig:new(o)
 
 	o.class = utils.combine(o.class, { "positionable" })
 
@@ -155,9 +165,13 @@ function positionable:load(data, silent)
 		self.randomizationSettings[key] = setting
 	end
 
+	self.scatterConfig:load(data.scatterConfig)
+
 	if self.scaleLocked == nil then self.scaleLocked = true end
 	if self.transformExpanded == nil then self.transformExpanded = true end
 	if self.rotationRelative == nil then self.rotationRelative = false end
+
+	self.applyRotationWhenDropped = data.applyRotationWhenDropped == nil and true or data.applyRotationWhenDropped
 end
 
 function positionable:drawTransform()
@@ -166,6 +180,8 @@ function positionable:drawTransform()
 	local scale = self:getScale()
 	local transformUI = getTransformUIConfig(self)
 	self.controlsHovered = false
+	self.visualizerChanged = false
+	self.visualizerNewDirection = "none"
 
 	if transformUI.showPosition then
 		self:drawPosition(position, transformUI.axes.position)
@@ -185,6 +201,12 @@ function positionable:drawTransform()
 			self:setVisualizerState(false) -- Set vis state first, as loading the mesh app (vis direction) can screw with it
 		end
 		self:setVisualizerDirection("none")
+		return
+	end
+
+	-- Only update once, to avoid "ghost arrows" from doing multiple LoadAppearance() calls in a single frame
+	if self.visualizerChanged and self.visualizerNewDirection ~= self.visualizerDirection then
+		self:setVisualizerDirection(self.visualizerNewDirection)
 	end
 end
 
@@ -218,6 +240,33 @@ function positionable:getProperties()
 				self:drawEntryRandomization()
 			end
 		})
+	end
+
+	if self.parent and self.parent.parent and utils.isA(self.parent.parent, "scatteredGroup") and self.parent.name == "Base" then
+		table.insert(properties, {
+			id = "scatteredShelf",
+			name = "Entry Scattering",
+			defaultHeader = false,
+			draw = function ()
+				self.scatterConfig:draw()
+			end
+		})
+	end
+
+	return properties
+end
+
+function positionable:getGroupedProperties()
+	local properties = element.getGroupedProperties(self)
+
+	if self.parent and self.parent.parent and utils.isA(self.parent.parent, "scatteredGroup") and self.parent.name == "Base" then
+		properties["groupedScatteredProperties"] = {
+			id = "groupedScatteredProperties",
+			name = "Entry Scattering",
+			draw = function (element, entries)
+				self.scatterConfig:drawGrouped(element, entries)
+			end
+		}
 	end
 
 	return properties
@@ -432,8 +481,13 @@ function positionable:drawProp(prop, name, axis, disableInput)
 
     local newValue, changed = ImGui.DragFloat("##" .. name, prop, steps, -99999, 99999, formatText .. " " .. name, flags)
 	self.controlsHovered = (ImGui.IsItemHovered() or ImGui.IsItemActive()) or self.controlsHovered
-	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) and axis ~= self.visualizerDirection then
-		self:setVisualizerDirection(axis)
+	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) then
+		-- Active item should have priority over hovered
+		if not self.visualizerChanged or ImGui.IsItemActive() then
+			self.visualizerNewDirection = axis
+		end
+
+		self.visualizerChanged = true
 	end
 
 	local finished = ImGui.IsItemDeactivatedAfterEdit()
@@ -779,6 +833,8 @@ function positionable:serialize()
 	data.rotationLocked = self.rotationLocked
 	data.randomizationSettings = utils.deepcopy(self.randomizationSettings)
 	data.pos = utils.fromVector(self:getPosition()) -- For savedUI
+	data.scatterConfig = self.scatterConfig:serialize()
+	data.applyRotationWhenDropped = self.applyRotationWhenDropped
 
 	return data
 end

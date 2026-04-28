@@ -561,18 +561,6 @@ function mesh:getProperties()
     return properties
 end
 
-function mesh:canConvertToClothMesh()
-    return cache.isSpawnDataInSet(self.spawnData, clothListPath)
-end
-
-function mesh:canConvertToBendedMesh()
-    return cache.isSpawnDataInSet(self.spawnData, bendedListPath)
-end
-
-function mesh:canConvertToDynamicMesh()
-    return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
-end
-
 ---@param targetModulePath string
 ---@return boolean
 function mesh:isMeshConversionAllowed(targetModulePath)
@@ -581,15 +569,15 @@ function mesh:isMeshConversionAllowed(targetModulePath)
     end
 
     if targetModulePath == "mesh/clothMesh" then
-        return self:canConvertToClothMesh()
+        return cache.isSpawnDataInSet(self.spawnData, clothListPath)
     end
 
     if targetModulePath == "mesh/bendedMesh" then
-        return self:canConvertToBendedMesh()
+        return cache.isSpawnDataInSet(self.spawnData, bendedListPath)
     end
 
     if targetModulePath == "physics/dynamicMesh" then
-        return self:canConvertToDynamicMesh()
+        return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
     end
 
     return true

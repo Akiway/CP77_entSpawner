@@ -540,8 +540,27 @@ function positionableGroup:getWorldMinMax()
 		return self.autoCenterCacheMin, self.autoCenterCacheMax
 	end
 
+	local function getFallbackOrigin()
+		if self.origin then
+			return Vector4.new(self.origin.x, self.origin.y, self.origin.z, self.origin.w or 0)
+		end
+
+		return Vector4.new(0, 0, 0, 1)
+	end
+
 	local min = Vector4.new(math.huge, math.huge, math.huge, 0)
 	local max = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
+
+	local leafs = self:getPositionableLeafs()
+
+	if #leafs == 0 then
+		local fallback = getFallbackOrigin()
+		self.autoCenterCacheMin = fallback
+		self.autoCenterCacheMax = fallback
+		self.autoCenterCacheCenter = fallback
+		self.autoCenterCacheValid = true
+		return self.autoCenterCacheMin, self.autoCenterCacheMax
+	end
 
 	for _, entry in pairs(self.childs) do
 		accumulateWorldMinMax(entry, min, max)
@@ -927,15 +946,14 @@ function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 	end
 end
 
-function positionableGroup:dropChildrenToSurface(_, direction, excludeSelf)
-	local leafs = self:getPositionableLeafs()
+function positionableGroup:dropChildrenToSurface(_, direction, excludeSelf, excludeDict)
+	local leafs = self.childs
 	table.sort(leafs, function (a, b)
 		return a:getPosition().z < b:getPosition().z
 	end)
 
-	local excludeDict = nil
+	local excludeDict = excludeDict or {}
 	if excludeSelf then
-		excludeDict = {}
 		for _, entry in pairs(leafs) do
 			excludeDict[entry.id] = true
 		end

@@ -13,6 +13,8 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 ---@field root element
 ---@field filter string
 ---@field newGroupName string
+---@field groupTypes string[]
+---@field newGroupTypeIndex number
 ---@field newGroupRandomized boolean
 ---@field spawner spawner?
 ---@field paths {path : string, ref : element}[]
@@ -40,6 +42,8 @@ spawnedUI = {
     multiSelectGroup = require("modules/classes/editor/positionableGroup"):new(spawnedUI),
     filter = "",
     newGroupName = "New_Group",
+    groupTypes = { "Normal", "Randomized", "Scattered" },
+    newGroupTypeIndex = 1,
     newGroupRandomized = false,
     spawner = nil,
 
@@ -1281,7 +1285,7 @@ function spawnedUI.drawContextMenu(element, path)
         ImGui.Separator()
 
         ImGui.BeginDisabled(isLocked)
-        if ImGui.MenuItem(IconGlyphs.DeleteOutline .. " Delete", "DEL") then
+        if not element.lockedRemove and ImGui.MenuItem(IconGlyphs.DeleteOutline .. " Delete", "DEL") then
             if isMulti then
                 local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
                 history.addAction(history.getRemove(roots))
@@ -1305,7 +1309,7 @@ function spawnedUI.drawContextMenu(element, path)
             history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, element)))
         end
         ImGui.EndDisabled()
-        if ImGui.MenuItem(IconGlyphs.ContentCut .. " Cut", "CTRL-X") then
+        if not element.lockedRemove and ImGui.MenuItem(IconGlyphs.ContentCut .. " Cut", "CTRL-X") then
             spawnedUI.cut(isMulti, element)
         end
         if ImGui.MenuItem(IconGlyphs.ContentDuplicate .. " Duplicate", "CTRL-D") then
@@ -2423,7 +2427,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     style.popStyleColor(hiddenText)
 
     if isHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
-        if not element:isLocked() then
+        if not element:isLocked() and not element.lockedRename then
             element.editName = true
             element.focusNameEdit = 1
             element:setSelected(true)
@@ -2662,20 +2666,27 @@ function spawnedUI.drawTop()
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
+    ImGui.SetNextItemWidth(utils.getTextMaxWidth(spawnedUI.groupTypes) + 60)
+    local newIndex, changed = ImGui.Combo("##groupType", spawnedUI.newGroupTypeIndex - 1, spawnedUI.groupTypes, #spawnedUI.groupTypes)
+    if changed then
+        spawnedUI.newGroupTypeIndex = newIndex + 1
+    end
+
+    ImGui.SameLine()
     if ImGui.Button("Add group") then
         local group = require("modules/classes/editor/positionableGroup"):new(spawnedUI)
+        local selectedType = spawnedUI.groupTypes[spawnedUI.newGroupTypeIndex]
 
-        if spawnedUI.newGroupRandomized then
+        if selectedType == "Randomized" then
             group = require("modules/classes/editor/randomizedGroup"):new(spawnedUI)
+        elseif selectedType == "Scattered" then
+            group = require("modules/classes/editor/scatteredGroup"):new(spawnedUI)
         end
 
         group.name = spawnedUI.newGroupName
         spawnedUI.addRootElement(group)
         history.addAction(history.getInsert({ group }))
     end
-    ImGui.SameLine()
-    spawnedUI.newGroupRandomized = style.toggleButton(IconGlyphs.Dice5Outline, spawnedUI.newGroupRandomized)
-    style.tooltip("Make new group randomized")
 
     -- Hierarchy actions
     local nextEditorState, editorToggleChanged = style.toggleButton(IconGlyphs.Rotate3d, editor.active)

@@ -1,11 +1,22 @@
 local miscUtils = {
-    data = {}
+    data = {},
+    archives = {}
 }
 local enumTableCache = {}
 local nodeRefHashCache = {}
 local bufferIdState = {
     nextId = 1
 }
+
+---@param str string
+---@return table<string>
+function miscUtils.split(str, sep)
+    local result = {}
+    for match in (str .. sep):gmatch("(.-)" .. sep) do
+        table.insert(result, match)
+    end
+    return result
+end
 
 ---@alias vec3Like { x: number, y: number, z: number }
 ---@alias vec4Like { x: number, y: number, z: number, w: number? }
@@ -996,6 +1007,14 @@ function miscUtils.matchSearch(text, query)
     end
 
     return anyMatch
+end
+
+function miscUtils.archiveInstalled(name)
+    if not miscUtils.archives[name] then
+        miscUtils.archives[name] = ModArchiveExists(name)
+    end
+
+    return miscUtils.archives[name]
 end
 
 return miscUtils

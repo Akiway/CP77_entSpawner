@@ -85,6 +85,10 @@ function spawner:new()
         Game.GetScriptableServiceContainer():GetService("EntityBuilder"):Initialize()
         builder.init()
 
+        if not ModArchiveExists("scc_collision.archive") then
+            print("[WorldBuilder] scc_collision.archive not found. Collision mesh preview will not be available.\nIf you wish to have collision mesh previews, please download the optional \"Collision Mesh Preview\" archive and install it.")
+        end
+
         Observe('RadialWheelController', 'OnIsInMenuChanged', function(_, isInMenu)
             self.runtimeData.inMenu = isInMenu
         end)

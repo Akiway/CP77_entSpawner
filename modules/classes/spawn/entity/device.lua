@@ -345,6 +345,8 @@ function device:onAssemble(entRef)
             -- The component name is used as part of the key when storing the persistent state in the .psrep file, so it needs to be consistent and correctly set.
             -- Otherwise the game will look for the wrong component in the .psrep file and fail to load it.
             self.controllerComponent = component.name.value
+
+            break
         end
     end
 

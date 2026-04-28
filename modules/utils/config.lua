@@ -1,4 +1,3 @@
-local utils = require("modules/utils/utils")
 config = {}
 
 ---@class ConfigSpawnFileEntry
@@ -232,6 +231,7 @@ end
 ---@param paths ConfigSpawnPathEntry[]? Optional accumulator for recursive calls.
 ---@return ConfigSpawnPathEntry[] paths Sorted by `name` in ascending order.
 function config.loadLists(path, paths)
+    local utils = require("modules/utils/utils")
     local paths = paths or {}
 
     ---Parses one list line into optional class name + spawn path.
@@ -260,7 +260,16 @@ function config.loadLists(path, paths)
             return "", trimmed
         end
 
-        return firstToken, rest:gsub("^%s+", ""):gsub("%s+$", "")
+        local normalizedRest = rest:gsub("^%s+", ""):gsub("%s+$", "")
+
+        -- Only treat first token as class prefix when the remainder is a real path.
+        -- This preserves hash-style triplets used by Collision Mesh lists:
+        -- "sectorHash shapeHash meshType"
+        if normalizedRest:find("\\", 1, true) or normalizedRest:find("/", 1, true) then
+            return firstToken, normalizedRest
+        end
+
+        return "", trimmed
     end
 
     for _, file in pairs(dir(path)) do
