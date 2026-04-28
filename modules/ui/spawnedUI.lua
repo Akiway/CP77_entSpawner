@@ -1292,6 +1292,9 @@ function spawnedUI.drawContextMenu(element, path)
                 for _, entry in ipairs(roots) do
                     entry.ref:remove()
                 end
+            else
+                history.addAction(history.getRemove({ element }))
+                element:remove()
             end
         end
         ImGui.EndDisabled()

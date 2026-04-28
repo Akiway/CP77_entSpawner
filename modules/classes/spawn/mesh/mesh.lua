@@ -41,24 +41,6 @@ local lossyConversionPairs = {
     ["physics/dynamicMesh>mesh/clothMesh"] = true
 }
 
-local conversionTargets = {
-    { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
-    { modulePath = "mesh/rotatingMesh", label = IconGlyphs.FormatRotate90 .. " Rotating Mesh", plural = "rotating meshes" },
-    { modulePath = "mesh/clothMesh", label = IconGlyphs.ReceiptOutline .. " Cloth Mesh", plural = "cloth meshes" },
-    { modulePath = "physics/dynamicMesh", label = IconGlyphs.CubeSend .. " Dynamic Mesh", plural = "dynamic meshes" }
-}
-local lossyConversionPairs = {
-    ["mesh/rotatingMesh>mesh/mesh"] = true,
-    ["mesh/rotatingMesh>mesh/clothMesh"] = true,
-    ["mesh/rotatingMesh>physics/dynamicMesh"] = true,
-    ["mesh/clothMesh>mesh/mesh"] = true,
-    ["mesh/clothMesh>mesh/rotatingMesh"] = true,
-    ["mesh/clothMesh>physics/dynamicMesh"] = true,
-    ["physics/dynamicMesh>mesh/mesh"] = true,
-    ["physics/dynamicMesh>mesh/rotatingMesh"] = true,
-    ["physics/dynamicMesh>mesh/clothMesh"] = true
-}
-
 ---Class for worldMeshNode
 ---@class mesh : spawnable
 ---@field public apps table

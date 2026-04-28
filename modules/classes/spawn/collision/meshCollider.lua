@@ -38,9 +38,9 @@ function meshCollider:new()
     o.node = "worldCollisionNode"
     o.description = "A collision mesh."
 
-    o.sectorHash = nil
-    o.shapeHash = nil
-    o.meshType = nil
+    o.sectorHash = ""
+    o.shapeHash = ""
+    o.meshType = ""
 
     o.scale = Vector3.new(1, 1, 1)
 
@@ -70,12 +70,26 @@ function meshCollider:loadSpawnData(data, position, rotation)
     resource path to the resource, but for collision meshes it's using the sectorHash, shapeHash and meshType
     instead so this needs to reparse it to avoid modifying spawnUI
     ]]--
-    if (not string.find(data.spawnData, "%.")) then
-        local split = utils.split(data.spawnData, " ")
+    local rawSpawnData = type(data.spawnData) == "string" and data.spawnData or tostring(self.spawnData or "")
+    if not string.find(rawSpawnData, "%.") then
+        local split = {}
+        for token in tostring(rawSpawnData):gmatch("%S+") do
+            table.insert(split, token)
+        end
+
         if #split == 3 then
             self.sectorHash = split[1]
             self.shapeHash = split[2]
             self.meshType = split[3]
+        elseif #split == 2 then
+            -- Backward-compat: old loader could split "sectorHash shapeHash meshType"
+            -- into { deviceClassName = sectorHash, spawnData = "shapeHash meshType" }.
+            local maybeSectorHash = tostring(data.deviceClassName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if maybeSectorHash ~= "" then
+                self.sectorHash = maybeSectorHash
+                self.shapeHash = split[1]
+                self.meshType = split[2]
+            end
         end
     end
 
@@ -85,9 +99,14 @@ function meshCollider:loadSpawnData(data, position, rotation)
         return
     end
 
-    if self.shapeHash then
-        self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.shapeHash .. ".ent"
+    if tostring(self.shapeHash or "") == "" then
+        -- Invalid entry payload; keep it non-fatal.
+        self.previewed = false
+        self.spawnData = "base\\spawner\\empty_entity.ent"
+        return
     end
+
+    self.spawnData = "scc\\generated\\geometry_cache\\collision\\" .. self.shapeHash .. ".ent"
 
     local meshPath = "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh"
 
@@ -137,6 +156,10 @@ function meshCollider:onAssemble(entity)
     colliderBase.onAssemble(self, entity)
 
     if not self.previewArchiveInstalled then return end
+    if tostring(self.sectorHash or "") == "" or tostring(self.shapeHash or "") == "" or tostring(self.meshType or "") == "" then
+        print("Error: Missing sectorHash, shapeHash, or meshType. Cannot set up mesh collider.")
+        return
+    end
 
     local component = entity:FindComponentByName("collision_mesh_0")
     if not component then
@@ -145,11 +168,6 @@ function meshCollider:onAssemble(entity)
     end
     component.filterData.preset = self.preset
     component.colliders[1].material = materials[self.material + 1]
-
-    if not self.sectorHash or not self.shapeHash or not self.meshType then
-        print("Error: Missing sectorHash, shapeHash, or meshType. Cannot add visualizer mesh.")
-        return
-    end
 
     visualizer.addMesh(entity,
         {x = 1, y = 1, z = 1},

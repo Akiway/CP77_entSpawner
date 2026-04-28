@@ -62,7 +62,6 @@ end
 ---@param name string? Optional component name override. Defaults to `"mesh"`.
 function visualizer.addMesh(entity, scale, mesh, app, name)
     if not entity then return end
-    if not app then app = "default" end
 
     addMesh(entity, name or "mesh", mesh, scale, app or "default", true)
 end

@@ -540,14 +540,26 @@ function positionableGroup:getWorldMinMax()
 		return self.autoCenterCacheMin, self.autoCenterCacheMax
 	end
 
+	local function getFallbackOrigin()
+		if self.origin then
+			return Vector4.new(self.origin.x, self.origin.y, self.origin.z, self.origin.w or 0)
+		end
+
+		return Vector4.new(0, 0, 0, 1)
+	end
+
 	local min = Vector4.new(math.huge, math.huge, math.huge, 0)
 	local max = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
 
 	local leafs = self:getPositionableLeafs()
 
 	if #leafs == 0 then
-		local pos = self:getPosition()
-		return pos, pos
+		local fallback = getFallbackOrigin()
+		self.autoCenterCacheMin = fallback
+		self.autoCenterCacheMax = fallback
+		self.autoCenterCacheCenter = fallback
+		self.autoCenterCacheValid = true
+		return self.autoCenterCacheMin, self.autoCenterCacheMax
 	end
 
 	for _, entry in pairs(self.childs) do

@@ -15,6 +15,48 @@ local colliderGenerics = {
 
 colliderGenerics.materials = utils.deepcopy(colliderGenerics.originalMaterials)
 table.sort(colliderGenerics.materials, function(a, b) return a < b end)
+local groupScaleAxes = { "X", "Y", "Z", "All" }
+
+---@param value string
+---@return string
+local function toReadableMaterialLabel(value)
+    local label = tostring(value or "")
+    label = label:gsub("%.physmat$", "")
+    label = label:gsub("_", " ")
+    label = label:gsub("%s+", " ")
+    label = label:gsub("^%s*(.-)%s*$", "%1")
+
+    return label:gsub("(%a)([%w']*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end)
+end
+
+local materialDisplayOptions = {}
+local materialDisplayToIndex = {}
+local presetToIndex = {}
+
+for i, material in ipairs(colliderGenerics.materials) do
+    local label = toReadableMaterialLabel(material)
+
+    -- Keep labels stable/unique in case two source values normalize to the same text.
+    if materialDisplayToIndex[label] ~= nil then
+        label = string.format("%s (%s)", label, material)
+    end
+
+    materialDisplayOptions[i] = label
+    materialDisplayToIndex[label] = i - 1
+end
+
+for i, preset in ipairs(colliderGenerics.presets) do
+    presetToIndex[preset] = i - 1
+end
+
+---@param index number?
+---@return string
+local function getMaterialDisplayByIndex(index)
+    local safeIndex = math.max(0, tonumber(index) or 0) + 1
+    return materialDisplayOptions[safeIndex] or materialDisplayOptions[1] or ""
+end
 
 local spawnable = require("modules/classes/spawn/spawnable")
 
@@ -36,9 +78,11 @@ function colliderBase:new()
     o.preset = 33
 
     o.previewed = true
+    o.materialSearch = ""
+    o.presetSearch = ""
 
     setmetatable(o, { __index = self })
-   	return o
+    	return o
 end
 
 function colliderBase.getColliderGenerics()
@@ -52,21 +96,60 @@ function colliderBase:updateFull(changed)
     if changed and self:isSpawned() then self:respawn() end
 end
 
+function colliderBase:setPreview(state)
+    self.previewed = state
+    visualizer.toggleAll(self:getEntity(), self.previewed)
+end
+
 function colliderBase:draw()
     spawnable.draw(self)
+    self.preset = tonumber(self.preset) or 0
+    self.material = tonumber(self.material)
+    if self.material == nil then
+        self.material = settings.defaultColliderMaterial
+    end
 
     style.mutedText("Collision Preset")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.preset, changed = style.trackedCombo(self.object, "##preset", self.preset, colliderGenerics.presets, 125)
-    self:updateFull(changed)
+    local selectedPreset = colliderGenerics.presets[self.preset + 1] or colliderGenerics.presets[1] or ""
+    local presetChanged
+    selectedPreset, self.presetSearch, presetChanged = style.trackedSearchDropdown(
+        self.object,
+        "##preset",
+        "Search preset...",
+        selectedPreset,
+        self.presetSearch or "",
+        colliderGenerics.presets,
+        200,
+        true
+    )
+    if presetChanged then
+        self.preset = presetToIndex[selectedPreset] or self.preset
+    end
+    self:updateFull(presetChanged)
     style.tooltip(colliderGenerics.hints[self.preset + 1])
 
     style.mutedText("Collision Material")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.material, changed = style.trackedCombo(self.object, "##material", self.material, colliderGenerics.materials, 200)
-    self:updateFull(changed)
+    local selectedMaterial = getMaterialDisplayByIndex(self.material)
+    local materialChanged
+    selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdown(
+        self.object,
+        "##material",
+        "Search material...",
+        selectedMaterial,
+        self.materialSearch or "",
+        materialDisplayOptions,
+        200,
+        true
+    )
+    if materialChanged then
+        self.material = materialDisplayToIndex[selectedMaterial] or self.material
+    end
+    self:updateFull(materialChanged)
+    style.tooltip(colliderGenerics.materials[self.material + 1] or "")
 end
 
 function colliderBase:getProperties()
@@ -103,8 +186,7 @@ function colliderBase:getGroupedProperties()
 
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable.previewed = false
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(false)
                     end
 				end
 			end
@@ -116,8 +198,7 @@ function colliderBase:getGroupedProperties()
 
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable.previewed = true
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(true)
                     end
 				end
 			end
@@ -131,13 +212,39 @@ function colliderBase:getGroupedProperties()
 		name = "Collider",
         id = "colliderMaterial",
 		data = {
-            material = settings.defaultColliderMaterial
+            material = settings.defaultColliderMaterial,
+            materialSearch = "",
+            scaleAxis = 3,
+            scaleValue = 1
         },
 		draw = function(element, entries)
             style.mutedText("Collision Material")
             ImGui.SameLine()
-            ImGui.SetNextItemWidth(150 * style.viewSize)
-            element.groupOperationData["collider"].material, _ = ImGui.Combo("##collisionMaterial", element.groupOperationData["collider"].material, colliderGenerics.materials, #colliderGenerics.materials)
+            local groupData = element.groupOperationData["collider"]
+            groupData.material = tonumber(groupData.material)
+            if groupData.material == nil then
+                groupData.material = settings.defaultColliderMaterial
+            end
+            groupData.materialSearch = groupData.materialSearch or ""
+            groupData.scaleAxis = tonumber(groupData.scaleAxis) or 3
+            groupData.scaleValue = tonumber(groupData.scaleValue) or 1
+
+            local selectedMaterial = getMaterialDisplayByIndex(groupData.material)
+            local materialChanged
+            selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdown(
+                nil,
+                "##collisionMaterial",
+                "Search material...",
+                selectedMaterial,
+                groupData.materialSearch,
+                materialDisplayOptions,
+                150,
+                true
+            )
+            if materialChanged then
+                groupData.material = materialDisplayToIndex[selectedMaterial] or groupData.material
+            end
+            style.tooltip(colliderGenerics.materials[groupData.material + 1] or "")
 
             ImGui.SameLine()
 
@@ -147,7 +254,7 @@ function colliderBase:getGroupedProperties()
 
                 for _, entry in ipairs(entries) do
                     if entry.spawnable.node == self.node then
-                        entry.spawnable.material = element.groupOperationData["collider"].material
+                        entry.spawnable.material = groupData.material
                         entry.spawnable:updateFull(true)
                         nApplied = nApplied + 1
                     end
@@ -156,6 +263,53 @@ function colliderBase:getGroupedProperties()
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Applied collision material to %s nodes", nApplied)))
             end
             style.tooltip("Apply the selected collision material to all selected colliders.")
+
+            style.mutedText("Scale")
+            ImGui.SameLine()
+            ImGui.SetNextItemWidth(70 * style.viewSize)
+            groupData.scaleAxis, _ = ImGui.Combo("##groupColliderScaleAxis", groupData.scaleAxis, groupScaleAxes, #groupScaleAxes)
+
+            ImGui.SameLine()
+            ImGui.SetNextItemWidth(80 * style.viewSize)
+            groupData.scaleValue, _ = ImGui.InputFloat("##groupColliderScaleValue", groupData.scaleValue, 0, 0, "%.3f")
+
+            ImGui.SameLine()
+            if ImGui.Button("Apply Scale") then
+                history.addAction(history.getMultiSelectChange(entries))
+                local nApplied = 0
+                local axis = groupData.scaleAxis
+                local value = math.max(0, tonumber(groupData.scaleValue) or 0)
+                groupData.scaleValue = value
+
+                for _, entry in ipairs(entries) do
+                    local spawnableEntry = entry.spawnable
+                    local hasScale = spawnableEntry and spawnableEntry.scale and spawnableEntry.updateScale and spawnableEntry.node == self.node
+                    if hasScale then
+                        local delta = { x = 0, y = 0, z = 0 }
+
+                        if axis == 0 or axis == 3 then
+                            delta.x = value - spawnableEntry.scale.x
+                            spawnableEntry.scale.x = value
+                        end
+
+                        if axis == 1 or axis == 3 then
+                            delta.y = value - spawnableEntry.scale.y
+                            spawnableEntry.scale.y = value
+                        end
+
+                        if axis == 2 or axis == 3 then
+                            delta.z = value - spawnableEntry.scale.z
+                            spawnableEntry.scale.z = value
+                        end
+
+                        spawnableEntry:updateScale(true, delta)
+                        nApplied = nApplied + 1
+                    end
+                end
+
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Applied scale to %s colliders", nApplied)))
+            end
+            style.tooltip("Apply the selected scale value to the selected axis for all selected colliders.")
 
             if ImGui.Button("Fix Material Indices") then
                 history.addAction(history.getMultiSelectChange(entries))
