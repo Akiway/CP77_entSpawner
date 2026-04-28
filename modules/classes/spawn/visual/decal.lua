@@ -5,6 +5,17 @@ local cache = require("modules/utils/cache")
 local builder = require("modules/utils/entityBuilder")
 local preview = require("modules/utils/previewUtils")
 local utils = require("modules/utils/utils")
+local colorUtil = require("modules/utils/color")
+local diffuseColorScaleNormalization = {
+    count = 4,
+    fallback = { 1, 1, 1, 1 },
+    keys = {
+        { "r", "x", "red", "Red" },
+        { "g", "y", "green", "Green" },
+        { "b", "z", "blue", "Blue" },
+        { "a", "w", "alpha", "Alpha" }
+    }
+}
 
 ---Class for worldStaticDecalNode
 ---@class decal : spawnable
@@ -13,6 +24,7 @@ local utils = require("modules/utils/utils")
 ---@field private verticalFlip boolean
 ---@field private autoHideDistance number
 ---@field private scale {x: number, y: number, z: number}
+---@field private diffuseColorScale number[]
 ---@field private isTiling boolean
 ---@field private maxPropertyWidth number
 local decal = setmetatable({}, { __index = spawnable })
@@ -33,6 +45,7 @@ function decal:new()
     o.verticalFlip = false
     o.autoHideDistance = 150
     o.scale = { x = 1, y = 1, z = 1 }
+    o.diffuseColorScale = { 1, 1, 1, 1 }
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.05
@@ -130,13 +143,26 @@ function decal:spawn()
     end)
 end
 
+function decal:loadSpawnData(data, position, rotation)
+    spawnable.loadSpawnData(self, data, position, rotation)
+    self.diffuseColorScale = colorUtil.normalizeChannels(self.diffuseColorScale, diffuseColorScaleNormalization)
+end
+
 function decal:save()
+    self.diffuseColorScale = colorUtil.normalizeChannels(self.diffuseColorScale, diffuseColorScaleNormalization)
+
     local data = spawnable.save(self)
     data.alpha = self.alpha
     data.horizontalFlip = self.horizontalFlip
     data.verticalFlip = self.verticalFlip
     data.autoHideDistance = self.autoHideDistance
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
+    data.diffuseColorScale = {
+        self.diffuseColorScale[1],
+        self.diffuseColorScale[2],
+        self.diffuseColorScale[3],
+        self.diffuseColorScale[4]
+    }
 
     return data
 end
@@ -203,7 +229,7 @@ function decal:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Alpha", "Vertical Flip", "Horizontal Flip", "Auto Hide Distance" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Alpha", "Vertical Flip", "Horizontal Flip", "Auto Hide Distance", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     style.mutedText("Alpha")
@@ -228,6 +254,14 @@ function decal:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.autoHideDistance = style.trackedDragFloat(self.object, "##autoHideDistance", self.autoHideDistance, 0.05, 0, 9999, "%.2f", 85)
+
+    style.mutedText("Diffuse Color Scale")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.diffuseColorScale, _, _ = style.trackedColorAlpha(self.object, "##diffuseColorScale", self.diffuseColorScale, 60)
+    ImGui.SameLine()
+    style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+    style.tooltip("Export only. WB preview does not support diffuseColorScale for decals.")
 end
 
 function decal:getProperties()
@@ -244,12 +278,20 @@ function decal:getProperties()
 end
 
 function decal:export()
+    self.diffuseColorScale = colorUtil.normalizeChannels(self.diffuseColorScale, diffuseColorScaleNormalization)
+
     local data = spawnable.export(self)
     data.type = "worldStaticDecalNode"
     data.scale = self.scale
     data.data = {
         alpha = self.alpha,
         autoHideDistance = self.autoHideDistance,
+        diffuseColorScale = {
+            Red = self.diffuseColorScale[1],
+            Green = self.diffuseColorScale[2],
+            Blue = self.diffuseColorScale[3],
+            Alpha = self.diffuseColorScale[4]
+        },
         horizontalFlip = self.horizontalFlip and 1 or 0,
         verticalFlip = self.verticalFlip and 1 or 0,
         isStretchingEnabled = 1,

@@ -2,9 +2,39 @@ local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
 local style = require("modules/ui/style")
 local settings = require("modules/utils/settings")
+local field = require("modules/utils/field")
+local projectedWireframe = require("modules/utils/editor/projectedWireframe")
+local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 
 local minScriptVersion = "1.0.4"
 local sectorCategory
+local serializedGroupModulePaths = {
+    ["modules/classes/editor/positionableGroup"] = true,
+    ["modules/classes/editor/randomizedGroup"] = true
+}
+local issueOrder = {
+    "nodeRefDuplicated",
+    "noOutlineMarkers",
+    "noSplineMarker",
+    "spotEmptyRef",
+    "spotReferencingEmpty",
+    "markingUnresolved",
+    "missingInitialPhase"
+}
+local streamingPresetLabels = {
+    "Interior",
+    "Street",
+    "District",
+    "Lanscape",
+    "To the Moon"
+}
+local streamingPresetExtents = {
+    { x = 150, y = 150, z = 100 },
+    { x = 500, y = 500, z = 400 },
+    { x = 1200, y = 1200, z = 1000 },
+    { x = 6000, y = 6000, z = 5000 },
+    { x = 3.4028235e+38, y = 3.4028235e+38, z = 3.4028235e+38 }
+}
 
 exportUI = {
     projectName = "",
@@ -23,7 +53,14 @@ exportUI = {
         missingInitialPhase = {}
     },
     sectorPropertiesWidth = nil,
-    mainPropertiesWidth = nil
+    mainPropertiesWidth = nil,
+    templateDeletePopup = false,
+    templateDeleteTarget = nil,
+    templateDeleteDontAskAgain = false,
+    groupsDividerHovered = false,
+    groupsDividerDragging = false,
+    templatesDividerHovered = false,
+    templatesDividerDragging = false
 }
 
 function exportUI.init(spawner)
@@ -70,17 +107,221 @@ end
 local function drawVariantsTooltip()
     ImGui.SameLine()
     ImGui.Text(IconGlyphs.InformationOutline)
-    style.tooltip("All objects placed within the root of the group will be part of the default variant\nYou can assign to each group what variant they should belong to")
+    style.tooltip("All objects placed within the root of the group will be part of the default variant\nLeave variant name empty (or set it to \"default\") to treat it as default/non-variant")
+end
+
+---@param name string
+---@return table?
+local function loadSavedGroupBlob(name)
+    if not name then return nil end
+
+    local path = "data/objects/" .. name .. ".json"
+    if not config.fileExists(path) then
+        return nil
+    end
+
+    return config.loadFile(path)
+end
+
+---@param entry table?
+---@return boolean
+local function isSerializedGroupEntry(entry)
+    return entry ~= nil and (entry.type == "group" or serializedGroupModulePaths[entry.modulePath] == true)
+end
+
+---@param blob table?
+---@param existingVariantData table?
+---@return table
+local function buildVariantDataFromBlob(blob, existingVariantData)
+    local variants = {}
+
+    for _, child in pairs(blob and blob.childs or {}) do
+        if isSerializedGroupEntry(child) and child.name then
+            local existing = existingVariantData and existingVariantData[child.name]
+            variants[child.name] = {
+                name = existing and existing.name or "",
+                ref = existing and existing.ref or "",
+                defaultOn = existing == nil or existing.defaultOn ~= false
+            }
+        end
+    end
+
+    return variants
+end
+
+---@param variantName string?
+---@return string, boolean
+local function normalizeVariantName(variantName)
+    local normalized = tostring(variantName or "")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if normalized == "" or normalized:lower() == "default" then
+        return "default", true
+    end
+
+    return normalized, false
+end
+
+---@param variantData table?
+---@return string[]
+local function getSortedVariantGroupNames(variantData)
+    local names = {}
+
+    for name, _ in pairs(variantData or {}) do
+        table.insert(names, name)
+    end
+
+    table.sort(names, function(a, b)
+        local aName = tostring(a or ""):lower()
+        local bName = tostring(b or ""):lower()
+
+        if aName == bName then
+            return tostring(a or "") < tostring(b or "")
+        end
+
+        return aName < bName
+    end)
+
+    return names
+end
+
+---@param blob table?
+---@param fallback table?
+---@return table
+local function resolveGroupCenter(blob, fallback)
+    local source = nil
+    if blob and blob.pos then
+        source = blob.pos
+    elseif blob and blob.origin then
+        source = blob.origin
+    end
+
+    if source then
+        return {
+            x = source.x or 0,
+            y = source.y or 0,
+            z = source.z or 0
+        }
+    end
+
+    if fallback then
+        return {
+            x = fallback.x or 0,
+            y = fallback.y or 0,
+            z = fallback.z or 0
+        }
+    end
+
+    return { x = 0, y = 0, z = 0 }
+end
+
+---@param group table
+---@return Vector4?
+local function getGroupCenterVector(group)
+    local center = group and group.center
+    if not center then
+        return nil
+    end
+
+    return Vector4.new(center.x or 0, center.y or 0, center.z or 0, 0)
+end
+
+---@param point Vector4
+---@param center Vector4
+---@param extentX number
+---@param extentY number
+---@param extentZ number
+---@return boolean
+local function isInsideStreamingExtents(point, center, extentX, extentY, extentZ)
+    return point.x >= (center.x - extentX) and point.x <= (center.x + extentX)
+        and point.y >= (center.y - extentY) and point.y <= (center.y + extentY)
+        and point.z >= (center.z - extentZ) and point.z <= (center.z + extentZ)
+end
+
+---@param inside boolean
+---@return number, number
+local function getStreamingWireframeThemeColors(inside)
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+    if wireframeColorStyle == 2 then
+        return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
+    end
+
+    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
+end
+
+local function drawGroupStreamingBoxes()
+    local player = GetPlayer()
+    if not player then return end
+
+    local targets = {}
+    for _, group in ipairs(exportUI.groups or {}) do
+        if group.visualizeStreamingBox then
+            local extentX = tonumber(group.streamingX) or 0
+            local extentY = tonumber(group.streamingY) or 0
+            local extentZ = tonumber(group.streamingZ) or 0
+            local center = getGroupCenterVector(group)
+
+            if center and extentX > 0 and extentY > 0 and extentZ > 0 then
+                table.insert(targets, {
+                    center = center,
+                    extentX = extentX,
+                    extentY = extentY,
+                    extentZ = extentZ
+                })
+            end
+        end
+    end
+
+    if #targets == 0 then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##exportStreamingBoxOverlay")
+    if not screen then return end
+
+    local playerPos = player:GetWorldPosition()
+    local identityQuat = EulerAngles.new(0, 0, 0):ToQuat()
+
+    for _, target in ipairs(targets) do
+        local inside = isInsideStreamingExtents(playerPos, target.center, target.extentX, target.extentY, target.extentZ)
+        local color, labelColor = getStreamingWireframeThemeColors(inside)
+
+        projectedWireframe.drawOrientedBox(
+            drawList,
+            screen,
+            target.center,
+            identityQuat,
+            Vector4.new(-target.extentX, -target.extentY, -target.extentZ, 0),
+            Vector4.new(target.extentX, target.extentY, target.extentZ, 0),
+            {
+                frontColor = color,
+                backColor = inside and 0x5500FF00 or 0x550000FF,
+                frontThickness = 1.5 * style.viewSize,
+                backThickness = 1.2 * style.viewSize,
+                fadeNear = 45,
+                fadeFar = 175,
+                fadeLimit = 0.8,
+                originColor = color,
+                labelColor = labelColor,
+                originDistance = utils.distanceVector(playerPos, target.center)
+            }
+        )
+    end
+
+    projectedWireframe.endOverlay()
 end
 
 function exportUI.drawGroups()
+    local defaultSize = 260
+    local minSize = 120 * style.viewSize
+    local maxSize = 800 * style.viewSize
+    settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight or 260))
+
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
+
+    ImGui.BeginChildFrame(1, 0, settings.exportGroupsHeight)
+
     if #exportUI.groups > 0 then
-        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-        ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
-
-        ImGui.BeginChildFrame(1, 0, math.min(15, math.max(#exportUI.groups, 10)) * ImGui.GetFrameHeightWithSpacing())
-
         for key, group in ipairs(exportUI.groups) do
             ImGui.BeginGroup()
 
@@ -90,53 +331,75 @@ function exportUI.drawGroups()
                 ImGui.PopStyleVar()
 
                 if not exportUI.sectorPropertiesWidth then
-                    exportUI.sectorPropertiesWidth = utils.getTextMaxWidth({ "Group file name:", "Sector Category:", "Sector Level:", "Streaming Box Extents:" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+                    exportUI.sectorPropertiesWidth = utils.getTextMaxWidth({ "Sector Category", "Sector Level" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
                 end
 
                 if ImGui.TreeNodeEx("Variants", ImGuiTreeNodeFlags.SpanFullWidth) then
                     drawVariantsTooltip()
 
+                    local baseCursorX = ImGui.GetCursorPosX()
                     style.mutedText("Variant Node Ref")
                     ImGui.SameLine()
                     group.variantRef = ImGui.InputTextWithHint('##variantRef', '$/#foobar', group.variantRef, 100)
 
-                    for name, _ in pairs(group.variantData) do
-                        ImGui.PushID(name)
-                        ImGui.SetNextItemWidth(100 * style.viewSize)
-                        group.variantData[name].name = ImGui.InputTextWithHint('##variantName', 'default', group.variantData[name].name, 100)
-                        ImGui.SameLine()
-                        ImGui.SetNextItemWidth(185 * style.viewSize)
-                        local default = group.variantData[name].name == "default"
-                        style.pushGreyedOut(default)
-                        group.variantData[name].defaultOn, changed = ImGui.Checkbox("Default On", group.variantData[name].defaultOn)
-                        style.popGreyedOut(default)
-                        if default then
-                            group.variantData[name].defaultOn = true
-                        end
-                        if changed and not default then
-                            for variant, _ in pairs(group.variantData) do
-                                if group.variantData[variant].name == group.variantData[name].name then
-                                    group.variantData[variant].defaultOn = group.variantData[name].defaultOn
+                    style.mutedText("Variant name")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(baseCursorX + 100 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    style.mutedText("Default state")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    style.mutedText("Group name")
+                    ImGui.Separator()
+
+
+                    for _, name in ipairs(getSortedVariantGroupNames(group.variantData)) do
+                        local variantData = group.variantData[name]
+
+                        if variantData ~= nil then
+                            ImGui.PushID(name)
+                            ImGui.SetNextItemWidth(100 * style.viewSize)
+                            local previousName = variantData.name or ""
+                            local _, previousIsDefaultName = normalizeVariantName(previousName)
+                            variantData.name = ImGui.InputTextWithHint('##variantName', 'default', variantData.name, 100)
+                            ImGui.SameLine()
+                            local normalizedName, isDefaultName = normalizeVariantName(variantData.name)
+                            local changed = false
+                            ImGui.BeginDisabled(isDefaultName)
+                            variantData.defaultOn, changed = style.toggleButton(IconGlyphs.EyeOutline, variantData.defaultOn)
+                            ImGui.SameLine()
+                            ImGui.Text(variantData.defaultOn and "Visible" or "Hidden")
+                            ImGui.EndDisabled()
+                            if isDefaultName then
+                                variantData.defaultOn = true
+                            elseif previousName ~= variantData.name and previousIsDefaultName then
+                                -- If the name was changed from default/non-variant, toggle off defaultOn
+                                variantData.defaultOn = false
+                                changed = true
+                            end
+                            if changed and not isDefaultName then
+                                for variant, _ in pairs(group.variantData) do
+                                    local siblingName = group.variantData[variant] and group.variantData[variant].name
+                                    local siblingNormalizedName, siblingIsDefaultName = normalizeVariantName(siblingName)
+                                    if not siblingIsDefaultName and siblingNormalizedName == normalizedName then
+                                        group.variantData[variant].defaultOn = variantData.defaultOn
+                                    end
                                 end
                             end
-                        end
-                        ImGui.SameLine()
-                        style.mutedText(name)
+                            ImGui.SameLine()
+                            ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                            style.mutedText(name)
 
-                        ImGui.PopID()
+                            ImGui.PopID()
+                        end
                     end
 
+                    ImGui.Dummy(0, 4 * style.viewSize)
                     ImGui.TreePop()
                 else
                     drawVariantsTooltip()
                 end
 
-                style.mutedText("Group file name:")
-                ImGui.SameLine()
-                ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
-                ImGui.Text(group.name)
-
-                style.mutedText("Sector Category:")
+                style.mutedText("Sector Category")
                 style.tooltip("Select the type of the sector for the group, if in doubt use Interior or Exterior")
                 ImGui.SameLine()
                 ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
@@ -144,7 +407,7 @@ function exportUI.drawGroups()
                 group.category = ImGui.Combo("##category", group.category, sectorCategory, #sectorCategory)
 
                 if group.category == 3 then
-                    style.mutedText("Prefab Ref:")
+                    style.mutedText("Prefab Ref")
                     style.tooltip("Prefab NodeRef of the sector")
                     ImGui.SameLine()
                     ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
@@ -153,7 +416,7 @@ function exportUI.drawGroups()
                     group.prefabRef, _ = ImGui.InputTextWithHint('##prefabRef', '$/#foobar', group.prefabRef, 100)
                 end
 
-                style.mutedText("Sector Level:")
+                style.mutedText("Sector Level")
                 style.tooltip("Select the level of the sector for the group")
                 ImGui.SameLine()
                 ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
@@ -163,158 +426,472 @@ function exportUI.drawGroups()
                     group.level = math.min(math.max(group.level, 0), 6)
                 end
 
-                style.mutedText("Streaming Box Extents:")
-                style.tooltip("Change the size of the streaming box for the sector, extends the given amount on each axis in both directions")
-                ImGui.SameLine()
-                ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
-                if ImGui.Button("Auto") then
-                    local blob = config.loadFile("data/objects/" .. group.name .. ".json")
-                    local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
-                    g:load(blob, true)
+                if ImGui.TreeNodeEx("Streaming Box", ImGuiTreeNodeFlags.SpanFullWidth) then
+                    local streamingPropertiesWidth = utils.getTextMaxWidth({ "Visualize", "Distance Preset", "Box Extents" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
 
-                    local extents = calculateExtents(group.center, g:getPathsRecursive(false))
-                    group.streamingX = extents.x * 1.2
-                    group.streamingY = extents.y * 1.2
-                    group.streamingZ = extents.z * 1.2
-                end
-                ImGui.SameLine()
-                ImGui.PushItemWidth(90 * style.viewSize)
-                group.streamingX = ImGui.DragFloat("##x", group.streamingX, 0.25, 0, 9999, "%.1f X Size")
-                ImGui.SameLine()
-                group.streamingY = ImGui.DragFloat("##y", group.streamingY, 0.25, 0, 9999, "%.1f Y Size")
-                ImGui.SameLine()
-                group.streamingZ = ImGui.DragFloat("##z", group.streamingZ, 0.25, 0, 9999, "%.1f Z Size")
-                ImGui.PopItemWidth()
-                ImGui.SameLine()
+                    style.mutedText("Visualize")
+                    style.tooltip("Draw a projected wireframe of this group's streaming box in the world view.")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(streamingPropertiesWidth)
+                    group.visualizeStreamingBox, _ = ImGui.Checkbox("##visualizeStreamingBox", group.visualizeStreamingBox == true)
 
-                local outOfBox = false
+                    style.mutedText("Distance Preset")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(streamingPropertiesWidth)
+                    ImGui.SetNextItemWidth(140 * style.viewSize)
+                    group.streamingPresetIndex = ImGui.Combo("##groupStreamingDistancePreset", group.streamingPresetIndex or 0, streamingPresetLabels, #streamingPresetLabels)
+                    style.tooltip("Quickly set Streaming Box Extents to a common value.\n- Interior: Small rooms and indoor props loaded only when close.\n- Street: Regular city assets visible from nearby streets.\n- District: Medium-large city chunks visible across a wider district area.\n- Landscape: Large outdoor landmarks visible from far away.\n- To the Moon: Keep visible from anywhere; use only for very important assets.")
+                    ImGui.SameLine()
+                    if ImGui.Button("Apply##groupStreamingDistancePreset") then
+                        local preset = streamingPresetExtents[(group.streamingPresetIndex or 0) + 1]
+                        if preset then
+                            group.streamingX = preset.x
+                            group.streamingY = preset.y
+                            group.streamingZ = preset.z
+                        end
+                    end
+                    style.tooltip("Apply the selected preset to Streaming Box Extents.")
 
-                local playerPos = GetPlayer():GetWorldPosition()
-                if group.center.x + group.streamingX < playerPos.x or group.center.x - group.streamingX > playerPos.x then
-                    outOfBox = true
-                end
-                if group.center.y + group.streamingY < playerPos.y or group.center.y - group.streamingY > playerPos.y then
-                    outOfBox = true
-                end
-                if group.center.z + group.streamingZ < playerPos.z or group.center.z - group.streamingZ > playerPos.z then
-                    outOfBox = true
-                end
+                    style.mutedText("Box Extents")
+                    style.tooltip("Change the size of the streaming box for the sector, extends the given amount on each axis in both directions")
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(streamingPropertiesWidth)
+                    if ImGui.Button("Auto") then
+                        local blob = config.loadFile("data/objects/" .. group.name .. ".json")
+                        local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
+                        g:load(blob, true)
 
-                local distance = utils.distanceVector(group.center, playerPos)
-                style.styledText(IconGlyphs.AxisArrowInfo, outOfBox and 0xFF0000FF or 0xFF00FF00)
-                style.tooltip("Distance to player: " .. string.format("%.2f", distance))
+                        local extents = calculateExtents(group.center, g:getPathsRecursive(false))
+                        group.streamingX = extents.x * 1.2
+                        group.streamingY = extents.y * 1.2
+                        group.streamingZ = extents.z * 1.2
+                    end
+                    style.tooltip("Auto-computes box extents from the group's content.\nUses each spawned element's distance from group center (minimum 250), then applies a 20% safety margin.\nOnly spawnable elements are considered.\nThis replaces current X/Y/Z values.")
+                    ImGui.SameLine()
+                    group.streamingX, _, _ = field.advancedTrackedFloat(nil, "##x", group.streamingX, {
+                        step = 0.25,
+                        min = 0,
+                        max = 3.4028235e+38,
+                        format = "%.1f",
+                        width = 84,
+                        suffix = " X Size"
+                    })
+                    ImGui.SameLine()
+                    group.streamingY, _, _ = field.advancedTrackedFloat(nil, "##y", group.streamingY, {
+                        step = 0.25,
+                        min = 0,
+                        max = 3.4028235e+38,
+                        format = "%.1f",
+                        width = 84,
+                        suffix = " Y Size"
+                    })
+                    ImGui.SameLine()
+                    group.streamingZ, _, _ = field.advancedTrackedFloat(nil, "##z", group.streamingZ, {
+                        step = 0.25,
+                        min = 0,
+                        max = 3.4028235e+38,
+                        format = "%.1f",
+                        width = 84,
+                        suffix = " Z Size"
+                    })
+                    ImGui.SameLine()
+
+                    local player = GetPlayer()
+                    local center = getGroupCenterVector(group)
+                    local playerPos = player and player:GetWorldPosition() or Vector4.new(0, 0, 0, 0)
+                    local inside = false
+
+                    if center and player then
+                        inside = isInsideStreamingExtents(playerPos, center, group.streamingX, group.streamingY, group.streamingZ)
+                    end
+
+                    local distance = center and utils.distanceVector(center, playerPos) or 0
+                    style.styledText(IconGlyphs.AxisArrowInfo, inside and 0xFF00FF00 or 0xFF0000FF)
+                    style.tooltip("Distance to player: " .. string.format("%.2f", distance))
+
+                    ImGui.TreePop()
+                end
 
                 if ImGui.Button("Remove from list") then
                     table.remove(exportUI.groups, key)
                 end
 
+                ImGui.Dummy(0, 4 * style.viewSize)
                 ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
                 ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
                 ImGui.TreePop()
             end
             ImGui.EndGroup()
         end
-
-        ImGui.EndChildFrame()
-        ImGui.PopStyleColor()
-        ImGui.PopStyleVar(2)
     else
         ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
         ImGui.TextWrapped("No groups yet added, add them from the \"Saved\" tab!")
         ImGui.PopStyleColor()
     end
+
+    ImGui.EndChildFrame()
+    ImGui.PopStyleColor()
+    ImGui.PopStyleVar(2)
+    drawGroupStreamingBoxes()
+
+    if exportUI.groupsDividerHovered then
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
+    else
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
+    end
+
+    ImGui.BeginChild("##groupsDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
+    local wx, wy = ImGui.GetContentRegionAvail()
+    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
+    ImGui.SetCursorPosX((wx - textWidth) / 2)
+    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
+    ImGui.Text(IconGlyphs.DragHorizontalVariant)
+    ImGui.EndChild()
+    if exportUI.groupsDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+        settings.exportGroupsHeight = defaultSize
+        settings.save()
+    end
+    exportUI.groupsDividerHovered = ImGui.IsItemHovered()
+
+    if exportUI.groupsDividerHovered and ImGui.IsMouseDragging(0, 0) then
+        exportUI.groupsDividerDragging = true
+    end
+    if exportUI.groupsDividerDragging and not ImGui.IsMouseDragging(0, 0) then
+        exportUI.groupsDividerDragging = false
+        settings.save()
+    end
+    if exportUI.groupsDividerDragging then
+        local _, dy = ImGui.GetMouseDragDelta(0, 0)
+        settings.exportGroupsHeight = settings.exportGroupsHeight + dy
+        settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight))
+        ImGui.ResetMouseDragDelta()
+    end
+    if exportUI.groupsDividerHovered or exportUI.groupsDividerDragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
+    end
+    ImGui.PopStyleColor()
 end
 
 function exportUI.loadTemplate(data)
-    for _, group in pairs(utils.deepcopy(data.groups)) do
-        if config.fileExists("data/objects/" .. group.name .. ".json") then
-            if not group.variantData then
-                group.variantData = {}
-            end
-            if not group.prefabRef then
-                group.prefabRef = ""
-            end
-            if not group.variantRef then
-                group.variantRef = ""
-            end
-
-            local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
-            g:load(config.loadFile("data/objects/" .. group.name .. ".json"), true)
-
-            local variants = {}
-
-            for _, child in pairs(g.childs) do
-                if child.expandable then
-                    if not group.variantData[child.name] then
-                        variants[child.name] = { name = "default", ref = "", defaultOn = true }
-                    else
-                        variants[child.name] = group.variantData[child.name]
-                    end
-                end
-            end
-
-            group.variantData = variants
-            table.insert(exportUI.groups, group)
+    local existingNames = {}
+    for _, existing in ipairs(exportUI.groups) do
+        if existing.name then
+            existingNames[existing.name] = true
         end
     end
 
-    if data.xlFormat == nil then
-        data.xlFormat = 0
+    for _, group in pairs(data.groups or {}) do
+        local blob = loadSavedGroupBlob(group.name)
+        if blob then
+            local mapped = {
+                name = group.name,
+                category = group.category or 1,
+                level = group.level or 1,
+                visualizeStreamingBox = group.visualizeStreamingBox == true,
+                streamingPresetIndex = group.streamingPresetIndex or 0,
+                streamingX = group.streamingX or 150,
+                streamingY = group.streamingY or 150,
+                streamingZ = group.streamingZ or 100,
+                center = resolveGroupCenter(blob, group.center),
+                prefabRef = group.prefabRef or "",
+                variantRef = group.variantRef or "",
+                variantData = buildVariantDataFromBlob(blob, group.variantData)
+            }
+
+            if not existingNames[mapped.name] then
+                table.insert(exportUI.groups, mapped)
+                existingNames[mapped.name] = true
+            end
+        end
     end
 
+    exportUI.xlFormat = data.xlFormat or 0
     exportUI.projectName = data.projectName
 end
 
+---@param key string
+---@param data table
+local function deleteTemplateEntry(key, data)
+    local templateName = data and data.projectName or key
+    if not templateName then return end
+
+    os.remove("data/exportTemplates/" .. templateName .. ".json")
+    exportUI.templates[key] = nil
+end
+
+---@param key string
+---@param data table
+function exportUI.deleteTemplate(key, data)
+    if settings.skipTemplateDeleteConfirm then
+        deleteTemplateEntry(key, data)
+        return
+    end
+
+    exportUI.templateDeletePopup = true
+    exportUI.templateDeleteTarget = { key = key, data = data }
+    exportUI.templateDeleteDontAskAgain = settings.skipTemplateDeleteConfirm
+end
+
+function exportUI.handleTemplateDeletePopup()
+    if exportUI.templateDeletePopup then
+        ImGui.OpenPopup("Delete Template?")
+        if ImGui.BeginPopupModal("Delete Template?", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            local targetName = exportUI.templateDeleteTarget and exportUI.templateDeleteTarget.data and exportUI.templateDeleteTarget.data.projectName or "Unknown"
+            ImGui.Text("Delete \"" .. targetName .. "\"?")
+            style.mutedText("This action cannot be undone.")
+            ImGui.Dummy(0, 8 * style.viewSize)
+            exportUI.templateDeleteDontAskAgain = ImGui.Checkbox("Don't ask again", exportUI.templateDeleteDontAskAgain)
+            ImGui.Dummy(0, 8 * style.viewSize)
+
+            if ImGui.Button("Cancel") then
+                ImGui.CloseCurrentPopup()
+                exportUI.templateDeletePopup = false
+                exportUI.templateDeleteTarget = nil
+            end
+
+            ImGui.SameLine()
+
+            if ImGui.Button("Confirm") then
+                ImGui.CloseCurrentPopup()
+                settings.skipTemplateDeleteConfirm = exportUI.templateDeleteDontAskAgain
+                settings.save()
+
+                local target = exportUI.templateDeleteTarget
+                if target and target.key and target.data then
+                    deleteTemplateEntry(target.key, target.data)
+                end
+
+                exportUI.templateDeletePopup = false
+                exportUI.templateDeleteTarget = nil
+            end
+
+            ImGui.EndPopup()
+        end
+    end
+end
+
 function exportUI.drawTemplates()
+    local defaultSize = 160
+    local minSize = 80 * style.viewSize
+    local maxSize = 500 * style.viewSize
+    local defaultFramePaddingX = ImGui.GetStyle().FramePadding.x
+    local defaultFramePaddingY = ImGui.GetStyle().FramePadding.y
+    settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight or 160))
+
     if utils.tableLength(exportUI.templates) > 0 then
         ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
         ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
 
-        ImGui.BeginChildFrame(2, 0, math.min(5, math.max(utils.tableLength(exportUI.templates), 3)) * ImGui.GetFrameHeightWithSpacing())
+        ImGui.BeginChildFrame(2, 0, settings.exportTemplatesHeight)
 
+        local sortedTemplates = {}
         for key, data in pairs(exportUI.templates) do
-            ImGui.BeginGroup()
+            table.insert(sortedTemplates, { key = key, data = data })
+        end
 
-            local nodeFlags = ImGuiTreeNodeFlags.SpanFullWidth
-            if ImGui.TreeNodeEx(data.projectName, nodeFlags) then
-                ImGui.PopStyleColor()
+        table.sort(sortedTemplates, function(a, b)
+            local aName = tostring(a.data.projectName or a.key or ""):lower()
+            local bName = tostring(b.data.projectName or b.key or ""):lower()
+
+            if aName == bName then
+                return tostring(a.key) < tostring(b.key)
+            end
+
+            return aName < bName
+        end)
+
+        if ImGui.BeginTable("##exportTemplatesTable", 3, ImGuiTableFlags.SizingStretchProp or ImGuiTableFlags.NoHostExtendX) then
+            ImGui.TableSetupColumn("##templateName", ImGuiTableColumnFlags.WidthStretch, 0.55)
+            ImGui.TableSetupColumn("##templateGroups", ImGuiTableColumnFlags.WidthStretch, 0.20)
+            ImGui.TableSetupColumn("##templateActions", ImGuiTableColumnFlags.WidthStretch, 0.25)
+
+            for _, entry in ipairs(sortedTemplates) do
+                local key = entry.key
+                local data = entry.data
+                local templateName = tostring(data.projectName or key)
+                local groupLabel = tostring(#data.groups)
+                local rowHeight = ImGui.GetFrameHeight() + defaultFramePaddingY * 2
+                local loadWidth = ImGui.CalcTextSize("Load") + defaultFramePaddingX * 2
+                local deleteWidth = ImGui.CalcTextSize(IconGlyphs.DeleteOutline) + defaultFramePaddingX * 2
+                local actionsWidth = loadWidth + ImGui.GetStyle().ItemSpacing.x + deleteWidth
+                local rowActivated = false
+                local rowHovered = false
+
+                ImGui.TableNextRow(ImGuiTableRowFlags.None, rowHeight)
+                ImGui.PushID(key)
+
+                ImGui.TableSetColumnIndex(0)
+                local rowContentY = ImGui.GetCursorPosY()
+                ImGui.PushStyleColor(ImGuiCol.Header, 0, 0, 0, 0)
+                ImGui.PushStyleColor(ImGuiCol.HeaderHovered, 0, 0, 0, 0)
+                ImGui.PushStyleColor(ImGuiCol.HeaderActive, 0, 0, 0, 0)
+                ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, defaultFramePaddingX, defaultFramePaddingY)
+                rowActivated = ImGui.Selectable("##templateRow", false, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap + ImGuiSelectableFlags.AllowDoubleClick)
+                rowHovered = ImGui.IsItemHovered()
                 ImGui.PopStyleVar()
+                ImGui.PopStyleColor(3)
+                ImGui.SetItemAllowOverlap()
+                ImGui.TableSetColumnIndex(0)
+                ImGui.SetCursorPosY(rowContentY)
+                ImGui.AlignTextToFramePadding()
+                ImGui.Text(templateName)
 
-                style.mutedText("Groups:")
-                ImGui.SameLine()
-                ImGui.Text(tostring(#data.groups))
+                ImGui.TableSetColumnIndex(1)
+                ImGui.SetCursorPosY(rowContentY)
+                local groupStartX = ImGui.GetCursorPosX()
+                local groupAvailWidth = ImGui.GetContentRegionAvail()
+                local groupWidth = ImGui.CalcTextSize(groupLabel)
+                ImGui.SetCursorPosX(groupStartX + math.max(0, (groupAvailWidth - groupWidth) / 2))
+                ImGui.AlignTextToFramePadding()
+                style.mutedText(groupLabel)
 
+                ImGui.TableSetColumnIndex(2)
+                ImGui.SetCursorPosY(rowContentY)
+                local actionsStartX = ImGui.GetCursorPosX()
+                local actionsAvailWidth = ImGui.GetContentRegionAvail()
+                local loadButtonHovered = false
+                local deleteButtonHovered = false
+                ImGui.SetCursorPosX(actionsStartX + math.max(0, actionsAvailWidth - actionsWidth))
+                ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, defaultFramePaddingX, defaultFramePaddingY)
                 if ImGui.Button("Load") then
                     exportUI.loadTemplate(data)
                 end
+                loadButtonHovered = ImGui.IsItemHovered()
                 ImGui.SameLine()
-                if ImGui.Button("Delete") then
-                    os.remove("data/exportTemplates/" .. data.projectName .. ".json")
-                    exportUI.templates[key] = nil
+                if style.dangerButton(IconGlyphs.DeleteOutline) then
+                    exportUI.deleteTemplate(key, data)
+                end
+                deleteButtonHovered = ImGui.IsItemHovered()
+                ImGui.PopStyleVar()
+
+                if rowHovered then
+                    ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.30, 0.30, 0.30, 0.20)
+                end
+                if rowActivated and not loadButtonHovered and not deleteButtonHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+                    exportUI.loadTemplate(data)
                 end
 
-                ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-                ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
-                ImGui.TreePop()
+                ImGui.PopID()
             end
-            ImGui.EndGroup()
+
+            ImGui.EndTable()
         end
 
         ImGui.EndChildFrame()
         ImGui.PopStyleColor()
         ImGui.PopStyleVar(2)
     else
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, 0)
+        ImGui.BeginChildFrame(2, 0, settings.exportTemplatesHeight)
         ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
         ImGui.TextWrapped("No templates created yet.")
         ImGui.PopStyleColor()
+        ImGui.EndChildFrame()
+        ImGui.PopStyleColor()
+        ImGui.PopStyleVar(2)
     end
+
+    if exportUI.templatesDividerHovered then
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
+    else
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
+    end
+
+    ImGui.BeginChild("##templatesDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
+    local wx, wy = ImGui.GetContentRegionAvail()
+    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
+    ImGui.SetCursorPosX((wx - textWidth) / 2)
+    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
+    ImGui.Text(IconGlyphs.DragHorizontalVariant)
+    ImGui.EndChild()
+    if exportUI.templatesDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+        settings.exportTemplatesHeight = defaultSize
+        settings.save()
+    end
+    exportUI.templatesDividerHovered = ImGui.IsItemHovered()
+
+    if exportUI.templatesDividerHovered and ImGui.IsMouseDragging(0, 0) then
+        exportUI.templatesDividerDragging = true
+    end
+    if exportUI.templatesDividerDragging and not ImGui.IsMouseDragging(0, 0) then
+        exportUI.templatesDividerDragging = false
+        settings.save()
+    end
+    if exportUI.templatesDividerDragging then
+        local _, dy = ImGui.GetMouseDragDelta(0, 0)
+        settings.exportTemplatesHeight = settings.exportTemplatesHeight + dy
+        settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight))
+        ImGui.ResetMouseDragDelta()
+    end
+    if exportUI.templatesDividerHovered or exportUI.templatesDividerDragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
+    end
+    ImGui.PopStyleColor()
 end
 
 function exportUI.getCurrentIssue()
-    for key, value in pairs(exportUI.exportIssues) do
+    for _, key in ipairs(issueOrder) do
+        local value = exportUI.exportIssues[key]
         if #value ~= 0 then
             return key
+        end
+    end
+end
+
+function exportUI.resetIssues()
+    for _, key in ipairs(issueOrder) do
+        exportUI.exportIssues[key] = {}
+    end
+end
+
+function exportUI.hasBlockingIssues()
+    return exportUI.getCurrentIssue() ~= nil
+end
+
+function exportUI.drawToasts()
+    groupExportManager.drawToasts()
+end
+
+function exportUI.cancelExport(reason, suppressToast)
+    return groupExportManager.cancel(reason, suppressToast)
+end
+
+function exportUI.drawExportProgress()
+    return groupExportManager.drawProgress(style)
+end
+
+local function resolveIssue(issueKey, forceExport)
+    if not issueKey then
+        return
+    end
+
+    exportUI.exportIssues[issueKey] = {}
+    ImGui.CloseCurrentPopup()
+
+    if groupExportManager.isPaused() then
+        if forceExport then
+            if not exportUI.hasBlockingIssues() then
+                groupExportManager.resume()
+            end
+        else
+            exportUI.resetIssues()
+            exportUI.cancelExport("validation issue")
+        end
+    end
+end
+
+local function drawIssueButtons(issueKey)
+    if ImGui.Button("OK") then
+        resolveIssue(issueKey, false)
+    end
+
+    if groupExportManager.isPaused() then
+        ImGui.SameLine()
+        if style.warnButton("Force export") then
+            resolveIssue(issueKey, true)
         end
     end
 end
@@ -343,10 +920,7 @@ function exportUI.drawIssues()
 
             ImGui.Separator()
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.nodeRefDuplicated = {}
-            end
+            drawIssueButtons("nodeRefDuplicated")
             ImGui.EndPopup()
         end
     end
@@ -365,10 +939,7 @@ function exportUI.drawIssues()
                 ImGui.Separator()
             end
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.noOutlineMarkers = {}
-            end
+            drawIssueButtons("noOutlineMarkers")
             ImGui.EndPopup()
         end
     end
@@ -387,10 +958,7 @@ function exportUI.drawIssues()
                 ImGui.Separator()
             end
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.noSplineMarker = {}
-            end
+            drawIssueButtons("noSplineMarker")
             ImGui.EndPopup()
         end
     end
@@ -409,10 +977,7 @@ function exportUI.drawIssues()
 
             ImGui.Separator()
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.spotEmptyRef = {}
-            end
+            drawIssueButtons("spotEmptyRef")
             ImGui.EndPopup()
         end
     end
@@ -447,10 +1012,7 @@ function exportUI.drawIssues()
                 ImGui.Separator()
             end
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.spotReferencingEmpty = {}
-            end
+            drawIssueButtons("spotReferencingEmpty")
             ImGui.EndPopup()
         end
     end
@@ -485,10 +1047,7 @@ function exportUI.drawIssues()
                 ImGui.Separator()
             end
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.markingUnresolved = {}
-            end
+            drawIssueButtons("markingUnresolved")
             ImGui.EndPopup()
         end
     end
@@ -515,29 +1074,53 @@ function exportUI.drawIssues()
                 ImGui.Separator()
             end
 
-            if ImGui.Button("OK") then
-                ImGui.CloseCurrentPopup()
-                exportUI.exportIssues.missingInitialPhase = {}
-            end
+            drawIssueButtons("missingInitialPhase")
             ImGui.EndPopup()
         end
     end
 end
 
 function exportUI.draw()
-    exportUI.drawIssues()
+    local runtime = groupExportManager.getState()
+    local exporting = groupExportManager.isActive()
+
+    exportUI.drawToasts()
+
+    if not exporting or groupExportManager.isPaused() then
+        exportUI.drawIssues()
+    end
 
     if not sectorCategory then
         sectorCategory = utils.enumTable("worldStreamingSectorCategory")
     end
 
-    style.sectionHeaderStart("EXPORT TEMPLATES", "Templates let you save an export setup for later usage, without having to setup what groups/settings to use each time.")
+    do
+        local headerX = ImGui.GetCursorPosX()
+        local headerWidth = ImGui.GetContentRegionAvail()
+        local qtyLabel = "Qty groups"
+        local qtyLabelWidth = ImGui.CalcTextSize(qtyLabel)
+        local qtyLabelX = headerX + headerWidth * 0.55 + math.max(0, (headerWidth * 0.20 - qtyLabelWidth) / 2)
+
+        ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
+        ImGui.Text("Export templates")
+        style.tooltip("Templates let you save an export setup for later usage, without having to setup what groups/settings to use each time.")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(math.max(ImGui.GetCursorPosX(), qtyLabelX))
+        ImGui.Text(qtyLabel)
+        ImGui.PopStyleColor()
+        ImGui.Separator()
+        ImGui.Spacing()
+
+        ImGui.BeginGroup()
+        ImGui.AlignTextToFramePadding()
+    end
 
     exportUI.drawTemplates()
+    exportUI.handleTemplateDeletePopup()
 
     style.sectionHeaderEnd()
 
-    style.sectionHeaderStart("PROPERTIES")
+    style.sectionHeaderStart("Properties")
 
     if not exportUI.mainPropertiesWidth then
         exportUI.mainPropertiesWidth = utils.getTextMaxWidth({ "Project Name", "XL Format" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
@@ -550,6 +1133,14 @@ function exportUI.draw()
     ImGui.SetNextItemWidth(200 * style.viewSize)
     ImGui.SetCursorPosX(exportUI.mainPropertiesWidth)
     exportUI.projectName = ImGui.InputTextWithHint('##name', 'Export name...', exportUI.projectName, 100)
+    if exportUI.projectName ~= "" then
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.Close .. "##clearExportProjectName") then
+            exportUI.projectName = ""
+        end
+        style.pushButtonNoBG(false)
+    end
 
     ImGui.Text("XL Format")
     ImGui.SameLine()
@@ -558,23 +1149,53 @@ function exportUI.draw()
     exportUI.xlFormat, _ = ImGui.Combo("##xlFormat", exportUI.xlFormat, { "JSON", "YAML" }, 2)
     style.tooltip("Select the format in which the contents of the generated .xl file should be.")
 
+    style.pushGreyedOut(#exportUI.groups == 0 or exporting)
+    if ImGui.Button("Clear group list") and not exporting then
+        exportUI.groups = {}
+    end
+    style.popGreyedOut(#exportUI.groups == 0 or exporting)
+    style.tooltip("Remove all groups from the current export list")
+
     style.sectionHeaderEnd()
-    style.sectionHeaderStart("GROUPS")
+    style.sectionHeaderStart(string.format("Groups (%d)", #exportUI.groups))
 
     exportUI.drawGroups()
 
     style.sectionHeaderEnd()
-    style.sectionHeaderStart("EXPORT AND SAVE")
+    style.sectionHeaderStart("Export and Save")
 
-    style.pushGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "")
-    if ImGui.Button("Export") and #exportUI.groups > 0  and exportUI.projectName ~= "" then
+    local groupNameCounts = {}
+    local duplicateGroupNames = {}
+    for _, group in ipairs(exportUI.groups) do
+        local name = group.name or ""
+        groupNameCounts[name] = (groupNameCounts[name] or 0) + 1
+    end
+    for name, count in pairs(groupNameCounts) do
+        if name ~= "" and count > 1 then
+            table.insert(duplicateGroupNames, name)
+        end
+    end
+
+    if #duplicateGroupNames > 0 then
+        table.sort(duplicateGroupNames)
+        style.styledText(IconGlyphs.AlertOutline .. " Duplicate group names detected", 0xFF0088FF)
+        style.tooltip("Duplicated group names:\n- " .. table.concat(duplicateGroupNames, "\n- "))
+        ImGui.Spacing()
+    end
+
+    style.pushGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "" or exporting)
+    local exportLabel = "Export"
+    if exporting then
+        exportLabel = string.format("Exporting... (%d/%d)", runtime.completedGroups or 0, runtime.totalGroups or 0)
+    end
+    if ImGui.Button(exportLabel) and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
         exportUI.export()
     end
     style.tooltip("Export the currently selected groups to a .json file, ready for import into WKit")
     exportUI.exportHovered = ImGui.IsItemHovered()
 
     ImGui.SameLine()
-    if ImGui.Button("Save as Template") and #exportUI.groups > 0 then
+    if ImGui.Button("Save as Template") and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
         local data = {
             projectName = exportUI.projectName,
             xlFormat = exportUI.xlFormat,
@@ -585,7 +1206,9 @@ function exportUI.draw()
     end
     style.tooltip("Save the current export setup as a template for later (re)usage")
 
-    style.popGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "")
+    style.popGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "" or exporting)
+
+    exportUI.drawExportProgress()
 
     style.sectionHeaderEnd(true)
 end
@@ -599,6 +1222,8 @@ function exportUI.addGroup(name)
         name = name,
         category = 1,
         level = 1,
+        visualizeStreamingBox = false,
+        streamingPresetIndex = 0,
         streamingX = 150,
         streamingY = 150,
         streamingZ = 100,
@@ -609,32 +1234,59 @@ function exportUI.addGroup(name)
     }
 
     table.insert(exportUI.groups, data)
+    local blob = loadSavedGroupBlob(name)
+    if not blob then return end
 
-    if not config.fileExists("data/objects/" .. name .. ".json") then return end
+    data.variantData = buildVariantDataFromBlob(blob, nil)
+    data.center = resolveGroupCenter(blob, nil)
+end
 
-    local blob = config.loadFile("data/objects/" .. name .. ".json")
-    local group = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
-    group:load(blob, true)
+---Remove groups from export list by group name
+---@param name string
+---@return integer
+function exportUI.removeGroupByName(name)
+    local removed = 0
 
-    for _, child in pairs(group.childs) do
-        if child.expandable then
-            data.variantData[child.name] = { name = "default", ref = "", defaultOn = true }
+    for i = #exportUI.groups, 1, -1 do
+        if exportUI.groups[i].name == name then
+            table.remove(exportUI.groups, i)
+            removed = removed + 1
         end
     end
 
-    local center = group:getPosition()
-    data.center = utils.fromVector(center)
+    return removed
 end
 
-function exportUI.getSpawnableByNodeRef(nodes, nodeRef)
-    for _, node in pairs(nodes) do
-        if node.ref.spawnable.nodeRef == nodeRef then
-            return node
+---Sync group data in export list from saved group file
+---Keeps export-specific settings (streaming/category/level/refs) while refreshing center + variants
+---@param name string
+---@return integer
+function exportUI.syncGroup(name)
+    local blob = loadSavedGroupBlob(name)
+    if not blob then return 0 end
+
+    local updated = 0
+
+    for _, group in ipairs(exportUI.groups) do
+        if group.name == name then
+            group.variantData = buildVariantDataFromBlob(blob, group.variantData)
+            group.center = resolveGroupCenter(blob, group.center)
+            updated = updated + 1
         end
     end
+
+    return updated
 end
 
-function exportUI.handleDevice(object, devices, psEntries, childs, nodes)
+function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)
+    if not nodeRef or nodeRef == "" then
+        return nil
+    end
+
+    return nodeRefMap[nodeRef]
+end
+
+function exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
     local hash = utils.nodeRefStringToHashString(object.ref.spawnable.nodeRef)
 
     local childHashes = {}
@@ -643,7 +1295,7 @@ function exportUI.handleDevice(object, devices, psEntries, childs, nodes)
 
         -- Remember what childs exist, so that we can also add those to the devices file which are entityNodes, not deviceNodes
 
-        local childRef = exportUI.getSpawnableByNodeRef(nodes, child.nodeRef)
+        local childRef = exportUI.getSpawnableByNodeRef(nodeRefMap, child.nodeRef)
         if childRef and childRef.ref.spawnable.deviceConnections == nil then
             table.insert(childs, {
                 className = child.deviceClassName,
@@ -677,20 +1329,19 @@ function exportUI.handleDevice(object, devices, psEntries, childs, nodes)
     end
 end
 
-function exportUI.getNodeRefsFromMarking(marking, spotNodes)
-    local nodeRefs = {}
+local function buildMarkingRefMap(spotNodes)
+    local markingRefMap = {}
 
     for _, node in pairs(spotNodes) do
-        if utils.has_value(node.markings, marking) then
-            table.insert(nodeRefs, {
-                ["$type"] = "NodeRef",
-                ["$storage"] = "string",
-                ["$value"] = node.ref
-            })
+        for _, marking in pairs(node.markings or {}) do
+            if not markingRefMap[marking] then
+                markingRefMap[marking] = {}
+            end
+            table.insert(markingRefMap[marking], node.ref)
         end
     end
 
-    return nodeRefs
+    return markingRefMap
 end
 
 local function hasEntryPhase(entry, phase)
@@ -707,6 +1358,7 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
     local wsPersistentData = {}
     local registryEntries = {}
     local periodEnums = utils.enumTable("communityECommunitySpawnTime")
+    local markingRefMap = buildMarkingRefMap(spotNodes)
 
     -- Collect all spots for workspotsPersistentData
     for _, node in pairs(spotNodes) do
@@ -794,18 +1446,21 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                                 ["$value"] = marking
                             })
 
-                            -- Update spotRefs on communityAreaNode, resolved from markings
-                            local refs = exportUI.getNodeRefsFromMarking(marking, spotNodes)
-                            for _, ref in pairs(refs) do
+                            -- Update spotRefs on communityAreaNode, resolved from cached marking lookup.
+                            local refs = markingRefMap[marking] or {}
+                            for _, refValue in pairs(refs) do
+                                table.insert(spotRefs, {
+                                    ["$type"] = "NodeRef",
+                                    ["$storage"] = "string",
+                                    ["$value"] = refValue
+                                })
                                 table.insert(community.node.data.area.Data.entriesData[entryKey].phasesData[phaseKey].timePeriodsData[periodKey].spotNodeIds, {
                                     ["$type"] = "worldGlobalNodeID",
-                                    ["hash"] = utils.nodeRefStringToHashString(ref["$value"])
+                                    ["hash"] = utils.nodeRefStringToHashString(refValue)
                                 })
                             end
 
-                            utils.combine(spotRefs, refs)
-
-                            if #spotRefs == 0 then
+                            if #refs == 0 then
                                 table.insert(exportUI.exportIssues.markingUnresolved, {
                                     name = community.node.name,
                                     entry = entry.entryName,
@@ -952,8 +1607,8 @@ function exportUI.exportGroup(group)
     g:load(data, true)
 
     local center = g:getPosition()
-    local min = { x = center.x - group.streamingX, y = center.y - group.streamingY, z = center.z - group.streamingY }
-    local max = { x = center.x + group.streamingX, y = center.y + group.streamingY, z = center.z + group.streamingY }
+    local min = { x = center.x - group.streamingX, y = center.y - group.streamingY, z = center.z - group.streamingZ }
+    local max = { x = center.x + group.streamingX, y = center.y + group.streamingY, z = center.z + group.streamingZ }
 
     local exported = {
         name = utils.createFileName(group.name):lower():gsub(" ", "_"),
@@ -973,28 +1628,33 @@ function exportUI.exportGroup(group)
     local communities = {}
     local spotNodes = {}
 
-    local objects = g:getPathsRecursive(false)
     local variantNodes = {
         default = {}
     }
     local variantInfo = {}
     local nodes = {}
+    local rootChildByName = {}
+
+    for _, node in pairs(g.childs) do
+        rootChildByName[node.name] = node
+    end
 
     -- Group and bring the nodes in order, based on their variant, starting with default
     for groupName, variant in pairs(group.variantData) do
-        if not variantNodes[variant.name] then
-            variantNodes[variant.name] = {}
-            variantInfo[variant.name] = {
+        local variantName = normalizeVariantName(variant.name)
+
+        if not variantNodes[variantName] then
+            variantNodes[variantName] = {}
+            variantInfo[variantName] = {
                 defaultOn = variant.defaultOn
             }
         end
 
-        for _, node in pairs(g.childs) do
-            if node.name == groupName then
-                for _, entry in pairs(node:getPathsRecursive(false)) do
-                    if utils.isA(entry.ref, "spawnableElement") and not entry.ref.spawnable.noExport and shouldExportNode(node) then
-                        table.insert(variantNodes[variant.name], entry)
-                    end
+        local node = rootChildByName[groupName]
+        if node then
+            for _, entry in pairs(node:getPathsRecursive(false)) do
+                if utils.isA(entry.ref, "spawnableElement") and not entry.ref.spawnable.noExport and shouldExportNode(entry.ref) then
+                    table.insert(variantNodes[variantName], entry)
                 end
             end
         end
@@ -1025,13 +1685,21 @@ function exportUI.exportGroup(group)
         end
     end
 
-    for key, object in pairs(nodes) do
+    local nodeRefMap = {}
+    for _, object in ipairs(nodes) do
+        if utils.isA(object.ref, "spawnableElement") and object.ref.spawnable and object.ref.spawnable.nodeRef and object.ref.spawnable.nodeRef ~= "" then
+            nodeRefMap[object.ref.spawnable.nodeRef] = object
+        end
+    end
+
+    local nodeCount = #nodes
+    for key, object in ipairs(nodes) do
         if utils.isA(object.ref, "spawnableElement") and not object.ref.spawnable.noExport and shouldExportNode(object.ref) then
-            table.insert(exported.nodes, object.ref.spawnable:export(key, #objects))
+            table.insert(exported.nodes, object.ref.spawnable:export(key, nodeCount))
 
             -- Handle device nodes
             if object.ref.spawnable.node == "worldDeviceNode" then
-                exportUI.handleDevice(object, devices, psEntries, childs, nodes)
+                exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
             elseif object.ref.spawnable.node == "worldCompiledCommunityAreaNode_Streamable" then
                 table.insert(communities, { data = object.ref.spawnable.entries, node = exported.nodes[#exported.nodes] })
             elseif object.ref.spawnable.node == "worldAISpotNode" then
@@ -1049,90 +1717,45 @@ function exportUI.exportGroup(group)
     return exported, devices, psEntries, childs, communities, spotNodes
 end
 
+local function collectDuplicateNodeRefs(nodeRefs, nodes)
+    for _, node in ipairs(nodes or {}) do
+        if not nodeRefs[node.nodeRef] then
+            nodeRefs[node.nodeRef] = node.name
+        elseif node.nodeRef ~= "" then
+            table.insert(exportUI.exportIssues.nodeRefDuplicated, {
+                nodeRef = node.nodeRef,
+                name1 = nodeRefs[node.nodeRef],
+                name2 = node.name
+            })
+            break
+        end
+    end
+end
+
 function exportUI.export()
-    local project = {
-        name = utils.createFileName(exportUI.projectName):lower():gsub(" ", "_"),
+    if groupExportManager.isActive() then
+        return
+    end
+
+    exportUI.resetIssues()
+
+    if not sectorCategory then
+        sectorCategory = utils.enumTable("worldStreamingSectorCategory")
+    end
+
+    groupExportManager.start({
+        spawner = exportUI.spawner,
+        projectName = exportUI.projectName,
         xlFormat = exportUI.xlFormat,
-        sectors = {},
-        devices = {},
-        psEntries = {},
-        version = minScriptVersion
-    }
-
-    local nodeRefs = {}
-    local spotNodes = {}
-    local communities = {}
-    local childs = {}
-
-    for _, group in pairs(exportUI.groups) do
-        local data, devices, psEntries, subChilds, comms, spots = exportUI.exportGroup(group)
-        if data then
-            table.insert(project.sectors, data)
-
-            for hash, device in pairs(devices) do
-                project.devices[hash] = device
-            end
-
-            for PSID, entry in pairs(psEntries) do
-                project.psEntries[PSID] = entry
-            end
-
-            utils.combine(communities, comms)
-            utils.combine(spotNodes, spots)
-            utils.combine(childs, subChilds)
-
-            for _, node in pairs(data.nodes) do
-                if not nodeRefs[node.nodeRef] then
-                    nodeRefs[node.nodeRef] = node.name
-                elseif node.nodeRef ~= "" then
-                    table.insert(exportUI.exportIssues.nodeRefDuplicated, {
-                        nodeRef = node.nodeRef,
-                        name1 = nodeRefs[node.nodeRef],
-                        name2 = node.name
-                    })
-                    break
-                end
-            end
-        end
-    end
-
-    for hash, device in pairs(project.devices) do
-        for _, childHash in pairs(device.children) do
-            if project.devices[childHash] then
-                table.insert(project.devices[childHash].parents, hash)
-            end
-        end
-    end
-
-    -- TODO: Aggregate all parents of double entries, so a device that isnt a device can be linked to multiple parents
-    local additionalEntries = {}
-    for _, child in pairs(childs) do
-        local hash = utils.nodeRefStringToHashString(child.ref)
-        if not additionalEntries[hash] then
-            additionalEntries[hash] = {
-                hash = hash,
-                className = child.className,
-                nodePosition = child.nodePosition,
-                parents = { child.parent },
-                children = {}
-            }
-        else
-            table.insert(additionalEntries[hash].parents, child.parent)
-        end
-    end
-
-    for _, child in pairs(additionalEntries) do
-        project.devices[child.hash] = child
-    end
-
-    local always_loaded = exportUI.handleCommunities(project.name, communities, spotNodes, nodeRefs)
-    if always_loaded then
-        table.insert(project.sectors, always_loaded)
-    end
-
-    config.saveFile("export/" .. project.name .. "_exported.json", project)
-
-    print("[entSpawner] Exported project " .. project.name)
+        version = minScriptVersion,
+        groups = exportUI.groups,
+        sectorCategory = sectorCategory,
+        shouldExportNode = shouldExportNode,
+        handleDevice = exportUI.handleDevice,
+        handleCommunities = exportUI.handleCommunities,
+        collectDuplicateNodeRefs = collectDuplicateNodeRefs,
+        hasBlockingIssues = exportUI.hasBlockingIssues
+    })
 end
 
 return exportUI

@@ -1,12 +1,16 @@
-local CodewareVersion = "1.16.0"
-local ArchiveXLVersion = "1.23.0"
-local ModVersion = "1.0.81"
+local CodewareVersion = "1.18.0"
+local ArchiveXLVersion = "1.26.0"
+local ModVersion = "a.1.2.0-beta"
 local ignoreRequirements = false
 
 local settings = require("modules/utils/settings")
+local gameUtils = require("modules/utils/gameUtils")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
 local input = require("modules/utils/input")
+local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
+local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
+local history = require("modules/utils/history")
 
 ---@class baseUI
 baseUI = {
@@ -24,21 +28,24 @@ baseUI = {
 }
 
 local menuButtonHovered = false
+local dockButtonHovered = false
 
 local tabs = {
     {
         id = "spawn",
         name = "Spawn New",
+        icon = IconGlyphs.PlusBoxOutline,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 750, 1000 },
         draw = function ()
-            baseUI.spawnedUI.cachePaths()
+            baseUI.spawnedUI.ensureCache()
             baseUI.spawnUI.draw()
         end
     },
     {
         id = "spawned",
         name = "Spawned",
+        icon = IconGlyphs.FileTree,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 1200 },
         draw = baseUI.spawnedUI.draw
@@ -46,6 +53,7 @@ local tabs = {
     {
         id = "saved",
         name = "Saved",
+        icon = IconGlyphs.ContentSaveCogOutline,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 700 },
         draw = baseUI.savedUI.draw
@@ -53,6 +61,7 @@ local tabs = {
     {
         id = "export",
         name = "Export",
+        icon = IconGlyphs.Export,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 700 },
         draw = baseUI.exportUI.draw
@@ -60,11 +69,21 @@ local tabs = {
     {
         id = "settings",
         name = "Settings",
-        flags = ImGuiWindowFlags.AlwaysAutoResize,
+        icon = IconGlyphs.CogOutline,
+        flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 1200 },
         draw = baseUI.settingsUI.draw
     }
 }
+
+---@param tab {name: string, icon: string?}
+---@return string
+local function getTabLabel(tab)
+    if tab.icon and tab.icon ~= "" then
+        return tab.icon .. " " .. tab.name
+    end
+    return tab.name
+end
 
 local function isOnlyTab(id)
     for tid, tab in pairs(settings.windowStates) do
@@ -79,8 +98,46 @@ end
 local function drawMenuButton()
     ImGui.SameLine()
 
+    local dockLeftIcon = IconGlyphs.DockLeft or "<"
+    local dockRightIcon = IconGlyphs.DockRight or ">"
+    local dockIcon = settings.editorDockLeft and dockRightIcon or dockLeftIcon
+    local dockIconWidth = 0
+    local pauseActive = gameUtils.isPauseActive()
+    local pauseIcon = pauseActive and (IconGlyphs.Play or ">") or (IconGlyphs.Pause or "||")
+    local pauseIconWidth, _ = ImGui.CalcTextSize(pauseIcon)
+    local pauseButtonWidth = pauseIconWidth + ImGui.GetStyle().FramePadding.x * 2
+    if editor.active then
+        dockIconWidth, _ = ImGui.CalcTextSize(dockIcon)
+    end
     local iconWidth, _ = ImGui.CalcTextSize(IconGlyphs.DotsHorizontal)
-    ImGui.SetCursorPos(ImGui.GetWindowWidth() - iconWidth - ImGui.GetStyle().WindowPadding.x - 5, (editor.active and 0 or ImGui.GetFrameHeight()) + ImGui.GetStyle().WindowPadding.y)
+    local iconY = (editor.active and 0 or ImGui.GetFrameHeight()) + ImGui.GetStyle().WindowPadding.y
+    local iconX = ImGui.GetWindowWidth() - iconWidth - ImGui.GetStyle().WindowPadding.x - 5
+    local pauseX = iconX - ImGui.GetStyle().ItemSpacing.x - pauseButtonWidth
+
+    if editor.active then
+        local dockX = pauseX - ImGui.GetStyle().ItemSpacing.x - dockIconWidth
+        ImGui.SetCursorPos(dockX, iconY - 4)
+        style.pushStyleColor(dockButtonHovered, ImGuiCol.Text, style.mutedColor)
+        ImGui.SetItemAllowOverlap()
+        ImGui.Text(dockIcon)
+        style.popStyleColor(dockButtonHovered)
+        dockButtonHovered = ImGui.IsItemHovered()
+        if ImGui.IsItemClicked(ImGuiMouseButton.Left) then
+            settings.editorDockLeft = not settings.editorDockLeft
+            settings.save()
+        end
+        style.tooltip(settings.editorDockLeft and "Dock panel to the right" or "Dock panel to the left")
+    end
+
+    ImGui.SetCursorPos(pauseX, iconY - 4)
+    local changed
+    pauseActive, changed = style.toggleButton(pauseIcon, pauseActive)
+    if changed then
+        gameUtils.setPause(pauseActive)
+    end
+    style.tooltip(pauseActive and "Resume game time" or "Pause game time")
+
+    ImGui.SetCursorPos(iconX, iconY)
 
     style.pushStyleColor(menuButtonHovered, ImGuiCol.Text, style.mutedColor)
     ImGui.SetItemAllowOverlap()
@@ -92,7 +149,7 @@ local function drawMenuButton()
         style.styledText("Separated Tabs:", style.mutedColor, 0.85)
 
         for _, tab in pairs(tabs) do
-            local _, clicked = ImGui.MenuItem(tab.name, '', settings.windowStates[tab.id])
+            local _, clicked = ImGui.MenuItem(getTabLabel(tab), '', settings.windowStates[tab.id])
             if clicked and not isOnlyTab(tab.id) then
                 settings.windowStates[tab.id] = not settings.windowStates[tab.id]
                 settings.save()
@@ -151,6 +208,10 @@ function baseUI.draw(spawner)
     end
 
     input.resetContext()
+    if baseUI.spawnedUI and baseUI.spawnedUI.resetHoveredEntries then
+        baseUI.spawnedUI.resetHoveredEntries()
+    end
+    history.update()
     local screenWidth, screenHeight = GetDisplayResolution()
     local editorActive = editor.active
 
@@ -160,7 +221,11 @@ function baseUI.draw(spawner)
     end
     if editorActive then
         ImGui.SetNextWindowSizeConstraints(screenWidth / 8, screenHeight, screenWidth / 2, screenHeight)
-        ImGui.SetNextWindowPos(screenWidth, 0, ImGuiCond.Always, 1, 0)
+        if settings.editorDockLeft then
+            ImGui.SetNextWindowPos(0, 0, ImGuiCond.Always, 0, 0)
+        else
+            ImGui.SetNextWindowPos(screenWidth, 0, ImGuiCond.Always, 1, 0)
+        end
         if baseUI.loadTabSize then
             if settings.editorWidth == 0 then
                 settings.editorWidth = settings.tabSizes.spawned[1]
@@ -184,6 +249,8 @@ function baseUI.draw(spawner)
 
     if ImGui.Begin(settings.mainWindowName .. " " .. ModVersion, flags) then
         input.updateContext("main")
+        groupLoadManager.drawToasts()
+        groupAMMImportManager.drawToasts()
 
         if not editorActive then
             baseUI.mainWindowPosition = { ImGui.GetWindowPos() }
@@ -199,7 +266,8 @@ function baseUI.draw(spawner)
             settings.save()
         end
 
-        editor.camera.updateXOffset(- (x / screenWidth))
+        local xOffset = (settings.editorDockLeft and 1 or -1) * (x / screenWidth)
+        editor.camera.updateXOffset(xOffset)
 
         if ImGui.BeginTabBar("Tabbar", ImGuiTabItemFlags.NoTooltip) then
             for key, tab in ipairs(tabs) do
@@ -209,7 +277,7 @@ function baseUI.draw(spawner)
                 end
 
                 if not settings.windowStates[tab.id] then
-                    if ImGui.BeginTabItem(tab.name) then
+                    if ImGui.BeginTabItem(getTabLabel(tab)) then
                         if baseUI.activeTab ~= key then
                             baseUI.activeTab = key
                             baseUI.loadTabSize = true
@@ -219,7 +287,7 @@ function baseUI.draw(spawner)
                         ImGui.EndTabItem()
                     end
                 else
-                    ImGui.SetTabItemClosed(tab.name)
+                    ImGui.SetTabItemClosed(getTabLabel(tab))
                 end
             end
             ImGui.EndTabBar()
@@ -240,7 +308,7 @@ function baseUI.draw(spawner)
                 baseUI.loadWindowSize = nil
             end
 
-            settings.windowStates[tab.id] = ImGui.Begin(tab.name, true, tabs[key].flags)
+            settings.windowStates[tab.id] = ImGui.Begin(getTabLabel(tab), true, tabs[key].flags)
             input.updateContext("main")
 
             local x, y = ImGui.GetWindowSize()
@@ -261,6 +329,12 @@ function baseUI.draw(spawner)
     end
 
     baseUI.spawnUI.drawPopup()
+    if baseUI.spawnedUI and baseUI.spawnedUI.drawPinnedHierarchyWindow then
+        baseUI.spawnedUI.drawPinnedHierarchyWindow()
+    end
+    if baseUI.spawnedUI and baseUI.spawnedUI.finalizeFrame then
+        baseUI.spawnedUI.finalizeFrame()
+    end
 
     input.context.viewport.hovered = not input.context.main.hovered
     input.context.viewport.focused = not input.context.main.focused

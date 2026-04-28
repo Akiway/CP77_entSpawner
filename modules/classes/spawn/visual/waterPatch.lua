@@ -39,6 +39,16 @@ function waterPatch:updateScale()
     self.scale.z = 1
 end
 
+function waterPatch:getTransformUIConfig()
+    return {
+        axes = {
+            scale = {
+                z = false
+            }
+        }
+    }
+end
+
 function waterPatch:draw()
     mesh.draw(self)
 

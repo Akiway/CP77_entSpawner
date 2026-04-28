@@ -1,11 +1,17 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
+local gameUtils = require("modules/utils/gameUtils")
 local cache = require("modules/utils/cache")
 local builder = require("modules/utils/entityBuilder")
 local Cron = require("modules/utils/Cron")
 local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
+
+local minCurvePreviewSamples = 8
+local maxCurvePreviewSamples = 24
+local lengthIntegrationEpsilon = 0.00001
+local lengthIntegrationMaxDepth = 18
 
 ---Class for worldSplineNode
 ---@class spline : visualized
@@ -57,7 +63,7 @@ function spline:new()
     o.splineMoveType = "Walk"
     o.splineReachDistance = 0.85
     o._currentPointIndex = nil
-    o.curvePreviewSamples = settings.defaultSplineCurveQuality or 12
+    o.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, settings.defaultSplineCurveQuality or 12)))
     o.maxCurvePreviewComponents = 256
     o._curvePreviewComponentCount = 0
 
@@ -69,7 +75,7 @@ function spline:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
     self.previewCharacter = string.gsub(self.previewCharacter, "[\128-\255]", "")
-    self.curvePreviewSamples = math.floor(math.max(8, math.min(24, self.curvePreviewSamples or 12)))
+    self.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
 
     self.pointDefs = {}
     if data.pointDefs and #data.pointDefs > 0 then
@@ -107,9 +113,7 @@ function spline:getVisualizerSize()
 end
 
 function spline:getNPC()
-    if not self.npcID then return end
-
-    return Game.GetDynamicEntitySystem():GetEntity(self.npcID)
+    return gameUtils.getNPC(self.npcID)
 end
 
 function spline:getInterpolatedPosition(t)
@@ -234,7 +238,7 @@ function spline:getFollowerPathPoints()
     end
 
     local pathPoints = {}
-    local samples = math.max(8, math.min(24, self.curvePreviewSamples or 12))
+    local samples = math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12))
 
     local function sampleSegment(defA, defB)
         local p0 = defA.position
@@ -261,6 +265,57 @@ function spline:getFollowerPathPoints()
     end
 
     return applyPreviewDirection(pathPoints)
+end
+
+function spline:getTotalLength()
+    local pointDefs = self:getFollowerPreviewSplineMarkerDefs()
+
+    local function sumLinear(points, looped)
+        if #points < 2 then
+            return 0
+        end
+
+        local total = 0
+        for i = 1, #points - 1 do
+            total = total + utils.distanceVector(points[i], points[i + 1])
+        end
+
+        if looped and #points > 1 then
+            total = total + utils.distanceVector(points[#points], points[1])
+        end
+
+        return total
+    end
+
+    if #pointDefs == 0 then
+        self:loadSplinePoints()
+        local points = {}
+        for i = 1, #self.points do
+            table.insert(points, self.points[i])
+        end
+
+        return sumLinear(points, self.looped)
+    end
+
+    local total = 0
+    local function bezierSegmentLength(defA, defB)
+        local p0 = defA.position
+        local p1 = defB.position
+        local c0 = utils.addVector(p0, Vector4.new(defA.tangentOut.x, defA.tangentOut.y, defA.tangentOut.z, 0))
+        local c1 = utils.addVector(p1, Vector4.new(defB.tangentIn.x, defB.tangentIn.y, defB.tangentIn.z, 0))
+
+        return self:getBezierArcLength(p0, c0, c1, p1, lengthIntegrationEpsilon, lengthIntegrationMaxDepth)
+    end
+
+    for i = 1, #pointDefs - 1 do
+        total = total + bezierSegmentLength(pointDefs[i], pointDefs[i + 1])
+    end
+
+    if self.looped and #pointDefs > 1 then
+        total = total + bezierSegmentLength(pointDefs[#pointDefs], pointDefs[1])
+    end
+
+    return total
 end
 
 function spline:refreshLinkedMarkerTangents(refreshEdgeTangents)
@@ -462,6 +517,68 @@ function spline:getBezierPoint(p0, c0, c1, p1, t)
     )
 end
 
+function spline:getBezierSpeed(p0, c0, c1, p1, t)
+    local u = 1 - t
+    local uu = u * u
+    local tt = t * t
+
+    local aX = c0.x - p0.x
+    local aY = c0.y - p0.y
+    local aZ = c0.z - p0.z
+    local bX = c1.x - c0.x
+    local bY = c1.y - c0.y
+    local bZ = c1.z - c0.z
+    local cX = p1.x - c1.x
+    local cY = p1.y - c1.y
+    local cZ = p1.z - c1.z
+
+    local dX = 3 * (uu * aX + 2 * u * t * bX + tt * cX)
+    local dY = 3 * (uu * aY + 2 * u * t * bY + tt * cY)
+    local dZ = 3 * (uu * aZ + 2 * u * t * bZ + tt * cZ)
+
+    return math.sqrt(dX * dX + dY * dY + dZ * dZ)
+end
+
+function spline:getBezierArcLength(p0, c0, c1, p1, epsilon, maxDepth)
+    epsilon = epsilon or lengthIntegrationEpsilon
+    maxDepth = maxDepth or lengthIntegrationMaxDepth
+
+    local function simpson(fa, fm, fb, h)
+        return h * (fa + 4 * fm + fb) / 6
+    end
+
+    local function integrateRecursive(a, b, fa, fm, fb, whole, eps, depth)
+        local m = (a + b) / 2
+        local lm = (a + m) / 2
+        local rm = (m + b) / 2
+
+        local flm = self:getBezierSpeed(p0, c0, c1, p1, lm)
+        local frm = self:getBezierSpeed(p0, c0, c1, p1, rm)
+
+        local left = simpson(fa, flm, fm, m - a)
+        local right = simpson(fm, frm, fb, b - m)
+        local delta = left + right - whole
+
+        if depth <= 0 or math.abs(delta) <= 15 * eps then
+            -- Richardson extrapolation term improves final precision.
+            return left + right + delta / 15
+        end
+
+        return integrateRecursive(a, m, fa, flm, fm, left, eps / 2, depth - 1)
+            + integrateRecursive(m, b, fm, frm, fb, right, eps / 2, depth - 1)
+    end
+
+    local a = 0
+    local b = 1
+    local m = 0.5
+    local fa = self:getBezierSpeed(p0, c0, c1, p1, a)
+    local fm = self:getBezierSpeed(p0, c0, c1, p1, m)
+    local fb = self:getBezierSpeed(p0, c0, c1, p1, b)
+    local whole = simpson(fa, fm, fb, b - a)
+
+    return integrateRecursive(a, b, fa, fm, fb, whole, epsilon, maxDepth)
+end
+
 function spline:getCurvePreviewComponent(index)
     local entity = self:getEntity()
     if not entity then return end
@@ -489,7 +606,7 @@ function spline:getCurvePreviewSampling(pointDefs)
         segmentCount = segmentCount + 1
     end
 
-    local requestedSamples = math.floor(math.max(8, math.min(24, self.curvePreviewSamples or 12)))
+    local requestedSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
     local maxComponents = math.max(1, self.maxCurvePreviewComponents or 256)
     local maxSamplesPerSegment = math.max(1, math.floor(maxComponents / math.max(1, segmentCount)))
     local samples = math.max(1, math.min(requestedSamples, maxSamplesPerSegment))
@@ -665,20 +782,58 @@ function spline:onAssemble(entity)
         self:onNPCSpawned(entity)
     end)
 
-    cache.tryGet(self.previewCharacter .. "_apps")
+    local appCacheKey = self.previewCharacter .. "_apps"
+    cache.tryGet(appCacheKey)
     .notFound(function(task)
-        builder.registerLoadResource(ResRef.FromHash(TweakDB:GetFlat(self.previewCharacter .. ".entityTemplatePath").hash), function(resource)
-            local apps = {}
-            for _, appearance in ipairs(resource.appearances) do
-                table.insert(apps, appearance.name.value)
-            end
+        local finished = false
+        local function complete(apps)
+            if finished then return end
+            finished = true
 
-            cache.addValue(self.previewCharacter .. "_apps", apps)
+            cache.addValue(appCacheKey, apps or {})
             task:taskCompleted()
+        end
+
+        local templateFlat = TweakDB:GetFlat(self.previewCharacter .. ".entityTemplatePath")
+        local templateHash = templateFlat and templateFlat.hash
+        if not templateHash then
+            complete({})
+            return
+        end
+
+        local templateResRef = ResRef.FromHash(templateHash)
+        local depot = Game.GetResourceDepot()
+        local exists = false
+        if depot then
+            pcall(function()
+                exists = depot:ResourceExists(templateResRef)
+            end)
+        end
+        if not exists then
+            complete({})
+            return
+        end
+
+        local ok = pcall(function()
+            builder.registerLoadResource(templateResRef, function(resource)
+                local apps = {}
+                if resource and resource.appearances then
+                    for _, appearance in ipairs(resource.appearances) do
+                        if appearance and appearance.name and appearance.name.value then
+                            table.insert(apps, appearance.name.value)
+                        end
+                    end
+                end
+
+                complete(apps)
+            end)
         end)
+        if not ok then
+            complete({})
+        end
     end)
     .found(function()
-        self.apps = cache.getValue(self.previewCharacter .. "_apps")
+        self.apps = cache.getValue(appCacheKey) or {}
     end)
 end
 
@@ -708,6 +863,13 @@ function spline:update()
     self.rotation = EulerAngles.new(0, 0, 0)
     visualized.update(self)
     self:updateCurvePreview()
+end
+
+function spline:getTransformUIConfig()
+    return {
+        showRotation = false,
+        showScale = false
+    }
 end
 
 function spline:setPreview(state)
@@ -798,7 +960,7 @@ function spline:draw()
     visualized.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Curve Quality", "Spline Path", "Reverse", "Looped", "Preview NPC", "Preview NPC Record", "Movement Type", "Movement Speed" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize position", "Curve Quality", "Spline Path", "Spline Length", "Reverse", "Looped", "Preview NPC", "Preview NPC Record", "Movement Type", "Movement Speed" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     local paths = self:loadSplinePaths()
@@ -812,9 +974,18 @@ function spline:draw()
     local idx, changed = style.trackedCombo(self.object, "##splinePath", index - 1, paths, 225)
     if changed then
         self.splinePath = paths[idx + 1]
+        if self.object and self.object.sUI and self.object.sUI.bumpWireframeEpoch then
+            self.object.sUI.bumpWireframeEpoch()
+        end
         self:respawn()
     end
     style.tooltip("Path to the group containing the spline points.\nMust be contained within the same root group as this spline.")
+
+    style.mutedText("Spline Length")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.Text(string.format("%.2fm", self:getTotalLength()))
+    style.tooltip("Total spline length based on current curve sampling.")
 
     style.mutedText("Reverse")
     ImGui.SameLine()
@@ -846,7 +1017,7 @@ function spline:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(previewPropertyWidth)
         local finished
-        self.curvePreviewSamples, changed, finished = style.trackedDragInt(self.object, "##curvePreviewSamples", self.curvePreviewSamples, 8, 24, 60)
+        self.curvePreviewSamples, changed, finished = style.trackedDragInt(self.object, "##curvePreviewSamples", self.curvePreviewSamples, minCurvePreviewSamples, maxCurvePreviewSamples, 60)
         style.tooltip("Number of curve samples per segment for preview drawing.")
         if changed then
             self:updateCurvePreview()
@@ -858,7 +1029,7 @@ function spline:draw()
         style.pushButtonNoBG(true)
         ImGui.PushID("saveCurveQuality")
         if ImGui.Button(IconGlyphs.ContentSaveSettingsOutline) then
-            settings.defaultSplineCurveQuality = self.curvePreviewSamples
+            settings.defaultSplineCurveQuality = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
             settings.save()
         end
         ImGui.PopID()

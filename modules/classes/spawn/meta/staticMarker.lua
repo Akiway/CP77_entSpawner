@@ -36,7 +36,6 @@ function staticMarker:new()
 
     o.streamingMultiplier = 20
     o.primaryRange = 500
-    o.secondaryRange = 450
 
     setmetatable(o, { __index = self })
    	return o

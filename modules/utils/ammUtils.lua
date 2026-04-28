@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local entityBuilder = require("modules/utils/entityBuilder")
 local settings = require("modules/utils/settings")
 local config = require("modules/utils/config")
+local Cron = require("modules/utils/Cron")
 
 local amm = {
     importing = false,
@@ -20,7 +21,7 @@ local componentNames = { "Light0275", "Light7460", "Light5050", "Light1783", "Li
 function amm.generateProps(spawnUI, AMM, spawner)
     local props = AMM.API.GetAMMProps()
 
-    local propsService = require("modules/utils/tasks"):new()
+    local propsService = require("modules/utils/pipeline/tasks"):new()
 
     for _, prop in pairs(props) do
         propsService:addTask(function ()
@@ -55,6 +56,10 @@ function amm.generateProps(spawnUI, AMM, spawner)
 end
 
 local function getAMMLightByID(lights, id)
+    if type(lights) ~= "table" then
+        return nil
+    end
+
     for _, light in pairs(lights) do
         if light.uid == id then
             return light
@@ -206,9 +211,6 @@ local componentWhitelist = {
     "DisassemblableComponent"
 }
 
----@param spawnable entity
----@param entity entEntity
----@return boolean
 function amm.canConvertToMesh(spawnable, entity)
     if #spawnable.meshes ~= 1 then
         return false
@@ -237,11 +239,96 @@ function amm.canConvertToMesh(spawnable, entity)
     return true
 end
 
-function amm.importPreset(data, spawnedUI, importTasks)
-    local meshService = require("modules/utils/tasks"):new()
+local function callOptional(callback, ...)
+    if type(callback) ~= "function" then
+        return
+    end
+
+    local ok, err = pcall(callback, ...)
+    if not ok then
+        print(string.format("[AMMImport] Callback failed: %s", tostring(err)))
+    end
+end
+
+---@class ammImportOptions
+---@field shouldCancel function?
+---@field onProgress function?
+---@field onFinished function?
+---@field chunkQuantity number?
+---@field timeBudgetMs number?
+---@field maxInFlight number?
+---@field skipSaveOnCancel boolean?
+
+---@param data table
+---@param spawnedUI table
+---@param options ammImportOptions?
+function amm.importSinglePreset(data, spawnedUI, options)
+    options = options or {}
+
+    local shouldCancel = options.shouldCancel or function ()
+        return false
+    end
+    local onProgress = options.onProgress
+    local onFinished = options.onFinished
+    local chunkQuantity = math.max(1, math.floor(tonumber(options.chunkQuantity) or 20))
+    local timeBudgetMs = math.max(0.1, tonumber(options.timeBudgetMs) or 2.5)
+    local maxInFlight = math.max(1, math.floor(tonumber(options.maxInFlight) or 2))
+    local skipSaveOnCancel = options.skipSaveOnCancel ~= false
+
     local vehicles = {}
     for _, vehicle in pairs(config.loadFile("data/static/vehicles.json")) do
         vehicles[vehicle] = true
+    end
+
+    local nowMs = function ()
+        return os.clock() * 1000
+    end
+
+    local finished = false
+    local cancelled = false
+    local hadErrors = false
+    local timer = nil
+
+    local function isCancelled()
+        local ok, result = pcall(shouldCancel)
+        if not ok then
+            hadErrors = true
+            print("[AMMImport] Cancel callback failed: " .. tostring(result))
+            return false
+        end
+
+        return result == true
+    end
+
+    local function finish(result)
+        if finished then return end
+        finished = true
+
+        if timer then
+            Cron.Halt(timer)
+            timer = nil
+        end
+
+        callOptional(onFinished, result)
+    end
+
+    local function progress(count)
+        callOptional(onProgress, math.max(0, tonumber(count) or 0), data and data.file_name)
+    end
+
+    if type(data.props) ~= "table" then
+        print("[AMMImport] Skipped \"" .. tostring(data.file_name or "unknown") .. "\" because it has no props table.")
+        finish({
+            success = false,
+            cancelled = false,
+            fileName = data.file_name or "unknown",
+            error = "missing_props_table"
+        })
+        return
+    end
+
+    if type(data.lights) ~= "table" then
+        data.lights = {}
     end
 
     local root = generateGroup(spawnedUI, (data.file_name or "AMM_Preset"):gsub(".json", ""), nil)
@@ -252,118 +339,284 @@ function amm.importPreset(data, spawnedUI, importTasks)
     local scaledProps = generateGroup(spawnedUI, "Scaled Props", root)
     local meshes = generateGroup(spawnedUI, "Meshes", root)
 
-    for _, prop in pairs(data.props) do
-        local propData = extractPropData(prop)
+    local total = #data.props
+    local nextIndex = 1
+    local inFlight = 0
 
-        --- Generate base object for hierarchy
-        local o = generateElement(savedUI, propData)
+    local function finalizeIfDone()
+        if finished then return end
+        if not ((nextIndex > total or cancelled) and inFlight == 0) then return end
 
+        if isCancelled() then
+            cancelled = true
+        end
+
+        if cancelled and skipSaveOnCancel then
+            print("[AMMImport] Cancelled import for \"" .. tostring(data.file_name or "AMM_Preset") .. "\" before saving.")
+            finish({
+                success = false,
+                cancelled = true,
+                fileName = data.file_name
+            })
+            return
+        end
+
+        local saved, saveErr = pcall(function ()
+            root:save()
+        end)
+
+        if saved then
+            print("[" .. settings.mainWindowName .. "] Imported \"" .. data.file_name .. "\" from AMM.")
+        else
+            hadErrors = true
+            print("[AMMImport] Failed saving \"" .. tostring(data.file_name or "AMM_Preset") .. "\": " .. tostring(saveErr))
+        end
+
+        finish({
+            success = saved and not hadErrors,
+            cancelled = cancelled,
+            fileName = data.file_name,
+            saveError = saveErr
+        })
+    end
+
+    local function completeOne()
+        progress(1)
+    end
+
+    local function dispatchProp(prop)
+        local parsed, propData = pcall(function ()
+            return extractPropData(prop)
+        end)
+
+        if not parsed or type(propData) ~= "table" then
+            hadErrors = true
+            print("[AMMImport] Failed parsing prop \"" .. tostring(prop and prop.name or "unknown") .. "\" in \"" .. tostring(data.file_name or "unknown") .. "\".")
+            completeOne()
+            return
+        end
+
+        local o = generateElement(spawnedUI, propData)
         local isLight = getAMMLightByID(data.lights, propData.uid)
         local isAMMLight = propData.path:match(area) or propData.path:match(point) or propData.path:match(spot)
         local isScaled = propData.scale.x ~= 100 or propData.scale.y ~= 100 or propData.scale.z ~= 100
         local isVehicle = vehicles[propData.path]
 
         if isLight and isAMMLight then
-            -- Light Node
-            o.spawnable = convertLight(propData, data)
-            o.name = o.spawnable:generateName(propData.name)
-            o:setParent(lightNodes)
-            amm.progress = amm.progress + 1
-        elseif not isVehicle then
-            if not Game.GetResourceDepot():ResourceExists(propData.path) then
-                print("[AMMImport] Resource for " .. propData.path .. " does not exist, skipping...")
-                amm.progress = amm.progress + 1
+            local okLight, lightOrErr = pcall(function ()
+                return convertLight(propData, data)
+            end)
+            if okLight then
+                o.spawnable = lightOrErr
+                o.name = o.spawnable:generateName(propData.name)
+                o:setParent(lightNodes)
             else
-                meshService:addTask(function ()
-                    local spawnable = require("modules/classes/spawn/entity/entityTemplate"):new()
-                    spawnable:loadSpawnData({
-                        spawnData = propData.path,
-                        app = propData.app
-                    }, propData.pos, propData.rot)
-
-                    spawnable:onBBoxLoaded(function (entity)
-                        local canConvert = amm.canConvertToMesh(spawnable, entity)
-
-                        if isLight then
-                            setInstanceDataLight(entity, isLight, spawnable)
-
-                            if not isScaled then
-                                o.spawnable = spawnable
-                                o.name = o.spawnable:generateName(propData.name .. "_light")
-                                o:setParent(lightCustom)
-                            end
-
-                            spawnable:loadInstanceData(entity, true)
-                            print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
-                        end
-                        if isScaled and not canConvert then
-                            setInstanceDataMesh(entity, propData, spawnable)
-
-                            o.spawnable = spawnable
-                            o.name = o.spawnable:generateName(propData.name)
-                            o:setParent(scaledProps)
-
-                            o.spawnable:loadInstanceData(entity, true)
-                            print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
-                        end
-                        if canConvert then
-                            local scale = spawnable.meshes[1].originalScale
-                            scale.x = scale.x * propData.scale.x / 100
-                            scale.y = scale.y * propData.scale.y / 100
-                            scale.z = scale.z * propData.scale.z / 100
-
-                            local mesh = require("modules/classes/spawn/mesh/mesh"):new()
-                            mesh:loadSpawnData({
-                                spawnData = spawnable.meshes[1].path,
-                                app = spawnable.meshes[1].app,
-                                scale = { x = scale.x, y = scale.y, z = scale.z }
-                            }, spawnable.meshes[1].globalPosition, spawnable.meshes[1].globalRotation)
-
-                            o.spawnable = mesh
-                            o.name = o.spawnable:generateName(propData.name)
-                            o:setParent(meshes)
-                            print("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
-                        elseif not isLight and not isScaled then
-                            o.spawnable = convertProp(propData)
-                            o.name = o.spawnable:generateName(propData.name)
-                            o:setParent(props)
-                            print("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
-                        end
-
-                        Game.GetStaticEntitySystem():DespawnEntity(spawnable.entityID)
-                        amm.progress = amm.progress + 1
-                        meshService:taskCompleted()
-                    end)
-
-                    spawnable:spawn()
-                end)
+                hadErrors = true
+                print("[AMMImport] Failed importing light prop \"" .. tostring(propData.name) .. "\": " .. tostring(lightOrErr))
             end
-        else
+            completeOne()
+            return
+        end
+
+        if isVehicle then
             print("[AMMImport] Skipped " .. propData.name .. " as it is a vehicle, must be spawned via Entity Record.")
+            completeOne()
+            return
+        end
+
+        if not Game.GetResourceDepot():ResourceExists(propData.path) then
+            print("[AMMImport] Resource for " .. propData.path .. " does not exist, skipping...")
+            completeOne()
+            return
+        end
+
+        inFlight = inFlight + 1
+        local spawnable = require("modules/classes/spawn/entity/entityTemplate"):new()
+        local completed = false
+
+        local function completeAsync()
+            if completed then return end
+            completed = true
+
+            local despawned, despawnErr = pcall(function ()
+                if spawnable and spawnable.entityID then
+                    Game.GetStaticEntitySystem():DespawnEntity(spawnable.entityID)
+                end
+            end)
+            if not despawned then
+                print("[AMMImport] Failed despawning temp entity: " .. tostring(despawnErr))
+            end
+
+            inFlight = math.max(0, inFlight - 1)
+            completeOne()
+            finalizeIfDone()
+        end
+
+        local loaded, loadErr = pcall(function ()
+            spawnable:loadSpawnData({
+                spawnData = propData.path,
+                app = propData.app
+            }, propData.pos, propData.rot)
+        end)
+        if not loaded then
+            hadErrors = true
+            print("[AMMImport] Failed loading spawn data for \"" .. tostring(propData.name) .. "\": " .. tostring(loadErr))
+            completeAsync()
+            return
+        end
+
+        spawnable:onBBoxLoaded(function (entity)
+            if isCancelled() then
+                cancelled = true
+                completeAsync()
+                return
+            end
+
+            local canConvert = amm.canConvertToMesh(spawnable, entity)
+
+            local imported, importErr = pcall(function ()
+                if isLight then
+                    setInstanceDataLight(entity, isLight, spawnable)
+
+                    if not isScaled then
+                        o.spawnable = spawnable
+                        o.name = o.spawnable:generateName(propData.name .. "_light")
+                        o:setParent(lightCustom)
+                    end
+
+                    spawnable:loadInstanceData(entity, true)
+                    print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
+                end
+                if isScaled and not canConvert then
+                    setInstanceDataMesh(entity, propData, spawnable)
+
+                    o.spawnable = spawnable
+                    o.name = o.spawnable:generateName(propData.name)
+                    o:setParent(scaledProps)
+
+                    o.spawnable:loadInstanceData(entity, true)
+                    print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
+                end
+                if canConvert then
+                    local scale = spawnable.meshes[1].originalScale
+                    scale.x = scale.x * propData.scale.x / 100
+                    scale.y = scale.y * propData.scale.y / 100
+                    scale.z = scale.z * propData.scale.z / 100
+
+                    local mesh = require("modules/classes/spawn/mesh/mesh"):new()
+                    mesh:loadSpawnData({
+                        spawnData = spawnable.meshes[1].path,
+                        app = spawnable.meshes[1].app,
+                        scale = { x = scale.x, y = scale.y, z = scale.z }
+                    }, spawnable.meshes[1].globalPosition, spawnable.meshes[1].globalRotation)
+
+                    o.spawnable = mesh
+                    o.name = o.spawnable:generateName(propData.name)
+                    o:setParent(meshes)
+                    print("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
+                elseif not isLight and not isScaled then
+                    o.spawnable = convertProp(propData)
+                    o.name = o.spawnable:generateName(propData.name)
+                    o:setParent(props)
+                    print("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
+                end
+            end)
+
+            if not imported then
+                hadErrors = true
+                print("[AMMImport] Failed importing prop \"" .. tostring(propData.name) .. "\": " .. tostring(importErr))
+            end
+
+            completeAsync()
+        end)
+
+        local spawned, spawnErr = pcall(function ()
+            spawnable:spawn()
+        end)
+        if not spawned then
+            hadErrors = true
+            print("[AMMImport] Failed spawning temp entity for \"" .. tostring(propData.name) .. "\": " .. tostring(spawnErr))
+            completeAsync()
         end
     end
 
-    meshService:onFinalize(function ()
-        root:save()
-        print("[" .. settings.mainWindowName .. "] Imported \"" .. data.file_name .. "\" from AMM.")
+    timer = Cron.OnUpdate(function (tickTimer)
+        if finished then
+            tickTimer:Halt()
+            return
+        end
 
-        importTasks:taskCompleted()
+        if isCancelled() then
+            cancelled = true
+        end
+
+        local dispatched = 0
+        local startedAt = nowMs()
+
+        while not cancelled
+            and nextIndex <= total
+            and inFlight < maxInFlight
+            and dispatched < chunkQuantity do
+            local prop = data.props[nextIndex]
+            nextIndex = nextIndex + 1
+            dispatched = dispatched + 1
+
+            dispatchProp(prop)
+
+            if (nowMs() - startedAt) >= timeBudgetMs then
+                break
+            end
+        end
+
+        finalizeIfDone()
     end)
 
-    meshService:run(false)
+    finalizeIfDone()
+end
+
+function amm.importPreset(data, spawnedUI, importTasks)
+    amm.importSinglePreset(data, spawnedUI, {
+        chunkQuantity = 20,
+        timeBudgetMs = 2.5,
+        maxInFlight = 2,
+        onProgress = function (count)
+            amm.progress = amm.progress + (count or 0)
+        end,
+        onFinished = function ()
+            importTasks:taskCompleted()
+        end
+    })
 end
 
 function amm.importPresets(savedUI)
-    local importTasks = require("modules/utils/tasks"):new()
+    local importTasks = require("modules/utils/pipeline/tasks"):new()
     amm.progress = 0
+    amm.total = 0
 
     for _, file in pairs(dir("data/AMMImport")) do
         if file.name:match("^.+(%..+)$") == ".json" then
             importTasks:addTask(function ()
                 local data = config.loadFile("data/AMMImport/" .. file.name)
-                amm.importPreset(data, savedUI, importTasks)
+                data.file_name = data.file_name or file.name
+
+                if type(data.props) ~= "table" then
+                    print("[AMMImport] Skipped \"" .. file.name .. "\" because it is not an AMM preset export.")
+                    importTasks:taskCompleted()
+                    return
+                end
 
                 amm.total = amm.total + #data.props
+                amm.importSinglePreset(data, savedUI, {
+                    chunkQuantity = 20,
+                    timeBudgetMs = 2.5,
+                    maxInFlight = 2,
+                    onProgress = function (count)
+                        amm.progress = amm.progress + (count or 0)
+                    end,
+                    onFinished = function ()
+                        importTasks:taskCompleted()
+                    end
+                })
             end)
         end
     end

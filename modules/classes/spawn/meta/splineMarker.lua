@@ -286,8 +286,8 @@ function splineMarker:updateTangentMarkers()
     self:updateTangentGizmoVisibility()
 end
 
-function splineMarker:setPreview(state)
-    connectedMarker.setPreview(self, state)
+function splineMarker:setPreview(state, syncNeighbors, visited)
+    connectedMarker.setPreview(self, state, syncNeighbors, visited)
     self:updateTangentGizmoVisibility()
 end
 
@@ -374,10 +374,6 @@ function splineMarker:draw()
     self.previewed, changed = style.trackedCheckbox(self.object, "##visualize", self.previewed)
     if changed then
         self:setPreview(self.previewed)
-
-        for _, neighbor in pairs(self:getNeighbors().neighbors) do
-            neighbor:setPreview(self.previewed)
-        end
     end
 
     style.mutedText("Automatic Tangents")

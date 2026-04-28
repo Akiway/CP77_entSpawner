@@ -5,6 +5,7 @@ local settings = require("modules/utils/settings")
 local visualizer = require("modules/utils/visualizer")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
+local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 
 ---@class editor
 ---@field active boolean
@@ -23,6 +24,8 @@ local style = require("modules/ui/style")
 ---@field originalPosition Vector4?
 ---@field originalRotation EulerAngles?
 ---@field originalScale Vector4?
+---@field originalRotationQuat Quaternion?
+---@field rotationAxisWorld Vector4?
 ---@field interface gamestateMachineGameScriptInterface?
 ---@field depthSelectElements table
 ---@field depthSelectOpen boolean
@@ -47,24 +50,90 @@ local editor = {
     originalPosition = nil,
     originalRotation = nil,
     originalScale = nil,
+    originalRotationQuat = nil,
+    rotationAxisWorld = nil,
     interface = nil,
     depthSelectElements = {},
     depthSelectOpen = false,
     depthElementsMaxWidth = 0,
     boxSelectActive = false,
     boxSelectStart = { x = 0, y = 0 },
+    wireframeCacheEpoch = -1,
+    wireframeLeafCache = {},
+    wireframeBoundsCache = {},
+    wireframeMultiLeafCache = nil,
 
     freeflyWasActive = false
 }
 
+---@alias elevatorDoorSide "left"|"right"|"top"|"bottom"
+---@alias elevatorDoorLayout table<integer, elevatorDoorSide>
+
+---Base door-side mapping by lift family.
+---Indices correspond to door numbers shown in helper badges.
+---@type table<string, elevatorDoorLayout>
+local ELEVATOR_DOOR_LAYOUTS = {
+    common = {
+        [1] = "left",
+        [2] = "right"
+    },
+    megabuilding = {
+        [1] = "right",
+        [2] = "bottom",
+        [3] = "top"
+    },
+    commonRiot = {
+        [1] = "left",
+        [2] = "bottom"
+    },
+    industrial = {
+        [1] = "left",
+        [2] = "right"
+    },
+    construction = {
+        [1] = "right",
+        [2] = "left"
+    }
+}
+
+---Optional per-family 2D rotation applied to side mappings before world projection.
+---Used to align helper numbering with in-game lift orientation variants.
+---@type table<string, "cw"|"ccw">
+local ELEVATOR_DOOR_LAYOUT_ROTATIONS = {
+    common = "ccw",
+    industrial = "cw",
+    construction = "ccw"
+}
+
+---@return boolean
+local function isSpawnedNameEditActive()
+    return editor.spawnedUI
+        and type(editor.spawnedUI.isNameEditActive) == "function"
+        and editor.spawnedUI.isNameEditActive()
+end
+
+---Checks whether the editor viewport currently has keyboard focus.
+---@return boolean focused True when the editor is active and the viewport is focused.
 function viewportFocused()
-    return editor.active and input.context.viewport.focused
+    return editor.active and input.context.viewport.focused and not isSpawnedNameEditActive()
 end
 
+---Checks whether the editor viewport is currently hovered by the mouse.
+---@return boolean hovered True when the editor is active and the viewport is hovered.
 function viewportHovered()
-    return editor.active and input.context.viewport.hovered
+    return editor.active and input.context.viewport.hovered and not isSpawnedNameEditActive()
 end
 
+---Ends active group-rotation drag state when the current selection is a group.
+local function clearGroupRotationDragState()
+    local selected = editor.getSelected()
+    if selected and selected.endRotationDrag and utils.isA(selected, "positionableGroup") then
+        selected:endRotationDrag()
+    end
+end
+
+---Cancels the current transform operation and restores the original transform snapshot.
+---Note: function name keeps the historical typo for compatibility.
 function editor.cancleEditingTransform()
     editor.grab = false
     editor.rotate = false
@@ -80,12 +149,61 @@ function editor.cancleEditingTransform()
     editor.originalDiff.pos = nil
     editor.originalDiff.rot = nil
     editor.originalDiff.scale = nil
+    editor.originalRotationQuat = nil
+    editor.rotationAxisWorld = nil
+    clearGroupRotationDragState()
     input.trackNumeric(false)
+end
+
+---Confirms current interaction by recording edits or selecting under cursor when idle.
+---@return boolean handled
+local function tryResolveHierarchyPickFromWorld()
+    if not editor.spawnedUI
+        or type(editor.spawnedUI.isHierarchyPickActive) ~= "function"
+        or type(editor.spawnedUI.resolveHierarchyPick) ~= "function"
+        or not editor.spawnedUI.isHierarchyPickActive() then
+        return false
+    end
+
+    local player = GetPlayer()
+    if not player then
+        return false
+    end
+
+    local excludeIds = nil
+    local request = editor.spawnedUI.hierarchyPickRequest
+    if request and request.ownerId then
+        excludeIds = { [request.ownerId] = true }
+    end
+
+    local ray = editor.getScreenToWorldRay()
+    local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+    local hit = editor.getRaySceneIntersection(ray, origin, excludeIds, true)
+    if not hit.hit or not hit.result or not hit.result.position then
+        return false
+    end
+
+    local hitPosition = hit.result.position
+    local worldPickTarget = {
+        getPosition = function()
+            return hitPosition
+        end
+    }
+
+    return editor.spawnedUI.resolveHierarchyPick(worldPickTarget)
 end
 
 function editor.confirmEditingTransform()
     if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit then
-        editor.setTarget()
+        local hierarchyPickActive = editor.spawnedUI
+            and type(editor.spawnedUI.isHierarchyPickActive) == "function"
+            and editor.spawnedUI.isHierarchyPickActive()
+
+        if hierarchyPickActive then
+            tryResolveHierarchyPickFromWorld()
+        else
+            editor.setTarget()
+        end
     end
 
     if editor.grab or editor.rotate or editor.scale then
@@ -96,9 +214,14 @@ function editor.confirmEditingTransform()
     editor.rotate = false
     editor.scale = false
     editor.currentAxis = "none"
+    editor.originalRotationQuat = nil
+    editor.rotationAxisWorld = nil
+    clearGroupRotationDragState()
     input.trackNumeric(false)
 end
 
+---Initializes editor dependencies and registers mouse/keyboard bindings.
+---@param spawner spawner Main spawner runtime instance used to resolve UI modules.
 function editor.init(spawner)
     editor.baseUI = spawner.baseUI
     editor.spawnedUI = spawner.baseUI.spawnedUI
@@ -113,21 +236,28 @@ function editor.init(spawner)
         editor.confirmEditingTransform()
     end,
     function ()
-        return editor.active and input.context.viewport.hovered
+        return viewportHovered()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
+        if editor.spawnedUI
+            and type(editor.spawnedUI.isHierarchyPickActive) == "function"
+            and editor.spawnedUI.isHierarchyPickActive()
+            and type(editor.spawnedUI.cancelHierarchyPick) == "function" then
+            editor.spawnedUI.cancelHierarchyPick()
+            return
+        end
         editor.cancleEditingTransform()
     end, viewportHovered)
     input.registerImGuiHotkey({ ImGuiKey.Enter }, function ()
         editor.confirmEditingTransform()
     end,
     function ()
-        return editor.active and input.context.viewport.hovered
+        return viewportHovered()
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.Tab }, editor.centerCamera, function ()
-        return editor.active and (input.context.viewport.focused or input.context.hierarchy.focused)
+        return not isSpawnedNameEditActive() and editor.active and (input.context.viewport.focused or input.context.hierarchy.focused)
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()
@@ -218,12 +348,17 @@ function editor.init(spawner)
     end)
 end
 
+---Gets the current editable selection.
+---@return positionable? selected Single selected positionable, or multi-select proxy group, or nil.
 function editor.getSelected()
-    editor.spawnedUI.cachePaths()
+    editor.spawnedUI.ensureCache()
 
     if #editor.spawnedUI.selectedPaths == 0 then return end
 
     if #editor.spawnedUI.selectedPaths == 1 then
+        if editor.spawnedUI.selectedPaths[1].ref:isLocked() then
+            return
+        end
         if utils.isA(editor.spawnedUI.selectedPaths[1].ref, "positionable") then
             return editor.spawnedUI.selectedPaths[1].ref
         end
@@ -232,6 +367,7 @@ function editor.getSelected()
     end
 end
 
+---Centers the editor camera on the current selection.
 function editor.centerCamera()
     if not editor.spawnedUI.selectedPaths[1] and editor.active then return end
 
@@ -261,6 +397,8 @@ function editor.centerCamera()
     editor.camera.transition(editor.camera.cameraTransform.position, pos, editor.camera.cameraTransform.rotation, editor.camera.cameraTransform.rotation, distance, 0.5)
 end
 
+---Removes outline highlight from spawned entries.
+---@param onlySelected boolean? When true, clear highlight only for selected paths; otherwise for all paths.
 function editor.removeHighlight(onlySelected)
     local paths = onlySelected and editor.spawnedUI.selectedPaths or editor.spawnedUI.paths
 
@@ -271,6 +409,7 @@ function editor.removeHighlight(onlySelected)
     end
 end
 
+---Applies outline highlight to all currently selected spawnable elements.
 function editor.addHighlightToSelected()
     for _, selected in pairs(editor.spawnedUI.selectedPaths) do
         if utils.isA(selected.ref, "spawnableElement") then
@@ -279,10 +418,10 @@ function editor.addHighlightToSelected()
     end
 end
 
----Gets a ray pointing from the screen into the scene, using mouse position as default
----@param x number?
----@param y number?
----@return Vector4
+---Builds a normalized world-space ray from a screen position.
+---@param x number? Screen-space X coordinate in pixels. Defaults to current mouse X.
+---@param y number? Screen-space Y coordinate in pixels. Defaults to current mouse Y.
+---@return Vector4 ray Normalized world-space ray direction.
 function editor.getScreenToWorldRay(x, y)
     if not x or not y then
         x, y = ImGui.GetMousePos()
@@ -293,11 +432,17 @@ function editor.getScreenToWorldRay(x, y)
     return ray:Normalize()
 end
 
+---Finds the nearest intersection between a ray and spawned elements or physical world geometry.
+---@param ray Vector4 Normalized ray direction.
+---@param origin Vector4 Ray origin in world space.
+---@param excludeIds table<number, boolean>? Optional lookup table of element IDs to ignore.
+---@param usePhysical boolean When true, physical raycast hits can override spawnable hits if closer.
+---@return { hit: boolean, isNode: boolean, allHits: table[], result: table? } hitData Result payload including all spawnable hits and chosen hit.
 function editor.getRaySceneIntersection(ray, origin, excludeIds, usePhysical)
     local hits = {}
 
     for _, element in pairs(editor.spawnedUI.paths) do
-        if element.ref.visible and utils.isA(element.ref, "spawnableElement") then
+        if element.ref.visible and not element.ref:isLocked() and utils.isA(element.ref, "spawnableElement") then
             local hit = element.ref.spawnable:calculateIntersection(origin, ray)
 
             if hit.hit and (not excludeIds or (excludeIds and not excludeIds[element.ref.id])) then
@@ -360,12 +505,14 @@ function editor.getRaySceneIntersection(ray, origin, excludeIds, usePhysical)
     }
 end
 
+---Selects the spawnable element currently under the cursor.
 function editor.setTarget()
     local ray = editor.getScreenToWorldRay()
     local hit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, false)
     if not hit.hit or (not hit.isNode and #hit.allHits == 0) then return end -- or not hit.isNode | for now allow selecing through physical objects
 
     hit = hit.result
+    if hit.element:isLocked() then return end
 
     if not editor.spawnedUI.multiSelectActive() then
         editor.spawnedUI.unselectAll()
@@ -377,11 +524,12 @@ function editor.setTarget()
         hit.element:expandAllParents()
         editor.spawnedUI.scrollToSelected = true
         hit.element:setSelected(true)
-        editor.spawnedUI.cachePaths()
+        editor.spawnedUI.ensureCache()
         editor.addHighlightToSelected()
     end
 end
 
+---Updates transform-gizmo arrow highlight for the currently selected spawnable element.
 function editor.updateArrowColor()
     local selected = editor.getSelected()
 
@@ -390,6 +538,7 @@ function editor.updateArrowColor()
     visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis)
 end
 
+---Resets cached drag deltas when the active transform axis changes.
 function editor.updateCurrentAxis()
     if not editor.grab and not editor.rotate and not editor.scale then return end
 
@@ -407,9 +556,14 @@ function editor.updateCurrentAxis()
         editor.originalDiff.pos = nil
         editor.originalDiff.rot = nil
         editor.originalDiff.scale = nil
+        editor.originalRotationQuat = nil
+        editor.rotationAxisWorld = nil
+        clearGroupRotationDragState()
     end
 end
 
+---Starts a transform mode for the current selection.
+---@param transformationType "translate"|"rotate"|"scale" Transform mode to activate.
 function editor.toggleTransform(transformationType)
     if editor.currentAxis ~= "none" then return end
 
@@ -434,6 +588,7 @@ function editor.toggleTransform(transformationType)
     end
 end
 
+---Records the current transform change into history and finalizes edited state.
 function editor.recordChange()
     local element = editor.getSelected()
     local newPosition = Vector4.new(element:getPosition())
@@ -456,8 +611,12 @@ function editor.recordChange()
     editor.originalDiff.pos = nil
     editor.originalDiff.rot = nil
     editor.originalDiff.scale = nil
+    editor.originalRotationQuat = nil
+    editor.rotationAxisWorld = nil
+    clearGroupRotationDragState()
 end
 
+---Updates hovered transform arrow based on cursor-to-gizmo intersection tests.
 function editor.checkArrow()
     if #editor.spawnedUI.selectedPaths ~= 1 or editor.currentAxis ~= "none" then
         editor.hoveredArrow = "none"
@@ -506,6 +665,9 @@ function editor.checkArrow()
     visualizer.highlightArrow(selected:getEntity(), editor.hoveredArrow)
 end
 
+---Computes cursor movement relative to a world position in camera-relative space.
+---@param position Vector4 World-space pivot point used for the reference plane.
+---@return Vector4 relativeDelta Camera-relative delta from pivot to cursor-plane hit.
 function editor.getScreenRelativeToPoint(position)
     local cam = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
     local normal = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
@@ -521,6 +683,7 @@ function editor.getScreenRelativeToPoint(position)
     return diff:Transform(dir)
 end
 
+---Applies live translation/rotation/scale updates while the current transform interaction is active.
 function editor.updateDrag()
     local dragging = ImGui.IsMouseDragging(0, style.draggingThreshold) and not (editor.grab or editor.rotate or editor.scale)
     if dragging then
@@ -597,14 +760,40 @@ function editor.updateDrag()
 
         if not editor.originalDiff.rot then
             editor.originalDiff.rot = angle
+            editor.originalRotationQuat = editor.originalRotation:ToQuat()
+            if selected.beginRotationDrag and utils.isA(selected, "positionableGroup") then
+                selected:beginRotationDrag()
+            end
+
+            if axis.x.mult == 1 and axis.y.mult == 0 and axis.z.mult == 0 then
+                editor.rotationAxisWorld = editor.originalRotationQuat:GetRight():Normalize()
+            elseif axis.x.mult == 0 and axis.y.mult == 1 and axis.z.mult == 0 then
+                editor.rotationAxisWorld = editor.originalRotationQuat:GetForward():Normalize()
+            elseif axis.x.mult == 0 and axis.y.mult == 0 and axis.z.mult == 1 then
+                editor.rotationAxisWorld = editor.originalRotationQuat:GetUp():Normalize()
+            else
+                editor.rotationAxisWorld = nil
+            end
         end
 
-        local original = EulerAngles.new(editor.originalRotation)
-        original.pitch = original.pitch + (angle - editor.originalDiff.rot + input.getNumeric(0)) * axis.x.mult
-        original.roll = original.roll + (angle - editor.originalDiff.rot + input.getNumeric(0)) * axis.y.mult
-        original.yaw = original.yaw + (angle - editor.originalDiff.rot + input.getNumeric(0)) * axis.z.mult
+        local angleDelta = angle - editor.originalDiff.rot + input.getNumeric(0)
 
-        selected:setRotation(original)
+        if editor.rotationAxisWorld and editor.originalRotationQuat then
+            local stepQuat = Quaternion.SetAxisAngle(editor.rotationAxisWorld, Deg2Rad(angleDelta))
+            local targetQuat = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, editor.originalRotationQuat)
+            if selected.applyRotationDrag and utils.isA(selected, "positionableGroup") then
+                selected:applyRotationDrag(stepQuat, targetQuat, targetQuat:ToEulerAngles())
+            else
+                selected:setRotation(targetQuat:ToEulerAngles())
+            end
+        else
+            local original = EulerAngles.new(editor.originalRotation)
+            original.pitch = original.pitch + angleDelta * axis.x.mult
+            original.roll = original.roll + angleDelta * axis.y.mult
+            original.yaw = original.yaw + angleDelta * axis.z.mult
+
+            selected:setRotation(original)
+        end
     elseif editor.scale then
         local distance = Vector4.Length(editor.getScreenRelativeToPoint(position))
 
@@ -621,13 +810,18 @@ function editor.updateDrag()
     end
 end
 
+---Returns a point in front of the camera, adjusted to editor viewport center when active.
+---@param distance number Forward distance in meters.
+---@return Vector4 worldPosition Target point in world space.
+---@return Vector4 relativeForward Unadjusted camera-space forward vector returned by `camera.screenToWorld`.
 function editor.getForward(distance)
     local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
     local relativeForward = Vector4.new(0, 1, 0, 0)
 
     if editor.active then
         local screenWidth, _ = GetDisplayResolution()
-        local x = (screenWidth - settings.editorWidth) / 2
+        local viewportStart = settings.editorDockLeft and settings.editorWidth or 0
+        local x = viewportStart + ((screenWidth - settings.editorWidth) / 2)
 
         relativeForward, adjusted = editor.camera.screenToWorld((x / screenWidth * 2) - 1, 0)
         adjusted = adjusted:Normalize()
@@ -640,6 +834,7 @@ function editor.getForward(distance)
     return utils.addVector(position, utils.multVector(forward, distance)), relativeForward
 end
 
+---Draws the depth-selection popup used to choose between overlapping hits.
 function editor.drawDepthSelect()
     if not editor.active or not editor.depthSelectOpen then return end
 
@@ -657,19 +852,23 @@ function editor.drawDepthSelect()
 
             ImGui.SameLine(editor.depthElementsMaxWidth + 10 * style.viewSize)
 
+            ImGui.BeginDisabled(hit.element:isLocked())
             if ImGui.Selectable(hit.element.name, false) then
                 editor.spawnedUI.unselectAll()
                 hit.element:setSelected(true)
                 editor.depthSelectOpen = false
                 editor.spawnedUI.scrollToSelected = true
             end
+            ImGui.EndDisabled()
         end
 
         ImGui.End()
     end
 end
 
----@param entry spawnable
+---Calculates all eight world-space corners of a spawnable bounding box.
+---@param entry spawnable Spawnable entry whose local bounding box is transformed to world space.
+---@return Vector4[] corners World-space corner points.
 local function calculateSpawnableCorners(entry)
     local bBox = entry:getBBox()
 
@@ -691,6 +890,632 @@ local function calculateSpawnableCorners(entry)
     return corners
 end
 
+---Checks whether a numeric value is finite and not NaN.
+---@param value number? Value to validate.
+---@return boolean isFiniteValue True when value is a finite number.
+local function isFinite(value)
+    return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
+
+---Invalidates wireframe caches when spawned UI cache epoch changes.
+local function refreshWireframeCaches()
+    local cacheEpoch = editor.spawnedUI and editor.spawnedUI.cacheEpoch or -1
+    if editor.wireframeCacheEpoch == cacheEpoch then
+        return
+    end
+
+    editor.wireframeCacheEpoch = cacheEpoch
+    editor.wireframeLeafCache = {}
+    editor.wireframeBoundsCache = {}
+    editor.wireframeMultiLeafCache = nil
+end
+
+---Returns and caches leaf spawnable elements for a group.
+---@param group positionableGroup Group whose leaf nodes should be collected.
+---@return spawnableElement[] leafs Cached list of leaf spawnable elements.
+local function getGroupLeafsCached(group)
+    local cacheEpoch = editor.spawnedUI and editor.spawnedUI.cacheEpoch or -1
+    local cached = editor.wireframeLeafCache[group.id]
+    if cached and cached.cacheEpoch == cacheEpoch then
+        return cached.leafs
+    end
+
+    local leafs = group:getPositionableLeafs()
+    editor.wireframeLeafCache[group.id] = {
+        cacheEpoch = cacheEpoch,
+        leafs = leafs
+    }
+
+    return leafs
+end
+
+---Appends source leaf elements into a target array.
+---@param target spawnableElement[] Destination array to mutate.
+---@param source spawnableElement[] Source array to append.
+local function appendLeafs(target, source)
+    for _, leaf in ipairs(source) do
+        table.insert(target, leaf)
+    end
+end
+
+---Compares two numbers with epsilon tolerance.
+---@param a number? First value.
+---@param b number? Second value.
+---@return boolean equal True when both values are equal within epsilon.
+local function almostEqual(a, b)
+    if a == b then return true end
+    if not a or not b then return false end
+    return math.abs(a - b) <= 0.0001
+end
+
+---Builds group-local min/max bounds from world-space leaf bounding boxes.
+---@param leafs spawnableElement[] Leaf spawnable elements used to compute aggregate bounds.
+---@param origin Vector4 Group origin in world space.
+---@param groupQuat Quaternion Group orientation in world space.
+---@return Vector4? minLocal Local-space minimum corner, or nil when bounds cannot be computed.
+---@return Vector4? maxLocal Local-space maximum corner, or nil when bounds cannot be computed.
+---@return Quaternion? resolvedQuat Same group quaternion when bounds are valid.
+local function getLocalBoundsFromLeafs(leafs, origin, groupQuat)
+    local minLocal = Vector4.new(math.huge, math.huge, math.huge, 0)
+    local maxLocal = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
+    local anyCorner = false
+
+    for _, leaf in pairs(leafs) do
+        local spawnable = leaf.spawnable
+        local bbox = spawnable and spawnable.getBBox and spawnable:getBBox() or nil
+        local leafPos = leaf:getPosition()
+        local leafQuat = leaf:getRotation():ToQuat()
+
+        if bbox and leafPos and leafQuat then
+            local corners = {
+                Vector4.new(bbox.min.x, bbox.min.y, bbox.min.z, 0),
+                Vector4.new(bbox.min.x, bbox.min.y, bbox.max.z, 0),
+                Vector4.new(bbox.min.x, bbox.max.y, bbox.min.z, 0),
+                Vector4.new(bbox.min.x, bbox.max.y, bbox.max.z, 0),
+                Vector4.new(bbox.max.x, bbox.min.y, bbox.min.z, 0),
+                Vector4.new(bbox.max.x, bbox.min.y, bbox.max.z, 0),
+                Vector4.new(bbox.max.x, bbox.max.y, bbox.min.z, 0),
+                Vector4.new(bbox.max.x, bbox.max.y, bbox.max.z, 0)
+            }
+
+            for _, corner in ipairs(corners) do
+                local worldPoint = utils.addVector(leafPos, leafQuat:Transform(corner))
+                local localPoint = groupQuat:TransformInverse(utils.subVector(worldPoint, origin))
+
+                if isFinite(localPoint.x) and isFinite(localPoint.y) and isFinite(localPoint.z) then
+                    minLocal = Vector4.new(math.min(minLocal.x, localPoint.x), math.min(minLocal.y, localPoint.y), math.min(minLocal.z, localPoint.z), 0)
+                    maxLocal = Vector4.new(math.max(maxLocal.x, localPoint.x), math.max(maxLocal.y, localPoint.y), math.max(maxLocal.z, localPoint.z), 0)
+                    anyCorner = true
+                end
+            end
+        end
+    end
+
+    if not anyCorner then
+        return nil, nil, nil
+    end
+
+    return minLocal, maxLocal, groupQuat
+end
+
+---Collects group targets that should render oriented bounds overlays.
+---@return table[] targets Overlay target records with `cacheKey`, `origin`, `quat`, and `leafs`.
+local function getOverlayTargets()
+    refreshWireframeCaches()
+
+    local selectedGroupRoots = {}
+    if #editor.spawnedUI.selectedPaths > 1 then
+        for _, entry in pairs(editor.spawnedUI.getRoots(editor.spawnedUI.selectedPaths)) do
+            if entry.ref and utils.isA(entry.ref, "positionableGroup") then
+                table.insert(selectedGroupRoots, entry.ref)
+            end
+        end
+    end
+
+    if #selectedGroupRoots > 1 then
+        local multi = editor.spawnedUI.multiSelectGroup
+        multi.childs = {}
+        local signatureParts = {}
+        for _, group in ipairs(selectedGroupRoots) do
+            table.insert(multi.childs, group)
+            table.insert(signatureParts, tostring(group.id))
+        end
+
+        local cacheEpoch = editor.spawnedUI and editor.spawnedUI.cacheEpoch or -1
+        local signature = table.concat(signatureParts, ";")
+        local leafs
+        if editor.wireframeMultiLeafCache and editor.wireframeMultiLeafCache.cacheEpoch == cacheEpoch and editor.wireframeMultiLeafCache.signature == signature then
+            leafs = editor.wireframeMultiLeafCache.leafs
+        else
+            leafs = {}
+            for _, group in ipairs(selectedGroupRoots) do
+                appendLeafs(leafs, getGroupLeafsCached(group))
+            end
+            editor.wireframeMultiLeafCache = {
+                cacheEpoch = cacheEpoch,
+                signature = signature,
+                leafs = leafs
+            }
+        end
+
+        return {
+            {
+                cacheKey = "multi",
+                origin = multi:getPosition(),
+                quat = multi:getRotation():ToQuat(),
+                leafs = leafs
+            }
+        }
+    end
+
+    local targets = {}
+    local seen = {}
+
+---Adds a group overlay target once, skipping root/ineligible groups.
+---@param group positionableGroup? Candidate group to include.
+    local function addGroupTarget(group)
+        if not group or group.parent == nil or seen[group.id] then
+            return
+        end
+
+        seen[group.id] = true
+        table.insert(targets, {
+            cacheKey = tostring(group.id),
+            origin = group:getPosition(),
+            quat = group:getRotation():ToQuat(),
+            leafs = getGroupLeafsCached(group)
+        })
+    end
+
+    for _, selected in ipairs(editor.spawnedUI.selectedPaths) do
+        if selected.ref and utils.isA(selected.ref, "positionableGroup") then
+            addGroupTarget(selected.ref)
+        end
+    end
+
+    for _, hovered in ipairs(editor.spawnedUI.hoveredEntries or {}) do
+        if hovered and hovered.hovered and utils.isA(hovered, "positionableGroup") then
+            addGroupTarget(hovered)
+        end
+    end
+
+    return targets
+end
+
+---Returns cached group-local bounds for an overlay target.
+---@param target table Overlay target record containing `cacheKey`, `origin`, `quat`, and `leafs`.
+---@return Vector4? minLocal Cached or computed local minimum corner.
+---@return Vector4? maxLocal Cached or computed local maximum corner.
+---@return Quaternion? groupQuat Target orientation used for drawing.
+local function getCachedLocalBounds(target)
+    if not target.origin or not target.quat then
+        return nil, nil, nil
+    end
+
+    local cacheEpoch = editor.spawnedUI and editor.spawnedUI.cacheEpoch or -1
+    local wireframeEpoch = editor.spawnedUI and editor.spawnedUI.wireframeEpoch or 0
+    local cache = editor.wireframeBoundsCache[target.cacheKey]
+
+    if cache
+        and cache.cacheEpoch == cacheEpoch
+        and cache.wireframeEpoch == wireframeEpoch
+        and cache.leafCount == #target.leafs
+        and almostEqual(cache.originX, target.origin.x)
+        and almostEqual(cache.originY, target.origin.y)
+        and almostEqual(cache.originZ, target.origin.z)
+        and almostEqual(cache.quatI, target.quat.i)
+        and almostEqual(cache.quatJ, target.quat.j)
+        and almostEqual(cache.quatK, target.quat.k)
+        and almostEqual(cache.quatR, target.quat.r) then
+        return cache.minLocal, cache.maxLocal, target.quat
+    end
+
+    local minLocal, maxLocal, groupQuat = getLocalBoundsFromLeafs(target.leafs, target.origin, target.quat)
+    if not minLocal or not maxLocal or not groupQuat then
+        return nil, nil, nil
+    end
+
+    editor.wireframeBoundsCache[target.cacheKey] = {
+        cacheEpoch = cacheEpoch,
+        wireframeEpoch = wireframeEpoch,
+        leafCount = #target.leafs,
+        originX = target.origin.x,
+        originY = target.origin.y,
+        originZ = target.origin.z,
+        quatI = target.quat.i,
+        quatJ = target.quat.j,
+        quatK = target.quat.k,
+        quatR = target.quat.r,
+        minLocal = minLocal,
+        maxLocal = maxLocal
+    }
+
+    return minLocal, maxLocal, groupQuat
+end
+
+---Resolves wireframe theme colors for group overlays.
+---@return number frontColor Color for visible/front edges.
+---@return number backColor Color for occluded/back edges.
+---@return number labelColor Color for distance/label text.
+local function getGroupWireframeThemeColors()
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+    if wireframeColorStyle == 2 then
+        -- Lighter blue wireframe with black text.
+        return 0xFFFF7F00, 0x55FF7F00, 0xFF000000
+    end
+
+    -- Darker blue wireframe with white text.
+    return 0xFF992D00, 0x55992D00, 0xFFDCD8D1
+end
+
+---Draws an oriented group bounds wireframe overlay.
+---@param target table Overlay target with transform and leaf metadata.
+---@param screen table Screen projection helper returned by `projectedWireframe.beginOverlay`.
+---@param drawList table ImGui draw list for overlay rendering.
+local function drawGroupBounds(target, screen, drawList)
+    local minLocal, maxLocal, groupQuat = getCachedLocalBounds(target)
+    if not minLocal or not maxLocal or not groupQuat then return end
+
+    local origin = target.origin
+    if not origin then return end
+    local frontColor, backColor, labelColor = getGroupWireframeThemeColors()
+
+    projectedWireframe.drawOrientedBox(
+        drawList,
+        screen,
+        origin,
+        groupQuat,
+        minLocal,
+        maxLocal,
+        {
+            frontColor = frontColor,
+            backColor = backColor,
+            frontThickness = 1.5 * style.viewSize,
+            backThickness = 1.2 * style.viewSize,
+            fadeNear = 45,
+            fadeFar = 175,
+            fadeLimit = 0.8,
+            originColor = frontColor,
+            labelColor = labelColor
+        }
+    )
+end
+
+---Draws bounds overlays for selected or hovered groups when enabled.
+local function drawHoveredGroupBounds()
+    if not editor.active or not editor.camera then return end
+    if not settings.groupWireframeEnabled then return end
+    editor.spawnedUI.ensureCache()
+
+    local targets = getOverlayTargets()
+    if #targets == 0 then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##groupBoundsOverlay")
+    if not screen then return end
+
+    for _, target in ipairs(targets) do
+        drawGroupBounds(target, screen, drawList)
+    end
+    projectedWireframe.endOverlay()
+end
+
+---Collects spawnables that expose a streaming range visualization.
+---@return table[] targets Array of `{ range, refPoint }` records.
+local function getStreamingRangeTargets()
+    editor.spawnedUI.ensureCache()
+
+    local targets = {}
+    for _, entry in ipairs(editor.spawnedUI.paths) do
+        local element = entry.ref
+        if element
+            and element.visible
+            and not element.hiddenByParent
+            and utils.isA(element, "spawnableElement")
+            and element.spawnable
+            and element.spawnable.visualizeStreamingRange
+            and element.spawnable:isSpawned() then
+            local spawnable = element.spawnable
+            local range = tonumber(spawnable.primaryRange) or 0
+            local refPoint = spawnable:getStreamingReferencePoint()
+
+            if refPoint and range > 0 then
+                table.insert(targets, {
+                    range = range,
+                    refPoint = refPoint
+                })
+            end
+        end
+    end
+
+    return targets
+end
+
+---Checks whether a point lies inside an axis-aligned streaming range box.
+---@param point Vector4 Point to test.
+---@param center Vector4 Center of the streaming box.
+---@param range number Half-extent applied on all axes.
+---@return boolean inside True when point lies inside the box bounds.
+local function isInsideStreamingBox(point, center, range)
+    return point.x >= (center.x - range) and point.x <= (center.x + range)
+        and point.y >= (center.y - range) and point.y <= (center.y + range)
+        and point.z >= (center.z - range) and point.z <= (center.z + range)
+end
+
+---Resolves streaming-range colors based on whether the player is inside the range.
+---@param inside boolean True when the player is inside the streaming range.
+---@return number color Wireframe edge color.
+---@return number labelColor Label color used by overlay text.
+local function getStreamingWireframeThemeColors(inside)
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+    if wireframeColorStyle == 2 then
+        return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
+    end
+
+    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
+end
+
+---Draws streaming-range overlays for eligible spawned elements.
+local function drawSpawnableStreamingRanges()
+    if not editor.camera or not editor.spawnedUI or not GetPlayer() then return end
+
+    local targets = getStreamingRangeTargets()
+    if #targets == 0 then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##streamingRangeOverlay")
+    if not screen then return end
+
+    local playerPos = GetPlayer():GetWorldPosition()
+    local identityQuat = EulerAngles.new(0, 0, 0):ToQuat()
+
+    for _, target in ipairs(targets) do
+        local inside = isInsideStreamingBox(playerPos, target.refPoint, target.range)
+        local color, labelColor = getStreamingWireframeThemeColors(inside)
+
+        projectedWireframe.drawOrientedBox(
+            drawList,
+            screen,
+            target.refPoint,
+            identityQuat,
+            Vector4.new(-target.range, -target.range, -target.range, 0),
+            Vector4.new(target.range, target.range, target.range, 0),
+            {
+                frontColor = color,
+                backColor = inside and 0x5500FF00 or 0x550000FF,
+                frontThickness = 1.5 * style.viewSize,
+                backThickness = 1.2 * style.viewSize,
+                fadeNear = 45,
+                fadeFar = 175,
+                fadeLimit = 0.8,
+                originColor = color,
+                labelColor = labelColor,
+                originDistance = utils.distanceVector(playerPos, target.refPoint)
+            }
+        )
+    end
+
+    projectedWireframe.endOverlay()
+end
+
+---Resolves the canonical door layout family from entity spawn path text.
+---Returns both layout table and a stable family key used for post-layout rotation rules.
+---@param spawnData string?
+---@return elevatorDoorLayout
+---@return string layoutKey
+local function resolveLiftDoorLayout(spawnData)
+    local normalized = string.lower(tostring(spawnData or ""))
+
+    if string.find(normalized, "megabuilding", 1, true) then
+        return ELEVATOR_DOOR_LAYOUTS.megabuilding, "megabuilding"
+    end
+
+    if string.find(normalized, "common_riot", 1, true) or string.find(normalized, "riot", 1, true) then
+        return ELEVATOR_DOOR_LAYOUTS.commonRiot, "commonRiot"
+    end
+
+    if string.find(normalized, "industrial", 1, true) then
+        return ELEVATOR_DOOR_LAYOUTS.industrial, "industrial"
+    end
+
+    if string.find(normalized, "construction", 1, true) then
+        return ELEVATOR_DOOR_LAYOUTS.construction, "construction"
+    end
+
+    return ELEVATOR_DOOR_LAYOUTS.common, "common"
+end
+
+---Rotates a door side label in screen-planar space.
+---`cw` means 90 degrees clockwise; `ccw` means 90 degrees counter-clockwise.
+---@param side elevatorDoorSide?
+---@param rotation "cw"|"ccw"|nil
+---@return elevatorDoorSide?
+local function rotateDoorSide(side, rotation)
+    if not side then
+        return nil
+    end
+
+    if rotation == "cw" then
+        local cw = {
+            left = "top",
+            top = "right",
+            right = "bottom",
+            bottom = "left"
+        }
+
+        return cw[side] or side
+    end
+
+    if rotation == "ccw" then
+        local ccw = {
+            left = "bottom",
+            bottom = "right",
+            right = "top",
+            top = "left"
+        }
+
+        return ccw[side] or side
+    end
+
+    return side
+end
+
+---Finds the selected lift device eligible for door-helper rendering.
+---Only returns spawned `entity/device` entries with class `LiftControllerPS`
+---and the `showDoorsHelper` toggle enabled.
+---@return { lift: spawnable }?
+local function resolveSelectedLiftDoorHelperContext()
+    if not editor.spawnedUI then
+        return nil
+    end
+
+    editor.spawnedUI.ensureCache()
+
+    if #editor.spawnedUI.selectedPaths ~= 1 then
+        return nil
+    end
+
+    local selectedEntry = editor.spawnedUI.selectedPaths[1]
+    local selectedRef = selectedEntry and selectedEntry.ref or nil
+    if not selectedRef or not utils.isA(selectedRef, "spawnableElement") then
+        return nil
+    end
+
+    local lift = selectedRef.spawnable
+    if not lift or lift.modulePath ~= "entity/device" then
+        return nil
+    end
+
+    if tostring(lift.deviceClassName or "") ~= "LiftControllerPS" then
+        return nil
+    end
+
+    if lift.showDoorsHelper ~= true then
+        return nil
+    end
+
+    if not lift.isSpawned or not lift:isSpawned() then
+        return nil
+    end
+
+    return {
+        lift = lift
+    }
+end
+
+---Resolves marker/badge colors for a door number using current wireframe style.
+---@param index integer
+---@return integer markerColor
+---@return integer labelColor
+local function getElevatorDoorMarkerThemeColors(index)
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+
+    if wireframeColorStyle == 2 then
+        local colorByDoor = {
+            [1] = 0xFF5050FF,
+            [2] = 0xFFFF7F00,
+            [3] = 0xFF50FF50
+        }
+
+        return colorByDoor[index] or 0xFF50FF50, 0xFF000000
+    end
+
+    local colorByDoor = {
+        [1] = 0xFF0000B2,
+        [2] = 0xFF992D00,
+        [3] = style.successColor
+    }
+
+    return colorByDoor[index] or style.successColor, 0xFFDCD8D1
+end
+
+---Computes a world-space helper anchor for one logical door side.
+---Anchors are estimated from the lift AABB envelope and then transformed by lift rotation.
+---This is intentionally approximate and can be replaced by per-lift custom local offsets.
+---@param lift spawnable
+---@param side elevatorDoorSide
+---@return Vector4?
+local function getLiftDoorMarkerWorldPosition(lift, side)
+    if not lift or not lift.position or not lift.rotation or not lift.getBBox then
+        return nil
+    end
+
+    local bbox = lift:getBBox()
+    if not bbox or not bbox.min or not bbox.max then
+        return nil
+    end
+
+    local minX = tonumber(bbox.min.x) or -0.5
+    local minY = tonumber(bbox.min.y) or -0.5
+    local minZ = tonumber(bbox.min.z) or -0.5
+    local maxX = tonumber(bbox.max.x) or 0.5
+    local maxY = tonumber(bbox.max.y) or 0.5
+    local maxZ = tonumber(bbox.max.z) or 0.5
+
+    local sizeX = math.max(0.01, maxX - minX)
+    local sizeY = math.max(0.01, maxY - minY)
+    local sizeZ = math.max(0.01, maxZ - minZ)
+
+    local padding = math.max(0.15, math.min(1.0, math.max(sizeX, sizeY) * 0.12))
+    local localPoint = Vector4.new((minX + maxX) * 0.5, (minY + maxY) * 0.5, minZ + sizeZ * 0.45, 0)
+
+    if side == "left" then
+        localPoint.x = minX - padding
+    elseif side == "right" then
+        localPoint.x = maxX + padding
+    elseif side == "top" then
+        localPoint.y = maxY + padding
+    elseif side == "bottom" then
+        localPoint.y = minY - padding
+    end
+
+    local worldPoint = lift.rotation:ToQuat():Transform(localPoint)
+    return utils.addVector(lift.position, worldPoint)
+end
+
+---Draws numbered elevator door helper markers for the currently selected lift.
+---Pipeline:
+---1. Resolve selected lift and eligibility.
+---2. Resolve family layout and optional family-specific side rotation.
+---3. Project world markers with color-coded badges for doors 1..3.
+local function drawElevatorDoorHelpers()
+    local context = resolveSelectedLiftDoorHelperContext()
+    if not context then
+        return
+    end
+
+    local layout, layoutKey = resolveLiftDoorLayout(context.lift.spawnData)
+    if not layout then
+        return
+    end
+    local layoutRotation = ELEVATOR_DOOR_LAYOUT_ROTATIONS[layoutKey]
+
+    local screen, drawList = projectedWireframe.beginOverlay("##elevatorDoorHelperOverlay")
+    if not screen then
+        return
+    end
+
+    for doorIndex = 1, 3 do
+        local side = rotateDoorSide(layout[doorIndex], layoutRotation)
+        if side then
+            local worldPoint = getLiftDoorMarkerWorldPosition(context.lift, side)
+            if worldPoint then
+                local markerColor, labelColor = getElevatorDoorMarkerThemeColors(doorIndex)
+                projectedWireframe.drawWorldMarker(drawList, screen, worldPoint, {
+                    color = markerColor,
+                    labelColor = labelColor,
+                    text = "Door " .. tostring(doorIndex),
+                    radius = 6 * style.viewSize,
+                    innerRadius = 3.2 * style.viewSize,
+                    badgeOffsetY = -18 * style.viewSize,
+                    fontRatio = 0.82
+                })
+            end
+        end
+    end
+
+    projectedWireframe.endOverlay()
+end
+
+---Handles Ctrl+drag box selection in the viewport and draws selection rectangle.
 function editor.handleBoxSelect()
     if not editor.active then return end
 
@@ -707,7 +1532,7 @@ function editor.handleBoxSelect()
         local max = { x = math.max(editor.boxSelectStart.x, x), y = math.max(editor.boxSelectStart.y, y) }
 
         for _, element in pairs(editor.spawnedUI.paths) do
-            if element.ref.visible and not element.ref.hiddenByParent and utils.isA(element.ref, "spawnableElement") then
+            if element.ref.visible and not element.ref.hiddenByParent and not element.ref:isLocked() and utils.isA(element.ref, "spawnableElement") then
                 local inside = true
                 for _, corner in pairs(calculateSpawnableCorners(element.ref.spawnable)) do
                     local xCorner, yCorner = editor.camera.worldToScreen(corner)
@@ -738,10 +1563,19 @@ function editor.handleBoxSelect()
     end
 end
 
+---Per-frame editor update/draw entrypoint invoked from the main draw loop.
 function editor.onDraw()
+    if editor.spawnedUI and editor.spawnedUI.updateModifierState then
+        editor.spawnedUI.updateModifierState()
+    end
+
     if editor.camera then
         editor.camera.update()
     end
+
+    drawHoveredGroupBounds()
+    drawSpawnableStreamingRanges()
+    drawElevatorDoorHelpers()
 
     if editor.active and input.context.viewport.hovered then
         editor.checkArrow()
@@ -751,6 +1585,8 @@ function editor.onDraw()
     end
 end
 
+---Temporarily suspends or resumes editor mode when overlay visibility changes.
+---@param state boolean? Desired suspend state (`true` resumes editor if it was suspended).
 function editor.suspend(state)
     if editor.active and not state and not editor.suspendState then
         editor.suspendState = true
@@ -761,6 +1597,8 @@ function editor.suspend(state)
     end
 end
 
+---Toggles editor mode and applies related side effects (camera, freefly, player modifiers).
+---@param state boolean? Desired editor active state.
 function editor.toggle(state)
     local freefly = GetMod("freefly")
 
@@ -791,7 +1629,9 @@ function editor.toggle(state)
     else
         Game.GetStatsSystem():AddModifier(GetPlayer():GetEntityID(), RPGManager.CreateStatModifier(gamedataStatType.KnockdownImmunity, gameStatModifierType.Additive, 1))
         Game.GetStatsSystem():AddModifier(GetPlayer():GetEntityID(), RPGManager.CreateStatModifier(gamedataStatType.CanBreatheUnderwater, gameStatModifierType.Additive, 1))
-        editor.addHighlightToSelected()
+        if settings.outlineSelected then
+            editor.addHighlightToSelected()
+        end
     end
 end
 

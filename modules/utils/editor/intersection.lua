@@ -3,6 +3,14 @@ local EPSILON = 0.00001
 
 local intersection = {}
 
+---@alias axisAlignedBBox { min: {x: number, y: number, z: number}, max: {x: number, y: number, z: number} }
+---@alias raycastHit { hit: boolean, position: Vector4, distance: number, normal: Vector4 }
+
+---Reverses special-case bbox scaling for assets that are post-adjusted during intersection tests.
+---@param path string Resource path used to resolve special scaling overrides.
+---@param initialScale Vector4 Original object scale before any intersection-specific overrides.
+---@param bbox axisAlignedBBox Bounding box that was previously scaled for intersection checks.
+---@return axisAlignedBBox unscaledBBox Bounding box restored toward original dimensions when unscale is enabled.
 function intersection.unscaleBBox(path, initialScale, bbox)
     local scale, unscale = intersection.getResourcePathScalingFactor(path, initialScale)
     if not unscale then return bbox end
@@ -21,6 +29,10 @@ function intersection.unscaleBBox(path, initialScale, bbox)
     }
 end
 
+---Scales each axis of a bounding box by the provided scale vector.
+---@param bbox axisAlignedBBox Source axis-aligned bounding box.
+---@param scale Vector4 Per-axis scale multiplier.
+---@return axisAlignedBBox scaledBBox Scaled bounding box.
 function intersection.scaleBBox(bbox, scale)
     return {
         min = {
@@ -36,10 +48,12 @@ function intersection.scaleBBox(bbox, scale)
     }
 end
 
----Return a factor to be scaled with the objects BBox, hardcoded for special cases like AMM miniatures (Wrong mesh bbox) and foliage (Usually too big)
----@param path string
----@param initalScale Vector4
----@return Vector4, boolean -- Vector4 is the scaling factor, boolean is if the object should be unscaled when doing drop to surface checks
+---Resolves path-specific bbox scale compensation used by picking/drop-to-surface logic.
+---Special cases cover assets with known oversized/undersized mesh bounds (vegetation, AMM shuttle, FX).
+---@param path string Resource path used for hardcoded scale heuristics.
+---@param initalScale Vector4 Current object scale (parameter name kept for backward compatibility).
+---@return Vector4 scaleFactor Per-axis bbox factor to apply for intersection checks.
+---@return boolean shouldUnscale True when `unscaleBBox` should be applied for accurate drop-to-surface placement.
 function intersection.getResourcePathScalingFactor(path, initalScale)
     if string.match(path, "base\\environment\\vegetation\\palms\\") or string.match(path, "yucca") then
         return Vector4.new(0.175, 0.175, 0.7, 0), false
@@ -71,6 +85,9 @@ function intersection.getResourcePathScalingFactor(path, initalScale)
     return newScale, true
 end
 
+---Ensures each bbox axis has a minimal non-zero thickness to avoid degenerate ray math.
+---@param bBox axisAlignedBBox Bounding box to normalize for intersection safety.
+---@return axisAlignedBBox clampedBBox Deep-copied bbox with tiny axes widened.
 local function clampBBox(bBox)
     bBox = utils.deepcopy(bBox)
 
@@ -88,6 +105,15 @@ local function clampBBox(bBox)
     return bBox
 end
 
+---Tests whether one oriented bounding box is inside another.
+---Current implementation checks transformed `min` and `max` corners of the inner box against the outer OBB.
+---@param outerOrigin Vector4 Outer box world origin.
+---@param outerRotation EulerAngles Outer box world rotation.
+---@param outerBox axisAlignedBBox Outer local-space bounds.
+---@param innerOrigin Vector4 Inner box world origin.
+---@param innerRotation EulerAngles Inner box world rotation.
+---@param innerBox axisAlignedBBox Inner local-space bounds.
+---@return boolean isInside True when tested inner corners are inside the outer box.
 function intersection.BBoxInsideBBox(outerOrigin, outerRotation, outerBox, innerOrigin, innerRotation, innerBox)
     innerBox = clampBBox(innerBox)
     outerBox = clampBBox(outerBox)
@@ -98,12 +124,12 @@ function intersection.BBoxInsideBBox(outerOrigin, outerRotation, outerBox, inner
     return intersection.pointInsideBox(min, outerOrigin, outerRotation, outerBox) and intersection.pointInsideBox(max, outerOrigin, outerRotation, outerBox)
 end
 
----Checks if a given point is inside an OBB
----@param point Vector4
----@param boxOrigin Vector4
----@param boxRotation EulerAngle
----@param box table -- Is expected to be clamped
----@return boolean
+---Checks whether a world-space point lies inside an oriented bounding box.
+---@param point Vector4 Point in world space.
+---@param boxOrigin Vector4 Box origin in world space.
+---@param boxRotation EulerAngles Box orientation in world space.
+---@param box axisAlignedBBox Box local-space min/max bounds (expected clamped).
+---@return boolean inside True when point projection is within all local axis ranges.
 function intersection.pointInsideBox(point, boxOrigin, boxRotation, box)
     local matrix = Matrix.BuiltRTS(boxRotation, boxOrigin, Vector4.new(1, 1, 1, 0))
 
@@ -126,11 +152,12 @@ function intersection.pointInsideBox(point, boxOrigin, boxRotation, box)
     return true
 end
 
----@param boxOrigin Vector4
----@param boxRotation EulerAngle
----@param box table -- Is expected to be clamped
----@param hitPosition Vector4
----@return table
+---Computes candidate face normals for a hit position on an oriented bounding box.
+---@param boxOrigin Vector4 Box origin in world space.
+---@param boxRotation EulerAngles Box orientation in world space.
+---@param box axisAlignedBBox Box local-space bounds (expected clamped).
+---@param hitPosition Vector4 World-space hit position on/near box surface.
+---@return Vector4[] normals Candidate outward normals for touching faces (can contain multiple normals on edges/corners).
 function intersection.getBoxIntersectionNormals(boxOrigin, boxRotation, box, hitPosition)
     local matrix = Matrix.BuiltRTS(boxRotation, boxOrigin, Vector4.new(1, 1, 1, 0))
 
@@ -160,6 +187,13 @@ function intersection.getBoxIntersectionNormals(boxOrigin, boxRotation, box, hit
 end
 
 --https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_custom.cpp
+---Performs ray-vs-OBB intersection and returns the closest forward hit.
+---@param rayOrigin Vector4 Ray origin in world space.
+---@param ray Vector4 Ray direction (normalization not required; normalized internally for hit position).
+---@param boxOrigin Vector4 OBB origin in world space.
+---@param boxRotation EulerAngles OBB orientation in world space.
+---@param box axisAlignedBBox OBB local-space bounds.
+---@return raycastHit hitResult Hit data with point, distance parameter `t`, and approximated face normal.
 function intersection.getBoxIntersection(rayOrigin, ray, boxOrigin, boxRotation, box)
     box = clampBBox(box)
 
@@ -210,6 +244,12 @@ function intersection.getBoxIntersection(rayOrigin, ray, boxOrigin, boxRotation,
     return { hit = true, position = position, normal = normal, distance = tMin }
 end
 
+---Performs ray-vs-sphere intersection and returns the nearest forward hit.
+---@param rayOrigin Vector4 Ray origin in world space.
+---@param ray Vector4 Ray direction vector.
+---@param sphereOrigin Vector4 Sphere center in world space.
+---@param sphereRadius number Sphere radius.
+---@return raycastHit hitResult Hit data with point, distance parameter `t`, and outward normal.
 function intersection.getSphereIntersection(rayOrigin, ray, sphereOrigin, sphereRadius)
     local delta = utils.subVector(sphereOrigin, rayOrigin)
 
@@ -232,6 +272,12 @@ function intersection.getSphereIntersection(rayOrigin, ray, sphereOrigin, sphere
     end
 end
 
+---Performs ray-vs-plane intersection.
+---@param rayOrigin Vector4 Ray origin in world space.
+---@param ray Vector4 Ray direction vector.
+---@param planeOrigin Vector4 Any point on the plane.
+---@param planeNormal Vector4 Plane normal vector.
+---@return { hit: boolean, position: Vector4, distance: number } hitResult Plane hit data (`distance` is ray parameter `t`).
 function intersection.getPlaneIntersection(rayOrigin, ray, planeOrigin, planeNormal)
     local angle = planeNormal:Dot(ray)
 
@@ -245,6 +291,13 @@ function intersection.getPlaneIntersection(rayOrigin, ray, planeOrigin, planeNor
 end
 
 --https://underdisc.net/blog/6_gizmos/index.html
+---Finds closest-approach parameters between two infinite rays/lines.
+---@param aRayOrigin Vector4 First ray origin.
+---@param aRayDirection Vector4 First ray direction.
+---@param bRayOrigin Vector4 Second ray origin.
+---@param bRayDirection Vector4 Second ray direction.
+---@return number ta Parameter on ray A at closest approach.
+---@return number tb Parameter on ray B at closest approach.
 function intersection.getTClosestToRay(aRayOrigin, aRayDirection, bRayOrigin, bRayDirection)
     local originDirection = utils.subVector(aRayOrigin, bRayOrigin)
     local ab = aRayDirection:Dot(bRayDirection)

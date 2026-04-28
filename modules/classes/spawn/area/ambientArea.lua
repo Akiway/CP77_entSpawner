@@ -5,10 +5,6 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local cache = require("modules/utils/cache")
 
-local channels = {
-    "TC_Default", "TC_Player", "TC_Camera", "TC_Human", "TC_SoundReverbArea", "TC_SoundAmbientArea", "TC_Quest", "TC_Projectiles", "TC_Vehicle", "TC_Environment", "TC_WaterNullArea", "TC_Custom0", "TC_Custom1", "TC_Custom2", "TC_Custom3", "TC_Custom4", "TC_Custom5", "TC_Custom6", "TC_Custom7", "TC_Custom8", "TC_Custom9", "TC_Custom10", "TC_Custom11", "TC_Custom12", "TC_Custom13", "TC_Custom14"
-}
-
 ---Class for worldAmbientAreaNode
 ---@class ambientArea : triggerArea
 local ambientArea = setmetatable({}, { __index = triggerArea })
@@ -23,10 +19,14 @@ function ambientArea:new()
     o.node = "worldAmbientAreaNode"
     o.description = "Trigger used for modifying the soundstage."
     o.previewNote = "Not previewed in editor."
-    o.icon = IconGlyphs.SelectSearch
+    o.icon = IconGlyphs.CastAudioVariant
 
     o.triggerType = "Ambient"
     o.channels = { false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false }
+    o.eventSearchValues = {}
+    o.reverbSearch = ""
+    o.metadataParentSearch = ""
+    o.parameterSearchValues = {}
 
     setmetatable(o, { __index = self })
    	return o
@@ -45,15 +45,21 @@ function ambientArea:loadSpawnData(data, position, rotation)
 end
 
 function ambientArea:drawEvents(eventKey, default)
+    self.eventSearchValues = self.eventSearchValues or {}
+    self.eventSearchValues[eventKey] = self.eventSearchValues[eventKey] or {}
+
     if ImGui.TreeNodeEx(eventKey, ImGuiTreeNodeFlags.SpanFullWidth) then
         for index, event in pairs(self.trigger.Settings.Data[eventKey]) do
             ImGui.PushID(tostring(index) .. eventKey)
-            event["event"]["$value"], _ = style.trackedSearchDropdown(self.object, "##event", default, event["event"]["$value"], cache.staticData.ambientData[eventKey], style.getMaxWidth(250) - 30)
+            local eventSearch = self.eventSearchValues[eventKey][index] or ""
+            event["event"]["$value"], eventSearch, _ = style.trackedSearchDropdown(self.object, "##event", default, event["event"]["$value"], eventSearch, cache.staticData.ambientData[eventKey], style.getMaxWidth(250) - 30)
+            self.eventSearchValues[eventKey][index] = eventSearch
 
             ImGui.SameLine()
             if ImGui.Button(IconGlyphs.Delete) then
                 history.addAction(history.getElementChange(self.object))
                 table.remove(self.trigger.Settings.Data[eventKey], index)
+                table.remove(self.eventSearchValues[eventKey], index)
             end
 
             ImGui.PopID()
@@ -69,6 +75,7 @@ function ambientArea:drawEvents(eventKey, default)
                     ["$value"] = ""
                 }
             })
+            table.insert(self.eventSearchValues[eventKey], "")
         end
 
         ImGui.TreePop()
@@ -130,12 +137,14 @@ function ambientArea:drawAmbient(changed)
     style.mutedText("Reverb")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
-    self.trigger.Settings.Data.Reverb["$value"], _ = style.trackedSearchDropdown(self.object, "##reverb", "Search...", self.trigger.Settings.Data.Reverb["$value"], cache.staticData.ambientData.reverb, style.getMaxWidth(250))
+    self.reverbSearch = self.reverbSearch or ""
+    self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, _ = style.trackedSearchDropdown(self.object, "##reverb", "Search...", self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, cache.staticData.ambientData.reverb, style.getMaxWidth(250))
 
     style.mutedText("Metadata Parent")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
-    self.trigger.Settings.Data.MetadataParent["$value"], _ = style.trackedSearchDropdown(self.object, "##metadataParent", "Search...", self.trigger.Settings.Data.MetadataParent["$value"], cache.staticData.ambientMetadataAll, style.getMaxWidth(250))
+    self.metadataParentSearch = self.metadataParentSearch or ""
+    self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, _ = style.trackedSearchDropdown(self.object, "##metadataParent", "Search...", self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, cache.staticData.ambientMetadataAll, style.getMaxWidth(250))
 
     style.mutedText("Is Music")
     ImGui.SameLine()
@@ -147,9 +156,12 @@ function ambientArea:drawAmbient(changed)
     self:drawEvents("EventsOnExit", "mus_e3_amb_megabuilding")
 
     if ImGui.TreeNodeEx("Parameters", ImGuiTreeNodeFlags.SpanFullWidth) then
+        self.parameterSearchValues = self.parameterSearchValues or {}
         for index, parameter in pairs(self.trigger.Settings.Data["Parameters"]) do
             ImGui.PushID(tostring(index) .. "parameter")
-            parameter["name"]["$value"], _ = style.trackedSearchDropdown(self.object, "##parameter", "Search...", parameter["name"]["$value"], cache.staticData.ambientData.parameters, style.getMaxWidth(250) - 120)
+            local parameterSearch = self.parameterSearchValues[index] or ""
+            parameter["name"]["$value"], parameterSearch, _ = style.trackedSearchDropdown(self.object, "##parameter", "Search...", parameter["name"]["$value"], parameterSearch, cache.staticData.ambientData.parameters, style.getMaxWidth(250) - 120)
+            self.parameterSearchValues[index] = parameterSearch
             ImGui.SameLine()
             parameter["value"], _ = style.trackedDragFloat(self.object, "##value", parameter["value"], 0.01, 0, 1, "%.2f", 75)
 
@@ -157,6 +169,7 @@ function ambientArea:drawAmbient(changed)
             if ImGui.Button(IconGlyphs.Delete) then
                 history.addAction(history.getElementChange(self.object))
                 table.remove(self.trigger.Settings.Data["Parameters"], index)
+                table.remove(self.parameterSearchValues, index)
             end
 
             ImGui.PopID()
@@ -173,6 +186,7 @@ function ambientArea:drawAmbient(changed)
                 },
                 ["value"] = 1
             })
+            table.insert(self.parameterSearchValues, "")
         end
 
         ImGui.TreePop()
@@ -181,9 +195,7 @@ end
 
 function ambientArea:drawChannelSelect()
     if ImGui.TreeNodeEx("Trigger Channels", ImGuiTreeNodeFlags.SpanFullWidth) then
-        for key, name in pairs(channels) do
-            self.channels[key], _ = style.trackedCheckbox(self.object, name, self.channels[key])
-        end
+        self.channels = style.drawTriggerChannelsSelector(self.object, self.channels)
         ImGui.TreePop()
     end
 end

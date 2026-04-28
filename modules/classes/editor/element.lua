@@ -1,6 +1,7 @@
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
+local backup = require("modules/utils/backup")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
@@ -18,7 +19,10 @@ local history = require("modules/utils/history")
 ---@field hideable boolean
 ---@field visible boolean
 ---@field hiddenByParent boolean
+---@field locked boolean
+---@field lockedByParent boolean
 ---@field icon string
+---@field secondaryIcon string
 ---@field class string[]
 ---@field hovered boolean
 ---@field editName boolean
@@ -29,6 +33,43 @@ local history = require("modules/utils/history")
 ---@field lockedRename boolean
 ---@field lockedRemove boolean
 element = {}
+
+local SPAWNABLE_MODULE_PATH = "modules/classes/editor/spawnableElement"
+local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
+local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
+
+---@param data table?
+---@return boolean
+local function isSerializedSpawnable(data)
+	return data and (data.modulePath == SPAWNABLE_MODULE_PATH or data.type == "object" or data.type == "element")
+end
+
+---@param data table?
+---@return boolean
+local function isSerializedGroup(data)
+	return data and (data.modulePath == POSITIONABLE_GROUP_MODULE_PATH or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH or data.type == "group")
+end
+
+---@param instance element
+---@param registryAffected boolean?
+local function invalidateSUI(instance, registryAffected)
+	if instance and instance.sUI and instance.sUI.invalidateCache then
+		instance.sUI.invalidateCache(registryAffected)
+	end
+end
+
+local function invalidateAutoCenter(instance)
+	local current = instance
+
+	while current do
+		if current.invalidateAutoCenterCache then
+			current:invalidateAutoCenterCache(true)
+			return
+		end
+
+		current = current.parent
+	end
+end
 
 function element:new(sUI)
 	local o = {}
@@ -41,6 +82,8 @@ function element:new(sUI)
     o.childs = {}
 	o.visible = true
 	o.hiddenByParent = false
+	o.locked = false
+	o.lockedByParent = false
 
 	o.expandable = true
 	o.hideable = true
@@ -48,6 +91,7 @@ function element:new(sUI)
 	o.groupOperationData = {}
 
 	o.icon = ""
+	o.secondaryIcon = ""
 
 	o.modulePath = "modules/classes/editor/element"
 	o.id = math.random(1, 1000000000)
@@ -79,7 +123,7 @@ function element:getModulePathByType(data)
 end
 
 ---Loads the data from a given table, containing the same data as exported during save()
----@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, selected : boolean, hiddenByParent : boolean, propertyHeaderStates: table}
+---@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, selected : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
 ---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function element:load(data, silent)
 	while self.childs[1] do -- Ensure any children get removed, important for undoing spawnables so that they despawn
@@ -93,19 +137,25 @@ function element:load(data, silent)
 	self.visible = data.visible
 	self.selected = data.selected
 	self.hiddenByParent = data.hiddenByParent
+	self.locked = data.locked
+	self.lockedByParent = data.lockedByParent
 	self.propertyHeaderStates = data.propertyHeaderStates
 	if self.propertyHeaderStates == nil then self.propertyHeaderStates = {} end
 	if self.visible == nil then self.visible = true end
 	if self.headerOpen == nil then self.headerOpen = settings.headerState end
 	if self.selected == nil then self.selected = false end
 	if self.hiddenByParent == nil then self.hiddenByParent = false end
+	if self.locked == nil then self.locked = false end
+	if self.lockedByParent == nil then self.lockedByParent = false end
+	if self:isLocked() then self.selected = false end
+
 	self.modulePath = self.modulePath or self:getModulePathByType(data)
 
 	self.childs = {}
 	if data.childs then
 		for _, child in pairs(data.childs) do
-			child.modulePath = child.modulePath or self:getModulePathByType(child)
-			local new = require(child.modulePath):new(self.sUI)
+			local modulePath = child.modulePath or self:getModulePathByType(child)
+			local new = require(modulePath):new(self.sUI)
 			new:load(child, silent)
 			new:setParent(self)
 		end
@@ -136,6 +186,8 @@ end
 ---@param name string
 function element:rename(name)
 	if self.lockedRename then return end
+	if self:isLocked() then return end
+
 	local oldPath = self:getPath()
 	local oldState = self:serialize()
 
@@ -143,7 +195,8 @@ function element:rename(name)
 	generateUniqueName(self, self.parent.childs)
 	self.newName = self.name
 
-	history.addAction(history.getRename(oldState, oldPath, self:getPath()))
+	history.addAction(history.getRename(oldState, oldPath, self:getPath(), self.id))
+	invalidateSUI(self, true)
 end
 
 ---@param new element
@@ -154,10 +207,15 @@ function element:addChild(new, index)
 	generateUniqueName(new, self.childs)
 	table.insert(self.childs, index, new)
 	new:setHiddenByParent(not self.visible or self.hiddenByParent)
+	new:setLockedByParent(self.locked or self.lockedByParent)
+	invalidateSUI(self, true)
+	invalidateAutoCenter(self)
 end
 
 function element:removeChild(child)
 	utils.removeItem(self.childs, child)
+	invalidateSUI(self, true)
+	invalidateAutoCenter(self)
 end
 
 ---Sets the parent, removes it from previous parent and adds self to new one
@@ -171,6 +229,7 @@ function element:setParent(parent, index)
 
 	self.parent = parent
 	parent:addChild(self, index)
+	invalidateSUI(self, true)
 end
 
 ---Removes self from parent
@@ -185,6 +244,7 @@ function element:remove()
 	end
 
 	self.parent = nil
+	invalidateSUI(self, true)
 end
 
 ---Checks if the element is a visual root, or true root of hierarchy
@@ -256,24 +316,52 @@ function element:drawProperties()
 	end
 
 	-- Collect and reduce any potential grouped properties, store data for group operations
-	local groupedProperties = {}
+	local epoch = self.sUI and self.sUI.cacheEpoch or 0
+	local groupedProperties = nil
+	if self.groupedPropertiesCache and self.groupedPropertiesCache.epoch == epoch then
+		groupedProperties = self.groupedPropertiesCache.data
+	else
+		groupedProperties = {}
 
-	for _, child in pairs(self:getPathsRecursive(true)) do
-		for key, property in pairs(child.ref:getGroupedProperties()) do
+		for key, property in pairs(self:getExtraGroupedProperties()) do
 			if not groupedProperties[key] then
-				groupedProperties[key] = { name = property.name, draw = { [property.id] = property.draw }, entries = {} }
+				groupedProperties[key] = {
+					name = property.name,
+					draw = { [property.id] = property.draw },
+					entries = property.entries or {}
+				}
 			elseif not groupedProperties[key].draw[property.id] then
 				groupedProperties[key].draw[property.id] = property.draw
 			end
-			table.insert(groupedProperties[key].entries, child.ref)
 
 			if not self.groupOperationData[key] then
 				self.groupOperationData[key] = property.data
 			end
 		end
+
+		for _, child in ipairs(self:getPathsRecursive(true)) do
+			if not child.ref:isLocked() then
+				for key, property in pairs(child.ref:getGroupedProperties()) do
+					if not groupedProperties[key] then
+						groupedProperties[key] = { name = property.name, draw = { [property.id] = property.draw }, entries = {} }
+					elseif not groupedProperties[key].draw[property.id] then
+						groupedProperties[key].draw[property.id] = property.draw
+					end
+					table.insert(groupedProperties[key].entries, child.ref)
+
+					if not self.groupOperationData[key] then
+						self.groupOperationData[key] = property.data
+					end
+				end
+			end
+		end
+
+		self.groupedPropertiesCache = {
+			epoch = epoch,
+			data = groupedProperties
+		}
 	end
 
-	-- Draw grouped properties
 	if utils.tableLength(groupedProperties) > 0 then
 		if self.propertyHeaderStates["groupedProperties"] == nil then
 			self.propertyHeaderStates["groupedProperties"] = false
@@ -283,7 +371,7 @@ function element:drawProperties()
 		self.propertyHeaderStates["groupedProperties"] = ImGui.TreeNodeEx("Group Properties", ImGuiTreeNodeFlags.SpanFullWidth)
 
 		if self.propertyHeaderStates["groupedProperties"] then
-			for key, property in pairs(groupedProperties) do
+			local function drawGroupedProperty(key, property)
 				if self.propertyHeaderStates[key] == nil then
 					self.propertyHeaderStates[key] = false
 				end
@@ -298,6 +386,12 @@ function element:drawProperties()
 					ImGui.TreePop()
 				end
 			end
+
+			for key, property in pairs(groupedProperties) do
+				drawGroupedProperty(key, property)
+			end
+
+			ImGui.TreePop()
 		end
 	end
 end
@@ -310,7 +404,16 @@ function element:getGroupedProperties()
 	return {}
 end
 
+function element:getExtraGroupedProperties()
+	return {}
+end
+
 function element:drawName()
+	if self:isLocked() then
+		self.editName = false
+		return
+	end
+
 	if not self.newName then self.newName = self.name end
 
 	ImGui.SetNextItemAllowOverlap()
@@ -333,8 +436,8 @@ function element:getPathsRecursive(isRoot)
 		table.insert(paths, {path = self:getPath(), ref = self})
 	end
 
-	for _, child in pairs(self.childs) do
-		for _, path in pairs(child:getPathsRecursive()) do
+	for _, child in ipairs(self.childs) do
+		for _, path in ipairs(child:getPathsRecursive()) do
 			table.insert(paths, path)
 		end
 	end
@@ -342,11 +445,46 @@ function element:getPathsRecursive(isRoot)
 	return paths
 end
 
-function element:setHeaderStateRecursive(state)
+---Returns all descendants of self (excluding self).
+---@return element[]
+function element:getDescendants()
+	local descendants = {}
+
+	for _, child in pairs(self.childs) do
+		table.insert(descendants, child)
+		for _, descendant in pairs(child:getDescendants()) do
+			table.insert(descendants, descendant)
+		end
+	end
+
+	return descendants
+end
+
+---Unlocks all descendants of self (excluding self).
+---@param fromRecursive boolean? Indicates this call is part of a batched/multi operation.
+function element:unlockDescendants(fromRecursive)
+	for _, descendant in pairs(self:getDescendants()) do
+		descendant:setLocked(false, fromRecursive)
+	end
+end
+
+---Shows all descendants of self (excluding self).
+---@param fromRecursive boolean? Indicates this call is part of a batched/multi operation.
+function element:showDescendants(fromRecursive)
+	for _, descendant in pairs(self:getDescendants()) do
+		descendant:setVisible(true, fromRecursive)
+	end
+end
+
+function element:setHeaderStateRecursive(state, fromRecursive)
 	self.headerOpen = state
 
 	for _, child in pairs(self.childs) do
-		child:setHeaderStateRecursive(state)
+		child:setHeaderStateRecursive(state, true)
+	end
+
+	if not fromRecursive then
+		invalidateSUI(self, false)
 	end
 end
 
@@ -384,6 +522,53 @@ function element:setHiddenByParent(state)
 	end
 end
 
+---Sets lock state of self and all children
+---@param state boolean
+---@param fromRecursive boolean? Indicates that this is not the first call, and should not be added to history
+function element:setLockedRecursive(state, fromRecursive)
+	self:setLocked(state, fromRecursive)
+
+	for _, child in pairs(self.childs) do
+		child:setLockedRecursive(state, true)
+	end
+end
+
+function element:setLocked(state, fromRecursive)
+	if not fromRecursive then
+		history.addAction(history.getElementChange(self))
+	end
+	self.locked = state
+	if state then
+		self:setSelected(false)
+		self.editName = false
+	end
+
+	if self.lockedByParent then return end
+
+	for _, child in pairs(self.childs) do
+		child:setLockedByParent(state)
+	end
+
+	invalidateSUI(self, false)
+	invalidateAutoCenter(self)
+end
+
+function element:setLockedByParent(state)
+	self.lockedByParent = state
+	if state then
+		self:setSelected(false)
+		self.editName = false
+	end
+
+	if self.locked then return end
+
+	for _, child in pairs(self.childs) do
+		child:setLockedByParent(state)
+	end
+
+	invalidateSUI(self, false)
+end
+
 function element:setSilent(state)
 	self.silent = state
 
@@ -396,6 +581,7 @@ function element:expandAllParents()
 	if self.parent ~= nil then
 		self.parent.headerOpen = true
 		self.parent:expandAllParents()
+		invalidateSUI(self, false)
 	end
 end
 
@@ -404,7 +590,15 @@ function element:setHovered(state)
 end
 
 function element:setSelected(state)
+	if state and self:isLocked() then return end
+	if self.selected == state then return end
 	self.selected = state
+	invalidateSUI(self, false)
+end
+
+---@return boolean
+function element:isLocked()
+	return self.locked or self.lockedByParent
 end
 
 function element:getPath()
@@ -422,28 +616,115 @@ function element:serialize()
 		propertyHeaderStates = self.propertyHeaderStates,
 		visible = self.visible,
 		hiddenByParent = self.hiddenByParent,
+		locked = self.locked,
+		lockedByParent = self.lockedByParent,
 		expandable = self.expandable,
 		selected = self.selected,
 		isUsingSpawnables = true,
 		childs = {}
 	}
+	local elementCount = 0
 
 	for _, child in pairs(self.childs) do
-		table.insert(data.childs, child:serialize())
+		local childData = child:serialize()
+		table.insert(data.childs, childData)
+
+		if isSerializedSpawnable(childData) then
+			elementCount = elementCount + 1
+		elseif isSerializedGroup(childData) then
+			elementCount = elementCount + (childData.elementCount or 0)
+		end
+	end
+
+	if isSerializedGroup(data) then
+		data.elementCount = elementCount
 	end
 
 	return data
 end
 
-function element:save()
-	local data = self:serialize()
+---@param showToast boolean?
+function element:save(showToast)
+	showToast = showToast ~= false
+	local updatedInExport = 0
+
+	local data
+	local serializeOk, serializeErr = pcall(function ()
+		data = self:serialize()
+	end)
+	if not serializeOk or type(data) ~= "table" then
+		local errMsg = string.format("Failed to serialize \"%s\": %s", tostring(self.name), tostring(serializeErr))
+		print("[entSpawner] " .. errMsg)
+
+		if showToast then
+			local toastType = ImGui.ToastType.Success
+			if ImGui.ToastType and ImGui.ToastType.Error then
+				toastType = ImGui.ToastType.Error
+			end
+			ImGui.ShowToast(ImGui.Toast.new(toastType, 5000, errMsg))
+		end
+
+		return nil
+	end
+
+	data.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
 
 	if self.fileName ~= self.name then
 		self.fileName = self.name
 	end
 
-	config.saveFile("data/objects/" .. self.fileName .. ".json", data)
-	self.sUI.spawner.baseUI.savedUI.reload()
+	local fileName = self.fileName .. ".json"
+	local targetPath = "data/objects/" .. fileName
+	local hadBackup = backup.backupObjectBeforeSave(fileName)
+	local saved, saveErr = config.saveFile(targetPath, data)
+	if not saved then
+		if hadBackup then
+			backup.restoreObjectBackup("on_save", fileName)
+		end
+
+		local errMsg = string.format("Failed to save \"%s\": %s", tostring(fileName), tostring(saveErr))
+		print("[entSpawner] " .. errMsg)
+
+		if showToast then
+			local toastType = ImGui.ToastType.Success
+			if ImGui.ToastType and ImGui.ToastType.Error then
+				toastType = ImGui.ToastType.Error
+			end
+			ImGui.ShowToast(ImGui.Toast.new(toastType, 5000, errMsg))
+		end
+
+		return nil
+	end
+
+	local baseUI = self.sUI and self.sUI.spawner and self.sUI.spawner.baseUI
+	if baseUI and baseUI.savedUI then
+		if baseUI.savedUI.refreshEntry then
+			baseUI.savedUI.refreshEntry(fileName, data)
+		elseif baseUI.savedUI.reload then
+			baseUI.savedUI.reload()
+		end
+	end
+
+	if utils.isA(self, "positionableGroup") and self.supportsSaving and self.parent ~= nil and self.parent:isRoot(true) then
+		if baseUI and baseUI.exportUI and baseUI.exportUI.syncGroup then
+			updatedInExport = baseUI.exportUI.syncGroup(self.name) or 0
+		end
+
+		if showToast then
+			local msg = string.format("Saved group \"%s\"", self.name)
+			if updatedInExport > 0 then
+				if updatedInExport == 1 then
+					msg = msg .. " and updated it in export list"
+				else
+					msg = msg .. string.format(" and updated %s entries in export list", updatedInExport)
+				end
+			end
+
+			ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, msg))
+		end
+	end
+
+	return updatedInExport
 end
 
 return element

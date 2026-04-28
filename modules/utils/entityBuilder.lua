@@ -1,6 +1,6 @@
 local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
-local task = require("modules/utils/tasks")
+local task = require("modules/utils/pipeline/tasks")
 local intersection = require("modules/utils/editor/intersection")
 
 local builder = {
@@ -190,9 +190,11 @@ function builder.getEntityBBox(entity, callback)
                     local originalScale = Vector4.Vector3To4(component.visualScale or Vector3.new(1, 1, 1))
                     local scalingFactor = intersection.getResourcePathScalingFactor(path, originalScale)
                     local scale = utils.multVecXVec(originalScale, scalingFactor)
-
-                    local min = utils.multVecXVec(ToVector4(cache.getValue(path .. "_bBox_min")), scale)
-                    local max = utils.multVecXVec(ToVector4(cache.getValue(path .. "_bBox_max")), scale)
+                    local meshResource = cache.getMeshResource(path)
+                    local cachedMin = meshResource and meshResource.bBoxMin or cache.getValue(path .. "_bBox_min")
+                    local cachedMax = meshResource and meshResource.bBoxMax or cache.getValue(path .. "_bBox_max")
+                    local min = utils.multVecXVec(ToVector4(cachedMin), scale)
+                    local max = utils.multVecXVec(ToVector4(cachedMax), scale)
 
                     table.insert(bBoxPoints, utils.addVector(
                         offset:GetOrientation():Transform(min),

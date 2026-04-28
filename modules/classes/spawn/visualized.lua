@@ -3,12 +3,13 @@ local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 local intersection = require("modules/utils/editor/intersection")
 
----Class for any spawnable that has a "basic" visualizer. Assumes x component of the scale to be the size of the sphere used for intersection testing.
+---Class for any spawnable that has a "basic" visualizer. Intersection uses a sphere bound (capsules use a larger bounding sphere).
 ---@class visualized : spawnable
 ---@field public previewed boolean
 ---@field private previewShape string
 ---@field private previewColor string
 ---@field private previewMesh string
+---@field private previewMeshAppearance string|nil
 ---@field private intersectionMultiplier number
 local visualized = setmetatable({}, { __index = spawnable })
 
@@ -21,6 +22,7 @@ function visualized:new()
     o.previewed = false
     o.previewShape = "sphere"
     o.previewMesh = ""
+    o.previewMeshAppearance = nil
     o.intersectionMultiplier = 1
     o.previewColor = "blue"
 
@@ -35,14 +37,19 @@ function visualized:onAssemble(entity)
 
     if self.previewShape == "sphere" then
         visualizer.addSphere(entity, visualizerSize, self.previewColor)
+    elseif self.previewShape == "cone" then
+        visualizer.addCone(entity, visualizerSize, self.previewColor)
     elseif self.previewShape == "box" then
         visualizer.addBox(entity, visualizerSize, self.previewColor)
+    elseif self.previewShape == "capsule" then
+        visualizer.addCapsule(entity, visualizerSize.x, visualizerSize.z, self.previewColor)
     elseif self.previewShape == "mesh" then
-        visualizer.addMesh(entity, visualizerSize, self.previewMesh)
+        visualizer.addMesh(entity, visualizerSize, self.previewMesh, self.previewMeshAppearance)
     end
 
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
     visualizer.toggleAll(entity, self.previewed)
+    self:onAfterPreviewAssemble(entity)
 end
 
 function visualized:save()
@@ -58,12 +65,26 @@ function visualized:updateScale()
     local entity = self:getEntity()
     if not entity then return end
 
+    local visualizerSize = self:getVisualizerSize()
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
-    visualizer.updateScale(entity, self:getVisualizerSize(), self.previewShape)
+    if self.previewShape == "capsule" then
+        visualizer.updateCapsuleScale(entity, visualizerSize.x, visualizerSize.z)
+    else
+        visualizer.updateScale(entity, visualizerSize, self.previewShape)
+    end
+    self:onAfterPreviewScale(entity)
 end
 
 function visualized:getVisualizerSize()
     return self:getArrowSize()
+end
+
+---@param entity entEntity
+function visualized:onAfterPreviewAssemble(entity)
+end
+
+---@param entity entEntity
+function visualized:onAfterPreviewScale(entity)
 end
 
 function visualized:calculateIntersection(origin, ray)
@@ -71,8 +92,21 @@ function visualized:calculateIntersection(origin, ray)
         return { hit = false }
     end
 
-    if self.previewShape == "sphere" or self.previewShape == "mesh" then
-        local radius = self:getVisualizerSize().x * self.intersectionMultiplier
+    if self.previewShape == "sphere" or self.previewShape == "cone" or self.previewShape == "mesh" or self.previewShape == "capsule" then
+        local visualizerSize = self:getVisualizerSize()
+        local radius = visualizerSize.x * self.intersectionMultiplier
+        if self.previewShape == "cone" then
+            -- Use the larger cone axis for a more reliable pick volume.
+            radius = math.max(visualizerSize.x, visualizerSize.z) * self.intersectionMultiplier
+        end
+        if self.previewShape == "mesh" then
+            -- Mesh previews can be elongated (for example area-light prism), so use the largest axis.
+            radius = math.max(visualizerSize.x, visualizerSize.y, visualizerSize.z) * self.intersectionMultiplier
+        end
+        if self.previewShape == "capsule" then
+            -- Use a bounding sphere large enough to cover the capsule body and caps.
+            radius = (visualizerSize.x + visualizerSize.z / 2) * self.intersectionMultiplier
+        end
         local result = intersection.getSphereIntersection(origin, ray, self.position, radius)
         local bbox = {
             min = { x = -radius, y = -radius, z = -radius },

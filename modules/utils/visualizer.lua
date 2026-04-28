@@ -1,14 +1,27 @@
 local visualizer = {}
 
+---@alias visualizerScale { x: number, y: number, z: number }
+
 local previewComponentNames = {
     "box",
     "sphere",
+    "cone",
+    "cone_inner",
     "capsule_body",
     "capsule_top",
     "capsule_bottom",
-    "mesh"
+    "mesh",
+    "mesh_inner"
 }
 
+---Create and attach an `entMeshComponent` used as preview geometry.
+---The component is parent-bound to a placed component to preserve local transforms on existing components.
+---@param entity entEntity Target entity that will receive the new mesh component.
+---@param name string Component name (for example `"box"`, `"sphere"`, `"arrows"`).
+---@param mesh string Depot mesh path.
+---@param scale visualizerScale Visual scale applied through `component.visualScale`.
+---@param app string? Mesh appearance name. `"green"` is remapped to `"lime"` for compatibility.
+---@param enabled boolean? Initial enabled state (`component.isEnabled`).
 local function addMesh(entity, name, mesh, scale, app, enabled)
     if app == "green" then app = "lime" end
 
@@ -41,22 +54,23 @@ local function addMesh(entity, name, mesh, scale, app, enabled)
     entity:AddComponent(component)
 end
 
----Creates and attached a mesh, with the component name "mesh"
----@param entity entEntity
----@param scale { x : number, y : number, z : number }
----@param mesh string
----@param app string
-function visualizer.addMesh(entity, scale, mesh, app)
+---Attach a generic preview mesh named `"mesh"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Mesh scale.
+---@param mesh string Depot mesh path to render.
+---@param app string? Optional appearance override. Defaults to `"default"`.
+---@param name string? Optional component name override. Defaults to `"mesh"`.
+function visualizer.addMesh(entity, scale, mesh, app, name)
     if not entity then return end
     if not app then app = "default" end
 
-    addMesh(entity, "mesh", mesh, scale, app, true)
+    addMesh(entity, name or "mesh", mesh, scale, app or "default", true)
 end
 
----Creates and attached a box mesh, with the component name "box"
----@param entity entEntity
----@param scale { x : number, y : number, z : number }
----@param color? string
+---Attach a cube preview mesh named `"box"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Box scale (half-extents-like usage depends on caller).
+---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
 function visualizer.addBox(entity, scale, color)
     if not entity then return end
 
@@ -68,11 +82,12 @@ function visualizer.addBox(entity, scale, color)
     addMesh(entity, "box", "base\\spawner\\cube.mesh", scale, color, true)
 end
 
----Creates and attached a sphere mesh, with the component name "sphere"
----@param entity entEntity
----@param scale { x : number, y : number, z : number }
----@param color? string
-function visualizer.addSphere(entity, scale, color)
+---Attach a sphere preview mesh named `"sphere"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Sphere scale.
+---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
+---@param name string? Component name override. Defaults to `"sphere"`.
+function visualizer.addSphere(entity, scale, color, name)
     if not entity then return end
 
     if not color then
@@ -80,9 +95,31 @@ function visualizer.addSphere(entity, scale, color)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
+    addMesh(entity, name or "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
 end
 
+---Attach a cone preview mesh named `"cone"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Cone scale.
+---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
+---@param name string? Component name override. Defaults to `"cone"`.
+function visualizer.addCone(entity, scale, color, name)
+    if not entity then return end
+
+    if not color then
+        local colors = { "red", "green", "blue" }
+        color = colors[math.random(1, 3)]
+    end
+
+    addMesh(entity, name or "cone", "base\\spawner\\cone.mesh", scale, color, true)
+end
+
+---Attach a three-part capsule preview (`capsule_body`, `capsule_top`, `capsule_bottom`).
+---`height` represents body height between caps (total visual height is `height + 2 * radius`).
+---@param entity entEntity Target entity.
+---@param radius number Capsule radius for body X/Y and cap size.
+---@param height number Capsule body height.
+---@param color string? Appearance name. When omitted, randomizes between `"red"`, `"green"`, `"blue"`.
 function visualizer.addCapsule(entity, radius, height, color)
     if not entity then return end
 
@@ -102,19 +139,22 @@ function visualizer.addCapsule(entity, radius, height, color)
     component:SetLocalOrientation(EulerAngles.new(0, 180, 0):ToQuat())
 end
 
----Creates and attached the arrow mesh, with the component name "arrows"
----@param entity entEntity
----@param scale { x : number, y : number, z : number }
+---Attach axis arrows preview mesh named `"arrows"`.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale Arrow mesh scale.
+---@param active boolean? Initial visibility/enabled state.
+---@param app string? Initial appearance (for example `"none"`, `"x"`, `"y"`, `"z"` depending on mesh setup). Defaults to engine/component default when nil.
 function visualizer.attachArrows(entity, scale, active, app)
     if not entity then return end
 
     addMesh(entity, "arrows", "base\\spawner\\arrow.mesh", scale, app, active)
 end
 
----Updates the scale of the given visualizer mesh
----@param entity entEntity
----@param scale { x : number, y : number, z : number }
----@param componentName string box|sphere|arrows
+---Update scale of one preview mesh component.
+---If the component is currently enabled, it is toggled off/on to refresh rendering.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale New scale.
+---@param componentName string Existing component name (commonly `"box"`, `"sphere"`, `"cone"`, `"mesh"`, or `"arrows"`).
 function visualizer.updateScale(entity, scale, componentName)
     if not entity then return end
 
@@ -128,6 +168,11 @@ function visualizer.updateScale(entity, scale, componentName)
     end
 end
 
+---Update scales/transforms of existing capsule preview components.
+---Requires `capsule_top`, `capsule_bottom`, and `capsule_body` to already exist on the entity.
+---@param entity entEntity Target entity.
+---@param radius number Capsule radius.
+---@param height number Capsule body height.
 function visualizer.updateCapsuleScale(entity, radius, height)
     if not entity then return end
 
@@ -159,6 +204,11 @@ function visualizer.updateCapsuleScale(entity, radius, height)
     end
 end
 
+---Set visibility for the `"arrows"` component.
+---Requires arrows to be already attached on the entity.
+---@param entity entEntity Target entity.
+---@param state boolean? Desired enabled state.
+---Note: this function assumes `"arrows"` exists (usually attached in `spawnable:onAssemble`).
 function visualizer.showArrows(entity, state)
     if not entity then return end
 
@@ -166,7 +216,10 @@ function visualizer.showArrows(entity, state)
     component:Toggle(state)
 end
 
----Toggles the visibility of all visualizion meshes except for arrows
+---Toggle visibility of all preview components except arrows.
+---Affects: `box`, `sphere`, `cone`, `cone_inner`, `capsule_body`, `capsule_top`, `capsule_bottom`, `mesh`.
+---@param entity entEntity Target entity.
+---@param state boolean? Desired enabled state for each preview component found.
 function visualizer.toggleAll(entity, state)
     if not entity then return end
 
@@ -179,6 +232,11 @@ function visualizer.toggleAll(entity, state)
     end
 end
 
+---Change arrows appearance (axis highlight) and reload it.
+---Requires arrows to be already attached on the entity.
+---@param entity entEntity Target entity.
+---@param app string Appearance name (typically `"none"`, `"x"`, `"y"`, or `"z"`).
+---Note: this function assumes `"arrows"` exists (usually attached in `spawnable:onAssemble`).
 function visualizer.highlightArrow(entity, app)
     if not entity then return end
 

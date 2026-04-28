@@ -1,4 +1,5 @@
 local utils = require("modules/utils/utils")
+local field = require("modules/utils/field")
 local style = require("modules/ui/style")
 local config = require("modules/utils/config")
 local settings = require("modules/utils/settings")
@@ -145,18 +146,34 @@ function category:isNameDuplicate(name)
 end
 
 function category:renameTags(tags, newName)
+	local changed = false
+
 	for _, favorite in pairs(self.favorites) do
+		local toRename = {}
+
 		for tag, _ in pairs(favorite.tags) do
-			if tags[tag] then
-				favorite.tags[newName] = true
+			if tags[tag] and tag ~= newName then
+				table.insert(toRename, tag)
+			end
+		end
+
+		if #toRename > 0 then
+			favorite.tags[newName] = true
+			for _, tag in pairs(toRename) do
 				favorite.tags[tag] = nil
 			end
+			changed = true
 		end
 	end
 
-	if self.grouped then
-		self:loadVirtualGroups()
+	if changed then
+		if self.grouped then
+			self:loadVirtualGroups()
+		end
+		self:save()
 	end
+
+	return changed
 end
 
 ---@param toMerge category
@@ -204,7 +221,7 @@ function category:drawEditPopup()
 	if ImGui.BeginPopup("##editCategory" .. self.fileName) then
         input.updateContext("main")
 
-		self.icon, self.changeIconSearch, changed = self.favoritesUI.drawSelectIcon(self.icon, self.changeIconSearch)
+		self.icon, self.changeIconSearch, changed = field.drawIconSelector("favoriteCategory:" .. self.fileName, self.icon, self.changeIconSearch)
 		if changed then
 			self:save()
 		end
@@ -330,7 +347,22 @@ function category:loadVirtualGroups()
 	self.virtualGroups = {}
 	local tags = {}
 	local noTag = {}
-	local groupTagKeys = utils.getKeys(self.virtualGroupTags)
+
+	local function hasExactTagSet(favoriteTags, groupTags)
+		for groupTag, _ in pairs(groupTags) do
+			if not favoriteTags[groupTag] then
+				return false
+			end
+		end
+
+		for favoriteTag, _ in pairs(favoriteTags) do
+			if not groupTags[favoriteTag] then
+				return false
+			end
+		end
+
+		return true
+	end
 
 	local anyTag = false
 	for _, favorite in pairs(self.favorites) do
@@ -344,7 +376,7 @@ function category:loadVirtualGroups()
 				anyTag = true
 			end
 		end
-		if utils.deepcompare(utils.getKeys(favorite.tags), groupTagKeys, false) then
+		if hasExactTagSet(favorite.tags, self.virtualGroupTags) then
 			table.insert(noTag, favorite)
 		end
 	end
@@ -399,10 +431,11 @@ function category:getFilteredEntries()
 	if not self.grouped then
 		entries = self:getFilteredFavorites()
 	else
-		entries = self.virtualGroups
-
 		for _, group in pairs(self.virtualGroups) do
 			group.numFavoritesFiltered = #group:getFilteredFavorites()
+			if group.numFavoritesFiltered > 0 then
+				table.insert(entries, group)
+			end
 		end
 
 		table.sort(entries, function(a, b)

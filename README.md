@@ -7,6 +7,12 @@
 - World Builder's also allows for more "Meta" type additions, such as reflection probes, area nodes (E.g. for interior audio muffling), community nodes (NPC groups that can be configured based on time of day) and much more.
 - World Builder tries to stay as close as possible to the way the engine handles the game world, thus each type of object (Mesh, entity, light, etc.) directly corresponds to a type of `worldNode`
 
+
+## Disclaimer
+
+*This tool is open source, is made during free time and contains experimental features. So yes, **it may contain bugs**. Use it at your own risk, and remember to make regular backups.*
+
+
 ---
 
 ## Installation

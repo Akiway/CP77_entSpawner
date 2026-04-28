@@ -3,10 +3,6 @@ local utils = require("modules/utils/utils")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 
-local channels = {
-    "TC_Default", "TC_Player", "TC_Camera", "TC_Human", "TC_SoundReverbArea", "TC_SoundAmbientArea", "TC_Quest", "TC_Projectiles", "TC_Vehicle", "TC_Environment", "TC_WaterNullArea", "TC_Custom0", "TC_Custom1", "TC_Custom2", "TC_Custom3", "TC_Custom4", "TC_Custom5", "TC_Custom6", "TC_Custom7", "TC_Custom8", "TC_Custom9", "TC_Custom10", "TC_Custom11", "TC_Custom12", "TC_Custom13", "TC_Custom14"
-}
-
 ---Class for worldTriggerAreaNode
 ---@class triggerArea : area
 ---@field trigger table?
@@ -45,8 +41,17 @@ end
 function triggerArea:loadSpawnData(data, position, rotation)
     area.loadSpawnData(self, data, position, rotation)
 
-    if not self.trigger then
-        self:getAvailableTriggers()[self.triggerType](self, true)
+    -- `spawnable.loadSpawnData` only assigns keys that are already non-nil.
+    -- Since `trigger` is intentionally initialized as nil in this class, copy it explicitly.
+    if data.trigger ~= nil then
+        self.trigger = utils.deepcopy(data.trigger)
+    end
+
+    if not self.trigger or next(self.trigger) == nil then
+        local triggers = self:getAvailableTriggers()
+        if triggers[self.triggerType] then
+            triggers[self.triggerType](self, true)
+        end
     end
 end
 
@@ -292,9 +297,7 @@ end
 
 function triggerArea:drawChannelSelect()
     if ImGui.TreeNodeEx("Trigger Channels", ImGuiTreeNodeFlags.SpanFullWidth) then
-        for key, name in pairs(channels) do
-            self.channels[key], _ = style.trackedCheckbox(self.object, name, self.channels[key])
-        end
+        self.channels = style.drawTriggerChannelsSelector(self.object, self.channels)
         ImGui.TreePop()
     end
 end
@@ -357,7 +360,7 @@ function triggerArea:export()
     local trigger = getExportTrigger(self.trigger)
     local includedChannels = {}
 
-    for key, channel in pairs(channels) do
+    for key, channel in pairs(style.triggerChannelEnum) do
         if self.channels[key] then
             table.insert(includedChannels, channel)
         end

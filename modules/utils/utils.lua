@@ -1,8 +1,11 @@
-local settings = require("modules/utils/settings")
-
 local miscUtils = {
     data = {},
     archives = {}
+}
+local enumTableCache = {}
+local nodeRefHashCache = {}
+local bufferIdState = {
+    nextId = 1
 }
 
 ---@param str string
@@ -15,8 +18,14 @@ function miscUtils.split(str, sep)
     return result
 end
 
----@param origin table
----@return table
+---@alias vec3Like { x: number, y: number, z: number }
+---@alias vec4Like { x: number, y: number, z: number, w: number? }
+---@alias eulerLike { roll: number, pitch: number, yaw: number }
+---@alias axisAlignedBBox { min: vec3Like, max: vec3Like }
+
+---Deep-copies a Lua value (including nested tables and metatables).
+---@param origin any Value to clone.
+---@return any copy
 function miscUtils.deepcopy(origin)
 	local orig_type = type(origin)
     local copy
@@ -32,10 +41,10 @@ function miscUtils.deepcopy(origin)
     return copy
 end
 
----Returns the index of a value in a table, if not found -1
----@param table table
----@param value any
----@return integer
+---Returns the key of the first matching value in a table, or `-1` when not found.
+---@param table table Table to search.
+---@param value any Value to look for.
+---@return integer|string keyOrMinusOne
 function miscUtils.indexValue(table, value)
     local index={}
     for k,v in pairs(table) do
@@ -44,8 +53,9 @@ function miscUtils.indexValue(table, value)
     return index[value] or -1
 end
 
----@param tab table
----@param val any
+---Returns whether an array-style table contains a value.
+---@param tab table Sequence to inspect with `ipairs`.
+---@param val any Value to check.
 ---@return boolean
 function miscUtils.has_value(tab, val)
     for _, value in ipairs(tab) do
@@ -56,8 +66,9 @@ function miscUtils.has_value(tab, val)
     return false
 end
 
----@param tab table
----@param index any
+---Returns whether a table contains a specific key.
+---@param tab table Table to inspect.
+---@param index any Key to check.
 ---@return boolean
 function miscUtils.hasIndex(tab, index)
     for k, _ in pairs(tab) do
@@ -68,93 +79,144 @@ function miscUtils.hasIndex(tab, index)
     return false
 end
 
+---Counts the number of keys in a table.
+---@param table table
+---@return integer
 function miscUtils.tableLength(table)
     local count = 0
     for _ in pairs(table) do count = count + 1 end
     return count
 end
 
----@param tab table
----@param val any
+---Clears `locked` and `lockedByParent` flags recursively on serialized tree data.
+---@param data table Serialized element/group table.
+function miscUtils.clearLockStateRecursive(data)
+    if type(data) ~= "table" then return end
+
+    data.locked = false
+    data.lockedByParent = false
+
+    if data.childs then
+        for _, child in pairs(data.childs) do
+            miscUtils.clearLockStateRecursive(child)
+        end
+    end
+end
+
+---Removes the first matching value from an array-style table.
+---@param tab table Sequence table.
+---@param val any Value to remove.
 function miscUtils.removeItem(tab, val)
     table.remove(tab, miscUtils.indexValue(tab, val))
 end
 
+---Adds two vectors component-wise.
+---@param v1 vec4Like|Vector4
+---@param v2 vec4Like|Vector4
+---@return Vector4
 function miscUtils.addVector(v1, v2)
     return Vector4.new(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z, v1.w + v2.w)
 end
 
+---Subtracts `v2` from `v1` component-wise.
+---@param v1 vec4Like|Vector4
+---@param v2 vec4Like|Vector4
+---@return Vector4
 function miscUtils.subVector(v1, v2)
     return Vector4.new(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z, v1.w - v2.w)
 end
 
+---Multiplies each vector component by a scalar.
+---@param v1 vec4Like|Vector4
+---@param factor number
+---@return Vector4
 function miscUtils.multVector(v1, factor)
     return Vector4.new(v1.x * factor, v1.y * factor, v1.z * factor, v1.w * factor)
 end
 
+---Multiplies two vectors component-wise.
+---@param v1 vec4Like|Vector4
+---@param v2 vec4Like|Vector4
+---@return Vector4
 function miscUtils.multVecXVec(v1, v2)
     return Vector4.new(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z, v1.w * v2.w)
 end
 
+---Adds two Euler rotations component-wise.
+---@param e1 eulerLike|EulerAngles
+---@param e2 eulerLike|EulerAngles
+---@return EulerAngles
 function miscUtils.addEuler(e1, e2)
     return EulerAngles.new(e1.roll + e2.roll, e1.pitch + e2.pitch, e1.yaw + e2.yaw)
 end
 
+---Subtracts `e2` from `e1` component-wise.
+---@param e1 eulerLike|EulerAngles
+---@param e2 eulerLike|EulerAngles
+---@return EulerAngles
 function miscUtils.subEuler(e1, e2)
     return EulerAngles.new(e1.roll - e2.roll, e1.pitch - e2.pitch, e1.yaw - e2.yaw)
 end
 
+---Multiplies each Euler component by a scalar.
+---@param e1 eulerLike|EulerAngles
+---@param factor number
+---@return EulerAngles
 function miscUtils.multEuler(e1, factor)
     return EulerAngles.new(e1.roll * factor, e1.pitch * factor, e1.yaw * factor)
 end
 
----Returns table with x y z w from given Vector4
----@param vector Vector4
----@return table {x, y, z, w}
+---Converts a `Vector4` into a serializable plain table.
+---@param vector vec4Like|Vector4
+---@return vec4Like
 function miscUtils.fromVector(vector)
     return {x = vector.x, y = vector.y, z = vector.z, w = vector.w}
 end
 
----Returns table with i j k r from given Quaternion
+---Converts a `Quaternion` into a serializable plain table.
 ---@param quat Quaternion
----@return table {i, j, k, r}
+---@return {i: number, j: number, k: number, r: number}
 function miscUtils.fromQuaternion(quat)
     return {i = quat.i, j = quat.j, k = quat.k, r = quat.r}
 end
 
----Returns Vector4 object from given table containing x y z w
----@param tab table {x, y, z, w}
+---Builds a `Vector4` from a plain table.
+---@param tab vec4Like
 ---@return Vector4
 function miscUtils.getVector(tab)
     return(Vector4.new(tab.x, tab.y, tab.z, tab.w))
 end
 
----Returns Quaternion object from given table containing i j k r
----@param tab table {i, j, k, r}
+---Builds a `Quaternion` from a plain table.
+---@param tab {i: number, j: number, k: number, r: number}
 ---@return Quaternion
 function miscUtils.getQuaternion(tab)
     return(Quaternion.new(tab.i, tab.j, tab.k, tab.r))
 end
 
----Returns table with roll pitch yaw from given EulerAngles
----@param eul EulerAngles
----@return table {roll, pitch, yaw}
+---Converts `EulerAngles` into a serializable plain table.
+---@param eul eulerLike|EulerAngles
+---@return eulerLike
 function miscUtils.fromEuler(eul)
     return {roll = eul.roll, pitch = eul.pitch, yaw = eul.yaw}
 end
 
----Returns EulerAngles object from given table containing roll pitch yaw
----@param tab table {roll, pitch, yaw}
+---Builds `EulerAngles` from a plain table.
+---@param tab eulerLike
 ---@return EulerAngles
 function miscUtils.getEuler(tab)
     return(EulerAngles.new(tab.roll, tab.pitch, tab.yaw))
 end
 
+---Returns Euclidean distance between two 3D points (`x/y/z`).
+---@param from vec3Like|vec4Like|Vector4
+---@param to vec3Like|vec4Like|Vector4
+---@return number
 function miscUtils.distanceVector(from, to)
     return math.sqrt((to.x - from.x)^2 + (to.y - from.y)^2 + (to.z - from.z)^2)
 end
 
----Sanitizes a string to be used as a file name
+---Sanitizes text so it can be safely used as a file name.
 ---@param name string
 ---@return string
 function miscUtils.createFileName(name)
@@ -173,6 +235,10 @@ function miscUtils.createFileName(name)
     return name
 end
 
+---Rotates a vector around the roll/X axis by degrees.
+---@param vec vec4Like|Vector4
+---@param deg number Degrees.
+---@return Vector4
 function miscUtils.rotateRoll(vec, deg)
     local deg = math.rad(deg)
 
@@ -189,6 +255,10 @@ function miscUtils.rotateRoll(vec, deg)
     return rotated
 end
 
+---Rotates a vector around the pitch/Y axis by degrees.
+---@param vec vec4Like|Vector4
+---@param deg number Degrees.
+---@return Vector4
 function miscUtils.rotatePitch(vec, deg)
     local deg = math.rad(deg)
 
@@ -205,6 +275,10 @@ function miscUtils.rotatePitch(vec, deg)
     return rotated
 end
 
+---Applies yaw/pitch/roll rotation to a vector.
+---@param vec vec4Like|Vector4
+---@param rot eulerLike|EulerAngles
+---@return Vector4
 function miscUtils.rotatePoint(vec, rot)
     local yaw = math.rad(rot.yaw) -- α
     local pitch = math.rad(rot.pitch) -- β
@@ -235,9 +309,10 @@ function miscUtils.rotatePoint(vec, rot)
     return rotated
 end
 
----Returns the min and max of a BBox for a list of Vector4's
----@param vectors table
----@return Vector4, Vector4
+---Computes axis-aligned min/max points for a list of vectors.
+---@param vectors (vec4Like|Vector4)[]
+---@return Vector4 min
+---@return Vector4 max
 function miscUtils.getVector4BBox(vectors)
     local minX = 9999999999
     local minY = 9999999999
@@ -274,6 +349,92 @@ function miscUtils.getVector4BBox(vectors)
     return Vector4.new(minX, minY, minZ, 0), Vector4.new(maxX, maxY, maxZ, 0)
 end
 
+---Returns scaled box dimensions from an AABB and scale.
+---@param box axisAlignedBBox?
+---@param scale vec3Like?
+---@return vec3Like
+function miscUtils.getBoxSize(box, scale)
+    local safeBox = box or { min = { x = -0.5, y = -0.5, z = -0.5 }, max = { x = 0.5, y = 0.5, z = 0.5 } }
+    local safeScale = scale or { x = 1, y = 1, z = 1 }
+
+    return {
+        x = (safeBox.max.x - safeBox.min.x) * math.abs(safeScale.x or 1),
+        y = (safeBox.max.y - safeBox.min.y) * math.abs(safeScale.y or 1),
+        z = (safeBox.max.z - safeBox.min.z) * math.abs(safeScale.z or 1)
+    }
+end
+
+---Applies absolute scale to an AABB.
+---@param box axisAlignedBBox?
+---@param scale vec3Like?
+---@return axisAlignedBBox
+function miscUtils.getScaledBBox(box, scale)
+    local safeBox = box or { min = { x = -0.5, y = -0.5, z = -0.5 }, max = { x = 0.5, y = 0.5, z = 0.5 } }
+    local safeScale = scale or { x = 1, y = 1, z = 1 }
+
+    return {
+        min = {
+            x = safeBox.min.x * math.abs(safeScale.x or 1),
+            y = safeBox.min.y * math.abs(safeScale.y or 1),
+            z = safeBox.min.z * math.abs(safeScale.z or 1)
+        },
+        max = {
+            x = safeBox.max.x * math.abs(safeScale.x or 1),
+            y = safeBox.max.y * math.abs(safeScale.y or 1),
+            z = safeBox.max.z * math.abs(safeScale.z or 1)
+        }
+    }
+end
+
+---Applies scale and additional per-axis factor to an AABB.
+---@param box axisAlignedBBox?
+---@param scale vec3Like?
+---@param scaleFactor vec3Like?
+---@return axisAlignedBBox
+function miscUtils.getScaledBBoxWithFactor(box, scale, scaleFactor)
+    local scaledBBox = miscUtils.getScaledBBox(box, scale)
+    local factor = scaleFactor or { x = 1, y = 1, z = 1 }
+
+    scaledBBox.min.x = scaledBBox.min.x * (factor.x or 1)
+    scaledBBox.min.y = scaledBBox.min.y * (factor.y or 1)
+    scaledBBox.min.z = scaledBBox.min.z * (factor.z or 1)
+    scaledBBox.max.x = scaledBBox.max.x * (factor.x or 1)
+    scaledBBox.max.y = scaledBBox.max.y * (factor.y or 1)
+    scaledBBox.max.z = scaledBBox.max.z * (factor.z or 1)
+
+    return scaledBBox
+end
+
+---Returns the world-space center of a local AABB.
+---@param box axisAlignedBBox?
+---@param scale vec3Like?
+---@param rotation EulerAngles
+---@param position vec4Like|Vector4
+---@return Vector4
+function miscUtils.getBoxCenter(box, scale, rotation, position)
+    local safeBox = box or { min = { x = -0.5, y = -0.5, z = -0.5 }, max = { x = 0.5, y = 0.5, z = 0.5 } }
+    local safeScale = scale or { x = 1, y = 1, z = 1 }
+    local size = miscUtils.getBoxSize(safeBox, safeScale)
+    local offset = Vector4.new(
+        (safeBox.min.x * (safeScale.x or 1)) + size.x / 2,
+        (safeBox.min.y * (safeScale.y or 1)) + size.y / 2,
+        (safeBox.min.z * (safeScale.z or 1)) + size.z / 2,
+        0
+    )
+    offset = rotation:ToQuat():Transform(offset)
+
+    return Vector4.new(
+        position.x + offset.x,
+        position.y + offset.y,
+        position.z + offset.z,
+        0
+    )
+end
+
+---Applies relative Euler delta using quaternion multiplication.
+---@param current EulerAngles
+---@param delta eulerLike Rotation delta in degrees.
+---@return EulerAngles
 function miscUtils.addEulerRelative(current, delta)
     local result = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](current:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 1, 0, 0), Deg2Rad(delta.roll)))
     result = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](result, Quaternion.SetAxisAngle(Vector4.new(1, 0, 0, 0), Deg2Rad(delta.pitch)))
@@ -282,9 +443,15 @@ function miscUtils.addEulerRelative(current, delta)
     return result:ToEulerAngles()
 end
 
----@param enumName string
----@return table
+---Builds and caches the display-name list of a RED enum.
+---@param enumName string RED enum type name.
+---@return string[]
 function miscUtils.enumTable(enumName)
+    local cached = enumTableCache[enumName]
+    if cached then
+        return cached
+    end
+
     local enums = {}
 
     for i = -25, tonumber(EnumGetMax(enumName)) do
@@ -294,9 +461,13 @@ function miscUtils.enumTable(enumName)
         end
     end
 
+    enumTableCache[enumName] = enums
     return enums
 end
 
+---Generates an incremented copy name (`Name` -> `Name_1`, `Name1` -> `Name2`).
+---@param name string
+---@return string
 function miscUtils.generateCopyName(name)
     local num = name:match("%d*$")
 
@@ -307,6 +478,9 @@ function miscUtils.generateCopyName(name)
     end
 end
 
+---Debug logger (currently disabled by early return).
+---@param ... any Values to print.
+---@return nil
 function miscUtils.log(...)
     if true then return end
 
@@ -323,14 +497,23 @@ function miscUtils.log(...)
     print(str)
 end
 
+---Extracts filename stem from a path; leaves non-path record IDs unchanged.
+---@param path string
+---@return string
 function miscUtils.getFileName(path)
-    if string.match(path, "\\") then -- Workaround to avoid stripping records
-        return path:match("([^/\\]+)%..*$") or path
+    -- Only strip extension when this is an actual path.
+    -- Record IDs (e.g. Character.xxx) are dot-separated but have no path separators.
+    if string.match(path, "[/\\]") then
+        return path:match("([^/\\]+)%..*$") or path:match("([^/\\]+)$") or path
     end
 
     return path
 end
 
+---Appends values from `data` into array `target` (using `pairs` + `table.insert`).
+---@param target table
+---@param data table
+---@return table target
 function miscUtils.combine(target, data)
     for _, v in pairs(data) do
         table.insert(target, v)
@@ -339,6 +522,10 @@ function miscUtils.combine(target, data)
     return target
 end
 
+---Copies key/value pairs from `data` into `target`.
+---@param target table
+---@param data table
+---@return table target
 function miscUtils.combineHashTable(target, data)
     for k, v in pairs(data) do
         target[k] = v
@@ -347,10 +534,19 @@ function miscUtils.combineHashTable(target, data)
     return target
 end
 
+---Returns whether `object.class` contains the provided class name.
+---@param object { class: string[] }
+---@param class string
+---@return boolean
 function miscUtils.isA(object, class)
     return miscUtils.has_value(object.class, class)
 end
 
+---Sets a nested value by key path.
+---@param tbl table Root table.
+---@param keys (string|number)[] Path of keys.
+---@param data any Value to assign at the final key.
+---@return nil
 function miscUtils.setNestedValue(tbl, keys, data)
     local value = tbl
     for i, key in ipairs(keys) do
@@ -363,6 +559,10 @@ function miscUtils.setNestedValue(tbl, keys, data)
     end
 end
 
+---Gets a nested value by key path, returning `nil` when any segment is missing.
+---@param tbl table Root table.
+---@param keys (string|number)[] Path of keys.
+---@return any
 function miscUtils.getNestedValue(tbl, keys)
     local value = tbl
     for _, key in ipairs(keys) do
@@ -375,6 +575,11 @@ function miscUtils.getNestedValue(tbl, keys)
 end
 
 --https://web.archive.org/web/20131225070434/http://snippets.luacode.org/snippets/Deep_Comparison_of_Two_Values_3
+---Recursively compares two values/tables for deep equality.
+---@param t1 any
+---@param t2 any
+---@param ignore_mt boolean? Ignore `__eq` metamethod when true.
+---@return boolean
 function miscUtils.deepcompare(t1,t2,ignore_mt)
     local ty1 = type(t1)
     local ty2 = type(t2)
@@ -396,6 +601,12 @@ function miscUtils.deepcompare(t1,t2,ignore_mt)
 end
 
 --https://web.archive.org/web/20131225070434/http://snippets.luacode.org/snippets/Deep_Comparison_of_Two_Values_3
+---Deep-compare variant that ignores mismatches for excluded top-level keys.
+---@param t1 any
+---@param t2 any
+---@param ignore_mt boolean? Ignore `__eq` metamethod when true.
+---@param exclusions (string|number)[] Keys to ignore when values differ.
+---@return boolean
 function miscUtils.deepcompareExclusions(t1,t2,ignore_mt,exclusions)
     local ty1 = type(t1)
     local ty2 = type(t2)
@@ -420,6 +631,10 @@ function miscUtils.deepcompareExclusions(t1,t2,ignore_mt,exclusions)
     return true
 end
 
+---Returns whether two favorite payloads are merge-compatible.
+---@param a table
+---@param b table
+---@return boolean
 function miscUtils.canMergeFavorites(a, b)
     local exclusions = {
 		"name",
@@ -440,6 +655,10 @@ function miscUtils.canMergeFavorites(a, b)
     return miscUtils.deepcompareExclusions(a, b, false, exclusions)
 end
 
+---Queues a highlight-outline event on an entity.
+---@param entity entEntity?
+---@param color integer Outline index.
+---@return nil
 function miscUtils.sendOutlineEvent(entity, color)
     if not entity then return end
 
@@ -450,6 +669,9 @@ function miscUtils.sendOutlineEvent(entity, color)
     }))
 end
 
+---Returns the maximum rendered width among the provided text labels.
+---@param texts string[]
+---@return number
 function miscUtils.getTextMaxWidth(texts)
     local max = 0
 
@@ -461,6 +683,9 @@ function miscUtils.getTextMaxWidth(texts)
     return max
 end
 
+---Recursively collects class names derived from a RED base class.
+---@param base string Base class name.
+---@return string[]
 function miscUtils.getDerivedClasses(base)
     local classes = { base }
 
@@ -475,23 +700,65 @@ function miscUtils.getDerivedClasses(base)
     return classes
 end
 
+---Converts node-ref text/number into a normalized FNV1a64 hash string.
+---@param data string|number
+---@return string Hash without `#` or `ULL` suffix.
 function miscUtils.nodeRefStringToHashString(data)
-    local hash, _ = data:gsub("#", "")
-    hash, _ = tostring(FNV1a64(hash)):gsub("ULL", "")
+    if not data then
+        return ""
+    end
+
+    local cached = nodeRefHashCache[data]
+    if cached then
+        return cached
+    end
+
+    local normalized, _ = tostring(data):gsub("#", "")
+    local hash, _ = tostring(FNV1a64(normalized)):gsub("ULL", "")
+    nodeRefHashCache[data] = hash
 
     return hash
 end
 
+---Resets the sequential export buffer-id counter.
+---@return nil
+function miscUtils.resetExportBufferIds()
+    bufferIdState.nextId = 1
+end
+
+---Generates the next deterministic hash-based export buffer id.
+---@param prefix string? Prefix namespace used in hash input.
+---@return string
+function miscUtils.nextExportBufferId(prefix)
+    local label = prefix or "BufferId"
+    local nextId = bufferIdState.nextId
+    bufferIdState.nextId = bufferIdState.nextId + 1
+
+    local hashInput = label .. ":" .. tostring(nextId)
+    local candidate, _ = tostring(FNV1a64(hashInput)):gsub("ULL", "")
+    return candidate
+end
+
+---Stores a value in the module-local clipboard table.
+---@param key string|number
+---@param data any
+---@return nil
 function miscUtils.insertClipboardValue(key, data)
     miscUtils.data[key] = data
 end
 
+---Reads a value from the module-local clipboard table.
+---@param key string|number
+---@return any
 function miscUtils.getClipboardValue(key)
     return miscUtils.data[key]
 end
 
 --https://stackoverflow.com/questions/18886447/convert-signed-ieee-754-float-to-hexadecimal-representation
 --https://stackoverflow.com/questions/72783502/how-does-one-reverse-the-items-in-a-table-in-lua
+---Converts a Lua number to little-endian IEEE754 float32 hex.
+---@param n number
+---@return string
 function miscUtils.floatToHex(n)
     if n == 0.0 then return "00000000" end
 
@@ -541,6 +808,9 @@ function miscUtils.floatToHex(n)
 end
 
 --https://stackoverflow.com/questions/18886447/convert-signed-ieee-754-float-to-hexadecimal-representation
+---Converts an integer to hexadecimal (minimum 2 chars).
+---@param IN integer
+---@return string
 function miscUtils.intToHex(IN)
     local B,K,OUT,I,D=16,"0123456789ABCDEF","",0
     while IN>0 do
@@ -560,6 +830,9 @@ function miscUtils.intToHex(IN)
     return OUT
 end
 
+---Converts a hex string payload into Base64.
+---@param hex string Hexadecimal string with even length.
+---@return string
 function miscUtils.hexToBase64(hex)
     -- Convert hex string to binary data
     local binary = hex:gsub('..', function(byte)
@@ -572,6 +845,9 @@ function miscUtils.hexToBase64(hex)
     local padding = #binary % 3 -- Determine the padding needed
 
     -- Encode binary to base64 without bitwise operations
+    ---Converts up to three bytes into four base64 table indices.
+    ---@param bytes integer[]
+    ---@return integer[]
     local function toBase64Index(bytes)
         local a = bytes[1] or 0
         local b = bytes[2] or 0
@@ -603,6 +879,9 @@ function miscUtils.hexToBase64(hex)
     return table.concat(b64)
 end
 
+---Returns a list containing all keys from a table.
+---@param tab table
+---@return table
 function miscUtils.getKeys(tab)
     local keys = {}
 
@@ -613,6 +892,11 @@ function miscUtils.getKeys(tab)
     return keys
 end
 
+---Shortens a path to fit UI width by trimming leading segments and prefixing `...`.
+---@param path string
+---@param width number Maximum allowed rendered width.
+---@param backwardsSlash boolean? Use backslash separators when true.
+---@return string
 function miscUtils.shortenPath(path, width, backwardsSlash)
     if ImGui.CalcTextSize(path) <= width then return path end
 
@@ -633,21 +917,10 @@ function miscUtils.shortenPath(path, width, backwardsSlash)
     return "..." .. path
 end
 
-function miscUtils.getPlayerPosition(editorActive)
-    local pos = Game.GetPlayer():GetWorldPosition()
-
-    if editorActive then
-        local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetAxisY()
-        pos = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
-
-        pos.z = pos.z + forward.z * settings.spawnDist
-        pos.x = pos.x + forward.x * settings.spawnDist
-        pos.y = pos.y + forward.y * settings.spawnDist
-    end
-
-    return pos
-end
-
+---Builds a comma-separated bitfield enum string from boolean channel toggles.
+---@param bitTable boolean[]
+---@param bitTableNames string[]
+---@return string
 function miscUtils.buildBitfieldString(bitTable, bitTableNames)
     local bitfieldString = ""
 
@@ -666,6 +939,32 @@ function miscUtils.buildBitfieldString(bitTable, bitTableNames)
     return bitfieldString
 end
 
+---Matches search query against text.
+---Supports direct Lua-pattern match, and token operators: `|` (OR), `&` (AND), `!` (NOT).
+---When the provided pattern is malformed, falls back to plain-text substring search.
+---@param text string
+---@param pattern string?
+---@return boolean
+function miscUtils.safePatternMatch(text, pattern)
+    if not pattern or pattern == "" then
+        return true
+    end
+
+    local ok, matched = pcall(function ()
+        return text:match(pattern)
+    end)
+    if ok then
+        return matched ~= nil
+    end
+
+    return text:find(pattern, 1, true) ~= nil
+end
+
+---Matches search query against text.
+---Supports direct Lua-pattern match, and token operators: `|` (OR), `&` (AND), `!` (NOT).
+---@param text string
+---@param query string?
+---@return boolean
 function miscUtils.matchSearch(text, query)
     if not query or query == "" then
         return true
@@ -674,7 +973,7 @@ function miscUtils.matchSearch(text, query)
     text = text:lower()
     query = query:lower()
 
-    if text:match(query) then
+    if miscUtils.safePatternMatch(text, query) then
         return true
     end
 
@@ -687,15 +986,15 @@ function miscUtils.matchSearch(text, query)
 
         if char == "|" or char == "!" or char == "&" then
             if operation == "|" then
-                if not anyMatch and word ~= "" and text:match(word) then
+                if not anyMatch and word ~= "" and miscUtils.safePatternMatch(text, word) then
                     anyMatch = true
                 end
             elseif operation == "&" then
-                if word ~= "" and not text:match(word) then
+                if word ~= "" and not miscUtils.safePatternMatch(text, word) then
                     return false
                 end
             else
-                if word ~= "" and text:match(word) then
+                if word ~= "" and miscUtils.safePatternMatch(text, word) then
                     return false
                 end
             end

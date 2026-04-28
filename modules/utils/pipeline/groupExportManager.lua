@@ -1,0 +1,866 @@
+local config = require("modules/utils/config")
+local utils = require("modules/utils/utils")
+local Cron = require("modules/utils/Cron")
+local pipelineCommon = require("modules/utils/pipeline/common")
+
+local groupExportManager = {}
+local EXPORT_ERROR_LOG_PATH = "data/export_errors.log"
+
+local function createExportRuntime(previous)
+    local buildChunkSize = previous and previous.buildChunkSize or 220
+    local buildTimeBudgetMs = previous and previous.buildTimeBudgetMs or 6
+    local exportChunkSize = previous and previous.exportChunkSize or 90
+    local exportTimeBudgetMs = previous and previous.exportTimeBudgetMs or 6
+
+    return {
+        active = false,
+        paused = false,
+        phase = "idle", -- idle|build|export|finalize
+        timer = nil,
+        resumeAction = nil,
+        pauseReason = nil,
+        groups = {},
+        totalGroups = 0,
+        groupIndex = 1,
+        completedGroups = 0,
+        current = nil,
+        project = nil,
+        state = nil,
+        request = nil,
+        buildChunkSize = buildChunkSize,
+        buildTimeBudgetMs = buildTimeBudgetMs,
+        exportChunkSize = exportChunkSize,
+        exportTimeBudgetMs = exportTimeBudgetMs
+    }
+end
+
+groupExportManager.state = createExportRuntime()
+groupExportManager.pendingToasts = {}
+
+local function appendExportErrorLog(line)
+    local file, openErr = io.open(EXPORT_ERROR_LOG_PATH, "a")
+    if not file then
+        print(string.format("[entSpawner] Failed to open export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(openErr)))
+        return
+    end
+
+    local ok, writeErr = pcall(function ()
+        file:write(line .. "\n")
+    end)
+    file:close()
+
+    if not ok then
+        print(string.format("[entSpawner] Failed to write export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(writeErr)))
+    end
+end
+
+local function getRuntimeNames(runtime)
+    local projectName = runtime and runtime.project and runtime.project.name or "unknown_project"
+    local groupName = runtime and runtime.current and runtime.current.name
+    if not groupName and runtime and runtime.groups and runtime.groupIndex then
+        local listed = runtime.groups[runtime.groupIndex]
+        groupName = listed and listed.name or nil
+    end
+
+    return projectName, groupName or "unknown_group"
+end
+
+local function logExportError(runtime, phase, message)
+    local projectName, groupName = getRuntimeNames(runtime)
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local line = string.format("[%s] phase=%s project=%s group=%s error=%s", timestamp or "unknown_time", tostring(phase), tostring(projectName), tostring(groupName), tostring(message))
+
+    print("[entSpawner] " .. line)
+    appendExportErrorLog(line)
+end
+
+local function queueToast(kind, duration, text)
+    local ok, err = pcall(function ()
+        pipelineCommon.queueToast(groupExportManager.pendingToasts, kind, duration, text)
+    end)
+    if not ok then
+        print(string.format("[entSpawner] Failed to queue toast: %s", tostring(err)))
+    end
+end
+
+local function haltRuntimeTimer(runtime)
+    if runtime and runtime.timer then
+        Cron.Halt(runtime.timer)
+        runtime.timer = nil
+    end
+end
+
+local function hasBlockingIssues(runtime)
+    local check = runtime and runtime.request and runtime.request.hasBlockingIssues
+    if check then
+        return check() == true
+    end
+
+    return false
+end
+
+local function pauseExport(runtime, reason, onResume)
+    if not runtime or not runtime.active then
+        return false
+    end
+
+    haltRuntimeTimer(runtime)
+    runtime.paused = true
+    runtime.resumeAction = onResume
+    runtime.pauseReason = reason or "Resolve the export issue popup to continue."
+    return true
+end
+
+local clearCurrentGroup
+
+local function abortExport(runtime, phase, message)
+    logExportError(runtime, phase, message)
+    haltRuntimeTimer(runtime)
+    clearCurrentGroup(runtime)
+
+    if groupExportManager.state == runtime then
+        groupExportManager.state = createExportRuntime(runtime)
+    end
+
+    queueToast("error", 7000, string.format("Export failed (%s): %s", tostring(phase), tostring(message)))
+end
+
+clearCurrentGroup = function (runtime)
+    if not runtime then
+        return
+    end
+
+    if runtime.current then
+        runtime.current.root = nil
+        runtime.current.nodes = nil
+        runtime.current.nodeRefMap = nil
+        runtime.current.spawnables = nil
+        runtime.current.buildQueue = nil
+        runtime.current = nil
+    end
+end
+
+local function addChildFast(parent, child)
+    if not parent or not child then
+        return
+    end
+
+    child.parent = parent
+    parent.childs = parent.childs or {}
+    table.insert(parent.childs, child)
+end
+
+local function queueBuildEntry(current, data, parent)
+    current.buildTail = current.buildTail + 1
+    current.buildQueue[current.buildTail] = { data = data, parent = parent }
+    current.buildTotal = current.buildTotal + 1
+end
+
+local function mergeGroupExportData(runtime, data, devices, psEntries, subChilds, communities, spots)
+    local project = runtime.project
+    local state = runtime.state
+
+    table.insert(project.sectors, data)
+
+    for hash, device in pairs(devices) do
+        project.devices[hash] = device
+    end
+
+    for psid, entry in pairs(psEntries) do
+        project.psEntries[psid] = entry
+    end
+
+    utils.combine(state.communities, communities)
+    utils.combine(state.spotNodes, spots)
+    utils.combine(state.childs, subChilds)
+
+    if runtime.request and runtime.request.collectDuplicateNodeRefs then
+        runtime.request.collectDuplicateNodeRefs(state.nodeRefs, data.nodes)
+    end
+end
+
+local function finalizeDeviceParents(project, childs)
+    for hash, device in pairs(project.devices) do
+        for _, childHash in pairs(device.children) do
+            if project.devices[childHash] then
+                table.insert(project.devices[childHash].parents, hash)
+            end
+        end
+    end
+
+    -- TODO: Aggregate all parents of double entries, so a device that isnt a device can be linked to multiple parents
+    local additionalEntries = {}
+    for _, child in pairs(childs) do
+        local hash = utils.nodeRefStringToHashString(child.ref)
+        if not additionalEntries[hash] then
+            additionalEntries[hash] = {
+                hash = hash,
+                className = child.className,
+                nodePosition = child.nodePosition,
+                parents = { child.parent },
+                children = {}
+            }
+        else
+            table.insert(additionalEntries[hash].parents, child.parent)
+        end
+    end
+
+    for _, child in pairs(additionalEntries) do
+        project.devices[child.hash] = child
+    end
+end
+
+local function getTopRootChild(root, element)
+    if not root or not element then
+        return nil
+    end
+
+    local current = element
+    while current and current.parent and current.parent ~= root do
+        current = current.parent
+    end
+
+    if current and current.parent == root then
+        return current
+    end
+
+    return nil
+end
+
+local function shouldExportNode(runtime, node)
+    local check = runtime and runtime.request and runtime.request.shouldExportNode
+    if check then
+        return check(node)
+    end
+
+    return true
+end
+
+---@param variantName string?
+---@return string, boolean
+local function normalizeVariantName(variantName)
+    local normalized = tostring(variantName or "")
+    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if normalized == "" or normalized:lower() == "default" then
+        return "default", true
+    end
+
+    return normalized, false
+end
+
+local function prepareCurrentGroupForExport(runtime)
+    local current = runtime.current
+    if not current or not current.root then
+        return
+    end
+
+    local group = current.group
+    local root = current.root
+    local center = root:getPosition()
+    local sectorCategory = runtime.request.sectorCategory
+
+    current.exported = {
+        name = utils.createFileName(group.name):lower():gsub(" ", "_"),
+        min = {
+            x = center.x - group.streamingX,
+            y = center.y - group.streamingY,
+            z = center.z - group.streamingZ
+        },
+        max = {
+            x = center.x + group.streamingX,
+            y = center.y + group.streamingY,
+            z = center.z + group.streamingZ
+        },
+        category = sectorCategory[group.category + 1],
+        level = group.level,
+        nodes = {},
+        prefabRef = group.prefabRef,
+        variantIndices = { 0 },
+        variants = {}
+    }
+
+    current.devices = {}
+    current.psEntries = {}
+    current.childs = {}
+    current.communities = {}
+    current.spotNodes = {}
+
+    local variantNodes = {
+        default = {}
+    }
+    local variantInfo = {}
+    local variantOrder = {}
+    local variantSeen = {}
+
+    for _, variant in pairs(group.variantData or {}) do
+        local variantName, isDefaultVariant = normalizeVariantName(variant.name)
+        if not variantNodes[variantName] then
+            variantNodes[variantName] = {}
+        end
+        if not variantInfo[variantName] then
+            variantInfo[variantName] = {
+                defaultOn = variant and variant.defaultOn
+            }
+        end
+        if not isDefaultVariant and not variantSeen[variantName] then
+            variantSeen[variantName] = true
+            table.insert(variantOrder, variantName)
+        end
+    end
+
+    for _, node in ipairs(current.spawnables) do
+        if utils.isA(node, "spawnableElement") and not node.spawnable.noExport and shouldExportNode(runtime, node) then
+            if node.parent == root then
+                table.insert(variantNodes.default, { ref = node })
+            else
+                local top = getTopRootChild(root, node)
+                local variant = top and group.variantData and group.variantData[top.name]
+                if variant then
+                    local variantName = normalizeVariantName(variant and variant.name)
+                    if not variantNodes[variantName] then
+                        variantNodes[variantName] = {}
+                    end
+                    table.insert(variantNodes[variantName], { ref = node })
+                end
+            end
+        end
+    end
+
+    current.nodes = variantNodes.default
+
+    local index = 1
+    for _, variantName in ipairs(variantOrder) do
+        local variantList = variantNodes[variantName] or {}
+        table.insert(current.exported.variantIndices, #current.nodes)
+        utils.combine(current.nodes, variantList)
+
+        table.insert(current.exported.variants, {
+            name = variantName,
+            index = index,
+            defaultOn = variantInfo[variantName] and variantInfo[variantName].defaultOn and 1 or 0,
+            ref = group.variantRef
+        })
+        index = index + 1
+    end
+
+    current.nodeRefMap = {}
+    for _, object in ipairs(current.nodes) do
+        if utils.isA(object.ref, "spawnableElement") and object.ref.spawnable and object.ref.spawnable.nodeRef and object.ref.spawnable.nodeRef ~= "" then
+            current.nodeRefMap[object.ref.spawnable.nodeRef] = object
+        end
+    end
+
+    current.totalNodes = #current.nodes
+    current.nodeIndex = 1
+end
+
+local beginNextGroup
+
+local function scheduleNextGroup(runtime)
+    Cron.NextTick(function ()
+        if groupExportManager.state == runtime and runtime.active then
+            beginNextGroup(runtime)
+        end
+    end)
+end
+
+local function advanceGroup(runtime, clearCurrent)
+    if clearCurrent ~= false then
+        clearCurrentGroup(runtime)
+    end
+
+    runtime.groupIndex = runtime.groupIndex + 1
+    runtime.completedGroups = runtime.completedGroups + 1
+    scheduleNextGroup(runtime)
+end
+
+local function finalizeExportRuntime(runtime)
+    runtime.phase = "finalize"
+    haltRuntimeTimer(runtime)
+    clearCurrentGroup(runtime)
+
+    local toastKind = nil
+    local toastDuration = 3500
+    local toastMessage = nil
+
+    local ok, err = pcall(function ()
+        if not runtime.finalizePrepared then
+            finalizeDeviceParents(runtime.project, runtime.state.childs)
+
+            local alwaysLoaded = nil
+            if runtime.request and runtime.request.handleCommunities then
+                alwaysLoaded = runtime.request.handleCommunities(runtime.project.name, runtime.state.communities, runtime.state.spotNodes, runtime.state.nodeRefs)
+            end
+
+            if alwaysLoaded then
+                table.insert(runtime.project.sectors, alwaysLoaded)
+            end
+
+            runtime.finalizePrepared = true
+        end
+
+        if hasBlockingIssues(runtime) then
+            pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
+                finalizeExportRuntime(runtime)
+            end)
+            return
+        end
+
+        local saved, saveErr = config.saveFile("export/" .. runtime.project.name .. "_exported.json", runtime.project)
+        if saved then
+            local projectLabel = runtime.request and runtime.request.projectName or runtime.project.name
+            toastKind = "success"
+            toastDuration = 2500
+            toastMessage = string.format("Exported \"%s\"", projectLabel)
+            print("[entSpawner] Exported project " .. runtime.project.name)
+        else
+            toastKind = "error"
+            toastDuration = 7000
+            toastMessage = string.format("Export failed: %s", tostring(saveErr or "unknown_error"))
+            logExportError(runtime, "finalize_save", toastMessage)
+            print("[entSpawner] " .. toastMessage)
+        end
+    end)
+
+    if not ok then
+        toastKind = "error"
+        toastDuration = 7000
+        toastMessage = string.format("Export failed: %s", tostring(err))
+        logExportError(runtime, "finalize_exception", toastMessage)
+        print("[entSpawner] " .. toastMessage)
+    end
+
+    if runtime.paused then
+        return
+    end
+
+    if groupExportManager.state == runtime then
+        groupExportManager.state = createExportRuntime(runtime)
+    end
+
+    if toastKind and toastMessage then
+        queueToast(toastKind, toastDuration, toastMessage)
+    end
+end
+
+beginNextGroup = function (runtime)
+    if not runtime.active then
+        return
+    end
+
+    if runtime.groupIndex > runtime.totalGroups then
+        if runtime.completedGroups < runtime.totalGroups then
+            runtime.completedGroups = runtime.totalGroups
+        end
+        finalizeExportRuntime(runtime)
+        return
+    end
+
+    local group = runtime.groups[runtime.groupIndex]
+    if not group then
+        advanceGroup(runtime, false)
+        return
+    end
+
+    local path = "data/objects/" .. group.name .. ".json"
+    if not config.fileExists(path) then
+        queueToast("warning", 3500, string.format("Skipped missing group \"%s\"", tostring(group.name)))
+        advanceGroup(runtime, false)
+        return
+    end
+
+    local blob = config.loadFile(path)
+    if type(blob) ~= "table" or next(blob) == nil then
+        abortExport(runtime, "prepare_group", string.format("Group file is invalid or empty for \"%s\"", tostring(group.name)))
+        return
+    end
+
+    runtime.current = {
+        group = group,
+        name = group.name,
+        buildQueue = {},
+        buildHead = 1,
+        buildTail = 0,
+        buildTotal = 0,
+        buildProcessed = 0,
+        spawnables = {}
+    }
+
+    local ok, err = pcall(function ()
+        local root = require("modules/classes/editor/positionableGroup"):new(runtime.request.spawner.baseUI.spawnedUI)
+        root:load(pipelineCommon.copyNodeDataWithoutChildren(blob), true)
+        runtime.current.root = root
+
+        for _, child in pairs(blob.childs or {}) do
+            queueBuildEntry(runtime.current, child, root)
+        end
+    end)
+
+    if not ok then
+        abortExport(runtime, "prepare_group", string.format("Failed preparing group \"%s\": %s", tostring(group.name), tostring(err)))
+        return
+    end
+
+    runtime.phase = "build"
+    runtime.timer = Cron.OnUpdate(function (timer)
+        if groupExportManager.state ~= runtime or not runtime.active or runtime.phase ~= "build" or not runtime.current then
+            timer:Halt()
+            return
+        end
+
+        local current = runtime.current
+        local processed = 0
+        local startedAt = pipelineCommon.nowMs()
+        local maxPerTick = math.max(1, runtime.buildChunkSize or 1)
+        local budgetMs = math.max(0.1, runtime.buildTimeBudgetMs or 1)
+
+        while processed < maxPerTick and current.buildHead <= current.buildTail do
+            local entry = current.buildQueue[current.buildHead]
+            current.buildQueue[current.buildHead] = nil
+            current.buildHead = current.buildHead + 1
+
+            local okBuild, buildErr = pcall(function ()
+                local modulePath = entry.data.modulePath or entry.parent:getModulePathByType(entry.data)
+                local new = require(modulePath):new(runtime.request.spawner.baseUI.spawnedUI)
+                new:load(pipelineCommon.copyNodeDataWithoutChildren(entry.data), true)
+                addChildFast(entry.parent, new)
+
+                if utils.isA(new, "spawnableElement") then
+                    table.insert(current.spawnables, new)
+                end
+
+                for _, child in pairs(entry.data.childs or {}) do
+                    queueBuildEntry(current, child, new)
+                end
+            end)
+
+            current.buildProcessed = current.buildProcessed + 1
+            if not okBuild then
+                timer:Halt()
+                runtime.timer = nil
+                local nodeName = entry and entry.data and entry.data.name or "Unknown"
+                abortExport(runtime, "build_node", string.format("Build failed in group \"%s\" on node \"%s\": %s", tostring(current.name), tostring(nodeName), tostring(buildErr)))
+                return
+            end
+
+            processed = processed + 1
+            if (pipelineCommon.nowMs() - startedAt) >= budgetMs then
+                break
+            end
+        end
+
+        if current.buildHead > current.buildTail then
+            timer:Halt()
+            runtime.timer = nil
+
+            local okPrepare, prepareErr = pcall(function ()
+                prepareCurrentGroupForExport(runtime)
+            end)
+            if not okPrepare then
+                abortExport(runtime, "prepare_export", string.format("Failed preparing export for group \"%s\": %s", tostring(current.name), tostring(prepareErr)))
+                return
+            end
+
+            runtime.phase = "export"
+
+            if (runtime.current.totalNodes or 0) == 0 then
+                mergeGroupExportData(runtime, runtime.current.exported, runtime.current.devices, runtime.current.psEntries, runtime.current.childs, runtime.current.communities, runtime.current.spotNodes)
+                if hasBlockingIssues(runtime) then
+                    pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
+                        clearCurrentGroup(runtime)
+                        advanceGroup(runtime, false)
+                    end)
+                    return
+                end
+                clearCurrentGroup(runtime)
+                advanceGroup(runtime, false)
+                return
+            end
+
+            local exportTick
+            exportTick = function (exportTimer)
+                if groupExportManager.state ~= runtime or not runtime.active or runtime.phase ~= "export" or not runtime.current then
+                    exportTimer:Halt()
+                    return
+                end
+
+                local exportCurrent = runtime.current
+                local exportProcessed = 0
+                local exportStartedAt = pipelineCommon.nowMs()
+                local exportMaxPerTick = math.max(1, runtime.exportChunkSize or 1)
+                local exportBudgetMs = math.max(0.1, runtime.exportTimeBudgetMs or 1)
+
+                while exportProcessed < exportMaxPerTick and exportCurrent.nodeIndex <= exportCurrent.totalNodes do
+                    local key = exportCurrent.nodeIndex
+                    local object = exportCurrent.nodes[key]
+
+                    local okExport, exportErr = pcall(function ()
+                        if object and utils.isA(object.ref, "spawnableElement") and not object.ref.spawnable.noExport and shouldExportNode(runtime, object.ref) then
+                            table.insert(exportCurrent.exported.nodes, object.ref.spawnable:export(key, exportCurrent.totalNodes))
+
+                            if object.ref.spawnable.node == "worldDeviceNode" then
+                                runtime.request.handleDevice(object, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.nodeRefMap)
+                            elseif object.ref.spawnable.node == "worldCompiledCommunityAreaNode_Streamable" then
+                                table.insert(exportCurrent.communities, { data = object.ref.spawnable.entries, node = exportCurrent.exported.nodes[#exportCurrent.exported.nodes] })
+                            elseif object.ref.spawnable.node == "worldAISpotNode" then
+                                table.insert(exportCurrent.spotNodes, {
+                                    ref = object.ref.spawnable.nodeRef,
+                                    position = utils.fromVector(object.ref:getPosition()),
+                                    yaw = object.ref.spawnable.rotation.yaw,
+                                    markings = object.ref.spawnable.markings,
+                                    name = object.ref.name
+                                })
+                            end
+                        end
+                    end)
+
+                    if not okExport then
+                        exportTimer:Halt()
+                        runtime.timer = nil
+                        local nodeName = object and object.ref and object.ref.name or tostring(key)
+                        abortExport(runtime, "export_node", string.format("Export failed in group \"%s\" on node \"%s\": %s", tostring(exportCurrent.name), tostring(nodeName), tostring(exportErr)))
+                        return
+                    end
+
+                    exportCurrent.nodeIndex = exportCurrent.nodeIndex + 1
+                    exportProcessed = exportProcessed + 1
+
+                    if hasBlockingIssues(runtime) then
+                        pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
+                            runtime.phase = "export"
+                            runtime.timer = Cron.OnUpdate(exportTick)
+                        end)
+                        return
+                    end
+
+                    if (pipelineCommon.nowMs() - exportStartedAt) >= exportBudgetMs then
+                        break
+                    end
+                end
+
+                if exportCurrent.nodeIndex > exportCurrent.totalNodes then
+                    exportTimer:Halt()
+                    runtime.timer = nil
+
+                    mergeGroupExportData(runtime, exportCurrent.exported, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.communities, exportCurrent.spotNodes)
+                    if hasBlockingIssues(runtime) then
+                        pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
+                            clearCurrentGroup(runtime)
+                            advanceGroup(runtime, false)
+                        end)
+                        return
+                    end
+                    clearCurrentGroup(runtime)
+                    advanceGroup(runtime, false)
+                end
+            end
+
+            runtime.timer = Cron.OnUpdate(exportTick)
+        end
+    end)
+end
+
+function groupExportManager.start(request)
+    if groupExportManager.state.active then return false end
+    if not request or not request.spawner or not request.projectName or request.projectName == "" then return false end
+    if not request.groups or not request.sectorCategory or not request.version then return false end
+    if not request.handleDevice or not request.handleCommunities then return false end
+
+    local runtime = createExportRuntime(groupExportManager.state)
+    utils.resetExportBufferIds()
+    runtime.active = true
+    runtime.phase = "build"
+    runtime.groups = {}
+    runtime.totalGroups = 0
+    runtime.groupIndex = 1
+    runtime.completedGroups = 0
+    runtime.project = {
+        name = utils.createFileName(request.projectName):lower():gsub(" ", "_"),
+        xlFormat = request.xlFormat,
+        sectors = {},
+        devices = {},
+        psEntries = {},
+        version = request.version
+    }
+    runtime.state = {
+        nodeRefs = {},
+        spotNodes = {},
+        communities = {},
+        childs = {}
+    }
+    runtime.request = {
+        projectName = request.projectName,
+        sectorCategory = request.sectorCategory,
+        spawner = request.spawner,
+        shouldExportNode = request.shouldExportNode,
+        handleDevice = request.handleDevice,
+        handleCommunities = request.handleCommunities,
+        collectDuplicateNodeRefs = request.collectDuplicateNodeRefs,
+        hasBlockingIssues = request.hasBlockingIssues
+    }
+
+    for _, group in ipairs(request.groups) do
+        table.insert(runtime.groups, {
+            name = group.name,
+            category = group.category,
+            level = group.level,
+            streamingX = group.streamingX,
+            streamingY = group.streamingY,
+            streamingZ = group.streamingZ,
+            prefabRef = group.prefabRef,
+            variantRef = group.variantRef,
+            variantData = utils.deepcopy(group.variantData or {})
+        })
+    end
+    runtime.totalGroups = #runtime.groups
+
+    if request.buildChunkSize and request.buildChunkSize > 0 then
+        runtime.buildChunkSize = request.buildChunkSize
+    end
+    if request.buildTimeBudgetMs and request.buildTimeBudgetMs > 0 then
+        runtime.buildTimeBudgetMs = request.buildTimeBudgetMs
+    end
+    if request.exportChunkSize and request.exportChunkSize > 0 then
+        runtime.exportChunkSize = request.exportChunkSize
+    end
+    if request.exportTimeBudgetMs and request.exportTimeBudgetMs > 0 then
+        runtime.exportTimeBudgetMs = request.exportTimeBudgetMs
+    end
+
+    groupExportManager.state = runtime
+
+    if runtime.totalGroups == 0 then
+        groupExportManager.state = createExportRuntime(runtime)
+        return true
+    end
+
+    scheduleNextGroup(runtime)
+    return true
+end
+
+function groupExportManager.cancel(reason, suppressToast)
+    local runtime = groupExportManager.state
+    if not runtime or not runtime.active then
+        return false
+    end
+
+    haltRuntimeTimer(runtime)
+    clearCurrentGroup(runtime)
+    groupExportManager.state = createExportRuntime(runtime)
+
+    if not suppressToast then
+        local message = "Export cancelled"
+        if reason and reason ~= "" then
+            message = message .. " (" .. reason .. ")"
+        end
+        queueToast("warning", 3500, message)
+    end
+
+    return true
+end
+
+function groupExportManager.resume()
+    local runtime = groupExportManager.state
+    if not runtime or not runtime.active or not runtime.paused then
+        return false
+    end
+
+    local resumeAction = runtime.resumeAction
+    runtime.paused = false
+    runtime.resumeAction = nil
+    runtime.pauseReason = nil
+
+    if resumeAction then
+        local ok, err = pcall(function ()
+            resumeAction()
+        end)
+
+        if not ok then
+            abortExport(runtime, "resume", string.format("Failed resuming export: %s", tostring(err)))
+            return false
+        end
+    end
+
+    return true
+end
+
+function groupExportManager.isActive()
+    return groupExportManager.state.active == true
+end
+
+function groupExportManager.isPaused()
+    return groupExportManager.state.active == true and groupExportManager.state.paused == true
+end
+
+function groupExportManager.getState()
+    return groupExportManager.state
+end
+
+function groupExportManager.drawToasts()
+    pipelineCommon.drawQueuedToasts(groupExportManager.pendingToasts)
+end
+
+---@param style style
+---@return boolean drawn
+function groupExportManager.drawProgress(style)
+    local runtime = groupExportManager.state
+    if not runtime or not runtime.active then
+        return false
+    end
+
+    local phaseProgress = 0
+    local phaseText = ""
+    local counterText = ""
+    local helpText = ""
+
+    if runtime.phase == "build" and runtime.current then
+        local current = runtime.current
+        local total = math.max(1, current.buildTotal or 0)
+        phaseProgress = (current.buildProcessed or 0) / total
+        phaseText = string.format("Preparing \"%s\"", current.name or "Group")
+        counterText = string.format("%d/%d", current.buildProcessed or 0, current.buildTotal or 0)
+        helpText = "Building group hierarchy in chunks."
+    elseif runtime.phase == "export" and runtime.current then
+        local current = runtime.current
+        local total = math.max(1, current.totalNodes or 0)
+        local completed = math.max(0, (current.nodeIndex or 1) - 1)
+        phaseProgress = completed / total
+        phaseText = string.format("Exporting \"%s\"", current.name or "Group")
+        counterText = string.format("%d/%d", completed, current.totalNodes or 0)
+        helpText = "Serializing nodes in chunks."
+    else
+        phaseProgress = 1
+        phaseText = "Finalizing export"
+        counterText = ""
+        helpText = "Writing final export file."
+    end
+
+    if runtime.paused then
+        phaseText = "Paused: " .. phaseText
+        helpText = runtime.pauseReason or "Resolve the export issue popup to continue."
+    end
+
+    local totalGroups = math.max(1, runtime.totalGroups or 0)
+    local overall = math.min(1, ((runtime.completedGroups or 0) + phaseProgress) / totalGroups)
+
+    local overallCounter = string.format("%d/%d", runtime.completedGroups or 0, runtime.totalGroups or 0)
+    if counterText ~= "" then
+        overallCounter = overallCounter .. " | " .. counterText
+    end
+
+    pipelineCommon.drawCancelableProgress({
+        style = style,
+        phaseText = phaseText,
+        progress = overall,
+        counterText = overallCounter,
+        helpText = helpText,
+        onCancel = function ()
+            groupExportManager.cancel("user request")
+        end
+    })
+
+    return true
+end
+
+return groupExportManager

@@ -9,8 +9,37 @@ local intersection = require("modules/utils/editor/intersection")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
 local settings = require("modules/utils/settings")
+local appearanceHelper = require("modules/utils/appearanceHelper")
 
 local colliderShapes = { "Box", "Capsule", "Sphere" }
+local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
+local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
+local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
+local conversionTargets = {
+    { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
+    { modulePath = "mesh/bendedMesh", label = IconGlyphs.SineWave .. " Bended Mesh", plural = "bended meshes" },
+    { modulePath = "mesh/rotatingMesh", label = IconGlyphs.FormatRotate90 .. " Rotating Mesh", plural = "rotating meshes" },
+    { modulePath = "mesh/clothMesh", label = IconGlyphs.ReceiptOutline .. " Cloth Mesh", plural = "cloth meshes" },
+    { modulePath = "physics/dynamicMesh", label = IconGlyphs.CubeSend .. " Dynamic Mesh", plural = "dynamic meshes" }
+}
+local lossyConversionPairs = {
+    ["mesh/bendedMesh>mesh/mesh"] = true,
+    ["mesh/bendedMesh>mesh/rotatingMesh"] = true,
+    ["mesh/bendedMesh>mesh/clothMesh"] = true,
+    ["mesh/bendedMesh>physics/dynamicMesh"] = true,
+    ["mesh/rotatingMesh>mesh/bendedMesh"] = true,
+    ["mesh/rotatingMesh>mesh/mesh"] = true,
+    ["mesh/rotatingMesh>mesh/clothMesh"] = true,
+    ["mesh/rotatingMesh>physics/dynamicMesh"] = true,
+    ["mesh/clothMesh>mesh/bendedMesh"] = true,
+    ["mesh/clothMesh>mesh/mesh"] = true,
+    ["mesh/clothMesh>mesh/rotatingMesh"] = true,
+    ["mesh/clothMesh>physics/dynamicMesh"] = true,
+    ["physics/dynamicMesh>mesh/bendedMesh"] = true,
+    ["physics/dynamicMesh>mesh/mesh"] = true,
+    ["physics/dynamicMesh>mesh/rotatingMesh"] = true,
+    ["physics/dynamicMesh>mesh/clothMesh"] = true
+}
 
 local conversionTargets = {
     { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
@@ -34,6 +63,7 @@ local lossyConversionPairs = {
 ---@class mesh : spawnable
 ---@field public apps table
 ---@field public appIndex integer
+---@field protected appSearch string
 ---@field public scale {x: number, y: number, z: number}
 ---@field protected occluderType integer
 ---@field protected occluderTypes table
@@ -67,6 +97,7 @@ function mesh:new()
 
     o.apps = {}
     o.appIndex = 0
+    o.appSearch = ""
     o.scale = { x = 1, y = 1, z = 1 }
 
     o.occluderType = 0
@@ -100,10 +131,17 @@ function mesh:new()
    	return o
 end
 
-function mesh:loadSpawnData(data, position, rotation)
-    spawnable.loadSpawnData(self, data, position, rotation)
+---@protected
+---@param forceRefresh boolean?
+function mesh:loadMeshResourceData(forceRefresh)
+    if forceRefresh then
+        cache.removeValue(self.spawnData .. "_apps")
+        self.apps = {}
+        self.appIndex = 0
+        self.bBoxLoaded = false
+    end
 
-    cache.tryGet(self.spawnData .. "_apps", self.spawnData .. "_bBox_max", self.spawnData .. "_bBox_min", self.spawnData .. "_occluder")
+    cache.tryGetMeshResource(self.spawnData)
     .notFound(function (task)
         self.bBox.max = Vector4.new(0.5, 0.5, 0.5, 0) -- Temp values, so that onAssemble//updateScale can work
         self.bBox.min = Vector4.new(-0.5, -0.5, -0.5, 0)
@@ -116,7 +154,10 @@ function mesh:loadSpawnData(data, position, rotation)
 
             self.bBox.min = resource.boundingBox.Min
             self.bBox.max = resource.boundingBox.Max
-            visualizer.updateScale(entity, self:getArrowSize(), "arrows")
+            local entity = self:getEntity()
+            if entity then
+                visualizer.updateScale(entity, self:getArrowSize(), "arrows")
+            end
 
             local occluder = false
             for _, param in pairs(resource.parameters) do
@@ -127,10 +168,12 @@ function mesh:loadSpawnData(data, position, rotation)
             end
 
             -- Save to cache
-            cache.addValue(self.spawnData .. "_apps", self.apps)
-            cache.addValue(self.spawnData .. "_bBox_max", utils.fromVector(self.bBox.max))
-            cache.addValue(self.spawnData .. "_bBox_min", utils.fromVector(self.bBox.min))
-            cache.addValue(self.spawnData .. "_occluder", occluder)
+            cache.addMeshResource(self.spawnData, {
+                apps = self.apps,
+                bBoxMax = utils.fromVector(self.bBox.max),
+                bBoxMin = utils.fromVector(self.bBox.min),
+                occluder = occluder
+            })
 
             task:taskCompleted()
 
@@ -140,13 +183,50 @@ function mesh:loadSpawnData(data, position, rotation)
         end)
     end)
     .found(function ()
-        self.apps = cache.getValue(self.spawnData .. "_apps")
-        self.bBox.max = cache.getValue(self.spawnData .. "_bBox_max")
-        self.bBox.min = cache.getValue(self.spawnData .. "_bBox_min")
+        local cachedResource = cache.getMeshResource(self.spawnData)
+        if not cachedResource then
+            return
+        end
+
+        local previousApp = self.app
+        self.apps = cachedResource.apps
+        self.bBox.max = cachedResource.bBoxMax
+        self.bBox.min = cachedResource.bBoxMin
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
-        self.hasOccluder = cache.getValue(self.spawnData .. "_occluder")
+        self.hasOccluder = cachedResource.occluder
         self.bBoxLoaded = true
+
+        if utils.indexValue(self.apps, self.app) - 1 < 0 then
+            self.app = self.apps[1] or "default"
+        end
+
+        if self.app ~= previousApp then
+            local entity = self:getEntity()
+            if entity then
+                local meshComponent = entity:FindComponentByName("mesh")
+                if meshComponent then
+                    meshComponent.meshAppearance = CName.new(self.app)
+                    meshComponent:LoadAppearance()
+                    self:setOutline(self.outline)
+                end
+            end
+        end
     end)
+end
+
+function mesh:reloadAppearances()
+    if not self.spawnData or self.spawnData == "" then
+        return
+    end
+
+    self:loadMeshResourceData(true)
+end
+
+function mesh:loadSpawnData(data, position, rotation)
+    spawnable.loadSpawnData(self, data, position, rotation)
+    self.appSearch = self.appSearch or ""
+    self.appSearch = string.gsub(self.appSearch, "[\128-\255]", "")
+    self:loadMeshResourceData(false)
 end
 
 function mesh:onAssemble(entity)
@@ -174,22 +254,44 @@ function mesh:getAssetPreviewTextAnchor()
 end
 
 function mesh:getAssetPreviewPosition()
+    local position, forward = spawnable.getAssetPreviewPosition(self, 0.75)
+
+    local entity = self:getEntity()
+    if not entity then
+        return position
+    end
+
+    local mesh = entity:FindComponentByName("mesh")
+    if not mesh then
+        return position
+    end
+
+    if not self.bBox or not self.bBox.min or not self.bBox.max then
+        return position
+    end
+
     -- Scale mesh to fit
-    local mesh = self:getEntity():FindComponentByName("mesh")
     local extents = { self.bBox.max.x - self.bBox.min.x, self.bBox.max.y - self.bBox.min.y, self.bBox.max.z - self.bBox.min.z }
-    local factor = 0.275 / math.max(table.unpack(extents))
+    local maxExtent = math.max(table.unpack(extents))
+    if maxExtent <= 0 then
+        maxExtent = 1
+    end
+    local factor = 0.275 / maxExtent
 
     self.scale = { x = factor, y = factor, z = factor }
     mesh.visualScale = Vector3.new(factor, factor, factor)
 
     -- Calculate rotation and cycle app
     local rotation = (((Cron.time - self.assetStartTime) % 4) / 4) * 360
-    local app = math.floor((((Cron.time - self.assetStartTime) % (#self.apps)) / (#self.apps)) * #self.apps)
-    if app ~= self.appIndex then
-        self.appIndex = app
-        self.app = self.apps[self.appIndex + 1] or "default"
-        mesh.meshAppearance = CName.new(self.app)
-        mesh:LoadAppearance()
+    local apps = self.apps or {}
+    if #apps > 0 then
+        local app = math.floor((((Cron.time - self.assetStartTime) % (#apps)) / (#apps)) * #apps)
+        if app ~= self.appIndex then
+            self.appIndex = app
+            self.app = apps[self.appIndex + 1] or "default"
+            mesh.meshAppearance = CName.new(self.app)
+            mesh:LoadAppearance()
+        end
     end
 
     mesh:SetLocalOrientation(EulerAngles.new(0, 7.5, rotation):ToQuat())
@@ -200,17 +302,18 @@ function mesh:getAssetPreviewPosition()
     diff = Vector4.RotateAxis(diff, Vector4.new(0, 0, 1, 0), Deg2Rad(rotation))
 
     -- Adjust for x offset in editor mode
-    local position, forward = spawnable.getAssetPreviewPosition(self, 0.75)
     diff = utils.addVector(diff, utils.multVector(forward, 0.275))
 
-    if extents[3] < math.max(table.unpack(extents)) * 0.1 then
+    if extents[3] < maxExtent * 0.1 then
         diff.z = diff.z - 0.075
     end
 
     mesh:SetLocalPosition(diff)
 
-    preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
-    preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
+    if preview.elements and preview.elements["previewFirstLine"] and preview.elements["previewSecondLine"] then
+        preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+        preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
+    end
 
     return position
 end
@@ -300,32 +403,15 @@ function mesh:updateShadowSettings(changed)
 end
 
 function mesh:getSize()
-    return { x = (self.bBox.max.x - self.bBox.min.x) * math.abs(self.scale.x), y = (self.bBox.max.y - self.bBox.min.y) * math.abs(self.scale.y), z = (self.bBox.max.z - self.bBox.min.z) * math.abs(self.scale.z) }
+    return utils.getBoxSize(self.bBox, self.scale)
 end
 
 function mesh:getBBox()
-    return {
-        min = { x = self.bBox.min.x * math.abs(self.scale.x), y = self.bBox.min.y * math.abs(self.scale.y), z = self.bBox.min.z * math.abs(self.scale.z) },
-        max = { x = self.bBox.max.x * math.abs(self.scale.x), y = self.bBox.max.y * math.abs(self.scale.y), z = self.bBox.max.z * math.abs(self.scale.z) }
-    }
+    return utils.getScaledBBox(self.bBox, self.scale)
 end
 
 function mesh:getCenter()
-    local size = self:getSize()
-    local offset = Vector4.new(
-        (self.bBox.min.x * self.scale.x) + size.x / 2,
-        (self.bBox.min.y * self.scale.y) + size.y / 2,
-        (self.bBox.min.z * self.scale.z) + size.z / 2,
-        0
-    )
-    offset = self.rotation:ToQuat():Transform(offset)
-
-    return Vector4.new(
-        self.position.x + offset.x,
-        self.position.y + offset.y,
-        self.position.z + offset.z,
-        0
-    )
+    return utils.getBoxCenter(self.bBox, self.scale, self.rotation, self.position)
 end
 
 function mesh:calculateIntersection(origin, ray)
@@ -335,10 +421,7 @@ function mesh:calculateIntersection(origin, ray)
 
     local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
 
-    local scaledBBox = {
-        min = {  x = self.bBox.min.x * math.abs(self.scale.x) * scaleFactor.x, y = self.bBox.min.y * math.abs(self.scale.y) * scaleFactor.y, z = self.bBox.min.z * math.abs(self.scale.z) * scaleFactor.z },
-        max = {  x = self.bBox.max.x * math.abs(self.scale.x) * scaleFactor.x, y = self.bBox.max.y * math.abs(self.scale.y) * scaleFactor.y, z = self.bBox.max.z * math.abs(self.scale.z) * scaleFactor.z }
-    }
+    local scaledBBox = utils.getScaledBBoxWithFactor(self.bBox, self.scale, scaleFactor)
     local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
 
     local unscaledHit
@@ -377,11 +460,27 @@ function mesh:draw()
     style.mutedText("Appearance")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local index, changed = style.trackedCombo(self.object, "##app", self.appIndex, list, 160)
+    self.appSearch = self.appSearch or ""
+    local selectedApp = self.app
+    if selectedApp == nil or selectedApp == "" then
+        selectedApp = list[1] or "default"
+    end
+
+    local changed
+    selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
+        self.object,
+        "##app",
+        "Search appearance...",
+        selectedApp,
+        self.appSearch,
+        list,
+        160,
+        true
+    )
     style.tooltip("Select the mesh appearance")
     if changed and #self.apps > 0 then
-        self.appIndex = index
-        self.app = self.apps[self.appIndex + 1] or "default"
+        self.app = selectedApp
+        self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
 
         local entity = self:getEntity()
 
@@ -393,6 +492,13 @@ function mesh:draw()
         end
     end
     style.popGreyedOut(#self.apps == 0)
+    ImGui.SameLine()
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Reload .. "##reloadMeshAppearanceList") then
+        self:reloadAppearances()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Reload appearance list for this asset and refresh cached data.")
 
     if not self.hideGenerate then
         style.mutedText("Collider")
@@ -481,11 +587,15 @@ function mesh:isMeshConversionAllowed(targetModulePath)
     end
 
     if targetModulePath == "mesh/clothMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, "cloth")
+        return cache.isSpawnDataInSet(self.spawnData, clothListPath)
+    end
+
+    if targetModulePath == "mesh/bendedMesh" then
+        return cache.isSpawnDataInSet(self.spawnData, bendedListPath)
     end
 
     if targetModulePath == "physics/dynamicMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, "dynamic")
+        return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
     end
 
     return true
@@ -562,7 +672,7 @@ function mesh:drawConversionSelector(comboId, popupId)
     if ImGui.BeginPopupModal(popupId, true, ImGuiWindowFlags.AlwaysAutoResize) then
         style.mutedText("Warning")
         ImGui.Text("This conversion is lossy.")
-        ImGui.Text("Type-specific properties will be removed.")
+        style.mutedText("Type-specific properties will be removed.")
         ImGui.Text("Do you want to continue?")
         ImGui.Dummy(0, 8 * style.viewSize)
         local skipWarning, changed = ImGui.Checkbox("Do not ask again", settings.skipLossyConversionWarning)
@@ -587,27 +697,13 @@ function mesh:drawConversionSelector(comboId, popupId)
     end
 end
 
-function mesh:convertToStaticMesh()
-    self:convertToModule("mesh/mesh")
-end
-
-function mesh:convertToClothMesh()
-    self:convertToModule("mesh/clothMesh")
-end
-
-function mesh:convertToDynamicMesh()
-    self:convertToModule("physics/dynamicMesh")
-end
-
-function mesh:convertToRotatingMesh()
-    self:convertToModule("mesh/rotatingMesh")
-end
-
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
+    properties["groupedAppearances"] = appearanceHelper.getGroupedProperties(self)
+
     properties["meshConverter"] = {
-        name = "Mesh Conversion",
+        name = "Mesh",
         id = "meshConverter",
         data = {
             fromIndex = 0,
@@ -750,7 +846,7 @@ function mesh:getGroupedProperties()
 
                 style.mutedText("Warning")
                 ImGui.Text("This conversion is lossy.")
-                ImGui.Text("Type-specific properties will be removed.")
+                style.mutedText("Type-specific properties will be removed.")
                 ImGui.Text(string.format("Affected entries: %d", nPending))
                 ImGui.Text("Do you want to continue?")
                 ImGui.Dummy(0, 8 * style.viewSize)
@@ -800,15 +896,47 @@ function mesh:getGroupedProperties()
             ImGui.SameLine()
 
             if ImGui.Button("Generate") then
-                history.addAction(history.getMultiSelectChange(entries))
+                local selectedEntries = {}
                 local nApplied = 0
+                local sourceEntries = entries
 
-                for _, entry in ipairs(entries) do
-                    if entry.spawnable.node == self.node then
-                        entry.spawnable.colliderShape = element.groupOperationData["mesh"].shape
-                        entry.spawnable:generateCollider()
+                for _, entry in ipairs(sourceEntries) do
+                    if entry and entry.parent and entry.spawnable and entry.spawnable.node == self.node then
+                        table.insert(selectedEntries, entry)
+                    end
+                end
+
+                local changeAction = nil
+                local actions = {}
+
+                if #selectedEntries > 0 then
+                    changeAction = history.getMultiSelectChange(selectedEntries)
+                end
+
+                for _, entry in ipairs(selectedEntries) do
+                    entry.spawnable.colliderShape = element.groupOperationData["mesh"].shape
+                    local action = entry.spawnable:generateCollider(true)
+                    if action then
+                        table.insert(actions, action)
                         nApplied = nApplied + 1
                     end
+                end
+
+                if changeAction and #actions > 0 then
+                    history.addAction({
+                        undo = function ()
+                            for i = #actions, 1, -1 do
+                                actions[i].undo()
+                            end
+                            changeAction.undo()
+                        end,
+                        redo = function ()
+                            changeAction.redo()
+                            for _, action in ipairs(actions) do
+                                action.redo()
+                            end
+                        end
+                    })
                 end
 
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Generated colliders for %s nodes", nApplied)))
@@ -822,10 +950,22 @@ function mesh:getGroupedProperties()
 end
 
 ---@protected
-function mesh:generateCollider()
+---@param skipHistory? boolean
+---@return table?
+function mesh:generateCollider(skipHistory)
+    if not self.object or not self.object.parent or self.object:isLocked() then
+        return nil
+    end
+
+    local parent = self.object.parent
+    local index = utils.indexValue(parent.childs, self.object) + 1
+    if index < 1 then
+        index = #parent.childs + 1
+    end
+
     local group = require("modules/classes/editor/positionableGroup"):new(self.object.sUI)
     group.name = self.object.name .. "_grouped"
-    group:setParent(self.object.parent, utils.indexValue(self.object.parent.childs, self.object) + 1)
+    group:setParent(parent, index)
     local insertGroup = history.getInsert({ group })
 
     local collider = require("modules/classes/spawn/collision/collider"):new()
@@ -878,7 +1018,7 @@ function mesh:generateCollider()
     local insert = history.getInsert({ self.object })
     local move = history.getMove(remove, insert)
 
-    history.addAction({
+    local action = {
         undo = function ()
             move.undo()
             insertCollider.undo()
@@ -890,9 +1030,14 @@ function mesh:generateCollider()
             insertCollider.redo()
             move.redo()
         end
-    })
+    }
+
+    if not skipHistory then
+        history.addAction(action)
+    end
 
     self.object.headerOpen = false
+    return action
 end
 
 function mesh:export()

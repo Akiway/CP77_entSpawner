@@ -9,6 +9,47 @@ local materials = colliderBase.getColliderGenerics().materials
 local presets = colliderBase.getColliderGenerics().presets
 local colors = colliderBase.getColliderGenerics().colors
 
+---@param value string
+---@return string
+local function toReadableMaterialLabel(value)
+    local label = tostring(value or "")
+    label = label:gsub("%.physmat$", "")
+    label = label:gsub("_", " ")
+    label = label:gsub("%s+", " ")
+    label = label:gsub("^%s*(.-)%s*$", "%1")
+
+    return label:gsub("(%a)([%w']*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end)
+end
+
+local materialDisplayOptions = {}
+local materialDisplayToIndex = {}
+local presetToIndex = {}
+
+for i, material in ipairs(materials) do
+    local label = toReadableMaterialLabel(material)
+
+    -- Keep labels stable/unique in case two source values normalize to the same text.
+    if materialDisplayToIndex[label] ~= nil then
+        label = string.format("%s (%s)", label, material)
+    end
+
+    materialDisplayOptions[i] = label
+    materialDisplayToIndex[label] = i - 1
+end
+
+for i, preset in ipairs(presets) do
+    presetToIndex[preset] = i - 1
+end
+
+---@param index number?
+---@return string
+local function getMaterialDisplayByIndex(index)
+    local safeIndex = math.max(0, tonumber(index) or 0) + 1
+    return materialDisplayOptions[safeIndex] or materialDisplayOptions[1] or ""
+end
+
 ---Class for worldCollisionNode
 ---@class collider : colliderBase
 ---@field private shape integer
@@ -34,6 +75,8 @@ function collider:new()
 
     o.scale = { x = 1, y = 1, z = 1 }
     o.currentAxis = 0
+    o.materialSearch = ""
+    o.presetSearch = ""
 
     setmetatable(o, { __index = self })
    	return o
@@ -42,13 +85,27 @@ end
 function collider:loadSpawnData(data, position, rotation)
     colliderBase.loadSpawnData(self, data, position, rotation)
 
-    if data.radius then
-        if self.shape == 0 then
-            self.scale = data.extents
-        elseif self.shape == 1 then
-            self.scale = { x = data.radius, y = data.radius, z = data.height }
-        elseif self.shape == 2 then
-            self.scale = { x = data.radius, y = data.radius, z = data.radius }
+    if self.shape == 0 then
+        if data.extents then
+            self.scale = {
+                x = tonumber(data.extents.x) or self.scale.x,
+                y = tonumber(data.extents.y) or self.scale.y,
+                z = tonumber(data.extents.z) or self.scale.z
+            }
+        end
+    elseif self.shape == 1 then
+        if data.radius ~= nil or data.height ~= nil then
+            local radius = tonumber(data.radius) or self.scale.x
+            self.scale = {
+                x = radius,
+                y = radius,
+                z = tonumber(data.height) or self.scale.z
+            }
+        end
+    elseif self.shape == 2 then
+        if data.radius ~= nil then
+            local radius = tonumber(data.radius) or self.scale.x
+            self.scale = { x = radius, y = radius, z = radius }
         end
     end
 end
@@ -126,6 +183,11 @@ function collider:getArrowSize()
     max = math.max(max, 1) * 0.5
 
     return { x = max, y = max, z = max }
+end
+
+function collider:setPreview(state)
+    self.previewed = state
+    visualizer.toggleAll(self:getEntity(), self.previewed)
 end
 
 function collider:calculateIntersection(origin, ray)
@@ -212,7 +274,7 @@ function collider:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.previewed, changed = style.trackedCheckbox(self.object, "##collisionPreview", self.previewed)
     if changed then
-        visualizer.toggleAll(self:getEntity(), self.previewed)
+        self:setPreview(self.previewed)
     end
 
     style.mutedText("Collision Shape")
@@ -252,7 +314,7 @@ function collider:export()
     data.type = "worldCollisionNode"
     data.data = {
 		["compiledData"] = {
-			["BufferId"] = tostring(tonumber(FNV1a64("CollisionBuffer" .. math.random(1, 10000000)))),
+			["BufferId"] = utils.nextExportBufferId("CollisionBuffer"),
 			["Flags"] = 4063232,
 			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
 			["Data"] = {

@@ -16,6 +16,25 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field silent boolean
 local spawnableElement = setmetatable({}, { __index = positionable })
 
+local function bumpWireframeEpoch(instance)
+    if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
+        instance.sUI.bumpWireframeEpoch()
+    end
+end
+
+local function invalidateParentAutoCenter(instance)
+	local current = instance and instance.parent or nil
+
+	while current do
+		if current.invalidateAutoCenterCache then
+			current:invalidateAutoCenterCache(true)
+			return
+		end
+
+		current = current.parent
+	end
+end
+
 function spawnableElement:new(sUI)
 	local o = positionable.new(self, sUI)
 
@@ -48,6 +67,7 @@ function spawnableElement:load(data, silent)
     self.spawnable.object = self
     self.spawnable:loadSpawnData(data.spawnable, ToVector4(data.spawnable.position), ToEulerAngles(data.spawnable.rotation))
 	self.icon = self.spawnable.icon
+    self.secondaryIcon = self.spawnable.secondaryIcon or ""
 	if self.spawnable.scale then
 		self.hasScale = true
 	end
@@ -55,19 +75,23 @@ function spawnableElement:load(data, silent)
 
 	self:setVisible(self.visible, true)
 
-	self.spawnable:registerSpawnedAndAttachedCallback(function (entity)
-		-- Delay is needed as entities need some time (?). Its fine for other types tho...
-		Cron.After(0.05, function ()
-			if settings.gizmoOnSelected or editor.active then
-				self:setVisualizerState(self.selected)
-				self:setVisualizerDirection("none")
-			end
+	if not self.silent then
+		self.spawnable:registerSpawnedAndAttachedCallback(function (entity)
+			-- Delay is needed as entities need some time (?). Its fine for other types tho...
+			Cron.After(0.05, function ()
+				if settings.gizmoOnSelected then
+					self:setVisualizerState(self.selected)
+					self:setVisualizerDirection("none")
+				end
 
-			local original = self.selected
-			self.selected = false
-			self:setSelected(original)
+				local original = self.selected
+				self.selected = false
+				self:setSelected(original)
+			end)
 		end)
-	end)
+
+		bumpWireframeEpoch(self)
+	end
 end
 
 function spawnableElement:getProperties()
@@ -92,6 +116,8 @@ function spawnableElement:setParent(parent, index)
 	local oldParent = self.parent
 	positionable.setParent(self, parent, index)
 
+	if self.silent then return end
+
 	self.spawnable:onParentChanged(oldParent)
 end
 
@@ -100,7 +126,7 @@ function spawnableElement:setSelected(state)
 
 	positionable.setSelected(self, state)
 
-	if not update or (not settings.outlineSelected and not editor.active) then return end
+	if not update or not settings.outlineSelected then return end
 	if not self.spawnable:isSpawned() then return end
 
 	if state then
@@ -177,24 +203,30 @@ function spawnableElement:getDirection(direction)
 end
 
 function spawnableElement:setPosition(position)
-	self.spawnable.position = position
-	self.spawnable:update()
+    self.spawnable.position = position
+    self.spawnable:update()
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setPositionDelta(delta)
-	self.spawnable.position = utils.addVector(self.spawnable.position, delta)
-	self.spawnable:update()
+    self.spawnable.position = utils.addVector(self.spawnable.position, delta)
+    self.spawnable:update()
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setRotation(rotation)
-	if self.rotationLocked then return end
+    if self.rotationLocked then return end
 
-	self.spawnable.rotation = rotation
-	self.spawnable:update()
+    self.spawnable.rotation = rotation
+    self.spawnable:update()
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setRotationDelta(delta)
-	if delta.roll == 0 and delta.pitch == 0 and delta.yaw == 0 or self.rotationLocked then return end
+    if delta.roll == 0 and delta.pitch == 0 and delta.yaw == 0 or self.rotationLocked then return end
 
 	if self.rotationRelative then
 		self.spawnable.rotation = utils.addEulerRelative(self.spawnable.rotation, delta)
@@ -202,7 +234,9 @@ function spawnableElement:setRotationDelta(delta)
 		self.spawnable.rotation = utils.addEuler(self.spawnable.rotation, delta)
 	end
 
-	self.spawnable:update()
+    self.spawnable:update()
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:getPosition()
@@ -227,7 +261,9 @@ function spawnableElement:setScaleDelta(delta, finished)
 	if self.scaleLocked and delta.y ~= 0 then self.spawnable.scale.x = self.spawnable.scale.y  self.spawnable.scale.z = self.spawnable.scale.y end
 	if self.scaleLocked and delta.z ~= 0 then self.spawnable.scale.y = self.spawnable.scale.z  self.spawnable.scale.x = self.spawnable.scale.z end
 
-	self.spawnable:updateScale(finished, delta)
+    self.spawnable:updateScale(finished, delta)
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setScale(scale, finished)
@@ -243,7 +279,9 @@ function spawnableElement:setScale(scale, finished)
 	self.spawnable.scale.y = scale.y
 	self.spawnable.scale.z = scale.z
 
-	self.spawnable:updateScale(finished, delta)
+    self.spawnable:updateScale(finished, delta)
+    invalidateParentAutoCenter(self)
+    bumpWireframeEpoch(self)
 end
 
 function spawnableElement:getSize()

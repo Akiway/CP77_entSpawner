@@ -30,6 +30,196 @@ local handleIncludes = {
     "journalPath"
 }
 
+local bitFieldDefinitionCache = {}
+local knownBitFieldDefinitions = {
+    rendLightChannel = {
+        order = {
+            "LC_Channel1",
+            "LC_Channel2",
+            "LC_Channel3",
+            "LC_Channel4",
+            "LC_Channel5",
+            "LC_Channel6",
+            "LC_Channel7",
+            "LC_Channel8",
+            "LC_ChannelWorld",
+            "LC_Character",
+            "LC_Player",
+            "LC_Automated"
+        },
+        values = {
+            LC_Channel1 = 1,
+            LC_Channel2 = 2,
+            LC_Channel3 = 4,
+            LC_Channel4 = 8,
+            LC_Channel5 = 16,
+            LC_Channel6 = 32,
+            LC_Channel7 = 64,
+            LC_Channel8 = 128,
+            LC_ChannelWorld = 256,
+            LC_Character = 512,
+            LC_Player = 1024,
+            LC_Automated = 32768
+        }
+    }
+}
+
+local function trimString(value)
+    return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function getBitFieldDefinition(propType)
+    if bitFieldDefinitionCache[propType] ~= nil then
+        return bitFieldDefinitionCache[propType] or nil
+    end
+
+    if knownBitFieldDefinitions[propType] then
+        bitFieldDefinitionCache[propType] = knownBitFieldDefinitions[propType]
+        return knownBitFieldDefinitions[propType]
+    end
+
+    local typeRef = nil
+
+    if BitField and BitField.new then
+        pcall(function ()
+            typeRef = Reflection.GetTypeOf(ToVariant(BitField.new(propType, 0)))
+        end)
+    end
+
+    if not typeRef then
+        pcall(function ()
+            typeRef = Reflection.GetTypeOf(ToVariant(Enum.new(propType, 0)))
+        end)
+    end
+
+    local definition = {
+        order = {},
+        values = {}
+    }
+
+    if typeRef then
+        local constants = nil
+        pcall(function ()
+            constants = typeRef:GetConstants()
+        end)
+
+        if constants then
+            local entries = {}
+
+            for _, constant in pairs(constants) do
+                local name = constant:GetName().value
+                local rawValue = tostring(constant:GetValue()):gsub("ULL", "")
+                local value = tonumber(rawValue)
+
+                if name and value and value > 0 then
+                    table.insert(entries, {
+                        name = name,
+                        value = value
+                    })
+                end
+            end
+
+            table.sort(entries, function (a, b)
+                return a.value < b.value
+            end)
+
+            for _, entry in ipairs(entries) do
+                table.insert(definition.order, entry.name)
+                definition.values[entry.name] = entry.value
+            end
+        end
+    end
+
+    if #definition.order == 0 then
+        bitFieldDefinitionCache[propType] = false
+        return nil
+    end
+
+    bitFieldDefinitionCache[propType] = definition
+
+    return definition
+end
+
+local function bitFieldMaskToString(propType, mask)
+    if type(mask) ~= "number" then
+        return nil
+    end
+
+    local normalizedMask = math.floor(mask)
+    local definition = getBitFieldDefinition(propType)
+
+    if not definition then
+        return tostring(normalizedMask)
+    end
+
+    local names = {}
+
+    for _, name in ipairs(definition.order) do
+        local bitValue = definition.values[name]
+
+        if bitValue and bitValue > 0 then
+            local set = math.floor(normalizedMask / bitValue) % 2 == 1
+
+            if set then
+                table.insert(names, name)
+            end
+        end
+    end
+
+    if #names == 0 then
+        return "0"
+    end
+
+    return table.concat(names, ",")
+end
+
+local function parseBitFieldMask(propType, value)
+    if type(value) == "number" then
+        return math.floor(value)
+    end
+
+    if type(value) ~= "string" then
+        return nil
+    end
+
+    local normalized = trimString(value)
+
+    if normalized == "" or normalized == "0" then
+        return 0
+    end
+
+    local numeric = tonumber(normalized)
+    if numeric then
+        return math.floor(numeric)
+    end
+
+    local definition = getBitFieldDefinition(propType)
+    if not definition then
+        return nil
+    end
+
+    local mask = 0
+    local anyMatch = false
+    local used = {}
+
+    for token in normalized:gmatch("[^,]+") do
+        local key = trimString(token)
+        local bitValue = definition.values[key]
+
+        if bitValue and not used[key] then
+            mask = mask + bitValue
+            used[key] = true
+            anyMatch = true
+        end
+    end
+
+    if anyMatch then
+        return mask
+    end
+
+    return nil
+end
+
 local function convertCName(propValue)
     if propValue then
         return {
@@ -102,6 +292,64 @@ local function convertSimple(propValue, propClass, prop)
     end
 
     return propData
+end
+
+local function convertBitField(propValue, propType)
+    if propValue == nil then
+        return nil
+    end
+
+    if type(propValue) == "number" then
+        return bitFieldMaskToString(propType, propValue)
+    end
+
+    if type(propValue) == "string" then
+        local normalized = trimString(propValue)
+
+        if normalized == "" then
+            return "0"
+        end
+
+        local numeric = tonumber(normalized)
+        if numeric then
+            return bitFieldMaskToString(propType, numeric)
+        end
+
+        return normalized
+    end
+
+    local okValue, directValue = pcall(function ()
+        return propValue.value
+    end)
+
+    if okValue and directValue ~= nil then
+        if type(directValue) == "number" then
+            return bitFieldMaskToString(propType, directValue)
+        end
+
+        if type(directValue) == "string" then
+            local normalized = trimString(directValue)
+
+            if normalized ~= "" then
+                return normalized
+            end
+        end
+    end
+
+    local okString, asString = pcall(function ()
+        return tostring(propValue)
+    end)
+
+    if okString and asString and asString ~= "" then
+        local numeric = tonumber(asString)
+        if numeric then
+            return bitFieldMaskToString(propType, numeric)
+        end
+
+        return asString
+    end
+
+    return nil
 end
 
 local function convertArray(propValue, prop)
@@ -206,6 +454,8 @@ function red.convertAny(metaType, propType, value, prop, data)
         propData = convertSimple(value, propType, prop)
     elseif metaType == ERTTIType.Enum then
         propData = value.value
+    elseif metaType == ERTTIType.BitField then
+        propData = convertBitField(value, propType)
     elseif metaType == ERTTIType.Array or metaType == ERTTIType.StaticArray or metaType == ERTTIType.NativeArray or metaType == ERTTIType.FixedArray then
         propData = convertArray(value, prop)
     elseif metaType == ERTTIType.Handle or metaType == ERTTIType.WeakHandle then
@@ -344,6 +594,47 @@ local function importEnum(value, propType, enumName)
     return propData
 end
 
+local function importBitField(value, propType)
+    local rawValue = value
+
+    if type(value) == "table" then
+        rawValue = value["$value"] or value["Flags"] or value["value"] or value
+    end
+
+    local mask = parseBitFieldMask(propType, rawValue)
+    if mask == nil then
+        return nil
+    end
+
+    local propData = nil
+
+    if BitField and BitField.new then
+        local ok, result = pcall(function ()
+            return BitField.new(propType, mask)
+        end)
+
+        if ok then
+            propData = result
+        end
+    end
+
+    if not propData then
+        local ok, result = pcall(function ()
+            return Enum.new(propType, mask)
+        end)
+
+        if ok then
+            propData = result
+        end
+    end
+
+    if not propData then
+        propData = mask
+    end
+
+    return propData
+end
+
 local function importArray(value, data, key, prop)
     local propData = {}
 
@@ -413,6 +704,8 @@ function red.importAny(metaType, propType, value, prop, data, key)
         propData = importClass(value, propType)
     elseif metaType == ERTTIType.Enum then
         propData = importEnum(value, propType, propType)
+    elseif metaType == ERTTIType.BitField then
+        propData = importBitField(value, propType)
     elseif metaType == ERTTIType.Array or metaType == ERTTIType.StaticArray or metaType == ERTTIType.NativeArray or metaType == ERTTIType.FixedArray then
         propData = importArray(value, data, key, prop)
     elseif metaType == ERTTIType.Handle or metaType == ERTTIType.WeakHandle then

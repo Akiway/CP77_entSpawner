@@ -5,13 +5,15 @@ local config = require("modules/utils/config")
 ---@field public spawnDist number
 ---@field public posSteps number
 ---@field public precisionMultiplier number
+---@field public coarsePrecisionMultiplier number
 ---@field public rotSteps number
+---@field public rotationShiftClickStep number
 ---@field public despawnOnReload boolean
 ---@field public headerState boolean
 ---@field public deleteConfirm boolean
 ---@field public moveCloneToParent integer
 ---@field public spawnUIOnlyNames boolean
----@field public editor {color: integer}
+---@field public spawnUIHierarchyTree boolean
 ---@field public colliderColor integer
 ---@field public selectedType string
 ---@field public lastVariants table
@@ -27,11 +29,12 @@ local config = require("modules/utils/config")
 ---@field public resetSpawnPopupSearch boolean
 ---@field public spawnAtCursor boolean
 ---@field public defaultAISpotNPC string
+---@field public defaultAISpotAppearance string
 ---@field public tabSizes table
 ---@field public defaultAISpotSpeed number
 ---@field public defaultSplineCurveQuality number
 ---@field public nodeRefPrefix string
----@field public cacheExlusions table
+---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
 ---@field public filterTags table
 ---@field public favoritesFilter string
@@ -43,21 +46,33 @@ local config = require("modules/utils/config")
 ---@field public cameraRotateSpeed number
 ---@field public cameraZoomSpeed number
 ---@field public setLoadedGroupAsSpawnNew boolean
+---@field public groupLoadSpeedPreset integer
+---@field public exportGroupsHeight number
+---@field public exportTemplatesHeight number
 ---@field public skipLossyConversionWarning boolean
+---@field public skipTemplateDeleteConfirm boolean
+---@field public editorDockLeft boolean
+---@field public groupWireframeEnabled boolean
+---@field public wireframeColorStyle integer
+---@field public spawnedUIPerfEnabled boolean
+---@field public spawnedUIPerfShowPanel boolean
+---@field public colorPickerStyle integer
+---@field public rhtAddonReplacerMode string
+---@field public rhtAddonMeshTargetType string
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
     posSteps = 0.002,
     precisionMultiplier = 0.2,
+    coarsePrecisionMultiplier = 5,
     rotSteps = 0.050,
+    rotationShiftClickStep = 90,
     despawnOnReload = true,
     headerState = true,
     deleteConfirm = true,
     moveCloneToParent = 1,
     spawnUIOnlyNames = false,
-    editor = {
-        color = 1
-    },
+    spawnUIHierarchyTree = false,
     colliderColor = 0,
     selectedType = "Entity",
     lastVariants = { Entity = "Template", Lighting = "Static Light", Mesh = "Mesh", Collision = "Collision Shape", ["Deco"] = "Particles", ["Meta"] = "Occluder", ["Area"] = "Outline Marker", ["AI"] = "AI Spot" },
@@ -73,10 +88,11 @@ local settingsData = {
     resetSpawnPopupSearch = true,
     spawnAtCursor = true,
     defaultAISpotNPC = "Character.Judy",
+    defaultAISpotAppearance = "default",
     defaultAISpotSpeed = 3,
     defaultSplineCurveQuality = 12,
     nodeRefPrefix = "mod",
-    cacheExlusions = {},
+    cacheExclusions = {},
     assetPreviewEnabled = {},
     mainWindowName = "World Builder",
     draggingThreshold = 5,
@@ -85,7 +101,19 @@ local settingsData = {
     cameraRotateSpeed = 0.4,
     cameraZoomSpeed = 2.75,
     setLoadedGroupAsSpawnNew = false,
+    groupLoadSpeedPreset = 1,
+    exportGroupsHeight = 260,
+    exportTemplatesHeight = 160,
     skipLossyConversionWarning = false,
+    skipTemplateDeleteConfirm = false,
+    editorDockLeft = false,
+    groupWireframeEnabled = false,
+    wireframeColorStyle = 1,
+    spawnedUIPerfEnabled = false,
+    spawnedUIPerfShowPanel = false,
+    colorPickerStyle = 2,
+    rhtAddonReplacerMode = "clone",
+    rhtAddonMeshTargetType = "Auto",
 
     filterTags = {},
     favoritesFilter = "",
@@ -99,9 +127,21 @@ local settingsFNs = {}
 
 function settingsFNs.load()
     config.tryCreateConfig("data/config.json", settingsData)
-    config.backwardComp("data/config.json", settingsData)
 
     local data = config.loadFile("data/config.json")
+    if data.cacheExlusions ~= nil then
+        local hasNewValue = type(data.cacheExclusions) == "table" and next(data.cacheExclusions) ~= nil
+        if not hasNewValue then
+            data.cacheExclusions = data.cacheExlusions
+        end
+
+        data.cacheExlusions = nil
+        config.saveFile("data/config.json", data)
+    end
+
+    config.backwardComp("data/config.json", settingsData)
+
+    data = config.loadFile("data/config.json")
     for k, v in pairs(data) do
         settingsData[k] = v
     end

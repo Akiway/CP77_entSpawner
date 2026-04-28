@@ -11,6 +11,36 @@ local style = require("modules/ui/style")
 ---@field public alwaysSpawned boolean
 local record = setmetatable({}, { __index = entity })
 
+---Normalizes a record type prefix token (trim + strip non-ASCII).
+---@param value any
+---@return string
+local function sanitizeRecordTypePrefix(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+    return sanitized
+end
+
+---Extracts the TweakDB record type prefix (for example `AttachableObject`) from a spawnData value.
+---@param spawnData string?
+---@return string
+function record.getTypePrefix(spawnData)
+    local cleaned = sanitizeRecordTypePrefix(spawnData)
+    if cleaned == "" then
+        return ""
+    end
+
+    local prefix = cleaned:match("^([^.]+)%.")
+    if not prefix then
+        prefix = cleaned:match("^([^:]+):")
+    end
+    if not prefix then
+        prefix = cleaned
+    end
+
+    return sanitizeRecordTypePrefix(prefix)
+end
+
 function record:new()
 	local o = entity.new(self)
 
@@ -32,12 +62,31 @@ end
 
 function record:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
+    self:loadAppearanceData(false)
+end
+
+---@protected
+---@param forceRefresh boolean?
+function record:loadAppearanceData(forceRefresh)
+    local cacheKey = self.spawnData .. "_apps"
+
+    if forceRefresh then
+        cache.removeValue(cacheKey)
+    end
 
     local template = TweakDB:GetFlat(self.spawnData .. ".entityTemplatePath")
-    if not template then return end
-    local resRef = ResRef.FromHash(template.hash)
+    if not template then
+        self.apps = {}
+        self.appIndex = 0
+        self.appsLoaded = true
+        return
+    end
 
-    cache.tryGet(self.spawnData .. "_apps")
+    local resRef = ResRef.FromHash(template.hash)
+    self.apps = {}
+    self.appsLoaded = false
+
+    cache.tryGet(cacheKey)
     .notFound(function (task)
         builder.registerLoadResource(resRef, function (resource)
             local apps = {}
@@ -46,13 +95,29 @@ function record:loadSpawnData(data, position, rotation)
                 table.insert(apps, appearance.name.value)
             end
 
-            cache.addValue(self.spawnData .. "_apps", apps)
+            cache.addValue(cacheKey, apps)
             task:taskCompleted()
         end)
     end)
     .found(function ()
-        self.apps = cache.getValue(self.spawnData .. "_apps")
+        local previousApp = self.app
+        self.apps = cache.getValue(cacheKey) or {}
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
+        self.appsLoaded = true
+
+        if utils.indexValue(self.apps, self.app) - 1 < 0 then
+            self.app = self.apps[1] or "default"
+        end
+
+        if self.app ~= previousApp and self:isSpawned() then
+            self.defaultComponentData = {}
+            self:respawn()
+            return
+        end
+
+        if self.spawning then
+            self:spawn(true)
+        end
     end)
 end
 

@@ -2,6 +2,7 @@ local intersection = require("modules/utils/editor/intersection")
 local spawnable = require("modules/classes/spawn/spawnable")
 local builder = require("modules/utils/entityBuilder")
 local utils = require("modules/utils/utils")
+local gameUtils = require("modules/utils/gameUtils")
 local cache = require("modules/utils/cache")
 local visualizer = require("modules/utils/visualizer")
 local red = require("modules/utils/redConverter")
@@ -10,6 +11,88 @@ local history = require("modules/utils/history")
 local registry = require("modules/utils/nodeRefRegistry")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
+local appearanceHelper = require("modules/utils/appearanceHelper")
+
+local deviceClassSecondaryIconByName = {
+    LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
+    ForkliftControllerPS = IconGlyphs.Forklift,
+    ComputerControllerPS = IconGlyphs.DesktopClassic,
+    SpeakerControllerPS = IconGlyphs.Speaker,
+    RadioControllerPS = IconGlyphs.Radio,
+    TVControllerPS = IconGlyphs.TelevisionClassic,
+    LcdScreenControllerPS = IconGlyphs.Television,
+    DoorControllerPS = IconGlyphs.Door,
+    ReflectorControllerPS = IconGlyphs.Spotlight,
+    ElectricLightControllerPS = IconGlyphs.LightbulbSpot,
+    DataTermControllerPS = IconGlyphs.DoorSlidingOpen,
+    SecurityGateControllerPS = IconGlyphs.MagnifyScan,
+    SecurityLockerControllerPS = IconGlyphs.Locker,
+    BaseDestructibleControllerPS = IconGlyphs.GlassFragile,
+    DestructibleMasterDeviceControllerPS = IconGlyphs.GlassFragile,
+    TrafficIntersectionManagerControllerPS = IconGlyphs.TrafficLightOutline,
+    CrossingLightControllerPS = IconGlyphs.TrafficLightOutline,
+    TrafficZebraControllerPS = IconGlyphs.Walk,
+    IceMachineControllerPS = IconGlyphs.IceCream,
+    ArcadeMachineControllerPS = IconGlyphs.GamepadVariantOutline,
+    VendingMachineControllerPS = IconGlyphs.Store,
+    VentilationEffectorControllerPS = IconGlyphs.Hvac,
+    VentilationAreaControllerPS = IconGlyphs.Hvac,
+    DoorProximityDetectorControllerPS = IconGlyphs.MotionSensor,
+    RoadBlockControllerPS = IconGlyphs.BoomGate,
+    SecurityAreaControllerPS = IconGlyphs.Security,
+    SecurityAlarmControllerPS = IconGlyphs.AlarmBell,
+    SecuritySystemControllerPS = IconGlyphs.SecurityNetwork,
+    SecurityTurretControllerPS = IconGlyphs.Pistol,
+    SecurityGateLockControllerPS = IconGlyphs.DoorClosedLock,
+    AccessPointControllerPS = IconGlyphs.AccessPointNetwork,
+    LaserDetectorControllerPS = IconGlyphs.LaserPointer,
+    RoadBlockTrapControllerPS = IconGlyphs.BoomGateAlert,
+    HoloFeederControllerPS = IconGlyphs.Projector,
+    HoloTableControllerPS = IconGlyphs.TableFurniture,
+    RetractableAdControllerPS = IconGlyphs.Advertisements,
+    AlarmLightControllerPS = IconGlyphs.AlarmLightOutline,
+    BillboardDeviceControllerPS = IconGlyphs.Billboard,
+    FanControllerPS = IconGlyphs.Fan,
+    FrameControllerPS = IconGlyphs.ImageFrame,
+    FuseBoxControllerPS = IconGlyphs.FuseBlade,
+    FuseControllerPS = IconGlyphs.Fuse,
+    LadderControllerPS = IconGlyphs.Ladder,
+    SlidingLadderControllerPS = IconGlyphs.Ladder,
+    SmokeMachineControllerPS = IconGlyphs.Smoke,
+    SoundSystemControllerPS = IconGlyphs.SurroundSound,
+    JukeboxControllerPS = IconGlyphs.Music,
+    StashControllerPS = IconGlyphs.TreasureChestOutline,
+    C4ControllerPS = IconGlyphs.Bomb,
+    CandleControllerPS = IconGlyphs.Candle,
+    CleaningMachineControllerPS = IconGlyphs.WashingMachine,
+    DisposalDeviceControllerPS = IconGlyphs.Coffin,
+    RoboticArmsControllerPS = IconGlyphs.RobotIndustrial,
+    ServerNodeControllerPS = IconGlyphs.ServerNetworkOutline,
+    InvisibleSceneStashControllerPS = IconGlyphs.TreasureChestOutline,
+    ToiletControllerPS = IconGlyphs.Toilet,
+    NcartTimetableControllerPS = IconGlyphs.TimelineClockOutline,
+    NetrunnerChairControllerPS = IconGlyphs.Seat,
+    ExplosiveDeviceControllerPS = IconGlyphs.Bomb,
+    TrafficLightControllerPS = IconGlyphs.TrafficLightOutline,
+    vehicleControllerPS = IconGlyphs.CarEstate,
+    WardrobeControllerPS = IconGlyphs.WardrobeOutline,
+    SurveillanceCameraControllerPS = IconGlyphs.Cctv,
+    SimpleSwitchControllerPS = IconGlyphs.ToggleSwitchOffOutline,
+    TerminalControllerPS = IconGlyphs.GestureTapButton,
+    ElevatorFloorTerminalControllerPS = IconGlyphs.GestureSwipeVertical,
+    VendingTerminalControllerPS = IconGlyphs.CartOutline,
+    SmartHouseControllerPS = IconGlyphs.HomeAutomation,
+    ElectricBoxControllerPS = IconGlyphs.MeterElectricOutline,
+    SmartWindowControllerPS = IconGlyphs.WindowOpenVariant,
+    WindowBlindersControllerPS = IconGlyphs.BlindsHorizontal,
+    WindowControllerPS = IconGlyphs.WindowClosedVariant
+}
+
+local deviceClassSourceByModulePath = {
+    ["entity/entityTemplate"] = true,
+    ["entity/device"] = true,
+    ["entity/ammEntity"] = true
+}
 
 ---Class for base entity handling
 ---@class entity : spawnable
@@ -24,9 +107,11 @@ local preview = require("modules/utils/previewUtils")
 ---@field public defaultComponentData table Default data for each component, regardless of whether it was changed. Keeps up to date with app changes
 ---@field public deviceClassName string
 ---@field public propertiesWidth table?
+---@field protected appSearch string
 ---@field protected assetPreviewTimer number
 ---@field protected assetPreviewBackplane mesh?
 ---@field protected instanceDataSearch string
+---@field protected instanceDataSearchInProperties boolean
 ---@field protected psControllerID string
 local entity = setmetatable({}, { __index = spawnable })
 
@@ -41,6 +126,7 @@ function entity:new()
     o.apps = {}
     o.appsLoaded = false
     o.appIndex = 0
+    o.appSearch = ""
     o.bBoxCallback = nil
     o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
     o.bBoxLoaded = false
@@ -50,16 +136,19 @@ function entity:new()
     o.defaultComponentData = {}
     o.typeInfo = {}
     o.enumInfo = {}
+    o.locKeyPreviewCache = {}
     o.deviceClassName = ""
-    o.propertiesMaxWidth = nil
+    o.secondaryIcon = ""
     o.instanceDataSearch = ""
+    o.instanceDataSearchInProperties = false
     o.psControllerID = ""
+    o.rescaleEntityMultiplier = 1
+    o.componentOverridesByName = {}
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.15
     o.assetPreviewTimer = 0
     o.assetPreviewBackplane = nil
-    o.assetPreviewIsCharacter = false
 
     o.uk10 = 1056
 
@@ -67,10 +156,94 @@ function entity:new()
    	return o
 end
 
-function entity:loadSpawnData(data, position, rotation)
-    spawnable.loadSpawnData(self, data, position, rotation)
+---Normalizes a device class name for lookup/caching (trim + strip non-ASCII).
+---@param value any
+---@return string
+local function sanitizeDeviceClassName(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+    return sanitized
+end
 
-    cache.tryGet(self.spawnData .. "_apps")
+---Public wrapper for device class normalization used across modules.
+---@param value any
+---@return string
+function entity.sanitizeDeviceClassName(value)
+    return sanitizeDeviceClassName(value)
+end
+
+---Returns whether a spawn module can provide/resolve device class names.
+---@param modulePath string?
+---@return boolean
+function entity.supportsDeviceClassSource(modulePath)
+    return modulePath ~= nil and deviceClassSourceByModulePath[modulePath] == true
+end
+
+---Resolves a device class name for a spawn-list entry.
+---Primary source is list metadata (`deviceClassName`), fallback is runtime cache by spawn path.
+---@param entry table?
+---@param modulePath string?
+---@return string
+function entity.resolveDeviceClassNameForEntry(entry, modulePath)
+    if not entry or not entity.supportsDeviceClassSource(modulePath) then
+        return ""
+    end
+
+    local listClassName = entity.sanitizeDeviceClassName(entry.data and entry.data.deviceClassName or nil)
+    if listClassName ~= "" then
+        return listClassName
+    end
+
+    local spawnPath = entry.data and entry.data.spawnData or nil
+    if type(spawnPath) ~= "string" or spawnPath == "" then
+        return ""
+    end
+
+    return entity.sanitizeDeviceClassName(cache.getValue(spawnPath .. "_deviceClassName"))
+end
+
+---Maps a device class name to the configured secondary icon glyph.
+---@param className string?
+---@return string
+function entity.getDeviceSecondaryIcon(className)
+    return deviceClassSecondaryIconByName[entity.sanitizeDeviceClassName(className)] or ""
+end
+
+---Refreshes instance secondary icon state and keeps the class-name cache in sync.
+function entity:updateDeviceSecondaryIcon()
+    self.secondaryIcon = entity.getDeviceSecondaryIcon(self.deviceClassName)
+
+    local cacheKey = (self.spawnData and self.spawnData ~= "") and (self.spawnData .. "_deviceClassName") or nil
+    if cacheKey then
+        local currentClassName = entity.sanitizeDeviceClassName(self.deviceClassName)
+        local cachedClassName = cache.getValue(cacheKey)
+
+        if currentClassName ~= "" and cachedClassName ~= currentClassName then
+            cache.addValue(cacheKey, currentClassName)
+        elseif currentClassName == "" and cachedClassName ~= nil then
+            cache.removeValue(cacheKey)
+        end
+    end
+
+    if self.object then
+        self.object.secondaryIcon = self.secondaryIcon
+    end
+end
+
+---@protected
+---@param forceRefresh boolean?
+function entity:loadAppearanceData(forceRefresh)
+    local cacheKey = self.spawnData .. "_apps"
+
+    if forceRefresh then
+        cache.removeValue(cacheKey)
+    end
+
+    self.apps = {}
+    self.appsLoaded = false
+
+    cache.tryGet(cacheKey)
     .notFound(function (task)
         builder.registerLoadResource(self.spawnData, function (resource)
             local apps = {}
@@ -78,12 +251,14 @@ function entity:loadSpawnData(data, position, rotation)
             for _, appearance in ipairs(resource.appearances) do
                 table.insert(apps, appearance.name.value)
             end
-            cache.addValue(self.spawnData .. "_apps", apps)
+
+            cache.addValue(cacheKey, apps)
             task:taskCompleted()
         end)
     end)
     .found(function ()
-        self.apps = cache.getValue(self.spawnData .. "_apps")
+        local previousApp = self.app
+        self.apps = cache.getValue(cacheKey) or {}
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
         self.appsLoaded = true
 
@@ -91,10 +266,33 @@ function entity:loadSpawnData(data, position, rotation)
             self.app = self.apps[1] or "default"
         end
 
+        if self.app ~= previousApp and self:isSpawned() then
+            self.defaultComponentData = {}
+            self:respawn()
+            return
+        end
+
         if self.spawning then
             self:spawn(true)
         end
     end)
+end
+
+function entity:reloadAppearances()
+    if not self.spawnData or self.spawnData == "" then
+        return
+    end
+
+    self:loadAppearanceData(true)
+end
+
+function entity:loadSpawnData(data, position, rotation)
+    spawnable.loadSpawnData(self, data, position, rotation)
+    self.appSearch = self.appSearch or ""
+    self.appSearch = string.gsub(self.appSearch, "[\128-\255]", "")
+    self.deviceClassName = sanitizeDeviceClassName(self.deviceClassName)
+    self:updateDeviceSecondaryIcon()
+    self:loadAppearanceData(false)
 end
 
 function entity:spawn(ignoreSpawning)
@@ -107,6 +305,187 @@ end
 
 local function CRUIDToString(id)
     return tostring(CRUIDToHash(id)):gsub("ULL", "")
+end
+
+local customNumericPropertyRanges = {
+    colorGroupSaturation = { min = 0, max = 100, integer = true },
+    _patterns = {
+        {
+            contains = "angle",
+            wrap = 360,
+            exclude = { highBeamPitchAngle = true }
+        }
+    }
+}
+
+-- Explicit path allow-list for LocKey previews in Instance Data.
+-- Add more entries as needed:
+-- [ComponentType]["path/to/property"] = true
+local locKeyPreviewTargets = {
+    ElevatorFloorTerminalController = {
+        ["persistentState/elevatorFloorSetup/floorDisplayName"] = true
+    },
+    ElevatorFloorTerminalControllerPS = {
+        ["persistentState/elevatorFloorSetup/floorDisplayName"] = true
+    }
+}
+
+local function normalizeInstanceDataPath(path)
+    local normalized = {}
+
+    for _, segment in ipairs(path or {}) do
+        local key = tostring(segment)
+
+        if key ~= "Data" and key ~= "$value" then
+            table.insert(normalized, key)
+        end
+    end
+
+    return normalized
+end
+
+---@param value any
+---@param object positionable
+---@return string
+local function resolveNodeRefDisplayValue(value, object)
+    local raw = tostring(value or "")
+    if raw == "" or string.find(raw, "%D") then
+        return raw
+    end
+
+    if not object or not object.getRootParent then
+        return raw
+    end
+
+    local root = object:getRootParent()
+    if not root or not root.name or not registry.refs[root.name] then
+        return raw
+    end
+
+    for ref, _ in pairs(registry.refs[root.name]) do
+        if utils.nodeRefStringToHashString(ref) == raw then
+            return ref
+        end
+    end
+
+    return raw
+end
+
+local function clampCustomNumericProperty(key, value)
+    if type(value) ~= "number" then
+        return value
+    end
+
+    local keyName = tostring(key)
+    local range = customNumericPropertyRanges[keyName]
+
+    if not range then
+        for _, pattern in ipairs(customNumericPropertyRanges._patterns or {}) do
+            if
+                pattern.contains
+                and string.find(string.lower(keyName), string.lower(pattern.contains), 1, true)
+                and not (pattern.exclude and pattern.exclude[keyName])
+            then
+                range = pattern
+                break
+            end
+        end
+    end
+
+    if not range then
+        return value
+    end
+
+    if range.wrap and range.wrap > 0 then
+        local wrapped = value % range.wrap
+        if range.integer then
+            wrapped = math.floor(wrapped)
+        end
+        return wrapped
+    end
+
+    local clamped = math.min(range.max, math.max(range.min, value))
+    if range.integer then
+        clamped = math.floor(clamped)
+    end
+
+    return clamped
+end
+
+local lightChannelBitMaskByName = {
+    LC_Channel1 = 1,
+    LC_Channel2 = 2,
+    LC_Channel3 = 4,
+    LC_Channel4 = 8,
+    LC_Channel5 = 16,
+    LC_Channel6 = 32,
+    LC_Channel7 = 64,
+    LC_Channel8 = 128,
+    LC_ChannelWorld = 256,
+    LC_Character = 512,
+    LC_Player = 1024,
+    LC_Automated = 32768
+}
+
+local lightChannelNameToIndex = {}
+for index, name in ipairs(style.lightChannelEnum or {}) do
+    lightChannelNameToIndex[name] = index
+end
+
+local function isMaskBitSet(mask, bit)
+    if type(mask) ~= "number" or bit <= 0 then
+        return false
+    end
+
+    local normalized = math.floor(mask)
+    return math.floor(normalized / bit) % 2 == 1
+end
+
+local function decodeLightChannelSelection(value)
+    local selection = {}
+    local names = style.lightChannelEnum or {}
+
+    for i = 1, #names do
+        selection[i] = false
+    end
+
+    if type(value) == "number" then
+        for index, name in ipairs(names) do
+            local bit = lightChannelBitMaskByName[name]
+            if bit then
+                selection[index] = isMaskBitSet(value, bit)
+            end
+        end
+        return selection
+    end
+
+    if type(value) ~= "string" then
+        return selection
+    end
+
+    local normalized = tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+    if normalized == "" or normalized == "0" then
+        return selection
+    end
+
+    local numeric = tonumber(normalized)
+    if numeric then
+        return decodeLightChannelSelection(numeric)
+    end
+
+    for token in normalized:gmatch("[^,]+") do
+        local key = tostring(token):gsub("^%s+", ""):gsub("%s+$", "")
+        local index = lightChannelNameToIndex[key]
+        if index then
+            selection[index] = true
+        end
+    end
+
+    return selection
+end
+
+local function encodeLightChannelSelection(selection)
+    return utils.buildBitfieldString(selection, style.lightChannelEnum or {})
 end
 
 function entity:loadInstanceData(entity, forceLoadDefault)
@@ -167,7 +546,7 @@ local function fixInstanceData(data, parent)
                 parent = nil
             elseif value["$type"] == "FixedPoint" and value["Bits"] then
                 value["Bits"] = math.floor(value["Bits"])
-            elseif value["Flags"] and not value["DepotPath"] then
+            elseif value["Flags"] and not value["DepotPath"] and not value["$type"] then
                 data[key] = nil
             elseif value["$type"] == "Color" then
                 value.Red = math.min(value.Red, 255)
@@ -183,6 +562,22 @@ local function fixInstanceData(data, parent)
             end
         elseif key == "betterNetrunningBreachedCameras" or key == "betterNetrunningBreachedNPCs" or key == "betterNetrunningBreachedBasic" or key == "betterNetrunningBreachedTurrets" then
             data[key] = nil
+        elseif type(value) == "number" then
+            data[key] = clampCustomNumericProperty(key, value)
+        end
+    end
+end
+
+function entity:applyComponentOverrides(entRef)
+    if not entRef or not self.componentOverridesByName then return end
+
+    for _, component in pairs(entRef:GetComponents()) do
+        local name = component and component.name and component.name.value or nil
+        if name and self.componentOverridesByName[name] then
+            local override = utils.deepcopy(self.componentOverridesByName[name])
+            pcall(function ()
+                red.JSONToRedData(override, component)
+            end)
         end
     end
 end
@@ -194,15 +589,24 @@ function entity:onAssemble(entRef)
         fixInstanceData(component, {})
     end
 
-    self:loadInstanceData(entRef, false)
+    local loadOk, loadErr = pcall(function ()
+        self:loadInstanceData(entRef, false)
+    end)
+    if not loadOk then
+        print(string.format("[entSpawner] [entity] Failed to apply instance data for \"%s\": %s", self.spawnData or "unknown", tostring(loadErr)))
+    end
+
+    self:applyComponentOverrides(entRef)
 
     for _, component in pairs(entRef:GetComponents()) do
         if component:IsA("gameDeviceComponent") then
             if self.deviceClassName == "" and component.persistentState then
-                self.deviceClassName = component.persistentState:GetClassName().value
+                self.deviceClassName = sanitizeDeviceClassName(component.persistentState:GetClassName().value)
             end
         end
     end
+
+    self:updateDeviceSecondaryIcon()
 
     self:assetPreviewAssemble(entRef)
 end
@@ -380,6 +784,7 @@ function entity:save()
     end
     data.defaultComponentData = default
     data.deviceClassName = self.deviceClassName
+    data.componentOverridesByName = utils.deepcopy(self.componentOverridesByName)
 
     return data
 end
@@ -456,7 +861,471 @@ function entity:calculateIntersection(origin, ray)
     }
 end
 
-function entity:draw()
+local function multiplyVectorLikeValue(data, multiplier)
+    if type(data) ~= "table" then
+        return false
+    end
+
+    local changed = false
+
+    if type(data.X) == "number" then
+        data.X = data.X * multiplier
+        changed = true
+    end
+    if type(data.Y) == "number" then
+        data.Y = data.Y * multiplier
+        changed = true
+    end
+    if type(data.Z) == "number" then
+        data.Z = data.Z * multiplier
+        changed = true
+    end
+
+    if type(data.x) == "number" then
+        data.x = data.x * multiplier
+        changed = true
+    end
+    if type(data.y) == "number" then
+        data.y = data.y * multiplier
+        changed = true
+    end
+    if type(data.z) == "number" then
+        data.z = data.z * multiplier
+        changed = true
+    end
+
+    if type(data.x) == "table" and type(data.x.Bits) == "number" then
+        data.x.Bits = math.floor(data.x.Bits * multiplier)
+        changed = true
+    end
+    if type(data.y) == "table" and type(data.y.Bits) == "number" then
+        data.y.Bits = math.floor(data.y.Bits * multiplier)
+        changed = true
+    end
+    if type(data.z) == "table" and type(data.z.Bits) == "number" then
+        data.z.Bits = math.floor(data.z.Bits * multiplier)
+        changed = true
+    end
+
+    return changed
+end
+
+local function scaleComponentTransforms(data, multiplier)
+    if type(data) ~= "table" then
+        return false
+    end
+
+    local changed = false
+
+    for key, value in pairs(data) do
+        if type(value) == "table" then
+            if key == "localTransform" then
+                if type(value.Position) == "table" then
+                    changed = multiplyVectorLikeValue(value.Position, multiplier) or changed
+                end
+                if type(value.position) == "table" then
+                    changed = multiplyVectorLikeValue(value.position, multiplier) or changed
+                end
+                if type(value.Scale) == "table" then
+                    changed = multiplyVectorLikeValue(value.Scale, multiplier) or changed
+                end
+                if type(value.scale) == "table" then
+                    changed = multiplyVectorLikeValue(value.scale, multiplier) or changed
+                end
+            elseif key == "visualScale" or key == "scale" then
+                changed = multiplyVectorLikeValue(value, multiplier) or changed
+            else
+                changed = scaleComponentTransforms(value, multiplier) or changed
+            end
+        end
+    end
+
+    return changed
+end
+
+local function getNumericVectorField(data, lower, upper)
+    if type(data) ~= "table" and type(data) ~= "userdata" then
+        return nil
+    end
+
+    local value = nil
+    pcall(function ()
+        value = data[lower]
+    end)
+    if type(value) == "number" then
+        return value
+    end
+    if type(value) == "table" and type(value.Bits) == "number" then
+        return value.Bits / 131072
+    end
+
+    pcall(function ()
+        value = data[upper]
+    end)
+    if type(value) == "number" then
+        return value
+    end
+    if type(value) == "table" and type(value.Bits) == "number" then
+        return value.Bits / 131072
+    end
+
+    return nil
+end
+
+local function readVectorLikeValue(data)
+    if type(data) ~= "table" and type(data) ~= "userdata" then
+        return nil
+    end
+
+    local x = getNumericVectorField(data, "x", "X")
+    local y = getNumericVectorField(data, "y", "Y")
+    local z = getNumericVectorField(data, "z", "Z")
+
+    if x ~= nil or y ~= nil or z ~= nil then
+        return {
+            x = x or 0,
+            y = y or 0,
+            z = z or 0
+        }
+    end
+
+    local vector4 = nil
+    pcall(function ()
+        if type(data.ToVector4) == "function" then
+            vector4 = data:ToVector4()
+        end
+    end)
+    if vector4 then
+        return readVectorLikeValue(vector4)
+    end
+
+    return nil
+end
+
+local function writeVectorLikeValue(data, value)
+    if type(data) ~= "table" or type(value) ~= "table" then
+        return false
+    end
+
+    if type(data.X) == "number" or type(data.Y) == "number" or type(data.Z) == "number" then
+        data.X = value.x
+        data.Y = value.y
+        data.Z = value.z
+        return true
+    end
+
+    if type(data.x) == "number" or type(data.y) == "number" or type(data.z) == "number" then
+        data.x = value.x
+        data.y = value.y
+        data.z = value.z
+        return true
+    end
+
+    if
+        (type(data.x) == "table" and type(data.x.Bits) == "number")
+        or (type(data.y) == "table" and type(data.y.Bits) == "number")
+        or (type(data.z) == "table" and type(data.z.Bits) == "number")
+    then
+        if type(data.x) ~= "table" then data.x = { ["$type"] = "FixedPoint", Bits = 0 } end
+        if type(data.y) ~= "table" then data.y = { ["$type"] = "FixedPoint", Bits = 0 } end
+        if type(data.z) ~= "table" then data.z = { ["$type"] = "FixedPoint", Bits = 0 } end
+        data.x.Bits = math.floor(value.x * 131072)
+        data.y.Bits = math.floor(value.y * 131072)
+        data.z.Bits = math.floor(value.z * 131072)
+        return true
+    end
+
+    data.X = value.x
+    data.Y = value.y
+    data.Z = value.z
+    return true
+end
+
+local function getLocalPositionTable(componentData)
+    if type(componentData) ~= "table" then
+        return nil
+    end
+    if type(componentData.localTransform) ~= "table" then
+        return nil
+    end
+    if type(componentData.localTransform.Position) == "table" then
+        return componentData.localTransform.Position
+    end
+    if type(componentData.localTransform.position) == "table" then
+        return componentData.localTransform.position
+    end
+    return nil
+end
+
+local function ensureLocalPositionTable(componentData, defaultData)
+    if type(componentData) ~= "table" then
+        return nil
+    end
+
+    local positionData = getLocalPositionTable(componentData)
+    if positionData then
+        return positionData
+    end
+
+    if type(componentData.localTransform) ~= "table" then
+        if type(defaultData) == "table" and type(defaultData.localTransform) == "table" then
+            componentData.localTransform = utils.deepcopy(defaultData.localTransform)
+        else
+            componentData.localTransform = {}
+        end
+    end
+
+    positionData = getLocalPositionTable(componentData)
+    if positionData then
+        return positionData
+    end
+
+    local defaultLocalTransform = type(defaultData) == "table" and defaultData.localTransform or nil
+    if type(defaultLocalTransform) == "table" then
+        if type(defaultLocalTransform.Position) == "table" then
+            componentData.localTransform.Position = utils.deepcopy(defaultLocalTransform.Position)
+            return componentData.localTransform.Position
+        end
+        if type(defaultLocalTransform.position) == "table" then
+            componentData.localTransform.position = utils.deepcopy(defaultLocalTransform.position)
+            return componentData.localTransform.position
+        end
+    end
+
+    componentData.localTransform.Position = { X = 0, Y = 0, Z = 0, W = 0 }
+    return componentData.localTransform.Position
+end
+
+local function ensureCNameValue(data, key, value)
+    if type(data[key]) ~= "table" then
+        data[key] = {
+            ["$type"] = "CName",
+            ["$storage"] = "string",
+            ["$value"] = value
+        }
+    else
+        data[key]["$type"] = "CName"
+        data[key]["$storage"] = "string"
+        data[key]["$value"] = value
+    end
+end
+
+local function disableParentBinding(componentData, defaultData)
+    if type(componentData) ~= "table" then
+        return false
+    end
+
+    local hasParentBinding = type(componentData.parentTransform) == "table"
+        or (type(defaultData) == "table" and type(defaultData.parentTransform) == "table")
+    if not hasParentBinding then
+        return false
+    end
+
+    if type(componentData.parentTransform) ~= "table" then
+        if type(defaultData) == "table" and type(defaultData.parentTransform) == "table" then
+            componentData.parentTransform = utils.deepcopy(defaultData.parentTransform)
+        else
+            componentData.parentTransform = {
+                HandleId = "0",
+                Data = {
+                    ["$type"] = "entHardTransformBinding"
+                }
+            }
+        end
+    end
+
+    local parentTransform = componentData.parentTransform
+    parentTransform.HandleId = parentTransform.HandleId or "0"
+
+    if type(parentTransform.Data) ~= "table" then
+        parentTransform.Data = {
+            ["$type"] = "entHardTransformBinding"
+        }
+    end
+
+    parentTransform.Data["$type"] = parentTransform.Data["$type"] or "entHardTransformBinding"
+    parentTransform.Data.enabled = 0
+    ensureCNameValue(parentTransform.Data, "bindName", "None")
+    ensureCNameValue(parentTransform.Data, "slotName", "None")
+
+    return true
+end
+
+function entity:canDrawRescaleEntityAction()
+    return self.node == "worldEntityNode" or self.node == "worldDeviceNode"
+end
+
+function entity:rescaleEntity(multiplier)
+    if type(multiplier) ~= "number" or multiplier <= 0 then
+        return 0
+    end
+    if math.abs(multiplier - 1) < 0.000001 then
+        return 0
+    end
+
+    local defaultCount = utils.tableLength(self.defaultComponentData)
+    if defaultCount <= 1 then
+        local entityRef = self:getEntity()
+
+        if entityRef and (defaultCount == 0 or (defaultCount == 1 and self.defaultComponentData[self.psControllerID] ~= nil)) then
+            self:loadInstanceData(entityRef, true)
+        end
+    end
+
+    local entityRef = self:getEntity()
+    if not entityRef then
+        return 0
+    end
+
+    if utils.tableLength(self.defaultComponentData) == 0 then
+        return 0
+    end
+
+    local overridesByName = {}
+    local nScaled = 0
+
+    for _, component in pairs(entityRef:GetComponents()) do
+        local componentName = component and component.name and component.name.value or nil
+        local componentID = CRUIDToString(component.id)
+        if componentName and componentID ~= "0" then
+
+            local defaultData = self.defaultComponentData[componentID]
+            if type(defaultData) ~= "table" then
+                defaultData = red.redDataToJSON(component)
+                if type(defaultData) == "table" then
+                    self.defaultComponentData[componentID] = utils.deepcopy(defaultData)
+                end
+            end
+
+            if type(defaultData) == "table" then
+                local currentData = utils.deepcopy(defaultData)
+                local changes = self.instanceDataChanges[componentID]
+
+                if type(changes) == "table" then
+                    for propKey, propValue in pairs(changes) do
+                        currentData[propKey] = utils.deepcopy(propValue)
+                    end
+                end
+
+                local didScale = scaleComponentTransforms(currentData, multiplier)
+                local didBake = false
+
+                local bakeOk = pcall(function ()
+                    local localToWorld = component:GetLocalToWorld()
+                    local worldPosition = localToWorld:GetTranslation()
+                    local entityPosition = entityRef:GetWorldPosition()
+                    local entityOrientation = entityRef:GetWorldOrientation()
+                    local worldDiff = utils.subVector(worldPosition, entityPosition)
+                    local inverseEntityOrientation = Quaternion.MulInverse(EulerAngles.new(0, 0, 0):ToQuat(), entityOrientation)
+                    local entitySpacePosition = inverseEntityOrientation:Transform(worldDiff)
+                    local scaledPosition = utils.multVector(entitySpacePosition, multiplier)
+
+                    local positionData = ensureLocalPositionTable(currentData, defaultData)
+                    if positionData then
+                        didBake = writeVectorLikeValue(positionData, {
+                            x = scaledPosition.x,
+                            y = scaledPosition.y,
+                            z = scaledPosition.z
+                        }) or didBake
+                    end
+                end)
+                if not bakeOk then
+                    didBake = false
+                end
+
+                local didDetach = false
+                if bakeOk then
+                    didDetach = disableParentBinding(currentData, defaultData)
+                end
+
+                if didScale or didBake or didDetach then
+                    local diff = {}
+
+                    for propKey, propValue in pairs(currentData) do
+                        local defaultValue = defaultData[propKey]
+                        if defaultValue == nil or not utils.deepcompare(propValue, defaultValue, false) then
+                            diff[propKey] = propValue
+                        end
+                    end
+
+                    if utils.tableLength(diff) > 0 then
+                        self.instanceDataChanges[componentID] = diff
+                        nScaled = nScaled + 1
+                    else
+                        self.instanceDataChanges[componentID] = nil
+                    end
+
+                    local override = {}
+                    if type(currentData.localTransform) == "table" then
+                        override.localTransform = utils.deepcopy(currentData.localTransform)
+                    end
+                    if type(currentData.parentTransform) == "table" then
+                        override.parentTransform = utils.deepcopy(currentData.parentTransform)
+                    end
+                    if type(currentData.visualScale) == "table" then
+                        override.visualScale = utils.deepcopy(currentData.visualScale)
+                    end
+                    if type(currentData.scale) == "table" then
+                        override.scale = utils.deepcopy(currentData.scale)
+                    end
+
+                    if utils.tableLength(override) > 0 then
+                        overridesByName[componentName] = override
+                    end
+                end
+            end
+        end
+    end
+
+    self.componentOverridesByName = overridesByName
+
+    if nScaled > 0 then
+        self:respawn()
+    end
+
+    return nScaled
+end
+
+function entity:drawRescaleEntityAction()
+    if not self:canDrawRescaleEntityAction() then return end
+
+    self.rescaleEntityMultiplier = tonumber(self.rescaleEntityMultiplier) or 1
+    if self.rescaleEntityMultiplier ~= self.rescaleEntityMultiplier then
+        self.rescaleEntityMultiplier = 1
+    end
+    self.rescaleEntityMultiplier = math.max(0.001, self.rescaleEntityMultiplier)
+
+    ImGui.BeginGroup()
+    style.mutedText("Rescale Entity")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.deviceClassName == "" and self.propertiesWidth.app or self.propertiesWidth.class)
+    ImGui.SetNextItemWidth(90 * style.viewSize)
+    self.rescaleEntityMultiplier = ImGui.InputFloat("##rescaleEntityMultiplier", self.rescaleEntityMultiplier, 0, 0, "x%.3f")
+    self.rescaleEntityMultiplier = tonumber(self.rescaleEntityMultiplier) or 1
+    if self.rescaleEntityMultiplier ~= self.rescaleEntityMultiplier then
+        self.rescaleEntityMultiplier = 1
+    end
+    self.rescaleEntityMultiplier = math.max(0.001, self.rescaleEntityMultiplier)
+
+    ImGui.SameLine()
+    local canApply = self:isSpawned() and math.abs(self.rescaleEntityMultiplier - 1) > 0.000001
+    style.pushGreyedOut(not canApply)
+    if ImGui.Button("Apply##rescaleEntity") then
+        history.addAction(history.getElementChange(self.object))
+
+        local nScaled = self:rescaleEntity(self.rescaleEntityMultiplier)
+        if nScaled > 0 then
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Rescaled %s components", nScaled)))
+        else
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "No scalable component transforms found"))
+        end
+    end
+    style.popGreyedOut(not canApply)
+    ImGui.EndGroup()
+    style.tooltip("Multiplier applied to local component position and scale values.\n" .. IconGlyphs.AlertOutline .. " EXPERIMENTAL: May cause issues for components without localTransform or visualScale properties.")
+end
+
+function entity:drawEntityBaseProperties()
     spawnable.draw(self)
 
     if not self.propertiesWidth then
@@ -482,10 +1351,26 @@ function entity:draw()
     style.mutedText("Appearance")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.deviceClassName == "" and self.propertiesWidth.app or self.propertiesWidth.class)
-    local index, changed = style.trackedCombo(self.object, "##app", self.appIndex, list, 160)
+    self.appSearch = self.appSearch or ""
+    local selectedApp = self.app
+    if selectedApp == nil or selectedApp == "" then
+        selectedApp = list[1] or "default"
+    end
+
+    local changed
+    selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
+        self.object,
+        "##app",
+        "Search appearance...",
+        selectedApp,
+        self.appSearch,
+        list,
+        160,
+        true
+    )
     if changed and #self.apps > 0 and self:isSpawned() then
-        self.appIndex = index
-        self.app = self.apps[self.appIndex + 1]
+        self.app = selectedApp
+        self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
 
         local entity = self:getEntity()
 
@@ -498,9 +1383,15 @@ function entity:draw()
     style.popGreyedOut(greyOut)
     ImGui.SameLine()
     style.pushButtonNoBG(true)
-    if ImGui.Button(IconGlyphs.ContentCopy) then
+    if ImGui.Button(IconGlyphs.Reload .. "##reloadEntityAppearanceList") then
+        self:reloadAppearances()
+    end
+    style.tooltip("Reload appearance list for this asset and refresh cached data.")
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.ContentCopy .. "##copyEntityAppearance") then
         ImGui.SetClipboardText(self.app)
     end
+    style.tooltip("Copy selected appearance")
     style.pushButtonNoBG(false)
 
 
@@ -521,6 +1412,11 @@ function entity:draw()
     end
 end
 
+function entity:draw()
+    self:drawEntityBaseProperties()
+    self:drawRescaleEntityAction()
+end
+
 function entity:getProperties()
     local properties = spawnable.getProperties(self)
     table.insert(properties, {
@@ -539,6 +1435,14 @@ function entity:getProperties()
             self:drawInstanceData()
         end
     })
+    return properties
+end
+
+function entity:getGroupedProperties()
+    local properties = spawnable.getGroupedProperties(self)
+
+    properties["groupedAppearances"] = appearanceHelper.getGroupedProperties(self)
+
     return properties
 end
 
@@ -593,7 +1497,7 @@ function entity:export(index, length)
             ["Data"] = {
                 ["$type"] = "entEntityInstanceData",
                 ["buffer"] = {
-                    ["BufferId"] = tostring(FNV1a64("Entity" .. tostring(self.position.x * self.position.y) .. math.random(1, 10000000))):gsub("ULL", ""),
+                    ["BufferId"] = utils.nextExportBufferId("EntityBuffer"),
                     ["Type"] = "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
                     ["Data"] = {
                         ["Version"] = 4,
@@ -634,13 +1538,54 @@ end
 ---@param key string
 ---@return table { typeName: string, isEnum: boolean, propType: CName }
 function entity:getPropTypeInfo(componentID, path, key)
+    local function inferTypeInfo(value)
+        local valueType = type(value)
+
+        if valueType == "table" then
+            if type(value["$type"]) == "string" then
+                return { typeName = value["$type"], isEnum = false, propType = nil }
+            end
+
+            return { typeName = "table", isEnum = false, propType = nil }
+        elseif valueType == "number" then
+            if value == math.floor(value) then
+                return { typeName = "Int32", isEnum = false, propType = nil }
+            end
+
+            return { typeName = "Float", isEnum = false, propType = nil }
+        elseif valueType == "boolean" then
+            return { typeName = "Bool", isEnum = false, propType = nil }
+        elseif valueType == "string" then
+            return { typeName = "String", isEnum = false, propType = nil }
+        elseif valueType == "nil" then
+            return { typeName = "Unknown", isEnum = false, propType = nil }
+        end
+
+        return { typeName = valueType, isEnum = false, propType = nil }
+    end
+
+    local function getNested(source, nestedPath)
+        if type(source) ~= "table" then
+            return nil
+        end
+
+        return utils.getNestedValue(source, nestedPath)
+    end
+
+    local defaultComponent = self.defaultComponentData[componentID]
+    local changedComponent = self.instanceDataChanges[componentID]
+
     -- Step one up, so we can get class of parent, then use that to get property type
     local parentPath = utils.deepcopy(path)
     table.remove(parentPath, #parentPath)
 
-    local value = utils.getNestedValue(self.defaultComponentData[componentID], parentPath)
-    if not value then -- Might be a custom array entry, only present in instanceDataChanges
-        value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+    local value = getNested(defaultComponent, parentPath)
+    if value == nil then -- Might be a custom array entry, only present in instanceDataChanges
+        value = getNested(changedComponent, parentPath)
+    end
+
+    if type(value) ~= "table" then
+        return inferTypeInfo(value)
     end
 
     -- Handle or array entry
@@ -652,14 +1597,19 @@ function entity:getPropTypeInfo(componentID, path, key)
         if type(key) == "number" then -- Is array entry
             if value["HandleId"] then
                 -- Type of handle, by stepping down
-                return { typeName = value["Data"]["$type"], isEnum = false, propType = nil}
+                if type(value["Data"]) == "table" then
+                    return inferTypeInfo(value["Data"])
+                end
+
+                return inferTypeInfo(value["Data"])
             else
                 -- If its not a handle, parentPath will be prop which exists on default data (value ~= nil), but the actual array entry does only exist in instanceDataChanges
                 if not value[key] then
-                    value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+                    value = getNested(changedComponent, parentPath)
                 end
 
-                local typeName = type(value[key]) == "table" and value[key]["$type"] or nil
+                local entryValue = type(value) == "table" and value[key] or nil
+                local typeName = type(entryValue) == "table" and entryValue["$type"] or nil
                 local isEnum = false
 
                 if not typeName then -- Is simple type
@@ -668,14 +1618,24 @@ function entity:getPropTypeInfo(componentID, path, key)
 
                     local fullPath = table.concat(path, "/")
                     if not self.typeInfo[fullPath] then
-                        local parentData = utils.getNestedValue(self.instanceDataChanges[componentID] or self.defaultComponentData[componentID], parentParent)
+                        local parentData = getNested(changedComponent, parentParent)
+                        if parentData == nil then
+                            parentData = getNested(defaultComponent, parentParent)
+                        end
 
-                        local parentType = parentData["$type"]
-                        local propType = Reflection.GetClass(parentType):GetProperty(parentPath[#parentPath]):GetType():GetInnerType()
-                        isEnum = propType:IsEnum()
-                        typeName = propType:GetName().value
+                        local parentType = type(parentData) == "table" and parentData["$type"] or nil
+                        local reflectedClass = type(parentType) == "string" and Reflection.GetClass(parentType) or nil
+                        local reflectedProp = reflectedClass and parentPath[#parentPath] and reflectedClass:GetProperty(tostring(parentPath[#parentPath])) or nil
+                        local reflectedType = reflectedProp and reflectedProp:GetType() or nil
+                        local innerType = reflectedType and reflectedType:GetInnerType() or nil
 
-                        self.typeInfo[fullPath] = { typeName = typeName, isEnum = isEnum, propType = nil }
+                        if innerType then
+                            isEnum = innerType:IsEnum()
+                            typeName = innerType:GetName().value
+                            self.typeInfo[fullPath] = { typeName = typeName, isEnum = isEnum, propType = nil }
+                        else
+                            self.typeInfo[fullPath] = inferTypeInfo(entryValue)
+                        end
                     else
                         return self.typeInfo[fullPath]
                     end
@@ -686,18 +1646,29 @@ function entity:getPropTypeInfo(componentID, path, key)
         end
     end
 
-    value = utils.getNestedValue(self.defaultComponentData[componentID], parentPath) -- Re-Fetch, in case it was a handle and we changed the path
-    if not value then -- Array entry, only present in instanceDataChanges
-        value = utils.getNestedValue(self.instanceDataChanges[componentID], parentPath)
+    value = getNested(defaultComponent, parentPath) -- Re-Fetch, in case it was a handle and we changed the path
+    if value == nil then -- Array entry, only present in instanceDataChanges
+        value = getNested(changedComponent, parentPath)
+    end
+
+    if type(value) ~= "table" then
+        return inferTypeInfo(value)
     end
 
     local fullPath = table.concat(path, "/")
     if not self.typeInfo[fullPath] then
-        local propType = Reflection.GetClass(value["$type"]):GetProperty(key):GetType()
-        local propEnum = propType:IsEnum()
-        local propTypeName = propType:GetName().value
+        local className = value["$type"]
+        local reflectedClass = type(className) == "string" and Reflection.GetClass(className) or nil
+        local reflectedProp = reflectedClass and reflectedClass:GetProperty(tostring(key)) or nil
+        local propType = reflectedProp and reflectedProp:GetType() or nil
 
-        self.typeInfo[fullPath] = { typeName = propTypeName, isEnum = propEnum, propType = propType }
+        if propType then
+            local propEnum = propType:IsEnum()
+            local propTypeName = propType:GetName().value
+            self.typeInfo[fullPath] = { typeName = propTypeName, isEnum = propEnum, propType = propType }
+        else
+            self.typeInfo[fullPath] = inferTypeInfo(value[key])
+        end
     end
 
     return self.typeInfo[fullPath]
@@ -722,6 +1693,72 @@ function entity:updatePropValue(componentID, path, value)
     self:respawn()
 end
 
+---@private
+---@param componentID number
+---@param path table
+---@return boolean
+function entity:shouldPreviewLocKey(componentID, path)
+    local component = self.defaultComponentData[componentID]
+    if not component then
+        return false
+    end
+
+    local componentType = component["$type"]
+    if type(componentType) ~= "string" then
+        return false
+    end
+
+    local pathTargets = locKeyPreviewTargets[componentType]
+    local normalizedPath = table.concat(normalizeInstanceDataPath(path), "/")
+
+    -- Generic rule: any *Controller* component supports persistentState/deviceName LocKeys.
+    if normalizedPath == "persistentState/deviceName" then
+        return string.find(string.lower(componentType), "controller", 1, true) ~= nil
+    end
+
+    if not pathTargets then
+        return false
+    end
+
+    return pathTargets[normalizedPath] == true
+end
+
+---@private
+---@param value any
+---@return string?
+function entity:resolveLocKey(value)
+    return gameUtils.resolveLocKey(value, self.locKeyPreviewCache)
+end
+
+---@private
+---@param componentID number
+---@param path table
+---@param value any
+function entity:drawLocKeyPreview(componentID, path, value, cursorPos)
+    if not self:shouldPreviewLocKey(componentID, path) then
+        return
+    end
+
+    self:drawLocalizationStringPreview(value, cursorPos)
+end
+
+---@private
+---@param value any
+---@param cursorPos number?
+function entity:drawLocalizationStringPreview(value, cursorPos)
+    local localized = self:resolveLocKey(value)
+    if not localized then
+        return
+    end
+
+    if cursorPos ~= nil then
+        ImGui.SetCursorPosX(cursorPos)
+    end
+
+    style.mutedText(IconGlyphs.Translate .. " " .. localized)
+    style.tooltip(localized)
+end
+
 function entity:drawStringProp(componentID, key, data, path, type, width, max)
     key = tostring(key)
 
@@ -736,29 +1773,8 @@ function entity:drawStringProp(componentID, key, data, path, type, width, max)
         history.addAction(history.getElementChange(self.object))
         self:updatePropValue(componentID, path, value)
     end
-end
 
-function entity:drawNumericProp(componentID, key, data, path, type, isFloat, hasText, format)
-    key = tostring(key)
-
-    if hasText then
-        ImGui.Text(key)
-        ImGui.SameLine()
-    end
-    ImGui.SetNextItemWidth(100 * style.viewSize)
-    local value, changed
-    if isFloat then
-        value, changed = ImGui.InputFloat("##" .. componentID .. table.concat(path), data, 0.05, 0.1, format)
-    else
-        value, changed = ImGui.InputInt("##" .. componentID .. table.concat(path), data, 1, 10, format)
-    end
-    style.tooltip(type)
-    self:drawResetProp(componentID, path)
-
-    if changed then
-        history.addAction(history.getElementChange(self.object))
-        self:updatePropValue(componentID, path, value)
-    end
+    return value
 end
 
 ---@param componentID number
@@ -789,7 +1805,7 @@ function entity:drawResetProp(componentID, path, typeName)
             path = utils.deepcopy(path)
             table.remove(path, #path)
         end
-        local text = isArray and "Remove" or "Reset"
+        local text = isArray and (IconGlyphs.DeleteOutline .. " Remove") or (IconGlyphs.Restore .. " Reset")
 
         if ImGui.MenuItem(text) and modified then
             history.addAction(history.getElementChange(self.object))
@@ -806,7 +1822,7 @@ end
 
 function entity:drawResetComponent(id)
     if ImGui.BeginPopupContextItem("##resetComponent" .. id, ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Reset") and self.instanceDataChanges[id] then
+        if ImGui.MenuItem(IconGlyphs.Restore .. " Reset") and self.instanceDataChanges[id] then
             history.addAction(history.getElementChange(self.object))
             self.instanceDataChanges[id] = nil
             self:respawn()
@@ -869,11 +1885,15 @@ end
 ---@param data any
 ---@param path table Path to the data, from the root of the component
 ---@param max number Maximum width of a label text
-function entity:drawTableProp(componentID, key, data, path, max, modified)
+---@param propertySearch string?
+---@param showAllChildren boolean?
+local matchesPropertySearchEntry
+
+function entity:drawTableProp(componentID, key, data, path, max, modified, propertySearch, showAllChildren)
     -- Step one down, to avoid handle structure, gets really fucking ugly later
     if data.HandleId then
         table.insert(path, "Data")
-        self:drawInstanceDataProperty(componentID, key, data.Data, path, max)
+        self:drawInstanceDataProperty(componentID, key, data.Data, path, max, propertySearch, showAllChildren)
         return
     end
 
@@ -900,6 +1920,62 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
         self:drawResetProp(componentID, path)
         style.popStyleColor(modified)
         return
+    elseif info.typeName == "Color" then
+        local clampColorChannel = function (value, fallback)
+            local number = tonumber(value) or fallback
+            number = math.max(0, math.min(255, number))
+            return number
+        end
+
+        local toColorUnit = function (value, fallback)
+            return clampColorChannel(value, fallback) / 255
+        end
+
+        local toColorByte = function (value)
+            local number = tonumber(value) or 0
+            number = math.max(0, math.min(1, number))
+            return math.floor(number * 255 + 0.5)
+        end
+
+        ImGui.Text(tostring(key))
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(tostring(key)) + max)
+
+        local color = {
+            toColorUnit(data.Red, 0),
+            toColorUnit(data.Green, 0),
+            toColorUnit(data.Blue, 0),
+            toColorUnit(data.Alpha, 255)
+        }
+
+        local widgetId = "##" .. componentID .. table.concat(path)
+        local newColor = nil
+        local changed = false
+
+        if data.Alpha ~= nil then
+            newColor, changed = style.trackedColorAlpha(self.object, widgetId, color, 60)
+        else
+            newColor, changed = style.trackedColor(self.object, widgetId, color, 60)
+        end
+
+        style.tooltip(info.typeName)
+        self:drawResetProp(componentID, path)
+
+        if changed then
+            local updated = utils.deepcopy(data)
+            updated.Red = toColorByte(newColor[1])
+            updated.Green = toColorByte(newColor[2])
+            updated.Blue = toColorByte(newColor[3])
+
+            if updated.Alpha ~= nil then
+                updated.Alpha = toColorByte(newColor[4] or color[4])
+            end
+
+            self:updatePropValue(componentID, path, updated)
+        end
+
+        style.popStyleColor(modified)
+        return
     elseif info.typeName == "TweakDBID" or info.typeName == "CName" then
         table.insert(path, "$value")
 
@@ -908,9 +1984,16 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(tostring(key)) + max)
         ImGui.SetNextItemWidth(250 * style.viewSize)
         local value, _ = ImGui.InputText("##" .. componentID .. table.concat(path), data["$value"], 250)
+        local finishedEditing = ImGui.IsItemDeactivatedAfterEdit()
         style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)
-        if ImGui.IsItemDeactivatedAfterEdit() then
+
+        if info.typeName == "CName" then
+            local cursorPos = ImGui.GetCursorPosX() + max + 2 * ImGui.GetStyle().ItemSpacing.x
+            self:drawLocKeyPreview(componentID, path, value, cursorPos)
+        end
+
+        if finishedEditing then
             data["$storage"] = "string"
             history.addAction(history.getElementChange(self.object))
             self:updatePropValue(componentID, path, value)
@@ -925,8 +2008,9 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
         ImGui.SameLine()
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(key) + max)
 
-        local value, finished = registry.drawNodeRefSelector(style.getMaxWidth(250), data["$value"], self.object, false)
-        style.tooltip(info.typeName .. " (String will get converted to hash)")
+        local displayValue = resolveNodeRefDisplayValue(data["$value"], self.object)
+        local value, finished = registry.drawNodeRefSelector(style.getMaxWidth(250), displayValue, self.object, false)
+        style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)
         if finished then
             if string.find(value, "%D") then
@@ -942,7 +2026,9 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
         return
     elseif info.typeName == "LocalizationString" then
         table.insert(path, "value")
-        self:drawStringProp(componentID, key, data["value"], path, info.typeName, 150, max)
+        local currentValue = self:drawStringProp(componentID, key, data["value"], path, info.typeName, 150, max)
+        local cursorPos = ImGui.GetCursorPosX() + max + 2 * ImGui.GetStyle().ItemSpacing.x
+        self:drawLocalizationStringPreview(currentValue, cursorPos)
         style.popStyleColor(modified)
         return
     end
@@ -966,7 +2052,7 @@ function entity:drawTableProp(componentID, key, data, path, max, modified)
             local entry = data[propKey]
             local propPath = utils.deepcopy(path)
             table.insert(propPath, propKey)
-            self:drawInstanceDataProperty(componentID, propKey, entry, propPath, max)
+            self:drawInstanceDataProperty(componentID, propKey, entry, propPath, max, propertySearch, showAllChildren)
         end
 
         self:drawAddArrayEntry(info.propType, componentID, path, data)
@@ -985,8 +2071,20 @@ end
 ---@param data table
 ---@param path table Path to the data, from the root of the component
 ---@param max number Maximum width of a text
-function entity:drawInstanceDataProperty(componentID, key, data, path, max)
+---@param propertySearch string?
+---@param showAllChildren boolean?
+function entity:drawInstanceDataProperty(componentID, key, data, path, max, propertySearch, showAllChildren)
     if key == "$type" or key == "$storage" or key == "Flags" then return end
+
+    local propertyFilterActive = type(propertySearch) == "string" and propertySearch ~= ""
+    if propertyFilterActive and not showAllChildren then
+        local matchesSearch, directMatch = matchesPropertySearchEntry(key, data, propertySearch, {})
+        if not matchesSearch then
+            return
+        end
+
+        showAllChildren = directMatch
+    end
 
     local modified = false
     if self.instanceDataChanges[componentID] and self.instanceDataChanges[componentID][path[1]] then
@@ -996,11 +2094,42 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
     end
 
     if type(data) == "table" then
-        self:drawTableProp(componentID, key, data, path, max, modified)
+        self:drawTableProp(componentID, key, data, path, max, modified, propertySearch, showAllChildren)
     else
         style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
 
         local info = self:getPropTypeInfo(componentID, path, key)
+        local locKeyPreviewValue = nil
+
+        if info.typeName == "rendLightChannel" then
+            local sectionName = info.typeName .. " | " .. tostring(key)
+            local open = false
+
+            if ImGui.TreeNodeEx(sectionName, ImGuiTreeNodeFlags.SpanFullWidth) then
+                open = true
+                self:drawResetProp(componentID, path, info.typeName)
+
+                local selection = decodeLightChannelSelection(data)
+                local previous = encodeLightChannelSelection(selection)
+                selection = style.drawLightChannelsSelector(nil, selection)
+                local current = encodeLightChannelSelection(selection)
+
+                if current ~= previous then
+                    history.addAction(history.getElementChange(self.object))
+                    self:updatePropValue(componentID, path, current)
+                end
+
+                ImGui.TreePop()
+            end
+
+            if not open then
+                self:drawResetProp(componentID, path, info.typeName)
+            end
+
+            style.tooltip(info.typeName)
+            style.popStyleColor(modified)
+            return
+        end
 
         ImGui.Text(tostring(key))
         ImGui.SameLine()
@@ -1016,6 +2145,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
             ImGui.SetNextItemWidth(100 * style.viewSize)
             local value, changed = ImGui.InputFloat("##" .. componentID .. table.concat(path), data, 0, 0, "%.2f")
             if changed then
+                value = clampCustomNumericProperty(key, value)
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, value)
             end
@@ -1023,6 +2153,10 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
             ImGui.SetNextItemWidth(100 * style.viewSize)
 
             local value, changed = ImGui.InputText("##" .. componentID .. table.concat(path), data, 250)
+            if info.typeName == "String" then
+                locKeyPreviewValue = value
+            end
+
             if changed then
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, value)
@@ -1032,6 +2166,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
 
             local value, changed = ImGui.InputInt("##" .. componentID .. table.concat(path), data, 0)
             if changed then
+                value = clampCustomNumericProperty(key, value)
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, value)
             end
@@ -1053,8 +2188,182 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max)
 
         style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)
+
+        if locKeyPreviewValue ~= nil then
+            local cursorPos = ImGui.GetCursorPosX() + max + 2 * ImGui.GetStyle().ItemSpacing.x
+            self:drawLocKeyPreview(componentID, path, locKeyPreviewValue, cursorPos)
+        end
+
         style.popStyleColor(modified)
     end
+end
+
+---@param component table
+---@return string
+local function getComponentDisplayName(component)
+    if type(component) ~= "table" then
+        return "Entity"
+    end
+
+    if component.name and component.name["$value"] then
+        return tostring(component.name["$value"])
+    end
+
+    return "Entity"
+end
+
+---@param componentKey string|number
+---@param componentName string
+---@return number
+local function getComponentSortPriority(componentKey, componentName)
+    local normalizedName = string.lower(componentName)
+    local normalizedKey = string.lower(tostring(componentKey))
+
+    if normalizedKey == "0" or normalizedName == "entity" then
+        return 0
+    end
+
+    if normalizedName == "controller" then
+        return 1
+    end
+
+    return 2
+end
+
+---Builds sorted component entries for the Spawned tab component list.
+---@return table
+function entity:getSortedComponents()
+    local entries = {}
+
+    for key, component in pairs(self.defaultComponentData) do
+        if type(component) ~= "table" then
+            component = {}
+        end
+
+        local componentName = getComponentDisplayName(component)
+        local componentType = tostring(component["$type"] or "Unknown")
+
+        table.insert(entries, {
+            key = key,
+            component = component,
+            componentName = componentName,
+            componentType = componentType,
+            name = componentType .. " | " .. componentName,
+            priority = getComponentSortPriority(key, componentName)
+        })
+    end
+
+    table.sort(entries, function(a, b)
+        if a.priority ~= b.priority then
+            return a.priority < b.priority
+        end
+
+        local aType = string.lower(a.componentType)
+        local bType = string.lower(b.componentType)
+        if aType ~= bType then
+            return aType < bType
+        end
+
+        local aName = string.lower(a.componentName)
+        local bName = string.lower(b.componentName)
+        if aName ~= bName then
+            return aName < bName
+        end
+
+        return string.lower(tostring(a.key)) < string.lower(tostring(b.key))
+    end)
+
+    return entries
+end
+
+---@param value any
+---@param search string
+---@return boolean
+local function matchesInstanceDataSearch(value, search)
+    return string.find(string.lower(tostring(value or "")), search, 1, true) ~= nil
+end
+
+---@param key any
+---@return boolean
+local function shouldSkipInstanceDataPropertyKey(key)
+    return key == "$type" or key == "$storage" or key == "Flags"
+end
+
+---@param key any
+---@param value any
+---@param search string
+---@param visited table<table, boolean>
+---@return boolean hasMatch
+---@return boolean directMatch
+matchesPropertySearchEntry = function(key, value, search, visited)
+    if shouldSkipInstanceDataPropertyKey(key) then
+        return false, false
+    end
+
+    local directMatch = matchesInstanceDataSearch(key, search)
+    local valueType = type(value)
+
+    if valueType == "table" then
+        if visited[value] then
+            return directMatch, directMatch
+        end
+        visited[value] = true
+
+        local hasChildMatch = false
+        for childKey, childValue in pairs(value) do
+            local childHasMatch = matchesPropertySearchEntry(childKey, childValue, search, visited)
+            if childHasMatch then
+                hasChildMatch = true
+                break
+            end
+        end
+
+        return directMatch or hasChildMatch, directMatch
+    end
+
+    if valueType ~= "nil" and valueType ~= "function" and valueType ~= "thread" then
+        if matchesInstanceDataSearch(value, search) then
+            directMatch = true
+        end
+    end
+
+    return directMatch, directMatch
+end
+
+---@param component table
+---@param componentChanges table?
+---@param search string
+---@return boolean
+local function matchesComponentPropertiesSearch(component, componentChanges, search)
+    local topLevelKeys = {}
+
+    if type(component) == "table" then
+        for key, _ in pairs(component) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    if type(componentChanges) == "table" then
+        for key, _ in pairs(componentChanges) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    for key, _ in pairs(topLevelKeys) do
+        local value = nil
+        if type(componentChanges) == "table" and componentChanges[key] ~= nil then
+            value = componentChanges[key]
+        elseif type(component) == "table" then
+            value = component[key]
+        end
+
+        local hasMatch = matchesPropertySearchEntry(key, value, search, {})
+        if hasMatch then
+            return true
+        end
+    end
+
+    return false
 end
 
 function entity:drawInstanceData()
@@ -1072,6 +2381,8 @@ function entity:drawInstanceData()
         end
     end
 
+    self.instanceDataSearchInProperties = self.instanceDataSearchInProperties == true
+
     ImGui.PushItemWidth(200 * style.viewSize)
     self.instanceDataSearch = ImGui.InputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
     ImGui.PopItemWidth()
@@ -1085,12 +2396,27 @@ function entity:drawInstanceData()
         style.pushButtonNoBG(false)
     end
 
-    for key, component in pairs(self.defaultComponentData) do
-        local name = component["$type"]
-        local componentName = (component.name and component.name["$value"] or "Entity")
-        name = name .. " | " .. componentName
+    ImGui.SameLine()
+    self.instanceDataSearchInProperties, _ = ImGui.Checkbox("Search in properties##instanceDataPropertySearch", self.instanceDataSearchInProperties)
+    style.tooltip("Include component property names and values in the filter.")
 
-        if self.instanceDataSearch == "" or (componentName:lower():match(self.instanceDataSearch:lower()) or name:lower():match(self.instanceDataSearch:lower())) ~= nil then
+    local search = self.instanceDataSearch:lower()
+    local propertySearch = (self.instanceDataSearchInProperties and search ~= "") and search or nil
+    for _, entry in ipairs(self:getSortedComponents()) do
+        local key = entry.key
+        local component = entry.component
+        local componentName = entry.componentName
+        local name = entry.name
+
+        local matchesSearch = self.instanceDataSearch == ""
+            or string.find(componentName:lower(), search, 1, true) ~= nil
+            or string.find(name:lower(), search, 1, true) ~= nil
+
+        if not matchesSearch and self.instanceDataSearchInProperties and search ~= "" then
+            matchesSearch = matchesComponentPropertiesSearch(component, self.instanceDataChanges[key], search)
+        end
+
+        if matchesSearch then
             style.pushStyleColor(not self.instanceDataChanges[key], ImGuiCol.Text, style.mutedColor)
 
             local expanded = false
@@ -1106,7 +2432,7 @@ function entity:drawInstanceData()
                     if modified then entry = self.instanceDataChanges[key][propKey] end
 
                     style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
-                    self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max)
+                    self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max, propertySearch, false)
 
                     style.popStyleColor(true)
                 end

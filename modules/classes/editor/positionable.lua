@@ -1,7 +1,9 @@
 local utils = require("modules/utils/utils")
+local gameUtils = require("modules/utils/gameUtils")
 local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
+local field = require("modules/utils/field")
 local editor = require("modules/utils/editor/editor")
 
 local scatteredConfig = require("modules/classes/editor/scatteredConfig")
@@ -25,6 +27,95 @@ local element = require("modules/classes/editor/element")
 ---@field scatterConfig scatteredConfig
 ---@field applyRotationWhenDropped boolean
 local positionable = setmetatable({}, { __index = element })
+
+---@param instance positionable
+---@return positionable[]
+local function getSelectedPositionables(instance)
+	local selected = {}
+	if not instance or not instance.sUI or not instance.sUI.root then
+		return selected
+	end
+
+	for _, path in ipairs(instance.sUI.root:getPathsRecursive(true)) do
+		if path.ref and path.ref.selected and utils.isA(path.ref, "positionable") then
+			table.insert(selected, path.ref)
+		end
+	end
+
+	return selected
+end
+
+---@param instance positionable
+---@param axis string
+---@return boolean
+local function isTransformAxisLocked(instance, axis)
+	local spawnableRef = instance and instance.spawnable
+	if not spawnableRef or not spawnableRef.isTransformAxisLocked then
+		return false
+	end
+
+	return spawnableRef:isTransformAxisLocked(axis) == true
+end
+
+---@param axes table?
+---@param axis string
+---@return boolean
+local function isAxisVisible(axes, axis)
+    if type(axes) ~= "table" then
+        return true
+    end
+
+    return axes[axis] ~= false
+end
+
+---@param instance positionable
+---@return table
+local function getTransformUIConfig(instance)
+    local hasScale = instance and instance.hasScale == true
+    local config = {
+        showPosition = true,
+        showRelative = true,
+        showRotation = true,
+        showScale = hasScale,
+        axes = {
+            position = { x = true, y = true, z = true },
+            relative = { x = true, y = true, z = true },
+            rotation = { roll = true, pitch = true, yaw = true },
+            scale = { x = true, y = true, z = true }
+        }
+    }
+
+    local spawnableRef = instance and instance.spawnable
+    if not spawnableRef or not spawnableRef.getTransformUIConfig then
+        return config
+    end
+
+    local override = spawnableRef:getTransformUIConfig()
+    if type(override) ~= "table" then
+        return config
+    end
+
+    if override.showPosition == false then config.showPosition = false end
+    if override.showRelative == false then config.showRelative = false end
+    if override.showRotation == false then config.showRotation = false end
+    if override.showScale ~= nil then
+        config.showScale = override.showScale == true and hasScale
+    end
+
+    if type(override.axes) == "table" then
+        for section, sectionAxes in pairs(override.axes) do
+            if type(config.axes[section]) == "table" and type(sectionAxes) == "table" then
+                for axis, visible in pairs(sectionAxes) do
+                    if config.axes[section][axis] ~= nil then
+                        config.axes[section][axis] = visible ~= false
+                    end
+                end
+            end
+        end
+    end
+
+    return config
+end
 
 function positionable:new(sUI)
 	local o = element.new(self, sUI)
@@ -87,18 +178,26 @@ function positionable:drawTransform()
 	local position = self:getPosition()
 	local rotation = self:getRotation()
 	local scale = self:getScale()
-
+	local transformUI = getTransformUIConfig(self)
 	self.controlsHovered = false
 	self.visualizerChanged = false
 	self.visualizerNewDirection = "none"
 
-	self:drawPosition(position)
-	self:drawRelativePosition()
-	self:drawRotation(rotation)
-	self:drawScale(scale)
+	if transformUI.showPosition then
+		self:drawPosition(position, transformUI.axes.position)
+	end
+	if transformUI.showRelative then
+		self:drawRelativePosition(transformUI.axes.relative)
+	end
+	if transformUI.showRotation then
+		self:drawRotation(rotation, transformUI.axes.rotation)
+	end
+	if transformUI.showScale then
+		self:drawScale(scale, transformUI.axes.scale)
+	end
 
 	if not self.controlsHovered and self.visualizerDirection ~= "none" then
-		if not settings.gizmoOnSelected and not editor.active then
+		if not settings.gizmoOnSelected then
 			self:setVisualizerState(false) -- Set vis state first, as loading the mesh app (vis direction) can screw with it
 		end
 		self:setVisualizerDirection("none")
@@ -178,33 +277,70 @@ function positionable:drawGeneralProperties()
 	style.mutedText("Apply Rotation When Dropped")
 	ImGui.SameLine()
 	self.applyRotationWhenDropped, _ = style.trackedCheckbox(self, "##applyRotationWhenDropped", self.applyRotationWhenDropped)
+
+	style.mutedText("Quick Rotation Step")
+	ImGui.SameLine()
+	local changed
+	settings.rotationShiftClickStep, changed = field.advancedTrackedFloat(nil, "##shiftClickRotationStep", settings.rotationShiftClickStep, {
+		step = 0.5,
+		shiftStep = 5,
+		min = 0,
+		max = 360,
+		format = "%.2f",
+		shiftFormat = "%.2f",
+		width = 80
+	})
+	if changed then
+		settings.save()
+	end
+	style.tooltip("Amount added/subtracted when Shift+Left/Right clicking Roll/Pitch/Yaw fields.")
 end
 
 function positionable:setSelected(state)
 	local updated = state ~= self.selected
-	if updated and not self.hovered and (settings.gizmoOnSelected or editor.active) then
-		self:setVisualizerState(state)
+	local hasSelectionContext = self.sUI ~= nil and self.sUI.multiSelectActive ~= nil and self.sUI.rangeSelectActive ~= nil
+	local isBatchSelection = hasSelectionContext and (self.sUI.multiSelectActive() or self.sUI.rangeSelectActive()) or false
+	if updated and not self.hovered and settings.gizmoOnSelected then
+		if isBatchSelection and state then
+			self:setVisualizerState(false)
+		else
+			self:setVisualizerState(state)
+		end
 	end
 
 	element.setSelected(self, state)
 
 	if updated then
-		self.sUI.cachePaths()
+		local selectedEntries = getSelectedPositionables(self)
+		local selectedCount = #selectedEntries
+
+		if isBatchSelection then
+			if selectedCount > 1 then
+				self:setVisualizerState(false)
+			elseif not state and selectedCount == 1 and settings.gizmoOnSelected then
+				for _, entry in ipairs(selectedEntries) do
+					if entry ~= self then
+						entry:setVisualizerState(true)
+					end
+				end
+			end
+			return
+		end
 
 		if state then
-			if #self.sUI.selectedPaths > 1 then
-				for _, entry in ipairs(self.sUI.selectedPaths) do
-					if entry and entry.ref ~= self then
-						entry.ref:setVisualizerState(false)
+			if selectedCount > 1 then
+				for _, entry in ipairs(selectedEntries) do
+					if entry ~= self then
+						entry:setVisualizerState(false)
 					end
 				end
 
 				self:setVisualizerState(false)
 			end
-		elseif #self.sUI.selectedPaths == 1 then
-			for _, entry in ipairs(self.sUI.selectedPaths) do
-				if entry and entry.ref ~= self then
-					entry.ref:setVisualizerState(true)
+		elseif selectedCount == 1 and settings.gizmoOnSelected then
+			for _, entry in ipairs(selectedEntries) do
+				if entry ~= self then
+					entry:setVisualizerState(true)
 				end
 			end
 		end
@@ -212,7 +348,7 @@ function positionable:setSelected(state)
 end
 
 function positionable:setHovered(state)
-	if state ~= self.hovered and (not self.selected or (not settings.gizmoOnSelected and not editor.active)) then
+	if state ~= self.hovered and (not self.selected or not settings.gizmoOnSelected) then
 		self:setVisualizerState(state)
 		self:setVisualizerDirection("none")
 	end
@@ -221,7 +357,7 @@ function positionable:setHovered(state)
 end
 
 function positionable:setVisualizerDirection(direction)
-	if not settings.gizmoOnSelected and not editor.active then
+	if not settings.gizmoOnSelected then
 		if direction ~= "none" and not self.hovered and not self.visualizerState then
 			self:setVisualizerState(true)
 		end
@@ -240,59 +376,86 @@ function positionable:onEdited() end
 ---@protected
 function positionable:drawCopyPaste(name)
 	if not ImGui.IsKeyDown(ImGuiKey.LeftShift) and ImGui.BeginPopupContextItem("##pasteProperty" .. name, ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Copy position") then
-			local pos = self:getPosition()
-			utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
+        local transformUI = getTransformUIConfig(self)
+        local showPosition = transformUI.showPosition
+        local showRotation = transformUI.showRotation
+        local renderedSection = false
+
+        local function beginSection(hasItems)
+            if not hasItems then
+                return false
+            end
+
+            if renderedSection then
+                ImGui.Separator()
+            end
+
+            renderedSection = true
+            return true
         end
-		if ImGui.MenuItem("Copy rotation") then
-			local rot = self:getRotation()
-			utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+
+        if beginSection(showPosition or showRotation) then
+            if showPosition and ImGui.MenuItem("Copy position") then
+                local pos = self:getPosition()
+                utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
+            end
+            if showRotation and ImGui.MenuItem("Copy rotation") then
+                local rot = self:getRotation()
+                utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+            end
+            if showPosition and showRotation and ImGui.MenuItem("Copy position and rotation") then
+                local pos = self:getPosition()
+                local rot = self:getRotation()
+                utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
+                utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+            end
         end
-		if ImGui.MenuItem("Copy position and rotation") then
-			local pos = self:getPosition()
-			local rot = self:getRotation()
-			utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
-			utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+
+        if beginSection(showPosition or showRotation) then
+            local copiedPosition = utils.getClipboardValue("position")
+            local copiedRotation = utils.getClipboardValue("rotation")
+
+            ImGui.BeginDisabled(showPosition and copiedPosition == nil)
+            if showPosition and ImGui.MenuItem("Paste position") then
+                history.addAction(history.getElementChange(self))
+                self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
+            end
+            ImGui.EndDisabled()
+
+            ImGui.BeginDisabled(showRotation and copiedRotation == nil)
+            if showRotation and ImGui.MenuItem("Paste rotation") then
+                history.addAction(history.getElementChange(self))
+                self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
+            end
+            ImGui.EndDisabled()
+
+            ImGui.BeginDisabled(showPosition and showRotation and (copiedPosition == nil or copiedRotation == nil))
+            if showPosition and showRotation and ImGui.MenuItem("Paste position and rotation") then
+                history.addAction(history.getElementChange(self))
+                self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
+                self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
+            end
+            ImGui.EndDisabled()
         end
-		ImGui.Separator()
-		if ImGui.MenuItem("Paste position") then
-			local pos = utils.getClipboardValue("position")
-			if pos then
-				history.addAction(history.getElementChange(self))
-				self:setPosition(Vector4.new(pos.x, pos.y, pos.z, 0))
-			end
-		end
-		if ImGui.MenuItem("Paste rotation") then
-			local rot = utils.getClipboardValue("rotation")
-			if rot then
-				history.addAction(history.getElementChange(self))
-				self:setRotation(EulerAngles.new(rot.roll, rot.pitch, rot.yaw))
-			end
-		end
-		if ImGui.MenuItem("Paste position and rotation") then
-			local pos = utils.getClipboardValue("position")
-			local rot = utils.getClipboardValue("rotation")
-			if pos and rot then
-				history.addAction(history.getElementChange(self))
-				self:setPosition(Vector4.new(pos.x, pos.y, pos.z, 0))
-				self:setRotation(EulerAngles.new(rot.roll, rot.pitch, rot.yaw))
-			end
-		end
-		ImGui.Separator()
-		if ImGui.MenuItem(string.format("%s Rotation", self.rotationLocked and "Unlock" or "Lock")) then
-			history.addAction(history.getElementChange(self))
-			self.rotationLocked = not self.rotationLocked
-		end
-		if ImGui.MenuItem(string.format("%s Rotation and Set Zero", self.rotationLocked and "Unlock" or "Lock")) then
-			history.addAction(history.getElementChange(self))
-			self:setRotation(EulerAngles.new(0, 0, 0))
-			self.rotationLocked = not self.rotationLocked
-		end
-		ImGui.Separator()
-		if ImGui.MenuItem("Copy rotation as Quaternion to clipboard") then
-			local quat = self:getRotation():ToQuat()
-			ImGui.SetClipboardText(string.format("i = %.6f, j = %.6f, k = %.6f, r = %.6f", quat.i, quat.j, quat.k, quat.r))
-		end
+
+        if beginSection(showRotation) then
+            if ImGui.MenuItem(string.format("%s Rotation", self.rotationLocked and "Unlock" or "Lock")) then
+                history.addAction(history.getElementChange(self))
+                self.rotationLocked = not self.rotationLocked
+            end
+            if ImGui.MenuItem(string.format("%s Rotation and Set Zero", self.rotationLocked and "Unlock" or "Lock")) then
+                history.addAction(history.getElementChange(self))
+                self:setRotation(EulerAngles.new(0, 0, 0))
+                self.rotationLocked = not self.rotationLocked
+            end
+        end
+
+        if beginSection(showRotation) then
+            if ImGui.MenuItem("Copy rotation as Quaternion to clipboard") then
+                local quat = self:getRotation():ToQuat()
+                ImGui.SetClipboardText(string.format("i = %.6f, j = %.6f, k = %.6f, r = %.6f", quat.i, quat.j, quat.k, quat.r))
+            end
+        end
         ImGui.EndPopup()
     end
 end
@@ -301,10 +464,14 @@ end
 function positionable:drawProp(prop, name, axis, disableInput)
 	local steps = (axis == "roll" or axis == "pitch" or axis == "yaw") and settings.rotSteps or settings.posSteps
 	local formatText = "%.2f"
+	local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
+	local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
 
-	if ImGui.IsKeyDown(ImGuiKey.LeftShift) then
+	if shiftDown then
 		steps = steps * 0.1 * settings.precisionMultiplier -- Shift usually is a x10 multiplier, so get rid of that first
 		formatText = "%.3f"
+	elseif ctrlDown then
+		steps = steps * settings.coarsePrecisionMultiplier
 	end
 
 	local flags = ImGuiSliderFlags.NoRoundToFormat
@@ -379,100 +546,212 @@ function positionable:drawProp(prop, name, axis, disableInput)
 end
 
 ---@protected
-function positionable:drawPosition(position)
+function positionable:drawPosition(position, axes)
+    local showX = isAxisVisible(axes, "x")
+    local showY = isAxisVisible(axes, "y")
+    local showZ = isAxisVisible(axes, "z")
+
+    if not showX and not showY and not showZ then
+        return
+    end
+
 	ImGui.PushItemWidth(80 * style.viewSize)
-	self:drawProp(position.x, "X", "x")
-    ImGui.SameLine()
-	self:drawProp(position.y, "Y", "y")
-    ImGui.SameLine()
-	self:drawProp(position.z, "Z", "z")
+    local drewAxis = false
+
+    if showX then
+        self:drawProp(position.x, "X", "x")
+        drewAxis = true
+    end
+    if showY then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        self:drawProp(position.y, "Y", "y")
+        drewAxis = true
+    end
+    if showZ then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        ImGui.BeginDisabled(isTransformAxisLocked(self, "z"))
+        self:drawProp(position.z, "Z", "z")
+        ImGui.EndDisabled()
+    end
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.AccountArrowLeftOutline) then
 		history.addAction(history.getElementChange(self))
-		local pos = utils.getPlayerPosition(editor.active)
+		local pos = gameUtils.getPlayerPosition(editor.active)
 
         self:setPositionDelta(Vector4.new(pos.x - position.x, pos.y - position.y, pos.z - position.z, 0))
     end
-	if ImGui.BeginPopupContextItem("##tpPlayer", ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Move player here") then
-			Game.GetTeleportationFacility():Teleport(GetPlayer(), self:getPosition(), GetPlayer():GetWorldOrientation():ToEulerAngles())
-        end
-        ImGui.EndPopup()
-    end
-
-    style.pushButtonNoBG(false)
 	if ImGui.IsItemHovered() then style.setCursorRelative(5, 5) end
 	style.tooltip("Set to player position")
+
+	ImGui.SameLine()
+    local teleportDisabledByEditor = editor.active == true
+	if style.warnButton(IconGlyphs.RunFast, {
+        tooltip = "Teleport player to asset",
+        disabled = teleportDisabledByEditor,
+        disabledTooltip = "Teleportation disabled while in 3D-Editor mode",
+        tooltipOffsetX = 5,
+        tooltipOffsetY = 5
+    }) then
+		gameUtils.teleportPlayer(self:getPosition())
+	end
+
+    style.pushButtonNoBG(false)
 end
 
 ---@protected
-function positionable:drawRelativePosition()
+function positionable:drawRelativePosition(axes)
+    local showX = isAxisVisible(axes, "x")
+    local showY = isAxisVisible(axes, "y")
+    local showZ = isAxisVisible(axes, "z")
+
+    if not showX and not showY and not showZ then
+        return
+    end
+
     ImGui.PushItemWidth(80 * style.viewSize)
 	style.pushGreyedOut(not self.visible or self.hiddenByParent)
-    self:drawProp(self.relativeOffset.x, "Rel X", "relX")
-	ImGui.SameLine()
-    self:drawProp(self.relativeOffset.y, "Rel Y", "relY")
-	ImGui.SameLine()
-    self:drawProp(self.relativeOffset.z, "Rel Z", "relZ")
+    local drewAxis = false
+
+    if showX then
+        self:drawProp(self.relativeOffset.x, "Rel X", "relX")
+        drewAxis = true
+    end
+    if showY then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        self:drawProp(self.relativeOffset.y, "Rel Y", "relY")
+        drewAxis = true
+    end
+    if showZ then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        ImGui.BeginDisabled(isTransformAxisLocked(self, "relZ"))
+        self:drawProp(self.relativeOffset.z, "Rel Z", "relZ")
+        ImGui.EndDisabled()
+    end
 	style.popGreyedOut(not self.visible or self.hiddenByParent)
     ImGui.PopItemWidth()
 end
 
 function positionable:handleRightAngleChange(axis, shiftActive)
-	if not shiftActive then return end
+	if not shiftActive or self.rotationLocked then return end
+	local step = math.abs(tonumber(settings.rotationShiftClickStep) or 90)
+
+	local function applyRightAngle(angle)
+		history.addAction(history.getElementChange(self))
+		self:setRotationDelta(EulerAngles.new(axis == "roll" and angle or 0, axis == "pitch" and angle or 0, axis == "yaw" and angle or 0))
+		self:onEdited()
+	end
 
 	if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Left) and shiftActive then
-		history.addAction(history.getElementChange(self))
-		self:setRotationDelta(EulerAngles.new(axis == "roll" and 90 or 0, axis == "pitch" and 90 or 0, axis == "yaw" and 90 or 0))
+		applyRightAngle(step)
 	end
 	if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) and shiftActive then
-		history.addAction(history.getElementChange(self))
-		self:setRotationDelta(EulerAngles.new(axis == "roll" and -90 or 0, axis == "pitch" and -90 or 0, axis == "yaw" and -90 or 0))
+		applyRightAngle(-step)
 	end
 end
 
 ---@protected
-function positionable:drawRotation(rotation)
+function positionable:drawRotation(rotation, axes)
+    local showRoll = isAxisVisible(axes, "roll")
+    local showPitch = isAxisVisible(axes, "pitch")
+    local showYaw = isAxisVisible(axes, "yaw")
+
+    if not showRoll and not showPitch and not showYaw then
+        return
+    end
+
     ImGui.PushItemWidth(80 * style.viewSize)
 	local locked = self.rotationLocked
-	local shiftActive = ImGui.IsKeyDown(ImGuiKey.LeftShift) and not ImGui.IsMouseDragging(0, 0)
+	local shiftActive = (ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)) and not ImGui.IsMouseDragging(0, 0)
 
 	local finished = false
+    local drewAxis = false
 	style.pushGreyedOut(locked)
-    finished = self:drawProp(rotation.roll, "Roll", "roll", shiftActive) or finished
-	self:handleRightAngleChange("roll", shiftActive and not finished)
-    ImGui.SameLine()
-    finished = self:drawProp(rotation.pitch, "Pitch", "pitch", shiftActive) or finished
-	self:handleRightAngleChange("pitch", shiftActive and not finished)
-    ImGui.SameLine()
-	finished = self:drawProp(rotation.yaw, "Yaw", "yaw", shiftActive) or finished
-	self:handleRightAngleChange("yaw", shiftActive and not finished)
+    if showRoll then
+        finished = self:drawProp(rotation.roll, "Roll", "roll", shiftActive) or finished
+        self:handleRightAngleChange("roll", shiftActive and not finished)
+        drewAxis = true
+    end
+    if showPitch then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        finished = self:drawProp(rotation.pitch, "Pitch", "pitch", shiftActive) or finished
+        self:handleRightAngleChange("pitch", shiftActive and not finished)
+        drewAxis = true
+    end
+    if showYaw then
+        if drewAxis then
+            ImGui.SameLine()
+        end
+        finished = self:drawProp(rotation.yaw, "Yaw", "yaw", shiftActive) or finished
+        self:handleRightAngleChange("yaw", shiftActive and not finished)
+    end
 	style.popGreyedOut(locked)
-    ImGui.SameLine()
+    if drewAxis then
+        ImGui.SameLine()
 
-	self.rotationRelative, _ = style.toggleButton(IconGlyphs.HorizontalRotateClockwise, self.rotationRelative)
-	style.tooltip("Toggle relative rotation")
+        local nextRotationRelative, rotationRelativeChanged = style.toggleButton(IconGlyphs.HorizontalRotateClockwise, self.rotationRelative)
+        if rotationRelativeChanged then
+            history.addAction(history.getElementChange(self))
+        end
+        self.rotationRelative = nextRotationRelative
+        style.tooltip("Toggle relative rotation")
+    end
     ImGui.PopItemWidth()
 end
 
-function positionable:drawScale(scale)
-	-- TODO: Allow for each axis to be disabled individually
+function positionable:drawScale(scale, axes)
 	if not self.hasScale then return end
+
+    local showX = isAxisVisible(axes, "x")
+    local showY = isAxisVisible(axes, "y")
+    local showZ = isAxisVisible(axes, "z")
+
+    if not showX and not showY and not showZ then
+        return
+    end
 
 	ImGui.PushItemWidth(80 * style.viewSize)
 
-	self:drawProp(scale.x, "Scale X", "scaleX")
-	ImGui.SameLine()
-	self:drawProp(scale.y, "Scale Y", "scaleY")
-	ImGui.SameLine()
-	self:drawProp(scale.z, "Scale Z", "scaleZ")
+    local drawnAxes = 0
+    local function drawScaleAxis(value, name, axis)
+        if drawnAxes > 0 then
+            ImGui.SameLine()
+        end
+        self:drawProp(value, name, axis)
+        drawnAxes = drawnAxes + 1
+    end
 
-	ImGui.SameLine()
-	self.scaleLocked, _ = style.toggleButton(IconGlyphs.LinkVariant, self.scaleLocked)
-	style.tooltip("Locks the X, Y, and Z axis scales together")
+    if showX then
+        drawScaleAxis(scale.x, "Scale X", "scaleX")
+    end
+    if showY then
+        drawScaleAxis(scale.y, "Scale Y", "scaleY")
+    end
+    if showZ then
+        drawScaleAxis(scale.z, "Scale Z", "scaleZ")
+    end
+
+    if showX and showY and showZ then
+        ImGui.SameLine()
+        local nextScaleLocked, scaleLockChanged = style.toggleButton(IconGlyphs.LinkVariant, self.scaleLocked)
+        if scaleLockChanged then
+            history.addAction(history.getElementChange(self))
+        end
+        self.scaleLocked = nextScaleLocked
+        style.tooltip("Locks the X, Y, and Z axis scales together")
+    end
 
 	ImGui.PopItemWidth()
 end
