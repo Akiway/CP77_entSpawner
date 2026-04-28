@@ -124,6 +124,11 @@ function reflection:getSize()
     return self.scale
 end
 
+function reflection:setPreview(state)
+    self.previewed = state
+    visualizer.toggleAll(self:getEntity(), self.previewed)
+end
+
 function reflection:draw()
     spawnable.draw(self)
 
@@ -136,7 +141,7 @@ function reflection:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.previewed, changed = style.trackedCheckbox(self.object, "##visualizeOutline", self.previewed)
     if changed then
-        visualizer.toggleAll(self:getEntity(), self.previewed)
+        self:setPreview(self.previewed)
     end
 
     style.mutedText("Ambient Mode")
@@ -251,8 +256,7 @@ function reflection:getGroupedProperties()
 			if ImGui.Button("Off") then
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldReflectionProbeNode" then
-                        entry.spawnable.previewed = false
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(false)
                     end
 				end
 			end
@@ -262,8 +266,7 @@ function reflection:getGroupedProperties()
             if ImGui.Button("On") then
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldReflectionProbeNode" then
-                        entry.spawnable.previewed = true
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(true)
                     end
 				end
 			end

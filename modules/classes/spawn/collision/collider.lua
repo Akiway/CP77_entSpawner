@@ -196,6 +196,11 @@ function collider:getArrowSize()
     return { x = max, y = max, z = max }
 end
 
+function collider:setPreview(state)
+    self.previewed = state
+    visualizer.toggleAll(self:getEntity(), self.previewed)
+end
+
 function collider:calculateIntersection(origin, ray)
     if not self:getEntity() or not self.previewed then
         return { hit = false }
@@ -289,7 +294,7 @@ function collider:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.previewed, changed = style.trackedCheckbox(self.object, "##collisionPreview", self.previewed)
     if changed then
-        visualizer.toggleAll(self:getEntity(), self.previewed)
+        self:setPreview(self.previewed)
     end
 
     style.mutedText("Collision Shape")
@@ -374,8 +379,7 @@ function collider:getGroupedProperties()
 
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable.previewed = false
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(false)
                     end
 				end
 			end
@@ -387,8 +391,7 @@ function collider:getGroupedProperties()
 
 				for _, entry in ipairs(entries) do
                     if entry.spawnable.node == "worldCollisionNode" then
-                        entry.spawnable.previewed = true
-                        visualizer.toggleAll(entry.spawnable:getEntity(), entry.spawnable.previewed)
+                        entry.spawnable:setPreview(true)
                     end
 				end
 			end

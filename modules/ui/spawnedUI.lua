@@ -8,7 +8,6 @@ local registry = require("modules/utils/nodeRefRegistry")
 local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
-local visualized = require("modules/classes/spawn/visualized")
 
 ---@class spawnedUI
 ---@field root element
@@ -113,41 +112,6 @@ function spawnedUI.canToggleVisibility(element)
     return element ~= nil
 end
 
----@param spawnable table?
----@return boolean
-local function isVisualizedSpawnable(spawnable)
-    if type(spawnable) ~= "table" then
-        return false
-    end
-
-    local rootMeta = getmetatable(spawnable)
-    local current = nil
-    if type(rootMeta) == "table" then
-        if type(rootMeta.__index) == "table" then
-            current = rootMeta.__index
-        else
-            current = rootMeta
-        end
-    end
-
-    local guard = 0
-    while current ~= nil and guard < 32 do
-        if current == visualized then
-            return true
-        end
-
-        local meta = getmetatable(current)
-        if type(meta) == "table" and type(meta.__index) == "table" then
-            current = meta.__index
-        else
-            current = nil
-        end
-        guard = guard + 1
-    end
-
-    return false
-end
-
 ---@param element element?
 ---@return boolean
 function spawnedUI.canToggleVisualization(element)
@@ -155,7 +119,7 @@ function spawnedUI.canToggleVisualization(element)
         return false
     end
 
-    return isVisualizedSpawnable(element.spawnable) and element.spawnable.setPreview ~= nil and element.spawnable.previewed ~= nil
+    return type(element.spawnable.setPreview) == "function" and element.spawnable.previewed ~= nil
 end
 
 ---@param element element?

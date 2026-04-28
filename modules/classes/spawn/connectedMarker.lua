@@ -136,13 +136,33 @@ function connectedMarker:getCenter()
     return position
 end
 
-function connectedMarker:setPreview(state)
+function connectedMarker:setPreview(state, syncNeighbors, visited)
+    if syncNeighbors == nil then
+        syncNeighbors = true
+    end
+
+    visited = visited or {}
+    if visited[self] then
+        return
+    end
+    visited[self] = true
+
     self.previewed = state
     local entity = self:getEntity()
 
     if entity then
         entity:FindComponentByName("mesh"):Toggle(self.previewed)
         entity:FindComponentByName("marker"):Toggle(self.previewed)
+    end
+
+    if not syncNeighbors then
+        return
+    end
+
+    for _, neighbor in pairs(self:getNeighbors().neighbors or {}) do
+        if neighbor and type(neighbor.setPreview) == "function" then
+            neighbor:setPreview(state, true, visited)
+        end
     end
 end
 
@@ -157,10 +177,6 @@ function connectedMarker:draw()
     self.previewed, changed = style.trackedCheckbox(self.object, "##visualize", self.previewed)
     if changed then
         self:setPreview(self.previewed)
-
-        for _, neighbor in pairs(self:getNeighbors().neighbors) do
-            neighbor:setPreview(self.previewed)
-        end
     end
 end
 
