@@ -3,6 +3,7 @@ local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local visualizer = require("modules/utils/visualizer")
+local Cron = require("modules/utils/Cron")
 
 local colliderGenerics = {
     -- it's cursed, but I ain't scrolling to the end of the line for that
@@ -78,6 +79,8 @@ function colliderBase:new()
     o.preset = 33
 
     o.previewed = true
+    o.assetPreviewType = "position"
+    o.assetPreviewDelay = 0.1
     o.materialSearch = ""
     o.presetSearch = ""
 
@@ -99,6 +102,17 @@ end
 function colliderBase:setPreview(state)
     self.previewed = state
     visualizer.toggleAll(self:getEntity(), self.previewed)
+end
+
+---Spin collider previews the same way as mesh/entity hover previews.
+---@return Vector4
+function colliderBase:getAssetPreviewPosition()
+    if self.isAssetPreview then
+        local spin = Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))
+        self.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), spin):ToEulerAngles()
+    end
+
+    return spawnable.getAssetPreviewPosition(self, 0.75)
 end
 
 function colliderBase:draw()

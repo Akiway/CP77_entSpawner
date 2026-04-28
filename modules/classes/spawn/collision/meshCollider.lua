@@ -161,18 +161,32 @@ function meshCollider:onAssemble(entity)
         return
     end
 
-    local component = entity:FindComponentByName("collision_mesh_0")
-    if not component then
-        print("Error: collision_mesh_0 component not found on entity. Cannot set up mesh collider.")
-        return
+    if self.isAssetPreview then
+        -- Preview should be visual-only (no active collision).
+        for _, component in pairs(entity:GetComponents()) do
+            if component:IsA("entColliderComponent") or component:IsA("entSimpleColliderComponent") or component:IsA("entPhysicalMeshComponent") then
+                component:Toggle(false)
+            end
+        end
+    else
+        local component = entity:FindComponentByName("collision_mesh_0")
+        if not component then
+            print("Error: collision_mesh_0 component not found on entity. Cannot set up mesh collider.")
+            return
+        end
+
+        component.filterData.preset = self.preset
+        component.colliders[1].material = materials[self.material + 1]
     end
-    component.filterData.preset = self.preset
-    component.colliders[1].material = materials[self.material + 1]
 
     visualizer.addMesh(entity,
         {x = 1, y = 1, z = 1},
         "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh",
         colors[settings.colliderColor + 1])
+
+    if self.isAssetPreview then
+        visualizer.toggleAll(entity, true)
+    end
 end
 
 function meshCollider:save()

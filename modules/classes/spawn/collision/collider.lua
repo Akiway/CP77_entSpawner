@@ -72,25 +72,42 @@ end
 function collider:onAssemble(entity)
     colliderBase.onAssemble(self, entity)
 
-    local component = entColliderComponent.new()
-    component.name = "collider"
-    local actor
     local color = colors[settings.colliderColor + 1]
+    local actor
 
     if self.shape == 0 then
-        actor = physicsColliderBox.new()
-        actor.halfExtents = ToVector3(self.scale)
+        if not self.isAssetPreview then
+            actor = physicsColliderBox.new()
+            actor.halfExtents = ToVector3(self.scale)
+        end
         visualizer.addBox(entity, self.scale, color)
     elseif self.shape == 1 then
-        actor = physicsColliderCapsule.new()
-        actor.height = self.scale.z
-        actor.radius = self.scale.x
+        if not self.isAssetPreview then
+            actor = physicsColliderCapsule.new()
+            actor.height = self.scale.z
+            actor.radius = self.scale.x
+        end
         visualizer.addCapsule(entity, self.scale.x, self.scale.z, color)
     elseif self.shape == 2 then
-        actor = physicsColliderSphere.new()
-        actor.radius = self.scale.x
+        if not self.isAssetPreview then
+            actor = physicsColliderSphere.new()
+            actor.radius = self.scale.x
+        end
         visualizer.addSphere(entity, self.scale, color)
     end
+
+    if self.isAssetPreview then
+        for _, component in pairs(entity:GetComponents()) do
+            if component:IsA("entColliderComponent") or component:IsA("entSimpleColliderComponent") or component:IsA("entPhysicalMeshComponent") then
+                component:Toggle(false)
+            end
+        end
+        visualizer.toggleAll(entity, true)
+        return
+    end
+
+    local component = entColliderComponent.new()
+    component.name = "collider"
 
     actor.material = materials[self.material + 1]
 
