@@ -11,10 +11,16 @@ local preview = require("modules/utils/previewUtils")
 local settings = require("modules/utils/settings")
 local appearanceHelper = require("modules/utils/appearanceHelper")
 
+---Static mesh spawnable implementation.
+---Handles resource-driven mesh appearance loading, editor UI, preview rendering,
+---mesh-type conversion, collider generation helpers, and export serialization.
+
 local colliderShapes = { "Box", "Capsule", "Sphere" }
 local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
 local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
 local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
+
+-- Supported module targets for single-item and grouped conversion.
 local conversionTargets = {
     { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
     { modulePath = "mesh/bendedMesh", label = IconGlyphs.SineWave .. " Bended Mesh", plural = "bended meshes" },
@@ -22,6 +28,8 @@ local conversionTargets = {
     { modulePath = "mesh/clothMesh", label = IconGlyphs.ReceiptOutline .. " Cloth Mesh", plural = "cloth meshes" },
     { modulePath = "physics/dynamicMesh", label = IconGlyphs.CubeSend .. " Dynamic Mesh", plural = "dynamic meshes" }
 }
+
+-- Explicit conversion pairs that are known to drop subtype-specific properties.
 local lossyConversionPairs = {
     ["mesh/bendedMesh>mesh/mesh"] = true,
     ["mesh/bendedMesh>mesh/rotatingMesh"] = true,
@@ -64,8 +72,14 @@ local lossyConversionPairs = {
 ---@field private bBoxLoaded boolean
 ---@field private assetStartTime number
 ---@field protected maxPropertyWidth number?
+---@field protected convertTarget integer
+---@field public assetPreviewType string
+---@field public assetPreviewDelay number
+---@field protected uk10 integer
 local mesh = setmetatable({}, { __index = spawnable })
 
+---Creates a new static mesh spawnable with mesh-specific defaults.
+---@return mesh
 function mesh:new()
 	local o = spawnable.new(self)
 
@@ -113,8 +127,10 @@ function mesh:new()
    	return o
 end
 
+---Loads appearance names, bounding box and occluder support for the current mesh.
+---Uses cached metadata when available and falls back to async resource loading.
 ---@protected
----@param forceRefresh boolean?
+---@param forceRefresh boolean? Clears cached values before loading when true.
 function mesh:loadMeshResourceData(forceRefresh)
     if forceRefresh then
         cache.removeValue(self.spawnData .. "_apps")
@@ -196,6 +212,7 @@ function mesh:loadMeshResourceData(forceRefresh)
     end)
 end
 
+---Forces a fresh appearance/resource lookup for the current mesh path.
 function mesh:reloadAppearances()
     if not self.spawnData or self.spawnData == "" then
         return
@@ -204,6 +221,10 @@ function mesh:reloadAppearances()
     self:loadMeshResourceData(true)
 end
 
+---Loads serialized spawnable data and immediately warms mesh metadata.
+---@param data table
+---@param position Vector4
+---@param rotation EulerAngles
 function mesh:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.appSearch = self.appSearch or ""
@@ -211,6 +232,8 @@ function mesh:loadSpawnData(data, position, rotation)
     self:loadMeshResourceData(false)
 end
 
+---Creates and attaches the runtime mesh component to the spawned entity.
+---@param entity entEntity
 function mesh:onAssemble(entity)
     spawnable.onAssemble(self, entity)
     local component = entMeshComponent.new()
@@ -230,11 +253,15 @@ function mesh:onAssemble(entity)
     self:assetPreviewAssemble(entity)
 end
 
+---Returns world-space anchor for the preview text overlay.
+---@return Vector4
 function mesh:getAssetPreviewTextAnchor()
     local pos = preview.getTopLeft(0.8)
     return utils.addVector(self.position, self.rotation:ToQuat():Transform(Vector4.new(pos, 0, pos, 0)))
 end
 
+---Updates mesh preview transform/appearance and returns preview spawn position.
+---@return Vector4
 function mesh:getAssetPreviewPosition()
     local position, forward = spawnable.getAssetPreviewPosition(self, 0.75)
 
@@ -300,6 +327,8 @@ function mesh:getAssetPreviewPosition()
     return position
 end
 
+---Builds the preview-only backdrop and lights around the mesh component.
+---@param entity entEntity
 function mesh:assetPreviewAssemble(entity)
     if not self.isAssetPreview then return end
 
@@ -330,6 +359,8 @@ function mesh:assetPreviewAssemble(entity)
     self.assetStartTime = Cron.time
 end
 
+---Spawns through an empty wrapper entity and assembles mesh components manually.
+---This avoids relying on direct `.mesh` spawning behavior for world mesh nodes.
 function mesh:spawn()
     local mesh = self.spawnData
     self.spawnData = "base\\spawner\\empty_entity.ent"
@@ -338,6 +369,8 @@ function mesh:spawn()
     self.spawnData = mesh
 end
 
+---Serializes mesh-specific editor state on top of the base spawnable payload.
+---@return table
 function mesh:save()
     local data = spawnable.save(self)
 
@@ -352,6 +385,7 @@ function mesh:save()
     return data
 end
 
+---Applies current scale to the runtime mesh component and refreshes gizmos.
 ---@protected
 function mesh:updateScale()
     local entity = self:getEntity()
@@ -367,7 +401,9 @@ function mesh:updateScale()
     self:setOutline(self.outline)
 end
 
+---Applies shadow-related editor properties to the runtime mesh component.
 ---@protected
+---@param changed boolean
 function mesh:updateShadowSettings(changed)
     if not changed then return end
 
@@ -384,18 +420,29 @@ function mesh:updateShadowSettings(changed)
     component:Toggle(true)
 end
 
+---Returns mesh dimensions based on bounding box and current scale.
+---@return table
 function mesh:getSize()
     return utils.getBoxSize(self.bBox, self.scale)
 end
 
+---Returns the scaled local-space bounding box.
+---@return table
 function mesh:getBBox()
     return utils.getScaledBBox(self.bBox, self.scale)
 end
 
+---Returns the world-space center of the scaled and rotated bounding box.
+---@return Vector4
 function mesh:getCenter()
     return utils.getBoxCenter(self.bBox, self.scale, self.rotation, self.position)
 end
 
+---Performs ray-vs-bounding-box intersection used for selection/manipulation.
+---Also returns an unscaled hit point for tools that need raw mesh-space context.
+---@param origin Vector4
+---@param ray Vector4
+---@return table
 function mesh:calculateIntersection(origin, ray)
     if not self:getEntity() then
         return { hit = false }
@@ -424,6 +471,9 @@ function mesh:calculateIntersection(origin, ray)
     }
 end
 
+---Draws the single-node mesh inspector UI.
+---Includes appearance selection, collider generation, occluder/shadow settings,
+---and mesh subtype conversion controls.
 function mesh:draw()
     spawnable.draw(self)
 
@@ -548,6 +598,8 @@ function mesh:draw()
     end
 end
 
+---Builds single-selection property groups for the editor sidebar.
+---@return table
 function mesh:getProperties()
     local properties = spawnable.getProperties(self)
     table.insert(properties, {
@@ -561,6 +613,8 @@ function mesh:getProperties()
     return properties
 end
 
+---Checks whether current mesh asset supports conversion to the target subtype.
+---Some targets are constrained by curated path allowlists.
 ---@param targetModulePath string
 ---@return boolean
 function mesh:isMeshConversionAllowed(targetModulePath)
@@ -583,6 +637,7 @@ function mesh:isMeshConversionAllowed(targetModulePath)
     return true
 end
 
+---Returns conversion labels and target module paths filtered for this mesh.
 ---@return table, table
 function mesh:getConversionTargets()
     local options = {}
@@ -598,12 +653,14 @@ function mesh:getConversionTargets()
     return options, actions
 end
 
+---Checks whether converting from current module to target is lossy.
 ---@param targetModulePath string
 ---@return boolean
 function mesh:isLossyConversion(targetModulePath)
     return lossyConversionPairs[self.modulePath .. ">" .. targetModulePath] == true
 end
 
+---Checks whether converting between two explicit module paths is lossy.
 ---@param fromModulePath string
 ---@param targetModulePath string
 ---@return boolean
@@ -611,6 +668,7 @@ function mesh:isLossyConversionFrom(fromModulePath, targetModulePath)
     return lossyConversionPairs[fromModulePath .. ">" .. targetModulePath] == true
 end
 
+---Converts this spawnable to another mesh subtype module.
 ---@param targetModulePath string
 ---@param skipHistory boolean?
 function mesh:convertToModule(targetModulePath, skipHistory)
@@ -623,6 +681,7 @@ function mesh:convertToModule(targetModulePath, skipHistory)
     self:convertSpawnableTo(targetModulePath)
 end
 
+---Draws single-entry conversion UI with optional lossy conversion warning.
 ---@param comboId string?
 ---@param popupId string?
 function mesh:drawConversionSelector(comboId, popupId)
@@ -679,11 +738,15 @@ function mesh:drawConversionSelector(comboId, popupId)
     end
 end
 
+---Builds grouped-operation property entries for multi-selection editing.
+---Includes grouped appearance updates, subtype conversion and collider creation.
+---@return table
 function mesh:getGroupedProperties()
     local properties = spawnable.getGroupedProperties(self)
 
     properties["groupedAppearances"] = appearanceHelper.getGroupedProperties(self)
 
+    -- Group conversion tool: convert all selected mesh subtypes at once.
     properties["meshConverter"] = {
         name = "Mesh",
         id = "meshConverter",
@@ -863,6 +926,7 @@ function mesh:getGroupedProperties()
 
     if self.hideGenerate then return properties end
 
+    -- Group collider generation tool for selected static mesh entries.
     properties["mesh"] = {
 		name = "Static Mesh",
         id = "mesh",
@@ -931,6 +995,8 @@ function mesh:getGroupedProperties()
     return properties
 end
 
+---Generates a collider sibling and wraps mesh + collider in a new group.
+---Returns a history action so callers can compose grouped undo/redo behavior.
 ---@protected
 ---@param skipHistory? boolean
 ---@return table?
@@ -1022,6 +1088,8 @@ function mesh:generateCollider(skipHistory)
     return action
 end
 
+---Exports this spawnable to world-node JSON payload used by external tooling.
+---@return table
 function mesh:export()
     local app = self.app
     if app == "" then

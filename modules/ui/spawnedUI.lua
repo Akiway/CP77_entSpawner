@@ -14,6 +14,7 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 ---@field filter string
 ---@field newGroupName string
 ---@field groupTypes string[]
+---@field groupTypeIcons string[]
 ---@field newGroupTypeIndex number
 ---@field newGroupRandomized boolean
 ---@field spawner spawner?
@@ -43,6 +44,7 @@ spawnedUI = {
     filter = "",
     newGroupName = "New_Group",
     groupTypes = { "Normal", "Randomized", "Scattered" },
+    groupTypeIcons = { IconGlyphs.FolderOutline, IconGlyphs.Dice5Outline, IconGlyphs.DiceMultipleOutline },
     newGroupTypeIndex = 1,
     newGroupRandomized = false,
     spawner = nil,
@@ -109,6 +111,26 @@ local HIERARCHY_PICK_ELIGIBLE_BG = 0x5F007F00
 local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
 local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
 local HIERARCHY_REORDER_PREVIEW_SHADOW = 0x88000000
+
+---@param index number
+---@return string
+local function getGroupTypeLabel(index)
+    local name = spawnedUI.groupTypes[index] or ""
+    local icon = spawnedUI.groupTypeIcons[index] or ""
+    if icon ~= "" then
+        return icon .. " " .. name
+    end
+    return name
+end
+
+---@return string[]
+local function getGroupTypeLabels()
+    local labels = {}
+    for index = 1, #spawnedUI.groupTypes do
+        labels[index] = getGroupTypeLabel(index)
+    end
+    return labels
+end
 
 ---@param element element?
 ---@return boolean
@@ -2666,10 +2688,19 @@ function spawnedUI.drawTop()
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
-    ImGui.SetNextItemWidth(utils.getTextMaxWidth(spawnedUI.groupTypes) + 60)
-    local newIndex, changed = ImGui.Combo("##groupType", spawnedUI.newGroupTypeIndex - 1, spawnedUI.groupTypes, #spawnedUI.groupTypes)
-    if changed then
-        spawnedUI.newGroupTypeIndex = newIndex + 1
+    local groupTypeLabels = getGroupTypeLabels()
+    ImGui.SetNextItemWidth(utils.getTextMaxWidth(groupTypeLabels) + 60)
+    if ImGui.BeginCombo("##groupType", getGroupTypeLabel(spawnedUI.newGroupTypeIndex)) then
+        for index, _ in ipairs(spawnedUI.groupTypes) do
+            local selected = spawnedUI.newGroupTypeIndex == index
+            if ImGui.Selectable(getGroupTypeLabel(index), selected) then
+                spawnedUI.newGroupTypeIndex = index
+            end
+            if selected then
+                ImGui.SetItemDefaultFocus()
+            end
+        end
+        ImGui.EndCombo()
     end
 
     ImGui.SameLine()
