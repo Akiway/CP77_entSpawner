@@ -39,6 +39,7 @@ local config = require("modules/utils/config")
 ---@field public filterTags table
 ---@field public favoritesFilter string
 ---@field public favoritesTagsAND boolean
+---@field public favoritesGroupingState table
 ---@field public mainWindowName string
 ---@field public draggingThreshold number
 ---@field public ignoreHiddenDuringExport boolean
@@ -118,6 +119,7 @@ local settingsData = {
     filterTags = {},
     favoritesFilter = "",
     favoritesTagsAND = false,
+    favoritesGroupingState = {},
     defaultColliderMaterial = 12,
 
     tabSizes = {}

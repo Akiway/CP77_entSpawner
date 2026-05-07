@@ -20,11 +20,108 @@ local input = require("modules/utils/input")
 ---@field isVirtualGroup boolean
 ---@field virtualGroupTags string[]
 ---@field virtualGroups category[]
----@field virtualGroupsPS {}
 ---@field virtualGroupPath string
 ---@field numFavoritesFiltered number
 ---@field root category?
 local category = {}
+
+---@param value any
+---@return boolean
+local function asBool(value)
+	return value == true
+end
+
+---@return table
+local function getAllGroupingStates()
+	if type(settings.favoritesGroupingState) ~= "table" then
+		settings.favoritesGroupingState = {}
+	end
+
+	return settings.favoritesGroupingState
+end
+
+---@param fileName string
+---@param create boolean?
+---@return table?
+local function getGroupingState(fileName, create)
+	if fileName == nil or fileName == "" then
+		return nil
+	end
+
+	local allStates = getAllGroupingStates()
+	local state = allStates[fileName]
+	if state == nil and create then
+		state = {
+			grouped = false,
+			virtualGroups = {}
+		}
+		allStates[fileName] = state
+	end
+
+	if type(state) ~= "table" then
+		return nil
+	end
+
+	if type(state.virtualGroups) ~= "table" then
+		state.virtualGroups = {}
+	end
+
+	return state
+end
+
+---@param fileName string
+---@param virtualPath string?
+---@return boolean
+local function getGroupedState(fileName, virtualPath)
+	local state = getGroupingState(fileName, false)
+	if not state then
+		return false
+	end
+
+	if virtualPath and virtualPath ~= "" then
+		return asBool(state.virtualGroups[virtualPath])
+	end
+
+	return asBool(state.grouped)
+end
+
+---@param fileName string
+---@param virtualPath string?
+---@param grouped boolean
+local function setGroupedState(fileName, virtualPath, grouped)
+	local state = getGroupingState(fileName, true)
+	if not state then
+		return
+	end
+
+	local nextValue = grouped == true
+	local changed = false
+
+	if virtualPath and virtualPath ~= "" then
+		if asBool(state.virtualGroups[virtualPath]) ~= nextValue then
+			state.virtualGroups[virtualPath] = nextValue
+			changed = true
+		end
+	else
+		if asBool(state.grouped) ~= nextValue then
+			state.grouped = nextValue
+			changed = true
+		end
+	end
+
+	if changed then
+		settings.save()
+	end
+end
+
+---@param fileName string
+local function clearGroupedState(fileName)
+	local allStates = getAllGroupingStates()
+	if allStates[fileName] ~= nil then
+		allStates[fileName] = nil
+		settings.save()
+	end
+end
 
 ---@param fUI favoritesUI
 ---@return category
@@ -48,7 +145,6 @@ function category:new(fUI)
 	o.virtualGroupPath = ""
 	o.virtualGroupTags = {}
 	o.virtualGroups = {}
-	o.virtualGroupsPS = {}
 	o.numFavoritesFiltered = 0
 	o.root = nil
 
@@ -62,20 +158,19 @@ function category:load(data, fileName)
 	self.headerOpen = false
     self.icon = data.icon
 	self.fileName = fileName
-	self.grouped = data.grouped == true
+	self.grouped = false
 
 	self.isVirtualGroup = data.isVirtualGroup or false
 	self.virtualGroupPath = data.virtualGroupPath or ""
 	self.virtualGroupTags = data.virtualGroupTags or {}
-	self.virtualGroupsPS = data.virtualGroupsPS or {}
 	self.virtualGroups = {}
 	self.root = data.root
 
 	if self.isVirtualGroup then
 		self.favorites = data.favorites
-		local state = self.virtualGroupsPS[self.virtualGroupPath]
-		self.grouped = state and state.grouped == true or false
+		self.grouped = getGroupedState(self.fileName, self.virtualGroupPath)
 	else
+		self.grouped = getGroupedState(self.fileName, nil)
 		for _, favoriteData in pairs(data.favorites) do
 			local favorite = require("modules/classes/favorites/favorite"):new(self.favoritesUI)
 			favorite:load(favoriteData)
@@ -315,7 +410,8 @@ function category:drawSideButtons()
 	if ImGui.Button(IconGlyphs.FileTreeOutline) then
 		self.grouped = not self.grouped
 		self:loadVirtualGroups()
-		self:save()
+		-- Grouping toggle is UI state; persist it to config without rewriting favorites JSON.
+		self:save(true)
 	end
 	style.popStyleColor(not grouped)
 	style.tooltip("Group by tags")
@@ -401,7 +497,6 @@ function category:loadVirtualGroups()
 			isVirtualGroup = true,
 			virtualGroupTags = virtualGroupTags,
 			virtualGroupPath = self.virtualGroupPath .. "/" .. tag,
-			virtualGroupsPS = self.virtualGroupsPS,
 			root = self.root or self
 		}, self.fileName)
 
@@ -510,8 +605,6 @@ function category:serialize()
 	local data = {
 		name = self.name,
 		icon = self.icon,
-		grouped = self.grouped,
-		virtualGroupsPS = self.virtualGroupsPS,
 		favorites = {}
 	}
 
@@ -522,12 +615,16 @@ function category:serialize()
 	return data
 end
 
-function category:save()
+---@param stateOnly boolean? When true, only persist grouped-state settings and skip writing favorite JSON.
+function category:save(stateOnly)
 	if self.isVirtualGroup then
-		self.virtualGroupsPS[self.virtualGroupPath] = {
-			grouped = self.grouped
-		}
-		self.root:save()
+		setGroupedState(self.fileName, self.virtualGroupPath, self.grouped)
+		return
+	end
+
+	setGroupedState(self.fileName, nil, self.grouped)
+
+	if stateOnly then
 		return
 	end
 
@@ -540,6 +637,7 @@ function category:delete()
 	if self.isVirtualGroup then return end
 
 	os.remove("data/favorite/" .. self.fileName)
+	clearGroupedState(self.fileName)
 	self.favoritesUI.categories[self.name] = nil
 end
 
