@@ -155,6 +155,192 @@ function config.loadFile(path)
     return decoded
 end
 
+---Returns whether a table is a dense 1-based array.
+---@param value table
+---@return boolean isArray
+---@return integer arrayLength
+local function isArrayTable(value)
+    local maxKey = 0
+    local count = 0
+
+    for key, _ in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+            return false, 0
+        end
+
+        if key > maxKey then
+            maxKey = key
+        end
+
+        count = count + 1
+    end
+
+    if count == 0 then
+        return true, 0
+    end
+
+    if maxKey ~= count then
+        return false, 0
+    end
+
+    return true, maxKey
+end
+
+---Escapes one Lua string as a JSON string literal.
+---@param value string
+---@return string
+local function encodeJSONString(value)
+    local replacements = {
+        ["\\"] = "\\\\",
+        ["\""] = "\\\"",
+        ["\b"] = "\\b",
+        ["\f"] = "\\f",
+        ["\n"] = "\\n",
+        ["\r"] = "\\r",
+        ["\t"] = "\\t"
+    }
+
+    local escaped = value:gsub("[%z\1-\31\\\"]", function(char)
+        return replacements[char] or string.format("\\u%04x", string.byte(char))
+    end)
+
+    return "\"" .. escaped .. "\""
+end
+
+---Recursively encodes a value to stable JSON order.
+---Returns false for unsupported structures and lets callers fall back to `json.encode`.
+---@param value any
+---@param out string[]
+---@param seen table<table, boolean>
+---@return boolean ok
+---@return string? err
+local function encodeStableJSONValue(value, out, seen)
+    local valueType = type(value)
+
+    if valueType == "nil" then
+        out[#out + 1] = "null"
+        return true
+    end
+
+    if valueType == "boolean" then
+        out[#out + 1] = value and "true" or "false"
+        return true
+    end
+
+    if valueType == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            out[#out + 1] = "null"
+        else
+            out[#out + 1] = string.format("%.17g", value)
+        end
+        return true
+    end
+
+    if valueType == "string" then
+        out[#out + 1] = encodeJSONString(value)
+        return true
+    end
+
+    if valueType ~= "table" then
+        return false, "unsupported_type:" .. valueType
+    end
+
+    if seen[value] then
+        return false, "circular_reference"
+    end
+
+    seen[value] = true
+
+    local isArray, arrayLength = isArrayTable(value)
+    if isArray then
+        out[#out + 1] = "["
+        for i = 1, arrayLength do
+            if i > 1 then
+                out[#out + 1] = ","
+            end
+
+            local ok, err = encodeStableJSONValue(value[i], out, seen)
+            if not ok then
+                seen[value] = nil
+                return false, err
+            end
+        end
+        out[#out + 1] = "]"
+        seen[value] = nil
+        return true
+    end
+
+    local keys = {}
+    for key, _ in pairs(value) do
+        if type(key) ~= "string" then
+            seen[value] = nil
+            return false, "unsupported_object_key_type:" .. type(key)
+        end
+
+        table.insert(keys, key)
+    end
+
+    table.sort(keys)
+
+    out[#out + 1] = "{"
+    for index, key in ipairs(keys) do
+        if index > 1 then
+            out[#out + 1] = ","
+        end
+
+        out[#out + 1] = encodeJSONString(key)
+        out[#out + 1] = ":"
+
+        local ok, err = encodeStableJSONValue(value[key], out, seen)
+        if not ok then
+            seen[value] = nil
+            return false, err
+        end
+    end
+    out[#out + 1] = "}"
+    seen[value] = nil
+
+    return true
+end
+
+---Encodes a Lua value to stable JSON output.
+---@param value any
+---@return string? encoded
+---@return string? err
+local function encodeStableJSON(value)
+    local out = {}
+    local ok, err = encodeStableJSONValue(value, out, {})
+    if not ok then
+        return nil, err
+    end
+
+    return table.concat(out)
+end
+
+---Encodes JSON with a stable encoder first, then falls back to the runtime JSON module.
+---@param value any
+---@return string? encoded
+---@return string? err
+local function encodeJSONForSave(value)
+    local stableEncoded = encodeStableJSON(value)
+    if stableEncoded then
+        return stableEncoded
+    end
+
+    local encoded
+    local encodedOk, encodedErr = pcall(function ()
+        encoded = json.encode(value)
+    end)
+    if not encodedOk then
+        return nil, tostring(encodedErr)
+    end
+    if type(encoded) ~= "string" then
+        return nil, "invalid_payload"
+    end
+
+    return encoded
+end
+
 ---Encodes and saves a Lua table as JSON using temp-file replacement.
 ---This method is resilient to partial writes by using `.tmp` and `.swap` files.
 ---@param path string Destination JSON path.
@@ -164,17 +350,29 @@ end
 function config.saveFile(path, data)
     recoverSwapFile(path)
 
-    local encoded
-    local encodedOk, encodedErr = pcall(function ()
-        encoded = json.encode(data)
-    end)
-    if not encodedOk then
-        print("Failed to encode file: " .. path .. " (" .. tostring(encodedErr) .. ")")
-        return false, tostring(encodedErr)
+    local encoded, encodeErr = encodeJSONForSave(data)
+    if not encoded then
+        print("Failed to encode file: " .. path .. " (" .. tostring(encodeErr) .. ")")
+        return false, tostring(encodeErr)
     end
-    if type(encoded) ~= "string" then
-        print("Failed to encode file: " .. path .. " (invalid payload)")
-        return false, "invalid_payload"
+
+    local existingRaw = readAll(path)
+    if existingRaw ~= nil then
+        if existingRaw == encoded then
+            return true
+        end
+
+        local existingDecoded
+        local existingDecodeOk = pcall(function ()
+            existingDecoded = json.decode(existingRaw)
+        end)
+
+        if existingDecodeOk then
+            local existingCanonical = encodeJSONForSave(existingDecoded)
+            if existingCanonical and existingCanonical == encoded then
+                return true
+            end
+        end
     end
 
     local tmpPath = path .. ".tmp"

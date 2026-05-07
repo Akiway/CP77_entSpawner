@@ -86,7 +86,8 @@ function category:load(data, fileName)
 		for _, favoriteData in pairs(data.favorites) do
 			local favorite = require("modules/classes/favorites/favorite"):new(self.favoritesUI)
 			favorite:load(favoriteData)
-			self:addFavorite(favorite)
+			-- Loading from disk should not trigger a save of unchanged data.
+			self:addFavorite(favorite, false)
 		end
 	end
 
@@ -104,14 +105,18 @@ function category:generateFileName()
 	self.fileName = utils.createFileName(self.name) .. "_" .. tostring(os.time()) .. ".json"
 end
 
-function category:addFavorite(favorite)
+---@param favorite favorite
+---@param persist boolean? Defaults to true. Pass false for bulk-load paths that should not write to disk.
+function category:addFavorite(favorite, persist)
 	table.insert(self.favorites, favorite)
 	favorite:setCategory(self.root or self)
 
-	self:save()
+	if persist ~= false then
+		self:save()
 
-	if self.grouped then
-		self:loadVirtualGroups()
+		if self.grouped then
+			self:loadVirtualGroups()
+		end
 	end
 end
 
