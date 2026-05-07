@@ -59,10 +59,10 @@ end
 ---Loads the data from a given table, containing the same data as exported during save()
 function category:load(data, fileName)
 	self:setName(data.name)
-	self.headerOpen = data.headerOpen
+	self.headerOpen = false
     self.icon = data.icon
 	self.fileName = fileName
-	self.grouped = data.grouped
+	self.grouped = data.grouped == true
 
 	self.isVirtualGroup = data.isVirtualGroup or false
 	self.virtualGroupPath = data.virtualGroupPath or ""
@@ -73,15 +73,8 @@ function category:load(data, fileName)
 
 	if self.isVirtualGroup then
 		self.favorites = data.favorites
-		if not self.virtualGroupsPS[self.virtualGroupPath] then
-			self.virtualGroupsPS[self.virtualGroupPath] = {
-				headerOpen = false,
-				grouped = false
-			}
-			self:save()
-		end
-		self.headerOpen = self.virtualGroupsPS[self.virtualGroupPath].headerOpen
-		self.grouped = self.virtualGroupsPS[self.virtualGroupPath].grouped
+		local state = self.virtualGroupsPS[self.virtualGroupPath]
+		self.grouped = state and state.grouped == true or false
 	else
 		for _, favoriteData in pairs(data.favorites) do
 			local favorite = require("modules/classes/favorites/favorite"):new(self.favoritesUI)
@@ -473,7 +466,6 @@ function category:draw(context)
     local newState = ImGui.Selectable("##category" .. context.row, self.headerOpen, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap)
 	if self.headerOpen ~= newState then
 		self.headerOpen = newState
-		self:save()
 	end
 	context.row = context.row + 1
 
@@ -487,7 +479,6 @@ function category:draw(context)
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(self.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline) then
 		self.headerOpen = not self.headerOpen
-		self:save()
 	end
 	ImGui.SameLine()
 	if self.icon ~= "" then
@@ -519,7 +510,6 @@ function category:serialize()
 	local data = {
 		name = self.name,
 		icon = self.icon,
-		headerOpen = self.headerOpen,
 		grouped = self.grouped,
 		virtualGroupsPS = self.virtualGroupsPS,
 		favorites = {}
@@ -535,7 +525,6 @@ end
 function category:save()
 	if self.isVirtualGroup then
 		self.virtualGroupsPS[self.virtualGroupPath] = {
-			headerOpen = self.headerOpen,
 			grouped = self.grouped
 		}
 		self.root:save()
