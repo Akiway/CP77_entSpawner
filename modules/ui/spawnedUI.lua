@@ -181,6 +181,142 @@ local function applyElementChangesBatched(elements, apply)
     return true
 end
 
+---@return boolean
+local function selectedVisualizersEnabled()
+    return settings.selectedVisualizersEnabled ~= false
+end
+
+local function refreshSelectedVisualizers()
+    spawnedUI.ensureCache()
+    local selectedCount = #spawnedUI.selectedPaths
+    local keepSelectedVisualizers = selectedVisualizersEnabled()
+
+    for _, entry in ipairs(spawnedUI.selectedPaths) do
+        local element = entry.ref
+
+        if utils.isA(element, "positionable") then
+            local keepVisible = false
+            if settings.gizmoActive and keepSelectedVisualizers then
+                keepVisible = element.hovered or element.controlsHovered or (settings.gizmoOnSelected and selectedCount == 1)
+            end
+
+            element:setVisualizerState(keepVisible)
+            if not keepVisible then
+                element:setVisualizerDirection("none")
+            end
+        end
+
+        if utils.isA(element, "spawnableElement") and element.spawnable and element.spawnable:isSpawned() then
+            local outline = settings.outlineSelected and keepSelectedVisualizers and element.selected and (settings.outlineColor + 1) or 0
+            element.spawnable:setOutline(outline)
+        end
+    end
+end
+
+---@return {arrowValue: string, arrowColor: number, outlineValue: string, outlineColor: number}
+local function getSelectedVisualizerToggleTooltip()
+    local keepSelectedVisualizers = selectedVisualizersEnabled()
+    local colorGreen = 0xFF00FF00
+    local colorRed = 0xFF0000FF
+
+    local arrowValue, arrowColor
+    if not keepSelectedVisualizers or not settings.gizmoActive then
+        arrowValue = "disabled"
+        arrowColor = colorRed
+    elseif settings.gizmoOnSelected then
+        arrowValue = "on hover + when selected"
+        arrowColor = colorGreen
+    else
+        arrowValue = "on hover only"
+        arrowColor = style.warnColor
+    end
+
+    local outlineValue, outlineColor
+    if not keepSelectedVisualizers or not settings.outlineSelected then
+        outlineValue = "disabled"
+        outlineColor = colorRed
+    else
+        outlineValue = "when selected"
+        outlineColor = colorGreen
+    end
+
+    return {
+        arrowValue = arrowValue,
+        arrowColor = arrowColor,
+        outlineValue = outlineValue,
+        outlineColor = outlineColor
+    }
+end
+
+local function drawSelectedVisualizerToggleTooltip()
+    if not ImGui.IsItemHovered() then
+        return
+    end
+
+    local tooltip = getSelectedVisualizerToggleTooltip()
+    local onColor = 0xFF00FF00
+    local offColor = 0xFF0000FF
+    local scale = style.viewSize or 1
+    local screenWidth, screenHeight = GetDisplayResolution()
+    local margin = 8 * scale
+    local maxTooltipWidth = math.max(300 * scale, math.min(620 * scale, screenWidth - margin * 2))
+    local maxTooltipHeight = math.max(180 * scale, screenHeight - margin * 2)
+
+    local function drawSettingStateRow(label, enabled)
+        ImGui.TableNextRow()
+        ImGui.TableNextColumn()
+        ImGui.TextWrapped(label)
+        ImGui.TableNextColumn()
+        style.styledText(enabled and "ON" or "OFF", enabled and onColor or offColor)
+    end
+
+    local function drawExpectationRow(label, value, color)
+        ImGui.TableNextRow()
+        ImGui.TableNextColumn()
+        ImGui.Text(label)
+        ImGui.TableNextColumn()
+        style.styledText(value, color)
+    end
+
+    ImGui.SetNextWindowSizeConstraints(220 * scale, 1, maxTooltipWidth, maxTooltipHeight)
+    ImGui.BeginTooltip()
+    ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
+    ImGui.Text("Show or hide positioning helpers.")
+    ImGui.Spacing()
+    style.mutedText("Hiding the helpers will override your settings.")
+    ImGui.Spacing()
+    ImGui.Text("Current expectation:")
+
+    if ImGui.BeginTable("##selectedVisualizerExpectations", 2, ImGuiTableFlags.SizingStretchSame + ImGuiTableFlags.BordersInnerV) then
+        ImGui.TableSetupColumn("Positioning helper")
+        ImGui.TableSetupColumn("Visibility")
+        ImGui.TableHeadersRow()
+
+        drawExpectationRow("Arrows", tooltip.arrowValue, tooltip.arrowColor)
+        drawExpectationRow("Outline", tooltip.outlineValue, tooltip.outlineColor)
+
+        ImGui.EndTable()
+    end
+    
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    style.mutedText("Helpers visibility depends on the following settings:")
+    if ImGui.BeginTable("##selectedVisualizerStates", 2, ImGuiTableFlags.SizingStretchSame + ImGuiTableFlags.BordersInnerV) then
+        ImGui.TableSetupColumn(IconGlyphs.CogOutline .. " Setting")
+        ImGui.TableSetupColumn("Value")
+        ImGui.TableHeadersRow()
+
+        drawSettingStateRow("Arrows on hover", settings.gizmoActive == true)
+        drawSettingStateRow("Arrows on selected", settings.gizmoOnSelected == true)
+        drawSettingStateRow("Outline on selected", settings.outlineSelected == true)
+
+        ImGui.EndTable()
+    end
+    style.styledTextWrapped("These settings are configurable in the " .. IconGlyphs.CogOutline .. " Settings tab, under Visualizers section.", style.mutedColor)
+    ImGui.PopStyleColor()
+    ImGui.EndTooltip()
+end
+
 ---@param root element
 ---@return boolean
 local function cacheLockedChildrenRecursive(root)
@@ -2730,6 +2866,7 @@ function spawnedUI.drawTop()
     
     local hasHierarchy = hasRootChildren()
     local rightHierarchyActionIcons = {
+        IconGlyphs.AxisArrow,
         IconGlyphs.MapMarkerPlusOutline,
         IconGlyphs.MapMarkerMinusOutline,
         IconGlyphs.LockPlusOutline,
@@ -2875,6 +3012,15 @@ function spawnedUI.drawTop()
     ImGui.SameLine()
     ImGui.SetCursorPosX(math.max(ImGui.GetCursorPosX(), rightGroupStartX))
 
+    local nextSelectedVisualizerState, selectedVisualizerChanged = style.toggleButton(IconGlyphs.AxisArrow, selectedVisualizersEnabled())
+    if selectedVisualizerChanged then
+        settings.selectedVisualizersEnabled = nextSelectedVisualizerState
+        settings.save()
+        refreshSelectedVisualizers()
+    end
+    drawSelectedVisualizerToggleTooltip()
+
+    ImGui.SameLine()
     ImGui.BeginDisabled(not hasHierarchy)
     if ImGui.Button(IconGlyphs.MapMarkerPlusOutline) then
         local targets = spawnedUI.filter ~= "" and collectVisualizationTargets(spawnedUI.filteredPaths) or collectVisualizationTargets(spawnedUI.paths)

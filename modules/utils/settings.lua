@@ -24,6 +24,7 @@ local config = require("modules/utils/config")
 ---@field public gizmoActive boolean
 ---@field public gizmoOnSelected boolean
 ---@field public outlineSelected boolean
+---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
 ---@field public editorWidth integer
 ---@field public resetSpawnPopupSearch boolean
@@ -84,6 +85,7 @@ local settingsData = {
     gizmoActive = true,
     gizmoOnSelected = true,
     outlineSelected = true,
+    selectedVisualizersEnabled = true,
     outlineColor = 0,
     editorWidth = 0,
     resetSpawnPopupSearch = true,

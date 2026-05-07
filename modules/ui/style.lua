@@ -112,7 +112,7 @@ end
 ---@param offsetX number Horizontal offset in view-space units.
 ---@param offsetY number Vertical offset in view-space units.
 ---@param cond number? Optional ImGui condition for SetNextWindowPos.
-local function placeTooltipNearCursor(text, offsetX, offsetY, cond)
+function style.placeTooltipNearCursor(text, offsetX, offsetY, cond)
     local scale = style.viewSize or 1
     local mouseX, mouseY = ImGui.GetMousePos()
     local tooltipWidth, tooltipHeight = getTooltipSize(text)
@@ -198,7 +198,7 @@ end
 ---@param text string Tooltip body text.
 function style.tooltip(text)
     if ImGui.IsItemHovered() then
-        placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
+        style.placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
         ImGui.BeginTooltip()
         ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
         ImGui.Text(text)

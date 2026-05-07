@@ -35,6 +35,11 @@ local function invalidateParentAutoCenter(instance)
 	end
 end
 
+---@return boolean
+local function selectedVisualizersEnabled()
+	return settings.selectedVisualizersEnabled ~= false
+end
+
 function spawnableElement:new(sUI)
 	local o = positionable.new(self, sUI)
 
@@ -79,7 +84,7 @@ function spawnableElement:load(data, silent)
 		self.spawnable:registerSpawnedAndAttachedCallback(function (entity)
 			-- Delay is needed as entities need some time (?). Its fine for other types tho...
 			Cron.After(0.05, function ()
-				if settings.gizmoOnSelected then
+				if settings.gizmoOnSelected and selectedVisualizersEnabled() then
 					self:setVisualizerState(self.selected)
 					self:setVisualizerDirection("none")
 				end
@@ -126,10 +131,10 @@ function spawnableElement:setSelected(state)
 
 	positionable.setSelected(self, state)
 
-	if not update or not settings.outlineSelected then return end
+	if not update then return end
 	if not self.spawnable:isSpawned() then return end
 
-	if state then
+	if settings.outlineSelected and selectedVisualizersEnabled() and state then
 		self.spawnable:setOutline(settings.outlineColor + 1)
 	else
 		self.spawnable:setOutline(0)

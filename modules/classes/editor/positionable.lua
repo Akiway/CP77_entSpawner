@@ -45,6 +45,11 @@ local function getSelectedPositionables(instance)
 	return selected
 end
 
+---@return boolean
+local function selectedVisualizersEnabled()
+	return settings.selectedVisualizersEnabled ~= false
+end
+
 ---@param instance positionable
 ---@param axis string
 ---@return boolean
@@ -300,7 +305,8 @@ function positionable:setSelected(state)
 	local updated = state ~= self.selected
 	local hasSelectionContext = self.sUI ~= nil and self.sUI.multiSelectActive ~= nil and self.sUI.rangeSelectActive ~= nil
 	local isBatchSelection = hasSelectionContext and (self.sUI.multiSelectActive() or self.sUI.rangeSelectActive()) or false
-	if updated and not self.hovered and settings.gizmoOnSelected then
+	local allowSelectedVisualizers = selectedVisualizersEnabled()
+	if updated and not self.hovered and settings.gizmoOnSelected and allowSelectedVisualizers then
 		if isBatchSelection and state then
 			self:setVisualizerState(false)
 		else
@@ -311,13 +317,18 @@ function positionable:setSelected(state)
 	element.setSelected(self, state)
 
 	if updated then
+		if state and not allowSelectedVisualizers then
+			self:setVisualizerState(false)
+			self:setVisualizerDirection("none")
+		end
+
 		local selectedEntries = getSelectedPositionables(self)
 		local selectedCount = #selectedEntries
 
 		if isBatchSelection then
 			if selectedCount > 1 then
 				self:setVisualizerState(false)
-			elseif not state and selectedCount == 1 and settings.gizmoOnSelected then
+			elseif not state and selectedCount == 1 and settings.gizmoOnSelected and allowSelectedVisualizers then
 				for _, entry in ipairs(selectedEntries) do
 					if entry ~= self then
 						entry:setVisualizerState(true)
@@ -337,7 +348,7 @@ function positionable:setSelected(state)
 
 				self:setVisualizerState(false)
 			end
-		elseif selectedCount == 1 and settings.gizmoOnSelected then
+		elseif selectedCount == 1 and settings.gizmoOnSelected and allowSelectedVisualizers then
 			for _, entry in ipairs(selectedEntries) do
 				if entry ~= self then
 					entry:setVisualizerState(true)
@@ -348,7 +359,8 @@ function positionable:setSelected(state)
 end
 
 function positionable:setHovered(state)
-	if state ~= self.hovered and (not self.selected or not settings.gizmoOnSelected) then
+	local allowSelectedVisualizers = selectedVisualizersEnabled()
+	if state ~= self.hovered and (not self.selected or (not settings.gizmoOnSelected and allowSelectedVisualizers)) then
 		self:setVisualizerState(state)
 		self:setVisualizerDirection("none")
 	end
@@ -358,7 +370,8 @@ end
 
 function positionable:setVisualizerDirection(direction)
 	if not settings.gizmoOnSelected then
-		if direction ~= "none" and not self.hovered and not self.visualizerState then
+		local canAutoShow = not self.selected or selectedVisualizersEnabled()
+		if direction ~= "none" and not self.hovered and not self.visualizerState and canAutoShow then
 			self:setVisualizerState(true)
 		end
 	end
@@ -366,6 +379,7 @@ function positionable:setVisualizerDirection(direction)
 end
 
 function positionable:setVisualizerState(state)
+	if self.selected and not selectedVisualizersEnabled() then state = false end
 	if not settings.gizmoActive then state = false end
 
 	self.visualizerState = state

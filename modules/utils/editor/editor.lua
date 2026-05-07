@@ -66,6 +66,11 @@ local editor = {
     freeflyWasActive = false
 }
 
+---@return boolean
+local function selectedVisualizersEnabled()
+    return settings.selectedVisualizersEnabled ~= false
+end
+
 ---@alias elevatorDoorSide "left"|"right"|"top"|"bottom"
 ---@alias elevatorDoorLayout table<integer, elevatorDoorSide>
 
@@ -411,6 +416,10 @@ end
 
 ---Applies outline highlight to all currently selected spawnable elements.
 function editor.addHighlightToSelected()
+    if not settings.outlineSelected or not selectedVisualizersEnabled() then
+        return
+    end
+
     for _, selected in pairs(editor.spawnedUI.selectedPaths) do
         if utils.isA(selected.ref, "spawnableElement") then
             selected.ref.spawnable:setOutline(settings.outlineColor + 1)
@@ -1629,7 +1638,7 @@ function editor.toggle(state)
     else
         Game.GetStatsSystem():AddModifier(GetPlayer():GetEntityID(), RPGManager.CreateStatModifier(gamedataStatType.KnockdownImmunity, gameStatModifierType.Additive, 1))
         Game.GetStatsSystem():AddModifier(GetPlayer():GetEntityID(), RPGManager.CreateStatModifier(gamedataStatType.CanBreatheUnderwater, gameStatModifierType.Additive, 1))
-        if settings.outlineSelected then
+        if settings.outlineSelected and selectedVisualizersEnabled() then
             editor.addHighlightToSelected()
         end
     end

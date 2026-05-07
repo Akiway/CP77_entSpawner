@@ -128,6 +128,7 @@ local function refreshSelectedVisualizers(spawner)
 
     spawnedUI.ensureCache()
     local selectedCount = #spawnedUI.selectedPaths
+    local selectedVisualizersEnabled = settings.selectedVisualizersEnabled ~= false
 
     for _, entry in ipairs(spawnedUI.selectedPaths) do
         local element = entry.ref
@@ -135,7 +136,7 @@ local function refreshSelectedVisualizers(spawner)
         if utils.isA(element, "positionable") then
             local keepVisible = false
 
-            if settings.gizmoActive then
+            if settings.gizmoActive and selectedVisualizersEnabled then
                 keepVisible = element.hovered or element.controlsHovered or (settings.gizmoOnSelected and selectedCount == 1)
             end
 
@@ -146,7 +147,7 @@ local function refreshSelectedVisualizers(spawner)
         end
 
         if utils.isA(element, "spawnableElement") and element.spawnable and element.spawnable:isSpawned() then
-            local outline = settings.outlineSelected and element.selected and (settings.outlineColor + 1) or 0
+            local outline = settings.outlineSelected and selectedVisualizersEnabled and element.selected and (settings.outlineColor + 1) or 0
             element.spawnable:setOutline(outline)
         end
     end
