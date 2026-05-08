@@ -304,6 +304,7 @@ end
 ---@field rigs table
 ---@field apps table
 ---@field workspotDefInfinite boolean
+---@field workSequence table
 ---@field communityAttachCommunity string
 ---@field communityAttachCommunitySearch string
 ---@field communityAttachEntry string
@@ -328,6 +329,32 @@ local function sanitizePreviewValue(value, fallback)
     end
 
     return sanitized
+end
+
+---@param cname any
+---@return string
+local function getCNameValue(cname)
+    if not cname then
+        return ""
+    end
+
+    if type(cname) == "string" then
+        return sanitizePreviewValue(cname, "")
+    end
+
+    local value = cname.value
+    if type(value) == "string" then
+        return sanitizePreviewValue(value, "")
+    end
+
+    local okName, nameValue = pcall(function ()
+        return NameToString(cname)
+    end)
+    if okName and type(nameValue) == "string" then
+        return sanitizePreviewValue(nameValue, "")
+    end
+
+    return ""
 end
 
 local function getPreviewAppearanceOptions(apps, selected)
@@ -607,6 +634,7 @@ function aiSpot:new()
     o.previewNPCAppearanceSearch = ""
     o.spawnNPC = true
     o.workspotSpeed = settings.defaultAISpotSpeed
+    o.previewWorkspotFrozen = false
 
     o.isWorkspotInfinite = true
     o.isWorkspotStatic = false
@@ -619,6 +647,7 @@ function aiSpot:new()
     o.rigs = {}
     o.apps = {}
     o.workspotDefInfinite = false
+    o.workSequence = { idleAnim = "" }
     o.communityAttachCommunity = ""
     o.communityAttachCommunitySearch = ""
     o.communityAttachEntry = ""
@@ -661,6 +690,10 @@ function aiSpot:loadSpawnData(data, position, rotation)
     self.communityAttachMarking = self.communityAttachMarking or ""
     self.communityAttachNodeRef = sanitizePreviewValue(self.communityAttachNodeRef, sanitizePreviewValue(self.nodeRef, ""))
     self.communityAttachStatus = self.communityAttachStatus or ""
+    if type(self.workSequence) ~= "table" then
+        self.workSequence = { idleAnim = "" }
+    end
+    self.workSequence.idleAnim = sanitizePreviewValue(self.workSequence.idleAnim, "")
 end
 
 function aiSpot:getVisualizerSize()
@@ -699,7 +732,8 @@ function aiSpot:onNPCSpawned(npc)
         end
     end)
 
-    npc:SetIndividualTimeDilation("", self.workspotSpeed)
+    local previewSpeed = self.previewWorkspotFrozen and 0.0 or self.workspotSpeed
+    npc:SetIndividualTimeDilation("", previewSpeed)
 end
 
 function aiSpot:onAssemble(entity)
@@ -813,6 +847,7 @@ function aiSpot:spawn()
 
     local rigCacheKey = self.spawnData .. "_rigs"
     local infiniteCacheKey = self.spawnData .. "_infinite"
+    local workSequenceCacheKey = self.spawnData .. "_workSequence"
     local staticRigs = getWorkspotRigsFromStore(self.spawnData)
     if staticRigs then
         local cachedRigs = cache.getValue(rigCacheKey)
@@ -828,16 +863,18 @@ function aiSpot:spawn()
             self.rigs = cache.getValue(rigCacheKey) or {}
         end
         self.workspotDefInfinite = cache.getValue(infiniteCacheKey) == true
+        self.workSequence = cache.getValue(workSequenceCacheKey) or { idleAnim = "" }
+        self.workSequence.idleAnim = sanitizePreviewValue(self.workSequence.idleAnim, "")
     end
 
-    local function resolveFromLegacy(task, needsRigs, needsInfinite)
-        if not needsRigs and not needsInfinite then
+    local function resolveFromLegacy(task, needsRigs, needsInfinite, needsWorkSequence)
+        if not needsRigs and not needsInfinite and not needsWorkSequence then
             task:taskCompleted()
             return
         end
 
         local finished = false
-        local function complete(rigs, infinite)
+        local function complete(rigs, infinite, workSequence)
             if finished then
                 return
             end
@@ -848,6 +885,9 @@ function aiSpot:spawn()
             end
             if needsInfinite then
                 cache.addValue(infiniteCacheKey, infinite == true)
+            end
+            if needsWorkSequence then
+                cache.addValue(workSequenceCacheKey, workSequence or { idleAnim = "" })
             end
             task:taskCompleted()
         end
@@ -871,6 +911,9 @@ function aiSpot:spawn()
 
             local infinite = false
             local rootEntry = tree and tree.rootEntry
+            local workSequence = {
+                idleAnim = getCNameValue(rootEntry and rootEntry.idleAnim)
+            }
             local isContainer = false
             if rootEntry then
                 pcall(function ()
@@ -884,19 +927,28 @@ function aiSpot:spawn()
                     pcall(function ()
                         isSequence = entry:IsA("workSequence")
                     end)
-                    if isSequence and entry.loopInfinitely then
-                        infinite = true
-                        break
+                    if isSequence then
+                        if workSequence.idleAnim == "" then
+                            workSequence.idleAnim = getCNameValue(entry.idleAnim)
+                        end
+
+                        if entry.loopInfinitely then
+                            infinite = true
+                        end
+
+                        if infinite and workSequence.idleAnim ~= "" then
+                            break
+                        end
                     end
                 end
             end
 
-            complete(rigs, infinite)
+            complete(rigs, infinite, workSequence)
         end
 
         -- Prevent task deadlock if resource callbacks never arrive.
         Cron.After(2.5, function ()
-            complete({}, false)
+            complete({}, false, { idleAnim = "" })
         end)
 
         local okLoad = pcall(function ()
@@ -905,32 +957,35 @@ function aiSpot:spawn()
                     parseResource(resource)
                 end)
                 if not okParse then
-                    complete({}, false)
+                    complete({}, false, { idleAnim = "" })
                 end
             end)
         end)
 
         if not okLoad then
-            complete({}, false)
+            complete({}, false, { idleAnim = "" })
         end
     end
 
     if staticRigs then
         -- Infinite priority: cache first, then legacy fallback.
-        cache.tryGet(infiniteCacheKey)
+        cache.tryGet(infiniteCacheKey, workSequenceCacheKey)
         .notFound(function (task)
-            resolveFromLegacy(task, false, true)
+            local needsInfinite = cache.getValue(infiniteCacheKey) == nil
+            local needsWorkSequence = cache.getValue(workSequenceCacheKey) == nil
+            resolveFromLegacy(task, false, needsInfinite, needsWorkSequence)
         end)
         .found(function ()
             applyResolvedValues()
         end)
     else
         -- Rigs priority: cache first only when static entry is missing.
-        cache.tryGet(rigCacheKey, infiniteCacheKey)
+        cache.tryGet(rigCacheKey, infiniteCacheKey, workSequenceCacheKey)
         .notFound(function (task)
             local needsRigs = cache.getValue(rigCacheKey) == nil
             local needsInfinite = cache.getValue(infiniteCacheKey) == nil
-            resolveFromLegacy(task, needsRigs, needsInfinite)
+            local needsWorkSequence = cache.getValue(workSequenceCacheKey) == nil
+            resolveFromLegacy(task, needsRigs, needsInfinite, needsWorkSequence)
         end)
         .found(function ()
             applyResolvedValues()
@@ -975,12 +1030,22 @@ function aiSpot:onEdited(edited)
 
     handle:GetAIControllerComponent():SendCommand(cmd)
 
+    self:playNPCPreview()
+end
+
+function aiSpot:playNPCPreview()
     Cron.After(0.1, function ()
         local handle = self:getNPC()
         local ent = self:getEntity()
         if not handle or not ent then return end
 
         Game.GetWorkspotSystem():PlayInDeviceSimple(ent, handle, false, "workspot", "", "", 0, gameWorkspotSlidingBehaviour.PlayAtResourcePosition)
+        local idleAnim = sanitizePreviewValue(self.workSequence and self.workSequence.idleAnim, "")
+        if idleAnim ~= "" then
+            Game.GetWorkspotSystem():SendJumpToAnimEnt(handle, idleAnim, true)
+        else
+            Game.GetWorkspotSystem():SendForwardSignal(handle)
+        end
     end)
 end
 
@@ -1497,8 +1562,9 @@ function aiSpot:draw()
                 ImGui.SetCursorPosX(self.maxPropertyWidth)
                 self.workspotSpeed, changed, _ = style.trackedDragFloat(self.object, "##workspotSpeed", self.workspotSpeed, 0.1, 0, 25, "%.2f", 60)
                 style.tooltip("Speed of the animation of the NPC in the workspot. Preview only.")
-                if changed then
-                    npc:SetIndividualTimeDilation("", self.workspotSpeed)
+                if changed and npc then
+                    local previewSpeed = self.previewWorkspotFrozen and 0.0 or self.workspotSpeed
+                    npc:SetIndividualTimeDilation("", previewSpeed)
                 end
                 ImGui.SameLine()
                 style.pushButtonNoBG(true)
@@ -1515,7 +1581,25 @@ function aiSpot:draw()
             end
 
             style.pushGreyedOut(not isNPC)
-            if ImGui.Button("Forward Workspot") and isNPC then
+            local freezeToggleIcon = self.previewWorkspotFrozen and IconGlyphs.Play or IconGlyphs.Pause
+            local nextFrozenState, freezeChanged = style.toggleButton(freezeToggleIcon .. "##workspotFreezeToggle", self.previewWorkspotFrozen)
+            if freezeChanged and isNPC then
+                self.previewWorkspotFrozen = nextFrozenState
+                if npc then
+                    local previewSpeed = self.previewWorkspotFrozen and 0.0 or self.workspotSpeed
+                    npc:SetIndividualTimeDilation("", previewSpeed)
+                    if self.previewWorkspotFrozen then
+                        Game.GetWorkspotSystem():StopInDevice(npc)
+                    else
+                        self:playNPCPreview()
+                    end
+                end
+            end
+            style.tooltip(self.previewWorkspotFrozen
+                and "Unfreeze preview NPC workspot animation."
+                or "Freeze preview NPC workspot animation.")
+            ImGui.SameLine()
+            if ImGui.Button(IconGlyphs.SkipForward .. " Forward Workspot") and isNPC and npc then
                 Game.GetWorkspotSystem():SendForwardSignal(npc)
             end
             style.popGreyedOut(not isNPC)

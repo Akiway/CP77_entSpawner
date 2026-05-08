@@ -36,6 +36,7 @@ local cacheKeySuffixes = {
     "_apps",
     "_rigs",
     "_infinite",
+    "_workSequence",
     "_tiling",
     "_bBox_max",
     "_bBox_min",
