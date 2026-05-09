@@ -379,17 +379,94 @@ function positionable:setVisualizerDirection(direction)
 end
 
 function positionable:setVisualizerState(state)
-	if self.selected and not selectedVisualizersEnabled() then state = false end
-	if not settings.gizmoActive then state = false end
+	if self.selected and not selectedVisualizersEnabled() then
+		state = false
+	end
+
+	if state then
+		local showOnHover = settings.gizmoActive and (self.hovered or self.controlsHovered)
+		local showOnSelected = settings.gizmoOnSelected and self.selected and selectedVisualizersEnabled()
+		if not showOnHover and not showOnSelected then
+			state = false
+		end
+	end
 
 	self.visualizerState = state
 end
 
 function positionable:onEdited() end
 
+local POSITION_COLOR = 0xFFFFFF80 -- light Yellow
+local ROTATION_COLOR = 0xFF80FFFF -- light Cyan
+local SCALE_COLOR = 0xFFFF80FF -- light Fuchsia
+
+---@param color number
+---@param alpha number
+---@return number
+local function applyPackedColorAlpha(color, alpha)
+    local packed = math.floor(tonumber(color) or style.regularColor)
+    local a = math.floor(packed / 0x1000000) % 0x100
+    local rgb = packed % 0x1000000
+    local alphaClamped = math.max(0, math.min(1, tonumber(alpha) or 1))
+    local nextAlpha = math.max(0, math.min(255, math.floor(a * alphaClamped + 0.5)))
+    return nextAlpha * 0x1000000 + rgb
+end
+
+---@param idSuffix string
+---@param segments {text: string, color: number?}[]
+---@param enabled boolean?
+---@return boolean
+local function drawColoredPopupMenuItem(idSuffix, segments, enabled)
+    local itemEnabled = enabled ~= false
+    local selectableFlags = 0
+    if ImGuiSelectableFlags then
+        selectableFlags = ImGuiSelectableFlags.SpanAvailWidth or ImGuiSelectableFlags.None or 0
+    end
+
+    ImGui.BeginDisabled(not itemEnabled)
+    ImGui.PushStyleColor(ImGuiCol.Text, 0, 0, 0, 0)
+    local clicked = ImGui.Selectable(" ##coloredMenuItem" .. idSuffix, false, selectableFlags)
+    ImGui.PopStyleColor()
+    ImGui.EndDisabled()
+
+    local drawList = ImGui.GetWindowDrawList()
+    local fontSize = ImGui.GetFontSize()
+    local minX, minY = ImGui.GetItemRectMin()
+    local cursorX = minX + ImGui.GetStyle().FramePadding.x
+    local cursorY = minY + ImGui.GetStyle().FramePadding.y
+    local alpha = itemEnabled and 1 or (ImGui.GetStyle().DisabledAlpha or 0.6)
+
+    for _, segment in ipairs(segments) do
+        local segmentText = segment.text or ""
+        local segmentColor = applyPackedColorAlpha(segment.color or style.regularColor, alpha)
+        ImGui.ImDrawListAddText(drawList, fontSize, cursorX, cursorY, segmentColor, segmentText)
+        local width, _ = ImGui.CalcTextSize(segmentText)
+        cursorX = cursorX + width
+    end
+
+    if clicked then
+        ImGui.CloseCurrentPopup()
+    end
+
+    return clicked
+end
+
 ---@protected
-function positionable:drawCopyPaste(name)
-	if not ImGui.IsKeyDown(ImGuiKey.LeftShift) and ImGui.BeginPopupContextItem("##pasteProperty" .. name, ImGuiPopupFlags.MouseButtonRight) then
+---@param name string
+---@param axis string?
+function positionable:drawCopyPaste(name, axis)
+    local popupId = string.format("##pasteProperty_%s_%s_%s", tostring(self.id or 0), tostring(axis or ""), tostring(name or ""))
+	if not ImGui.IsKeyDown(ImGuiKey.LeftShift) and ImGui.BeginPopupContextItem(popupId, ImGuiPopupFlags.MouseButtonRight) then
+        local frameCount = ImGui.GetFrameCount and ImGui.GetFrameCount() or nil
+        if frameCount ~= nil then
+            if self._drawCopyPasteFrame == frameCount and self._drawCopyPastePopupId == popupId then
+                ImGui.EndPopup()
+                return
+            end
+            self._drawCopyPasteFrame = frameCount
+            self._drawCopyPastePopupId = popupId
+        end
+
         local transformUI = getTransformUIConfig(self)
         local showPosition = transformUI.showPosition
         local showRotation = transformUI.showRotation
@@ -412,21 +489,46 @@ function positionable:drawCopyPaste(name)
         end
 
         if beginSection(showPosition or showRotation) then
-            if showPosition and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position") then
+            if showPosition and drawColoredPopupMenuItem(name .. "CopyPosition", {
+                { text = "Copy " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR }
+            }) then
                 local pos = self:getPosition()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
             end
-            if showRotation and ImGui.MenuItem("Copy " .. IconGlyphs.RotateOrbit .. " rotation") then
+            if showRotation and drawColoredPopupMenuItem(name .. "CopyRotation", {
+                { text = "Copy " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+            }) then
                 local rot = self:getRotation()
                 utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
             end
-            if showPosition and showRotation and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position & " .. IconGlyphs.RotateOrbit .. " rotation") then
+            if showScaleInputs and drawColoredPopupMenuItem(name .. "CopyScale", {
+                { text = "Copy " },
+                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+            }) then
+                local scale = self:getScale()
+                utils.insertClipboardValue("scale", { x = scale.x, y = scale.y, z = scale.z })
+            end
+            if showPosition and showRotation and drawColoredPopupMenuItem(name .. "CopyPositionRotation", {
+                { text = "Copy " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = " & " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+            }) then
                 local pos = self:getPosition()
                 local rot = self:getRotation()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
                 utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
             end
-            if showPosition and showRotation and showScaleInputs and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position, " .. IconGlyphs.RotateOrbit .. " rotation & " .. IconGlyphs.RulerSquare .. " scale") then
+            if showPosition and showRotation and showScaleInputs and drawColoredPopupMenuItem(name .. "CopyPositionRotationScale", {
+                { text = "Copy " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = ", " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR },
+                { text = " & " },
+                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+            }) then
                 local pos = self:getPosition()
                 local rot = self:getRotation()
                 local scale = self:getScale()
@@ -441,36 +543,53 @@ function positionable:drawCopyPaste(name)
             local copiedRotation = utils.getClipboardValue("rotation")
             local copiedScale = utils.getClipboardValue("scale")
 
-            ImGui.BeginDisabled(showPosition and copiedPosition == nil)
-            if showPosition and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position") then
+            if showPosition and drawColoredPopupMenuItem(name .. "PastePosition", {
+                { text = "Paste " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR }
+            }, copiedPosition ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
             end
-            ImGui.EndDisabled()
 
-            ImGui.BeginDisabled(showRotation and copiedRotation == nil)
-            if showRotation and ImGui.MenuItem("Paste " .. IconGlyphs.RotateOrbit .. " rotation") then
+            if showRotation and drawColoredPopupMenuItem(name .. "PasteRotation", {
+                { text = "Paste " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+            }, copiedRotation ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
-            ImGui.EndDisabled()
+            if showScaleInputs and drawColoredPopupMenuItem(name .. "PasteScale", {
+                { text = "Paste " },
+                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+            }, copiedScale ~= nil) then
+                history.addAction(history.getElementChange(self))
+                self:setScale({ x = copiedScale.x, y = copiedScale.y, z = copiedScale.z }, true)
+            end
 
-            ImGui.BeginDisabled(showPosition and showRotation and (copiedPosition == nil or copiedRotation == nil))
-            if showPosition and showRotation and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position & " .. IconGlyphs.RotateOrbit .. " rotation") then
+            if showPosition and showRotation and drawColoredPopupMenuItem(name .. "PastePositionRotation", {
+                { text = "Paste " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = " & " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+            }, copiedPosition ~= nil and copiedRotation ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
-            ImGui.EndDisabled()
 
-            ImGui.BeginDisabled(showPosition and showRotation and showScaleInputs and (copiedPosition == nil or copiedRotation == nil or copiedScale == nil))
-            if showPosition and showRotation and showScaleInputs and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position, " .. IconGlyphs.RotateOrbit .. " rotation & " .. IconGlyphs.RulerSquare .. " scale") then
+            if showPosition and showRotation and showScaleInputs and drawColoredPopupMenuItem(name .. "PastePositionRotationScale", {
+                { text = "Paste " },
+                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = ", " },
+                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR },
+                { text = " & " },
+                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+            }, copiedPosition ~= nil and copiedRotation ~= nil and copiedScale ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
                 self:setScale({ x = copiedScale.x, y = copiedScale.y, z = copiedScale.z }, true)
             end
-            ImGui.EndDisabled()
         end
 
         if beginSection(showRotation) then
@@ -575,7 +694,7 @@ function positionable:drawProp(prop, name, axis, disableInput)
 		end
     end
 
-	self:drawCopyPaste(name)
+	self:drawCopyPaste(name, axis)
 
 	return finished
 end
@@ -589,6 +708,10 @@ function positionable:drawPosition(position, axes)
     if not showX and not showY and not showZ then
         return
     end
+
+	style.drawIconLabelRow(IconGlyphs.AxisArrow, nil, {iconColor = POSITION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.AxisArrow) + ImGui.GetStyle().ItemSpacing.x})
+	ImGui.SameLine()
+	style.tooltip("Position")
 
 	ImGui.PushItemWidth(80 * style.viewSize)
     local drewAxis = false
@@ -650,6 +773,10 @@ function positionable:drawRelativePosition(axes)
         return
     end
 
+	style.drawIconLabelRow(IconGlyphs.AxisArrowInfo, nil, {iconColor = POSITION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.AxisArrow) + ImGui.GetStyle().ItemSpacing.x})
+	ImGui.SameLine()
+	style.tooltip("Relative Position\nMove the object along its local axes, based on its current rotation.")
+
     ImGui.PushItemWidth(80 * style.viewSize)
 	style.pushGreyedOut(not self.visible or self.hiddenByParent)
     local drewAxis = false
@@ -705,6 +832,10 @@ function positionable:drawRotation(rotation, axes)
         return
     end
 
+	style.drawIconLabelRow(IconGlyphs.RotateOrbit, nil, {iconColor = ROTATION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.RotateOrbit) + ImGui.GetStyle().ItemSpacing.x})
+	ImGui.SameLine()
+	style.tooltip("Rotation")
+
     ImGui.PushItemWidth(80 * style.viewSize)
 	local locked = self.rotationLocked
 	local shiftActive = (ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)) and not ImGui.IsMouseDragging(0, 0)
@@ -757,6 +888,10 @@ function positionable:drawScale(scale, axes)
         return
     end
 
+	style.drawIconLabelRow(IconGlyphs.RulerSquare, nil, {iconColor = SCALE_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.RulerSquare) + ImGui.GetStyle().ItemSpacing.x})
+	ImGui.SameLine()
+	style.tooltip("Scale")
+
 	ImGui.PushItemWidth(80 * style.viewSize)
 
     local drawnAxes = 0
@@ -769,13 +904,13 @@ function positionable:drawScale(scale, axes)
     end
 
     if showX then
-        drawScaleAxis(scale.x, "Scale X", "scaleX")
+        drawScaleAxis(scale.x, "X", "scaleX")
     end
     if showY then
-        drawScaleAxis(scale.y, "Scale Y", "scaleY")
+        drawScaleAxis(scale.y, "Y", "scaleY")
     end
     if showZ then
-        drawScaleAxis(scale.z, "Scale Z", "scaleZ")
+        drawScaleAxis(scale.z, "Z", "scaleZ")
     end
 
     if showX and showY and showZ then
