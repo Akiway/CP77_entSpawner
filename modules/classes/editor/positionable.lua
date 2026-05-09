@@ -393,6 +393,9 @@ function positionable:drawCopyPaste(name)
         local transformUI = getTransformUIConfig(self)
         local showPosition = transformUI.showPosition
         local showRotation = transformUI.showRotation
+        local scaleAxes = transformUI.axes and transformUI.axes.scale or nil
+        local showScaleInputs = transformUI.showScale
+            and (isAxisVisible(scaleAxes, "x") or isAxisVisible(scaleAxes, "y") or isAxisVisible(scaleAxes, "z"))
         local renderedSection = false
 
         local function beginSection(hasItems)
@@ -409,45 +412,63 @@ function positionable:drawCopyPaste(name)
         end
 
         if beginSection(showPosition or showRotation) then
-            if showPosition and ImGui.MenuItem("Copy position") then
+            if showPosition and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position") then
                 local pos = self:getPosition()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
             end
-            if showRotation and ImGui.MenuItem("Copy rotation") then
+            if showRotation and ImGui.MenuItem("Copy " .. IconGlyphs.RotateOrbit .. " rotation") then
                 local rot = self:getRotation()
                 utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
             end
-            if showPosition and showRotation and ImGui.MenuItem("Copy position and rotation") then
+            if showPosition and showRotation and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position & " .. IconGlyphs.RotateOrbit .. " rotation") then
                 local pos = self:getPosition()
                 local rot = self:getRotation()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
                 utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+            end
+            if showPosition and showRotation and showScaleInputs and ImGui.MenuItem("Copy " .. IconGlyphs.AxisArrow .. " position, " .. IconGlyphs.RotateOrbit .. " rotation & " .. IconGlyphs.RulerSquare .. " scale") then
+                local pos = self:getPosition()
+                local rot = self:getRotation()
+                local scale = self:getScale()
+                utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
+                utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
+                utils.insertClipboardValue("scale", { x = scale.x, y = scale.y, z = scale.z })
             end
         end
 
         if beginSection(showPosition or showRotation) then
             local copiedPosition = utils.getClipboardValue("position")
             local copiedRotation = utils.getClipboardValue("rotation")
+            local copiedScale = utils.getClipboardValue("scale")
 
             ImGui.BeginDisabled(showPosition and copiedPosition == nil)
-            if showPosition and ImGui.MenuItem("Paste position") then
+            if showPosition and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position") then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
             end
             ImGui.EndDisabled()
 
             ImGui.BeginDisabled(showRotation and copiedRotation == nil)
-            if showRotation and ImGui.MenuItem("Paste rotation") then
+            if showRotation and ImGui.MenuItem("Paste " .. IconGlyphs.RotateOrbit .. " rotation") then
                 history.addAction(history.getElementChange(self))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
             ImGui.EndDisabled()
 
             ImGui.BeginDisabled(showPosition and showRotation and (copiedPosition == nil or copiedRotation == nil))
-            if showPosition and showRotation and ImGui.MenuItem("Paste position and rotation") then
+            if showPosition and showRotation and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position & " .. IconGlyphs.RotateOrbit .. " rotation") then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
+            end
+            ImGui.EndDisabled()
+
+            ImGui.BeginDisabled(showPosition and showRotation and showScaleInputs and (copiedPosition == nil or copiedRotation == nil or copiedScale == nil))
+            if showPosition and showRotation and showScaleInputs and ImGui.MenuItem("Paste " .. IconGlyphs.AxisArrow .. " position, " .. IconGlyphs.RotateOrbit .. " rotation & " .. IconGlyphs.RulerSquare .. " scale") then
+                history.addAction(history.getElementChange(self))
+                self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
+                self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
+                self:setScale({ x = copiedScale.x, y = copiedScale.y, z = copiedScale.z }, true)
             end
             ImGui.EndDisabled()
         end
