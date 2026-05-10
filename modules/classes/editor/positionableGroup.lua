@@ -6,6 +6,7 @@ local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
 local editor = require("modules/utils/editor/editor")
 local projectTagUtil = require("modules/utils/ui/projectTag")
+local previewSyncManager = require("modules/utils/previewSyncManager")
 
 local positionable = require("modules/classes/editor/positionable")
 
@@ -22,6 +23,9 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field originMode string
 ---@field supportsSaving boolean
 ---@field project table?
+---@field previewSyncDomain boolean
+---@field previewSyncDelay number
+---@field previewSyncPropertyWidth number?
 local positionableGroup = setmetatable({}, { __index = positionable })
 
 local PROJECT_DEFAULT_ICON = "TagOutline"
@@ -348,6 +352,9 @@ function positionableGroup:new(sUI)
 	o.supportsSaving = true
 	o.applyRotationWhenDropped = false
 	o.project = nil
+    o.previewSyncDomain = false
+    o.previewSyncDelay = 0
+    o.previewSyncPropertyWidth = nil
 
 	setmetatable(o, { __index = self })
    	return o
@@ -400,6 +407,8 @@ function positionableGroup:load(data, silent)
 	self.rotation = EulerAngles.new(data.rotation.roll, data.rotation.pitch, data.rotation.yaw)
 	self.rotationQuat = self.rotation:ToQuat()
 	self.project = normalizeProjectData(data.project)
+    self.previewSyncDomain = data.previewSyncDomain == true
+    self.previewSyncDelay = math.max(0, tonumber(data.previewSyncDelay) or 0)
 	self:invalidateAutoCenterCache(false)
 	bumpWireframeEpoch(self)
 end
@@ -418,6 +427,8 @@ function positionableGroup:serialize()
 	data.originMode = self.originMode
 	data.rotation = { roll = self.rotation.roll, pitch = self.rotation.pitch, yaw = self.rotation.yaw }
 	data.project = normalizeProjectData(self.project)
+    data.previewSyncDomain = self.previewSyncDomain == true
+    data.previewSyncDelay = math.max(0, tonumber(self.previewSyncDelay) or 0)
 
 	return data
 end
@@ -517,6 +528,39 @@ function positionableGroup:drawGeneralProperties()
 	ImGui.SameLine()
 	settings.groupWireframeEnabled, _ = style.trackedCheckbox(self, "##showGroupWireframe", settings.groupWireframeEnabled)
 	style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin.")
+
+    if ImGui.TreeNodeEx("Preview Sync", ImGuiTreeNodeFlags.SpanFullWidth) then
+        if not self.previewSyncPropertyWidth then
+            self.previewSyncPropertyWidth = utils.getTextMaxWidth({ "Sync Domain Root", "Group Delay" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        end
+
+        style.mutedText("Sync Domain Root")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.previewSyncPropertyWidth)
+        local changed
+        self.previewSyncDomain, changed = style.trackedCheckbox(self, "##previewSyncDomain", self.previewSyncDomain)
+        if changed then
+            previewSyncManager.onGroupSettingsChanged(self)
+        end
+        style.tooltip("When enabled, this group starts a new preview synchronization domain for descendants.")
+
+        style.mutedText("Group Delay")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.previewSyncPropertyWidth)
+        self.previewSyncDelay, changed = style.trackedDragFloat(self, "##previewSyncDelay", self.previewSyncDelay, 0.05, 0, 120, "%.2f sec", 90)
+        if changed then
+            self.previewSyncDelay = math.max(0, self.previewSyncDelay)
+            previewSyncManager.onGroupSettingsChanged(self)
+        end
+        style.tooltip("Delay added to all synchronized preview loops under this group. Nested group delays stack.")
+
+        if ImGui.Button("Sync Now##previewSyncDomainNow") then
+            previewSyncManager.syncGroupDomain(self)
+        end
+        style.tooltip("Restart synchronized effect/particle preview timing for this group's effective domain.")
+
+        ImGui.TreePop()
+    end
 end
 
 function positionableGroup:getExtraGroupedProperties()

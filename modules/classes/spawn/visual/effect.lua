@@ -2,13 +2,14 @@ local visualized = require("modules/classes/spawn/visualized")
 local Cron = require("modules/utils/Cron")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
+local previewSyncManager = require("modules/utils/previewSyncManager")
 
 ---Class for worldEffectNode
 ---@class effect : visualized
 ---@field private disableCron integer
 ---@field private previewLoop boolean
 ---@field private previewLoopInterval number
----@field private previewLoopCron integer?
+---@field private previewStartDelay number
 ---@field private previewLoopRestartCron integer?
 ---@field private maxPropertyWidth number?
 local effect = setmetatable({}, { __index = visualized })
@@ -31,7 +32,7 @@ function effect:new()
     o.disableCron = nil
     o.previewLoop = false
     o.previewLoopInterval = 2
-    o.previewLoopCron = nil
+    o.previewStartDelay = 0
     o.previewLoopRestartCron = nil
     o.maxPropertyWidth = nil
 
@@ -39,39 +40,29 @@ function effect:new()
    	return o
 end
 
-function effect:stopPreviewLoop()
-    if self.previewLoopCron then
-        Cron.Halt(self.previewLoopCron)
-        self.previewLoopCron = nil
-    end
-
+function effect:stopPreviewRestart()
     if self.previewLoopRestartCron then
         Cron.Halt(self.previewLoopRestartCron)
         self.previewLoopRestartCron = nil
     end
 end
 
-function effect:ensurePreviewLoop()
-    if self.previewLoopCron then
+function effect:preparePreviewSyncPlayback()
+    if not self:isSpawned() or self.isAssetPreview then
         return
     end
 
-    if not self.previewLoop or self.previewLoopInterval <= 0 then
+    local entity = self:getEntity()
+    if not entity then
         return
     end
 
-    self.previewLoopCron = Cron.Every(self.previewLoopInterval, function()
-        self:restartPreviewLoopPlayback()
-    end)
-end
-
-function effect:refreshPreviewLoop()
-    self:stopPreviewLoop()
-    self:ensurePreviewLoop()
+    self:stopPreviewRestart()
+    GameObjectEffectHelper.StopEffectEvent(entity, "effect")
 end
 
 function effect:restartPreviewLoopPlayback()
-    if not self.previewLoop or not self:isSpawned() or self.isAssetPreview then
+    if not self:isSpawned() or self.isAssetPreview then
         return
     end
 
@@ -82,10 +73,7 @@ function effect:restartPreviewLoopPlayback()
 
     GameObjectEffectHelper.StopEffectEvent(entity, "effect")
 
-    if self.previewLoopRestartCron then
-        Cron.Halt(self.previewLoopRestartCron)
-        self.previewLoopRestartCron = nil
-    end
+    self:stopPreviewRestart()
 
     -- Delay avoids stop/start being processed in the same frame.
     self.previewLoopRestartCron = Cron.After(0.05, function()
@@ -117,6 +105,7 @@ function effect:onAssemble(entity)
     entity:AddComponent(component)
 
     GameObjectEffectHelper.StartEffectEvent(entity, "effect", true, worldEffectBlackboard.new())
+    previewSyncManager.refreshSpawnable(self)
 end
 
 function effect:spawn()
@@ -130,13 +119,16 @@ function effect:spawn()
 
     visualized.spawn(self)
     self.spawnData = effect
-
-    self:ensurePreviewLoop()
+    previewSyncManager.registerSpawnable(self)
 end
 
 function effect:despawn()
-    self:stopPreviewLoop()
-    GameObjectEffectHelper.StopEffectEvent(self:getEntity(), "effect")
+    previewSyncManager.unregisterSpawnable(self)
+    self:stopPreviewRestart()
+    local entity = self:getEntity()
+    if entity then
+        GameObjectEffectHelper.StopEffectEvent(entity, "effect")
+    end
 
     -- Needs some time for StopEffectEvent to be sent to the entity
     self.disableCron = Cron.After(0.1, function ()
@@ -153,6 +145,12 @@ function effect:respawn()
     self:spawn()
 end
 
+function effect:onParentChanged()
+    if self:isSpawned() then
+        previewSyncManager.refreshSpawnable(self)
+    end
+end
+
 function effect:getVisualizerSize()
     return { x = 0.15, y = 0.15, z = 0.15 }
 end
@@ -162,7 +160,7 @@ function effect:draw()
     local changed
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize", "Preview Loop", "Loop Interval" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize", "Preview Loop", "Loop Interval", "Start Delay" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     if ImGui.TreeNodeEx("Previewing Options", ImGuiTreeNodeFlags.SpanFullWidth) then
@@ -175,9 +173,9 @@ function effect:draw()
         ImGui.SetCursorPosX(previewPropertyWidth)
         self.previewLoop, changed = style.trackedCheckbox(self.object, "##effectPreviewLoop", self.previewLoop)
         if changed then
-            self:refreshPreviewLoop()
-            if self.previewLoop then
-                self:restartPreviewLoopPlayback()
+            previewSyncManager.refreshSpawnable(self)
+            if not self.previewLoop then
+                self:stopPreviewRestart()
             end
         end
         style.tooltip("World Builder preview only. Replays this effect in a loop. This setting is never exported.")
@@ -188,7 +186,16 @@ function effect:draw()
         self.previewLoopInterval, changed = style.trackedDragFloat(self.object, "##effectPreviewLoopInterval", self.previewLoopInterval, 0.05, 0.1, 120, "%.2f sec", 80)
         if changed then
             self.previewLoopInterval = math.max(self.previewLoopInterval, 0.1)
-            self:refreshPreviewLoop()
+            previewSyncManager.refreshSpawnable(self)
+        end
+
+        style.mutedText("Start Delay")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(previewPropertyWidth)
+        self.previewStartDelay, changed = style.trackedDragFloat(self.object, "##effectPreviewStartDelay", self.previewStartDelay, 0.05, 0, 120, "%.2f sec", 80)
+        if changed then
+            self.previewStartDelay = math.max(self.previewStartDelay, 0)
+            previewSyncManager.refreshSpawnable(self)
         end
 
         ImGui.TreePop()
@@ -212,6 +219,7 @@ function effect:save()
     local data = visualized.save(self)
     data.previewLoop = self.previewLoop
     data.previewLoopInterval = self.previewLoopInterval
+    data.previewStartDelay = self.previewStartDelay
 
     return data
 end

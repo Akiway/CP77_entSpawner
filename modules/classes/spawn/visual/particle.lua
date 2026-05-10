@@ -2,6 +2,7 @@ local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local Cron = require("modules/utils/Cron")
+local previewSyncManager = require("modules/utils/previewSyncManager")
 
 ---Class for worldStaticParticleNode
 ---@class particle : visualized
@@ -9,7 +10,7 @@ local Cron = require("modules/utils/Cron")
 ---@field respawnOnMove boolean
 ---@field private previewLoop boolean
 ---@field private previewLoopInterval number
----@field private previewLoopCron integer?
+---@field private previewStartDelay number
 ---@field private previewLoopRestartCron integer?
 ---@field private maxPropertyWidth number
 local particle = setmetatable({}, { __index = visualized })
@@ -29,7 +30,7 @@ function particle:new()
     o.respawnOnMove = false
     o.previewLoop = false
     o.previewLoopInterval = 2
-    o.previewLoopCron = nil
+    o.previewStartDelay = 0
     o.previewLoopRestartCron = nil
     o.previewColor = "magenta"
 
@@ -43,38 +44,33 @@ function particle:new()
 end
 
 function particle:stopPreviewLoop()
-    if self.previewLoopCron then
-        Cron.Halt(self.previewLoopCron)
-        self.previewLoopCron = nil
-    end
-
     if self.previewLoopRestartCron then
         Cron.Halt(self.previewLoopRestartCron)
         self.previewLoopRestartCron = nil
     end
 end
 
-function particle:ensurePreviewLoop()
-    if self.previewLoopCron then
+function particle:preparePreviewSyncPlayback()
+    if not self:isSpawned() or self.isAssetPreview then
         return
     end
 
-    if not self.previewLoop or self.previewLoopInterval <= 0 then
+    local entity = self:getEntity()
+    if not entity then
         return
     end
 
-    self.previewLoopCron = Cron.Every(self.previewLoopInterval, function()
-        self:restartPreviewLoopPlayback()
-    end)
-end
+    local component = entity:FindComponentByName("particle")
+    if not component then
+        return
+    end
 
-function particle:refreshPreviewLoop()
     self:stopPreviewLoop()
-    self:ensurePreviewLoop()
+    component:Toggle(false)
 end
 
 function particle:restartPreviewLoopPlayback()
-    if not self.previewLoop or not self:isSpawned() or self.isAssetPreview then
+    if not self:isSpawned() or self.isAssetPreview then
         return
     end
 
@@ -123,6 +119,7 @@ function particle:onAssemble(entity)
     component.name = "particle"
     component.emissionRate = self.emissionRate
     entity:AddComponent(component)
+    previewSyncManager.refreshSpawnable(self)
 end
 
 function particle:spawn()
@@ -131,11 +128,11 @@ function particle:spawn()
 
     visualized.spawn(self)
     self.spawnData = particle
-
-    self:ensurePreviewLoop()
+    previewSyncManager.registerSpawnable(self)
 end
 
 function particle:despawn()
+    previewSyncManager.unregisterSpawnable(self)
     self:stopPreviewLoop()
     visualized.despawn(self)
 end
@@ -153,12 +150,19 @@ function particle:onEdited(edited)
     end
 end
 
+function particle:onParentChanged()
+    if self:isSpawned() then
+        previewSyncManager.refreshSpawnable(self)
+    end
+end
+
 function particle:save()
     local data = visualized.save(self)
     data.emissionRate = self.emissionRate
     data.respawnOnMove = self.respawnOnMove
     data.previewLoop = self.previewLoop
     data.previewLoopInterval = self.previewLoopInterval
+    data.previewStartDelay = self.previewStartDelay
 
     return data
 end
@@ -172,7 +176,7 @@ function particle:draw()
     local changed
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Emission Rate", "Respawn on Move", "Preview Loop", "Loop Interval" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Emission Rate", "Respawn on Move", "Preview Loop", "Loop Interval", "Start Delay" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     style.mutedText("Emission Rate")
@@ -205,9 +209,9 @@ function particle:draw()
         ImGui.SetCursorPosX(previewPropertyWidth)
         self.previewLoop, changed = style.trackedCheckbox(self.object, "##particlePreviewLoop", self.previewLoop)
         if changed then
-            self:refreshPreviewLoop()
-            if self.previewLoop then
-                self:restartPreviewLoopPlayback()
+            previewSyncManager.refreshSpawnable(self)
+            if not self.previewLoop then
+                self:stopPreviewLoop()
             end
         end
         style.tooltip("World Builder preview only. Replays this particle in a loop. This setting is never exported.")
@@ -218,7 +222,16 @@ function particle:draw()
         self.previewLoopInterval, changed = style.trackedDragFloat(self.object, "##particlePreviewLoopInterval", self.previewLoopInterval, 0.05, 0.1, 120, "%.2f sec", 80)
         if changed then
             self.previewLoopInterval = math.max(self.previewLoopInterval, 0.1)
-            self:refreshPreviewLoop()
+            previewSyncManager.refreshSpawnable(self)
+        end
+
+        style.mutedText("Start Delay")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(previewPropertyWidth)
+        self.previewStartDelay, changed = style.trackedDragFloat(self.object, "##particlePreviewStartDelay", self.previewStartDelay, 0.05, 0, 120, "%.2f sec", 80)
+        if changed then
+            self.previewStartDelay = math.max(self.previewStartDelay, 0)
+            previewSyncManager.refreshSpawnable(self)
         end
 
         ImGui.TreePop()
