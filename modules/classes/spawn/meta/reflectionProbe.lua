@@ -3,6 +3,10 @@ local style = require("modules/ui/style")
 local visualizer = require("modules/utils/visualizer")
 local utils = require("modules/utils/utils")
 local lcHelper = require("modules/utils/lightChannelHelper")
+local config = require("modules/utils/config")
+local envProbeOptionsCache = nil
+local envProbeOptionSetCache = nil
+local envProbeLowerCache = nil
 
 ---Class for worldReflectionProbeNode
 ---@class reflection : spawnable
@@ -20,7 +24,16 @@ local lcHelper = require("modules/utils/lightChannelHelper")
 ---@field public maxPropertyWidth number
 ---@field public lightChannels boolean[]
 ---@field public volumeChannels boolean[]
+---@field private envProbeOptions string[]?
+---@field private envProbeSearch string
+---@field private envProbeFilterCache {query: string, results: string[]}?
 local reflection = setmetatable({}, { __index = spawnable })
+
+---@param value string?
+---@return string
+local function normalizeProbePath(value)
+    return tostring(value or ""):gsub("/", "\\")
+end
 
 function reflection:new()
 	local o = spawnable.new(self)
@@ -50,12 +63,94 @@ function reflection:new()
     o.volumeChannels = { true, true, true, true, true, true, true, true, true, false, false, false }
 
     o.maxPropertyWidth = nil
+    o.envProbeOptions = nil
+    o.envProbeSearch = ""
+    o.envProbeFilterCache = nil
 
     o.uk10 = 1056
     o.uk11 = 512
 
     setmetatable(o, { __index = self })
    	return o
+end
+
+function reflection:loadEnvProbeOptions()
+    if self.envProbeOptions then
+        return
+    end
+
+    if not envProbeOptionsCache or not envProbeOptionSetCache then
+        envProbeOptionsCache = {}
+        envProbeOptionSetCache = {}
+        envProbeLowerCache = {}
+        local entries = config.loadLists(self.spawnDataPath) or {}
+
+        for _, entry in ipairs(entries) do
+            local path = normalizeProbePath(entry and entry.data and entry.data.spawnData or entry and entry.name)
+            if path ~= "" then
+                local key = string.lower(path)
+                if not envProbeOptionSetCache[key] then
+                    envProbeOptionSetCache[key] = true
+                    envProbeLowerCache[path] = key
+                    table.insert(envProbeOptionsCache, path)
+                end
+            end
+        end
+    end
+    if not envProbeLowerCache then
+        envProbeLowerCache = {}
+        for _, option in ipairs(envProbeOptionsCache or {}) do
+            envProbeLowerCache[option] = string.lower(option)
+        end
+    end
+
+    self.envProbeOptions = envProbeOptionsCache
+end
+
+---@param searchValue string?
+---@return string[]
+function reflection:getFilteredEnvProbeOptions(searchValue)
+    self:loadEnvProbeOptions()
+
+    local options = self.envProbeOptions or {}
+    local query = string.lower(tostring(searchValue or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+    if query == "" then
+        self.envProbeFilterCache = {
+            query = "",
+            results = options
+        }
+        return options
+    end
+
+    local source = options
+    local filterCache = self.envProbeFilterCache
+    if filterCache and filterCache.results then
+        local previousQuery = filterCache.query or ""
+        if previousQuery ~= "" and query:sub(1, #previousQuery) == previousQuery then
+            source = filterCache.results
+        end
+    end
+
+    local results = {}
+    for _, option in ipairs(source) do
+        local optionLower = (envProbeLowerCache and envProbeLowerCache[option]) or string.lower(option)
+        if string.find(optionLower, query, 1, true) then
+            table.insert(results, option)
+        end
+    end
+
+    self.envProbeFilterCache = {
+        query = query,
+        results = results
+    }
+
+    return results
+end
+
+---@return string[]
+function reflection:getEnvProbeSelectorOptions()
+    self:loadEnvProbeOptions()
+    return self.envProbeOptions or {}
 end
 
 function reflection:onAssemble(entity)
@@ -133,8 +228,48 @@ function reflection:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize Outline", "Ambient Mode", "Neighbor Mode", "Emissive Scale", "Streaming Distance", "Edge Scale", "Priority", "All In Shadow" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Env Probe", "Visualize Outline", "Ambient Mode", "Neighbor Mode", "Emissive Scale", "Streaming Distance", "Edge Scale", "Priority", "All In Shadow" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
+
+    style.mutedText("Env Probe")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    local selectorWidth = style.getMaxWidth(260)
+    local selectorPixelWidth = selectorWidth * style.viewSize
+    local itemWidth = math.max(80, selectorPixelWidth - (2 * ImGui.GetStyle().FramePadding.x) - ImGui.GetStyle().ItemSpacing.x)
+    local selectorOptions = self:getFilteredEnvProbeOptions(self.envProbeSearch)
+    local selectedProbe = normalizeProbePath(self.spawnData)
+    local changed
+    selectedProbe, self.envProbeSearch, changed = style.trackedSearchDropdown(
+        self.object,
+        "##envProbePath",
+        "Search envprobe...",
+        selectedProbe,
+        self.envProbeSearch,
+        selectorOptions,
+        selectorWidth,
+        false,
+        true,
+        function(optionText)
+            return utils.shortenPath(optionText, itemWidth, true)
+        end,
+        function(optionText)
+            return optionText
+        end,
+        function(optionText)
+            return envProbeOptionSetCache and envProbeOptionSetCache[string.lower(normalizeProbePath(optionText))] == true
+        end,
+        function(optionText, query)
+            local optionLower = (envProbeLowerCache and envProbeLowerCache[optionText]) or string.lower(optionText)
+            return string.find(optionLower, query, 1, true) ~= nil
+        end
+    )
+
+    if changed and selectedProbe ~= "" and selectedProbe ~= self.spawnData then
+        self.spawnData = selectedProbe
+        self:respawn()
+    end
+    style.tooltip(selectedProbe .. "\n\nSelect the envprobe resource used by this reflection probe.")
 
     style.mutedText("Visualize Outline")
     ImGui.SameLine()

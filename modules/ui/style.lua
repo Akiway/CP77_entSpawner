@@ -888,13 +888,15 @@ end
 
 ---@param options table
 ---@param baseWidth number
+---@param optionDisplayFn fun(optionText: string): string?
 ---@return number
-local function getSearchDropdownPopupMaxWidth(options, baseWidth)
+local function getSearchDropdownPopupMaxWidth(options, baseWidth, optionDisplayFn)
     local maxTextWidth = 0
 
     for _, option in pairs(options or {}) do
         local optionText = tostring(option)
-        local optionWidth, _ = ImGui.CalcTextSize(optionText)
+        local optionLabel = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+        local optionWidth, _ = ImGui.CalcTextSize(optionLabel)
         if optionWidth > maxTextWidth then
             maxTextWidth = optionWidth
         end
@@ -924,10 +926,14 @@ end
 ---@param width number? Combo width in unscaled style units (default `100`).
 ---@param matchContentWidth boolean? When true, popup max width expands up to the longest option text.
 ---@param allowCustom boolean? When true, allows selecting typed search text as a custom value.
+---@param optionDisplayFn fun(optionText: string): string? Optional display transformer.
+---@param optionTooltipFn fun(optionText: string, optionLabel: string): string? Optional tooltip resolver for each option row.
+---@param optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
+---@param optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
 ---@return string value
 ---@return string searchValue
 ---@return boolean finished
-function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth, allowCustom)
+function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth, allowCustom, optionDisplayFn, optionTooltipFn, optionExistsFn, optionFilterFn)
     value = value or ""
     searchValue = searchValue or ""
     options = options or {}
@@ -937,16 +943,20 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
 
     local finished = false
     local selectedValue = tostring(value)
+    local previewValue = selectedValue
+    if optionDisplayFn then
+        previewValue = tostring(optionDisplayFn(selectedValue) or selectedValue)
+    end
     local comboWidth = width * style.viewSize
     local popupMaxWidth = comboWidth
 
     if matchContentWidth then
-        popupMaxWidth = getSearchDropdownPopupMaxWidth(options, comboWidth)
+        popupMaxWidth = getSearchDropdownPopupMaxWidth(options, comboWidth, optionDisplayFn)
         ImGui.SetNextWindowSizeConstraints(1, 1, popupMaxWidth, 10000)
     end
 
     ImGui.SetNextItemWidth(comboWidth)
-    if (ImGui.BeginCombo(text, value)) then
+    if (ImGui.BeginCombo(text, previewValue)) then
         local effectiveWidth = matchContentWidth and (popupMaxWidth / style.viewSize) or width
         local interiorWidth = effectiveWidth - (2 * ImGui.GetStyle().FramePadding.x) - 30
         searchValue, _, _ = style.trackedTextField(nil, "##search", searchValue, searchHint, interiorWidth)
@@ -963,10 +973,24 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
         local customValue = tostring(searchValue or "")
         customValue = customValue:gsub("^%s+", ""):gsub("%s+$", "")
         customValue = customValue:gsub("[\128-\255]", "")
-        local showCustomOption = allowCustom and customValue ~= "" and utils.indexValue(options, customValue) == -1
+        local customExists = false
+        if customValue ~= "" then
+            if optionExistsFn then
+                customExists = optionExistsFn(customValue) == true
+            else
+                customExists = utils.indexValue(options, customValue) ~= -1
+            end
+        end
+        local showCustomOption = allowCustom and customValue ~= "" and not customExists
+        local query = string.lower(searchValue or "")
+        local hasQuery = query ~= ""
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
             if showCustomOption then
-                if ImGui.Selectable("Use custom: " .. customValue) then
+                local customLabel = customValue
+                if optionDisplayFn then
+                    customLabel = tostring(optionDisplayFn(customValue) or customValue)
+                end
+                if ImGui.Selectable("Use custom: " .. customLabel) then
                     if element then
                         history.addAction(history.getElementChange(element))
                     end
@@ -974,39 +998,90 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                     finished = true
                     ImGui.CloseCurrentPopup()
                 end
+                style.tooltip(customValue)
                 if next(options) ~= nil then
                     ImGui.Separator()
                 end
             end
 
-            if not finished then
-                for _, option in pairs(options) do
-                    local optionText = tostring(option)
-                    if utils.safePatternMatch(optionText:lower(), searchValue:lower()) then
-                        local selected = optionText == selectedValue
-                        if selected then
-                            local rowX, rowY = ImGui.GetCursorScreenPos()
-                            local rowWidth = ImGui.GetContentRegionAvail()
-                            local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
-                            local drawList = ImGui.GetWindowDrawList()
-                            ImGui.ImDrawListAddRectFilled(
-                                drawList,
-                                rowX,
-                                rowY - (0.5 * ImGui.GetStyle().FramePadding.y),
-                                rowX + rowWidth,
-                                rowY + rowHeight,
-                                style.selectedColor,
-                                3 * style.viewSize
-                            )
+            local function drawOptionRow(optionText)
+                if hasQuery then
+                    if optionFilterFn then
+                        if optionFilterFn(optionText, query) ~= true then
+                            return
                         end
+                    else
+                        local optionTextLower = string.lower(optionText)
+                        local matchesRaw = utils.safePatternMatch(optionTextLower, query)
 
-                        if ImGui.Selectable(optionText) then
-                            if element then
-                                history.addAction(history.getElementChange(element))
+                        if not matchesRaw then
+                            local optionLabelForMatch = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+                            local matchesLabel = optionLabelForMatch ~= optionText and utils.safePatternMatch(string.lower(optionLabelForMatch), query)
+                            if not matchesLabel then
+                                return
                             end
-                            value = optionText
-                            finished = true
-                            ImGui.CloseCurrentPopup()
+                        end
+                    end
+                end
+
+                local optionLabel = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+                local selected = optionText == selectedValue
+                if selected then
+                    local rowX, rowY = ImGui.GetCursorScreenPos()
+                    local rowWidth = ImGui.GetContentRegionAvail()
+                    local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
+                    local drawList = ImGui.GetWindowDrawList()
+                    ImGui.ImDrawListAddRectFilled(
+                        drawList,
+                        rowX,
+                        rowY - (0.5 * ImGui.GetStyle().FramePadding.y),
+                        rowX + rowWidth,
+                        rowY + rowHeight,
+                        style.selectedColor,
+                        3 * style.viewSize
+                    )
+                end
+
+                if ImGui.Selectable(optionLabel) then
+                    if element then
+                        history.addAction(history.getElementChange(element))
+                    end
+                    value = optionText
+                    finished = true
+                    ImGui.CloseCurrentPopup()
+                end
+
+                if optionTooltipFn then
+                    local optionTooltip = optionTooltipFn(optionText, optionLabel)
+                    if optionTooltip and optionTooltip ~= "" then
+                        style.tooltip(optionTooltip)
+                    end
+                end
+            end
+
+            if not finished then
+                local optionCount = #options
+                local canClip = not hasQuery and optionCount > 0
+
+                if canClip then
+                    local clipper = ImGuiListClipper.new()
+                    clipper:Begin(optionCount, -1)
+                    while clipper:Step() do
+                        for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
+                            drawOptionRow(tostring(options[i]))
+                            if finished then
+                                break
+                            end
+                        end
+                        if finished then
+                            break
+                        end
+                    end
+                else
+                    for _, option in ipairs(options) do
+                        drawOptionRow(tostring(option))
+                        if finished then
+                            break
                         end
                     end
                 end

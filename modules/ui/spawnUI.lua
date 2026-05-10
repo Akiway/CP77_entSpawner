@@ -94,6 +94,8 @@ local spawnData = {}
 local typeNames = {}
 local variantNames = {}
 local modulePathToSpawnList = {}
+local reflectionProbeModulePath = "meta/reflectionProbe"
+local reflectionProbeDefaultLabel = "Reflection Probe - Default"
 
 local AMM = nil
 
@@ -188,6 +190,36 @@ local function getSortedVariantNames(typeName)
     return names
 end
 
+---Replaces reflection probe path list with a single generic spawn entry.
+---The concrete envprobe can be changed later in node properties.
+---@param spawnList table
+local function collapseReflectionProbeSpawnList(spawnList)
+    if not spawnList or spawnList.modulePath ~= reflectionProbeModulePath then
+        return
+    end
+
+    local defaultProbePath = ""
+    for _, entry in ipairs(spawnList.data or {}) do
+        local path = entry and entry.data and entry.data.spawnData or ""
+        if type(path) == "string" and path ~= "" then
+            defaultProbePath = path
+            break
+        end
+    end
+
+    spawnList.data = {
+        {
+            data = { spawnData = defaultProbePath },
+            lastSpawned = nil,
+            name = reflectionProbeDefaultLabel,
+            fileName = reflectionProbeDefaultLabel
+        }
+    }
+
+    -- Keep Spawn New focused on a generic item instead of path-browser behavior.
+    spawnList.isPaths = false
+end
+
 ---Loads the spawn data (Either list of e.g. paths, or exported object files) for each data variant
 ---@param spawner spawner
 function spawnUI.loadSpawnData(spawner)
@@ -225,6 +257,7 @@ function spawnUI.loadSpawnData(spawner)
                 assetPreviewDelay = variantInstance.assetPreviewDelay,
                 assetPreviewType = variantInstance.assetPreviewType
             }
+            collapseReflectionProbeSpawnList(spawnList)
             spawnData[dataName][variantName] = spawnList
             modulePathToSpawnList[variantInstance.modulePath] = spawnList
 
