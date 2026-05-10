@@ -67,6 +67,7 @@ local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0
 ---@field private useInParticles boolean
 ---@field private useInTransparents boolean
 ---@field private ev number
+---@field private shadowAngle number
 ---@field private shadowFadeDistance number
 ---@field private shadowFadeRange number
 ---@field private contactShadows number
@@ -144,6 +145,7 @@ function light:new()
     o.useInParticles = true
     o.useInTransparents = true
     o.ev = 0
+    o.shadowAngle = -1
     o.shadowFadeDistance = 10
     o.shadowFadeRange = 5
     o.contactShadows = 0
@@ -763,6 +765,7 @@ function light:onAssemble(entity)
     component.useInParticles = self.useInParticles
     component.useInTransparents = self.useInTransparents
     component.EV = self.ev
+    component.shadowAngle = self.shadowAngle
     component.shadowFadeDistance = self.shadowFadeDistance
     component.shadowFadeRange = self.shadowFadeRange
     component.contactShadows = Enum.new("rendContactShadowReciever", self.contactShadows)
@@ -817,6 +820,7 @@ function light:save()
     data.useInParticles = self.useInParticles
     data.useInTransparents = self.useInTransparents
     data.ev = self.ev
+    data.shadowAngle = self.shadowAngle
     data.shadowFadeDistance = self.shadowFadeDistance
     data.shadowFadeRange = self.shadowFadeRange
     data.contactShadows = self.contactShadows
@@ -1268,7 +1272,7 @@ function light:draw()
     -- Other Settings
     if ImGui.TreeNodeEx("Shadow Settings") then
         if not self.maxShadowPropertiesWidth then
-            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Local Shadows (Statics Only)", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Local Shadows (Statics Only)", "Shadow Angle", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
 
         style.mutedText("Contact Shadows")
@@ -1292,6 +1296,12 @@ function light:draw()
             ImGui.EndDisabled()
             self:updateFull(changed)
         end
+
+        style.mutedText("Shadow Angle")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        self.shadowAngle, _, finished = style.trackedDragFloat(self.object, "##shadowAngle", self.shadowAngle, 0.01, -1, 9999, "%.2f", 75)
+        self:updateFull(finished)
 
         style.mutedText("Shadow Fade Distance")
         ImGui.SameLine()
@@ -1598,6 +1608,7 @@ function light:export()
         useInParticles = self.useInParticles and 1 or 0,
         useInTransparents = self.useInTransparents and 1 or 0,
         EV = self.ev,
+        shadowAngle = self.shadowAngle,
         shadowFadeDistance = self.shadowFadeDistance,
         shadowFadeRange = self.shadowFadeRange,
         contactShadows = self.contactShadowsTypes[self.contactShadows + 1],
