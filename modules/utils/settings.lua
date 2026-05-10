@@ -61,6 +61,11 @@ local config = require("modules/utils/config")
 ---@field public colorPickerStyle integer
 ---@field public rhtAddonReplacerMode string
 ---@field public rhtAddonMeshTargetType string
+---@field public previewTimelineDockBottom boolean
+---@field public previewTimelineDockHeight number
+---@field public previewTimelineZoom number
+---@field public previewTimelineSnapEnabled boolean
+---@field public previewTimelineSnapSec number
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -117,6 +122,11 @@ local settingsData = {
     colorPickerStyle = 2,
     rhtAddonReplacerMode = "clone",
     rhtAddonMeshTargetType = "Auto",
+    previewTimelineDockBottom = false,
+    previewTimelineDockHeight = 320,
+    previewTimelineZoom = 90,
+    previewTimelineSnapEnabled = true,
+    previewTimelineSnapSec = 0.1,
 
     filterTags = {},
     favoritesFilter = "",

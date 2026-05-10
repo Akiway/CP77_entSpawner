@@ -7,6 +7,7 @@ local intersection = require("modules/utils/editor/intersection")
 local editor = require("modules/utils/editor/editor")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 local previewSyncManager = require("modules/utils/previewSyncManager")
+local previewTimeline = require("modules/ui/previewTimeline")
 
 local positionable = require("modules/classes/editor/positionable")
 
@@ -581,6 +582,13 @@ function positionableGroup:drawGeneralProperties()
             previewSyncManager.syncGroupDomain(self)
         end
         style.tooltip("Restart synchronized effect/particle preview timing for this group's effective domain.")
+
+        ImGui.SameLine()
+        local openTimelineLabel = ((IconGlyphs.ChartTimeline and IconGlyphs.ChartTimeline ~= "") and (IconGlyphs.ChartTimeline .. " ") or "") .. "Open Preview Timeline##previewSyncOpenTimeline"
+        if ImGui.Button(openTimelineLabel) then
+            previewTimeline.openForGroup(self)
+        end
+        style.tooltip("Open Preview Timeline focused on this group's synchronization domain.")
 
         ImGui.TreePop()
     end

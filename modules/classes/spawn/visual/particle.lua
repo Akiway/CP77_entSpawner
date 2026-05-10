@@ -3,6 +3,7 @@ local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local Cron = require("modules/utils/Cron")
 local previewSyncManager = require("modules/utils/previewSyncManager")
+local previewTimeline = require("modules/ui/previewTimeline")
 
 ---Class for worldStaticParticleNode
 ---@class particle : visualized
@@ -12,6 +13,7 @@ local previewSyncManager = require("modules/utils/previewSyncManager")
 ---@field private previewLoopInterval number
 ---@field private previewStartDelay number
 ---@field private previewLoopRestartCron integer?
+---@field private previewLoopRestartDelay number
 ---@field private maxPropertyWidth number
 local particle = setmetatable({}, { __index = visualized })
 
@@ -32,6 +34,7 @@ function particle:new()
     o.previewLoopInterval = 2
     o.previewStartDelay = 0
     o.previewLoopRestartCron = nil
+    o.previewLoopRestartDelay = 0.05
     o.previewColor = "magenta"
 
     o.assetPreviewType = "position"
@@ -92,7 +95,7 @@ function particle:restartPreviewLoopPlayback()
     end
 
     -- Delay avoids toggle-off/toggle-on being collapsed in one frame.
-    self.previewLoopRestartCron = Cron.After(0.05, function()
+    self.previewLoopRestartCron = Cron.After(self.previewLoopRestartDelay, function()
         self.previewLoopRestartCron = nil
 
         if not self.previewLoop or not self:isSpawned() or self.isAssetPreview then
@@ -212,6 +215,8 @@ function particle:draw()
             previewSyncManager.refreshSpawnable(self)
             if not self.previewLoop then
                 self:stopPreviewLoop()
+            else
+                previewSyncManager.syncSpawnableDomain(self)
             end
         end
         style.tooltip("World Builder preview only. Replays this particle in a loop. This setting is never exported.")
@@ -233,6 +238,12 @@ function particle:draw()
             self.previewStartDelay = math.max(self.previewStartDelay, 0)
             previewSyncManager.refreshSpawnable(self)
         end
+
+        local openTimelineLabel = ((IconGlyphs.ChartTimeline and IconGlyphs.ChartTimeline ~= "") and (IconGlyphs.ChartTimeline .. " ") or "") .. "Open Preview Timeline##particlePreviewTimelineOpen"
+        if ImGui.Button(openTimelineLabel) then
+            previewTimeline.openForSpawnable(self)
+        end
+        style.tooltip("Open Preview Timeline focused on this particle's synchronization domain.")
 
         ImGui.TreePop()
     end

@@ -3,6 +3,7 @@ local Cron = require("modules/utils/Cron")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local previewSyncManager = require("modules/utils/previewSyncManager")
+local previewTimeline = require("modules/ui/previewTimeline")
 
 ---Class for worldEffectNode
 ---@class effect : visualized
@@ -11,6 +12,7 @@ local previewSyncManager = require("modules/utils/previewSyncManager")
 ---@field private previewLoopInterval number
 ---@field private previewStartDelay number
 ---@field private previewLoopRestartCron integer?
+---@field private previewLoopRestartDelay number
 ---@field private maxPropertyWidth number?
 local effect = setmetatable({}, { __index = visualized })
 
@@ -34,6 +36,7 @@ function effect:new()
     o.previewLoopInterval = 2
     o.previewStartDelay = 0
     o.previewLoopRestartCron = nil
+    o.previewLoopRestartDelay = 0.05
     o.maxPropertyWidth = nil
 
     setmetatable(o, { __index = self })
@@ -76,7 +79,7 @@ function effect:restartPreviewLoopPlayback()
     self:stopPreviewRestart()
 
     -- Delay avoids stop/start being processed in the same frame.
-    self.previewLoopRestartCron = Cron.After(0.05, function()
+    self.previewLoopRestartCron = Cron.After(self.previewLoopRestartDelay, function()
         self.previewLoopRestartCron = nil
 
         if not self.previewLoop or not self:isSpawned() or self.isAssetPreview then
@@ -176,6 +179,8 @@ function effect:draw()
             previewSyncManager.refreshSpawnable(self)
             if not self.previewLoop then
                 self:stopPreviewRestart()
+            else
+                previewSyncManager.syncSpawnableDomain(self)
             end
         end
         style.tooltip("World Builder preview only. Replays this effect in a loop. This setting is never exported.")
@@ -197,6 +202,12 @@ function effect:draw()
             self.previewStartDelay = math.max(self.previewStartDelay, 0)
             previewSyncManager.refreshSpawnable(self)
         end
+
+        local openTimelineLabel = ((IconGlyphs.ChartTimeline and IconGlyphs.ChartTimeline ~= "") and (IconGlyphs.ChartTimeline .. " ") or "") .. "Open Preview Timeline##effectPreviewTimelineOpen"
+        if ImGui.Button(openTimelineLabel) then
+            previewTimeline.openForSpawnable(self)
+        end
+        style.tooltip("Open Preview Timeline focused on this effect's synchronization domain.")
 
         ImGui.TreePop()
     end

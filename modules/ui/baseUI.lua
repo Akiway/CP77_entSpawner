@@ -18,6 +18,7 @@ baseUI = {
     spawnedUI = require("modules/ui/spawnedUI"),
     savedUI = require("modules/ui/savedUI"),
     exportUI = require("modules/ui/exportUI"),
+    previewTimeline = require("modules/ui/previewTimeline"),
     settingsUI = require("modules/ui/settingsUI"),
     activeTab = 1,
     loadTabSize = true,
@@ -170,6 +171,10 @@ function baseUI.init()
             settings.tabSizes[tab.id] = tab.defaultSize
             settings.save()
         end
+    end
+
+    if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
+        baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
 
     if ignoreRequirements then return end
@@ -329,6 +334,9 @@ function baseUI.draw(spawner)
     end
 
     baseUI.spawnUI.drawPopup()
+    if baseUI.previewTimeline and baseUI.previewTimeline.drawWindow then
+        baseUI.previewTimeline.drawWindow()
+    end
     if baseUI.spawnedUI and baseUI.spawnedUI.drawPinnedHierarchyWindow then
         baseUI.spawnedUI.drawPinnedHierarchyWindow()
     end

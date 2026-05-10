@@ -301,6 +301,77 @@ function previewSyncManager.syncGroupDomain(group)
     resyncDomain(domainId, true)
 end
 
+---@param domainId string?
+function previewSyncManager.syncDomain(domainId)
+    resyncDomain(domainId, true)
+end
+
+---@return number
+function previewSyncManager.getCurrentTime()
+    return previewSyncManager.time
+end
+
+---@param domainId string?
+---@return number?
+function previewSyncManager.getDomainStartTime(domainId)
+    if not domainId then
+        return nil
+    end
+
+    local domain = previewSyncManager.domains[domainId]
+    return domain and domain.startTime or nil
+end
+
+---@param group element?
+---@return string?
+function previewSyncManager.getDomainIdForGroup(group)
+    return resolveDomainIdForGroup(group)
+end
+
+---@param spawnable table?
+---@return string?
+function previewSyncManager.getDomainIdForSpawnable(spawnable)
+    return resolveDomainIdForSpawnable(spawnable)
+end
+
+---@param spawnable table?
+---@return boolean
+function previewSyncManager.isManagedSpawnable(spawnable)
+    return canManageSpawnable(spawnable)
+end
+
+---@param spawnable table?
+---@return boolean
+function previewSyncManager.isSpawnableActiveForPreview(spawnable)
+    return isSpawnableActive(spawnable)
+end
+
+---@param spawnable table?
+---@return table?
+function previewSyncManager.getSpawnableTiming(spawnable)
+    if not canManageSpawnable(spawnable) then
+        return nil
+    end
+
+    local domainId, delay, interval = resolveTimingProfile(spawnable)
+    local previewStartDelay = math.max(0, tonumber(spawnable.previewStartDelay) or 0)
+    local groupDelaySum = math.max(0, delay - previewStartDelay)
+
+    return {
+        domainId = domainId,
+        effectiveDelay = delay,
+        interval = interval,
+        previewStartDelay = previewStartDelay,
+        groupDelaySum = groupDelaySum
+    }
+end
+
+---@param spawnable table?
+function previewSyncManager.syncSpawnableDomain(spawnable)
+    local domainId = resolveDomainIdForSpawnable(spawnable)
+    resyncDomain(domainId, true)
+end
+
 ---@param dt number
 function previewSyncManager.update(dt)
     local delta = tonumber(dt) or 0
