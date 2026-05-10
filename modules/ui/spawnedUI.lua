@@ -1624,7 +1624,11 @@ function spawnedUI.getSideButtonsWidth(element)
         getButtonWidth(IconGlyphs.LockOpenAlertOutline)
     )
 
-    local visibilityWidth = math.max(getButtonWidth(IconGlyphs.EyeOutline), getButtonWidth(IconGlyphs.EyeOffOutline))
+    local visibilityWidth = math.max(
+        getButtonWidth(IconGlyphs.EyeOutline),
+        getButtonWidth(IconGlyphs.EyeOffOutline),
+        getButtonWidth(IconGlyphs.EyeRemoveOutline)
+    )
     local totalX = visibilityWidth + lockWidth + ImGui.GetStyle().ItemSpacing.x
     if spawnedUI.canToggleVisualization(element) then
         local visualizationWidth = math.max(getButtonWidth(IconGlyphs.HospitalMarker), getButtonWidth(IconGlyphs.MapMarkerOffOutline))
@@ -2363,6 +2367,9 @@ function spawnedUI.drawSideButtons(element, rowHovered)
 
     local visible = element.visible
     local visibilityIcon = visible and IconGlyphs.EyeOutline or IconGlyphs.EyeOffOutline
+    if visible and element.hiddenByParent then
+        visibilityIcon = IconGlyphs.EyeRemoveOutline
+    end
     style.pushStyleColor(not visible, ImGuiCol.Text, style.mutedColor)
 
     ImGui.SetNextItemAllowOverlap()
@@ -3113,7 +3120,15 @@ function spawnedUI.drawTop()
                 entry:setVisible(true, true)
             end)
         else
-            spawnedUI.root:setVisibleRecursive(true)
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canToggleVisibility(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisibleRecursive(true, true)
+            end)
         end
     end
     style.tooltip("Show all elements (or filtered elements)")
@@ -3131,7 +3146,15 @@ function spawnedUI.drawTop()
                 entry:setVisible(false, true)
             end)
         else
-            spawnedUI.root:setVisibleRecursive(false)
+            local targets = {}
+            for _, child in pairs(spawnedUI.root.childs) do
+                if spawnedUI.canToggleVisibility(child) then
+                    table.insert(targets, child)
+                end
+            end
+            applyElementChangesBatched(targets, function(entry)
+                entry:setVisibleRecursive(false, true)
+            end)
         end
     end
     style.tooltip("Hide all elements (or filtered elements)")
