@@ -21,7 +21,7 @@ local config = require("modules/utils/config")
 ---@field public savedUIFilter string
 ---@field public windowStates table
 ---@field public editorBottomSize integer
----@field public gizmoActive boolean
+---@field public gizmoOnHover boolean
 ---@field public gizmoOnSelected boolean
 ---@field public outlineSelected boolean
 ---@field public selectedVisualizersEnabled boolean
@@ -82,7 +82,7 @@ local settingsData = {
     savedUIFilter = "",
     windowStates = {},
     editorBottomSize = 200,
-    gizmoActive = true,
+    gizmoOnHover = true,
     gizmoOnSelected = true,
     outlineSelected = true,
     selectedVisualizersEnabled = true,
@@ -133,6 +133,12 @@ function settingsFNs.load()
     config.tryCreateConfig("data/config.json", settingsData)
 
     local data = config.loadFile("data/config.json")
+    if data.gizmoOnHover == nil and data.gizmoActive ~= nil then
+        data.gizmoOnHover = data.gizmoActive
+        data.gizmoActive = nil
+        config.saveFile("data/config.json", data)
+    end
+
     if data.cacheExlusions ~= nil then
         local hasNewValue = type(data.cacheExclusions) == "table" and next(data.cacheExclusions) ~= nil
         if not hasNewValue then

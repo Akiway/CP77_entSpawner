@@ -195,13 +195,12 @@ local function refreshSelectedVisualizers()
         local element = entry.ref
 
         if utils.isA(element, "positionable") then
-            local keepVisible = false
-            if settings.gizmoActive and keepSelectedVisualizers then
-                keepVisible = element.hovered or element.controlsHovered or (settings.gizmoOnSelected and selectedCount == 1)
-            end
+            local showOnHover = settings.gizmoOnHover and (element.hovered or element.controlsHovered)
+            local showOnSelected = keepSelectedVisualizers and settings.gizmoOnSelected and selectedCount == 1
+            local keepVisible = showOnHover or showOnSelected
 
             element:setVisualizerState(keepVisible)
-            if not keepVisible then
+            if not element.visualizerState then
                 element:setVisualizerDirection("none")
             end
         end
@@ -220,15 +219,21 @@ local function getSelectedVisualizerToggleTooltip()
     local colorRed = 0xFF0000FF
 
     local arrowValue, arrowColor
-    if not keepSelectedVisualizers or not settings.gizmoActive then
+    if not keepSelectedVisualizers then
         arrowValue = "disabled"
         arrowColor = colorRed
-    elseif settings.gizmoOnSelected then
+    elseif settings.gizmoOnHover and settings.gizmoOnSelected then
         arrowValue = "on hover + when selected"
         arrowColor = colorGreen
-    else
+    elseif settings.gizmoOnHover then
         arrowValue = "on hover only"
         arrowColor = style.warnColor
+    elseif settings.gizmoOnSelected then
+        arrowValue = "when selected only"
+        arrowColor = style.warnColor
+    else
+        arrowValue = "disabled"
+        arrowColor = colorRed
     end
 
     local outlineValue, outlineColor
@@ -306,9 +311,9 @@ local function drawSelectedVisualizerToggleTooltip()
         ImGui.TableSetupColumn("Value")
         ImGui.TableHeadersRow()
 
-        drawSettingStateRow("Arrows on hover", settings.gizmoActive == true)
-        drawSettingStateRow("Arrows on selected", settings.gizmoOnSelected == true)
-        drawSettingStateRow("Outline on selected", settings.outlineSelected == true)
+        drawSettingStateRow("Arrows on hover", settings.gizmoOnHover == true)
+        drawSettingStateRow("Arrows when selected", settings.gizmoOnSelected == true)
+        drawSettingStateRow("Outline when selected", settings.outlineSelected == true)
 
         ImGui.EndTable()
     end

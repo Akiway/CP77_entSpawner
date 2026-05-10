@@ -306,6 +306,9 @@ function positionable:setSelected(state)
 	local hasSelectionContext = self.sUI ~= nil and self.sUI.multiSelectActive ~= nil and self.sUI.rangeSelectActive ~= nil
 	local isBatchSelection = hasSelectionContext and (self.sUI.multiSelectActive() or self.sUI.rangeSelectActive()) or false
 	local allowSelectedVisualizers = selectedVisualizersEnabled()
+
+	element.setSelected(self, state)
+
 	if updated and not self.hovered and settings.gizmoOnSelected and allowSelectedVisualizers then
 		if isBatchSelection and state then
 			self:setVisualizerState(false)
@@ -313,8 +316,6 @@ function positionable:setSelected(state)
 			self:setVisualizerState(state)
 		end
 	end
-
-	element.setSelected(self, state)
 
 	if updated then
 		if state and not allowSelectedVisualizers then
@@ -360,12 +361,13 @@ end
 
 function positionable:setHovered(state)
 	local allowSelectedVisualizers = selectedVisualizersEnabled()
-	if state ~= self.hovered and (not self.selected or (not settings.gizmoOnSelected and allowSelectedVisualizers)) then
+	local updated = state ~= self.hovered
+	element.setHovered(self, state)
+
+	if updated and (not self.selected or (not settings.gizmoOnSelected and allowSelectedVisualizers)) then
 		self:setVisualizerState(state)
 		self:setVisualizerDirection("none")
 	end
-
-	element.setHovered(self, state)
 end
 
 function positionable:setVisualizerDirection(direction)
@@ -384,7 +386,7 @@ function positionable:setVisualizerState(state)
 	end
 
 	if state then
-		local showOnHover = settings.gizmoActive and (self.hovered or self.controlsHovered)
+		local showOnHover = settings.gizmoOnHover and (self.hovered or self.controlsHovered)
 		local showOnSelected = settings.gizmoOnSelected and self.selected and selectedVisualizersEnabled()
 		if not showOnHover and not showOnSelected then
 			state = false
@@ -633,7 +635,7 @@ function positionable:drawProp(prop, name, axis, disableInput)
 		flags = flags + ImGuiSliderFlags.NoInput
 	end
 
-    local newValue, changed = ImGui.DragFloat("##" .. name, prop, steps, -99999, 99999, formatText .. " " .. name, flags)
+    local newValue, changed = ImGui.DragFloat("##" .. axis, prop, steps, -99999, 99999, formatText .. " " .. name, flags)
 	self.controlsHovered = (ImGui.IsItemHovered() or ImGui.IsItemActive()) or self.controlsHovered
 	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) then
 		-- Active item should have priority over hovered

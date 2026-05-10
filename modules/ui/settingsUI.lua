@@ -134,14 +134,12 @@ local function refreshSelectedVisualizers(spawner)
         local element = entry.ref
 
         if utils.isA(element, "positionable") then
-            local keepVisible = false
-
-            if settings.gizmoActive and selectedVisualizersEnabled then
-                keepVisible = element.hovered or element.controlsHovered or (settings.gizmoOnSelected and selectedCount == 1)
-            end
+            local showOnHover = settings.gizmoOnHover and (element.hovered or element.controlsHovered)
+            local showOnSelected = selectedVisualizersEnabled and settings.gizmoOnSelected and selectedCount == 1
+            local keepVisible = showOnHover or showOnSelected
 
             element:setVisualizerState(keepVisible)
-            if not keepVisible then
+            if not element.visualizerState then
                 element:setVisualizerDirection("none")
             end
         end
@@ -283,38 +281,36 @@ function settingsUI.draw(spawner)
     end
 
     if ImGui.TreeNodeEx("Visualizers", ImGuiTreeNodeFlags.SpanFullWidth) then
-        settings.gizmoActive, changed = ImGui.Checkbox("Show arrows", settings.gizmoActive)
-        if changed then
-            settings.save()
-            refreshSelectedVisualizers(spawner)
-        end
-        style.tooltip("Globally enable or disable the arrows")
+        settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
+        if changed then settings.save() end
+        style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin of selected group with a colored outline.")
 
-        ImGui.BeginDisabled(not settings.gizmoActive)
-        settings.gizmoOnSelected, changed = ImGui.Checkbox("Keep arrows when element is selected", settings.gizmoOnSelected)
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("Positioning Helpers")
+        settings.gizmoOnHover, changed = ImGui.Checkbox("Show arrows when hovering an element", settings.gizmoOnHover)
         if changed then
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("Always show the arrows when an element is selected.\nWhen disabled, arrows are only shown while hovering the element or its transform controls.")
-        ImGui.EndDisabled()
 
-        settings.outlineSelected, changed = ImGui.Checkbox("Outline selected", settings.outlineSelected)
+        settings.gizmoOnSelected, changed = ImGui.Checkbox("Show arrows when element is selected", settings.gizmoOnSelected)
         if changed then
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("Outline the selected element(s) with a color.")
+
+        settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
+        if changed then
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
 
         settings.outlineColor, changed = ImGui.Combo("Outline color", settings.outlineColor, outlineColors, #outlineColors)
         if changed then
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-
-        settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
-        if changed then settings.save() end
-        style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin of selected group with a colored outline.")
+        style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("AI SPOT PREVIEW")
