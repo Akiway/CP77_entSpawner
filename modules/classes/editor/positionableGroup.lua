@@ -32,6 +32,29 @@ local PROJECT_DEFAULT_ICON = "TagOutline"
 local PROJECT_DEFAULT_COLOR = { 0.23, 0.35, 0.55 }
 local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
+local GROUP_ROTATION_COLOR = 0xFF80FFFF
+
+---@return number
+local function getTransformPrefixSlotWidth()
+    local positionWidth = ImGui.CalcTextSize(IconGlyphs.AxisArrow or "")
+    local rotationWidth = ImGui.CalcTextSize(IconGlyphs.RotateOrbit or "")
+    local scaleWidth = ImGui.CalcTextSize(IconGlyphs.RulerSquare or "")
+    local maxWidth = math.max(positionWidth, rotationWidth, scaleWidth)
+    return maxWidth + ImGui.GetStyle().ItemSpacing.x
+end
+
+local function alignGroupRotationInputs()
+    local startX = ImGui.GetCursorPosX()
+    local targetX = startX + getTransformPrefixSlotWidth()
+
+    ImGui.AlignTextToFramePadding()
+    style.styledText(IconGlyphs.RotateOrbit, GROUP_ROTATION_COLOR)
+    ImGui.SameLine()
+
+    if ImGui.GetCursorPosX() < targetX then
+        ImGui.SetCursorPosX(targetX)
+    end
+end
 
 local function bumpWireframeEpoch(instance)
 	if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
@@ -764,6 +787,7 @@ function positionableGroup:drawRotation(rotation)
 		return finishedAxis
 	end
 
+    alignGroupRotationInputs()
 	ImGui.PushItemWidth(80 * style.viewSize)
 	style.popGreyedOut(not locked)
     finished = drawLiveAngleFromStart(rotation.roll, "Roll", "roll")
