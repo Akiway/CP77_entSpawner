@@ -1039,12 +1039,7 @@ function light:draw()
 
     ImGui.Dummy(0, 8 * style.viewSize)
 
-    style.mutedText("Visualize")
-    ImGui.SameLine()
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualizeInline", self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox("Visualize")
 
     ImGui.Dummy(0, 4 * style.viewSize)
 

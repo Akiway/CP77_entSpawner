@@ -116,7 +116,9 @@ end
 function fog:draw()
     spawnable.draw(self)
 
-    self.previewed, changed = style.trackedCheckbox(self.object, "Visualize outline", self.previewed)
+    style.mutedText("Visualize outline")
+    ImGui.SameLine()
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end
@@ -125,7 +127,6 @@ function fog:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth(propertyNames) + 4 * ImGui.GetStyle().ItemSpacing.x
     end
 
-    style.mutedText("Color")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.color, _, finished = style.trackedColor(self.object, "##color", self.color, 60)

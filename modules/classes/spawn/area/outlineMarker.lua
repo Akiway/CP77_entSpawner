@@ -84,7 +84,7 @@ function outlineMarker:new()
     o.height = 2
     o.dragBeingEdited = false
     o.heightZLocked = false
-    o.previewText = "Preview Outline"
+    o.previewText = "Visualize outline"
 
     setmetatable(o, { __index = self })
    	return o

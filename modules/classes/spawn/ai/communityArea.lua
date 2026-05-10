@@ -1000,8 +1000,8 @@ end
 function community:draw()
     visualized.draw(self)
 
-    local x = utils.getTextMaxWidth({"Preview Sphere", "CommunityID (NodeRef)"}) + 4 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
-    self:drawPreviewCheckbox("Preview Sphere", x)
+    local x = utils.getTextMaxWidth({"Visualize position", "CommunityID (NodeRef)"}) + 4 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+    self:drawPreviewCheckbox("Visualize position", x)
     style.tooltip("Preview a sphere, to make the community selectable in editor mode.")
 
     style.mutedText("CommunityID (NodeRef)")

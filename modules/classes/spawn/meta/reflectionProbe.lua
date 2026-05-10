@@ -228,7 +228,7 @@ function reflection:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Env Probe", "Visualize Outline", "Ambient Mode", "Neighbor Mode", "Emissive Scale", "Streaming Distance", "Edge Scale", "Priority", "All In Shadow" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Env Probe", "Visualize outline", "Ambient Mode", "Neighbor Mode", "Emissive Scale", "Streaming Distance", "Edge Scale", "Priority", "All In Shadow" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     style.mutedText("Env Probe")
@@ -271,10 +271,10 @@ function reflection:draw()
     end
     style.tooltip(selectedProbe .. "\n\nSelect the envprobe resource used by this reflection probe.")
 
-    style.mutedText("Visualize Outline")
+    style.mutedText("Visualize outline")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualizeOutline", self.previewed)
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end

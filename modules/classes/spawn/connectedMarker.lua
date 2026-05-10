@@ -174,7 +174,7 @@ function connectedMarker:draw()
     style.mutedText(self.previewText)
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualize", self.previewed)
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end

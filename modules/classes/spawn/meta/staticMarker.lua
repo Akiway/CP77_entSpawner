@@ -3,7 +3,7 @@ local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 
 local propertyNames = {
-    "Preview Marker",
+    "Visualize position",
     "Quest Marker"
 }
 
@@ -76,13 +76,7 @@ function staticMarker:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth(propertyNames) + 4 * ImGui.GetStyle().ItemSpacing.x
     end
 
-    style.mutedText("Preview Marker")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualize", self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox("Visualize position", self.maxPropertyWidth)
 
     style.mutedText("Quest Marker")
     ImGui.SameLine()

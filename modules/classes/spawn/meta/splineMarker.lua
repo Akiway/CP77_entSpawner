@@ -21,7 +21,7 @@ function splineMarker:new()
 
     o.connectorApp = "lavender"
     o.markerApp = "yellow"
-    o.previewText = "Preview Spline Points"
+    o.previewText = "Visualize position"
     o.tangentIn = { x = 0, y = 0, z = 0 }
     o.tangentOut = { x = 0, y = 0, z = 0 }
     o.automaticTangents = true
@@ -371,7 +371,7 @@ function splineMarker:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     local changed
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualize", self.previewed)
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end

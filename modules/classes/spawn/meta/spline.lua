@@ -1011,7 +1011,7 @@ function spline:draw()
     if ImGui.TreeNodeEx("Previewing Options", ImGuiTreeNodeFlags.SpanFullWidth) then
         local previewPropertyWidth = self.maxPropertyWidth + ImGui.GetTreeNodeToLabelSpacing()
 
-        self:drawPreviewCheckbox("Visualize Spline", previewPropertyWidth)
+        self:drawPreviewCheckbox("Preview Spline", previewPropertyWidth)
 
         style.mutedText("Curve Quality")
         ImGui.SameLine()

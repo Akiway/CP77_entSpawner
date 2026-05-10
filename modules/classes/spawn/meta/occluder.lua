@@ -127,7 +127,7 @@ function occluder:draw()
     style.mutedText("Visualize outline")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.trackedCheckbox(self.object, "##visualizeOutline", self.previewed)
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end

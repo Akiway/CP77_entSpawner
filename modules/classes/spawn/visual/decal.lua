@@ -261,7 +261,7 @@ function decal:draw()
     self.diffuseColorScale, _, _ = style.trackedColorAlpha(self.object, "##diffuseColorScale", self.diffuseColorScale, 60)
     ImGui.SameLine()
     style.styledText(IconGlyphs.AlertOutline, style.warnColor)
-    style.tooltip("Export only. WB preview does not support diffuseColorScale for decals.")
+    style.tooltip("Export only.\nWB preview does not support diffuseColorScale for decals.")
 end
 
 function decal:getProperties()

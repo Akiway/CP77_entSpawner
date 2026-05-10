@@ -1629,10 +1629,10 @@ function device:getProperties()
         name = "Visualization",
         defaultHeader = false,
         draw = function()
-            style.mutedText("Show Position Marker")
+            style.mutedText("Visualize position")
             ImGui.SameLine()
             local changed
-            self.showPositionMarker, changed = style.trackedCheckbox(self.object, "##showPositionMarkerDevice", self.showPositionMarker)
+            self.showPositionMarker, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.showPositionMarker)
             if changed then
                 self:setPositionMarkerVisible(self.showPositionMarker)
                 self:respawn()
@@ -1642,7 +1642,7 @@ function device:getProperties()
             if self.deviceClassName == "LiftControllerPS" then
                 style.mutedText("Show doors helper")
                 ImGui.SameLine()
-                self.showDoorsHelper, _ = style.trackedCheckbox(self.object, "##showDoorsHelperDevice", self.showDoorsHelper)
+                self.showDoorsHelper, _ = style.toggleButton(IconGlyphs.Door, self.showDoorsHelper)
                 style.tooltip("Draw numbered door helper markers around the lift.")
             end
         end

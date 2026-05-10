@@ -66,10 +66,10 @@ function template:getProperties()
         name = "Visualization",
         defaultHeader = false,
         draw = function()
-            style.mutedText("Show Position Marker")
+            style.mutedText("Visualize position")
             ImGui.SameLine()
             local changed
-            self.showPositionMarker, changed = style.trackedCheckbox(self.object, "##showPositionMarkerTemplate", self.showPositionMarker)
+            self.showPositionMarker, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.showPositionMarker)
             if changed then
                 self:setPositionMarkerVisible(self.showPositionMarker)
                 self:respawn()

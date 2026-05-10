@@ -139,16 +139,17 @@ function visualized:setPreview(state)
 end
 
 function visualized:drawPreviewCheckbox(text, textX)
+    text = text or "Visualize"
+    style.mutedText(text)
+    ImGui.SameLine()
     if textX then
-        style.mutedText(text)
-        ImGui.SameLine()
         if textX ~= -1 then
             ImGui.SetCursorPosX(textX)
         end
         text = "##" .. text
     end
 
-    self.previewed, changed = style.trackedCheckbox(self.object, text or "Visualize", self.previewed)
+    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
     if changed then
         self:setPreview(self.previewed)
     end
