@@ -367,14 +367,8 @@ function splineMarker:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth({ self.previewText, "Automatic Tangents", "Parallel symmetrical tangents", "Distance", "Tangent In", "Tangent Out" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    style.mutedText(self.previewText)
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
     local changed
-    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox(self.previewText, self.maxPropertyWidth)
 
     style.mutedText("Automatic Tangents")
     ImGui.SameLine()

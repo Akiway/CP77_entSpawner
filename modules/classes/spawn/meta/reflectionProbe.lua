@@ -1,4 +1,5 @@
 local spawnable = require("modules/classes/spawn/spawnable")
+local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local visualizer = require("modules/utils/visualizer")
 local utils = require("modules/utils/utils")
@@ -9,7 +10,7 @@ local envProbeOptionSetCache = nil
 local envProbeLowerCache = nil
 
 ---Class for worldReflectionProbeNode
----@class reflection : spawnable
+---@class reflection : visualized
 ---@field public scale {x: number, y: number, z: number}
 ---@field public edgeScale {x: number, y: number, z: number}
 ---@field private previewed boolean
@@ -27,7 +28,7 @@ local envProbeLowerCache = nil
 ---@field private envProbeOptions string[]?
 ---@field private envProbeSearch string
 ---@field private envProbeFilterCache {query: string, results: string[]}?
-local reflection = setmetatable({}, { __index = spawnable })
+local reflection = setmetatable({}, { __index = visualized })
 
 ---@param value string?
 ---@return string
@@ -36,7 +37,7 @@ local function normalizeProbePath(value)
 end
 
 function reflection:new()
-	local o = spawnable.new(self)
+	local o = visualized.new(self)
 
     o.spawnListType = "list"
     o.dataType = "Reflection Probe"
@@ -49,6 +50,7 @@ function reflection:new()
     o.scale = { x = 5, y = 5, z = 5 }
     o.edgeScale = { x = 0.5, y = 0.5, z = 0.5 }
     o.previewed = true
+    o.previewShape = "box"
 
     o.ambientModes = utils.enumTable("envUtilsReflectionProbeAmbientContributionMode")
     o.neighborModes = utils.enumTable("envUtilsNeighborMode")
@@ -184,7 +186,7 @@ function reflection:spawn()
 end
 
 function reflection:save()
-    local data = spawnable.save(self)
+    local data = visualized.save(self)
 
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
     data.edgeScale = { x = self.edgeScale.x, y = self.edgeScale.y, z = self.edgeScale.z }
@@ -192,7 +194,6 @@ function reflection:save()
     data.neighborMode = self.neighborMode
     data.emissiveScale = self.emissiveScale
     data.streamingDistance = self.streamingDistance
-    data.previewed = self.previewed
     data.allInShadow = self.allInShadow
     data.priority = self.priority
     data.lightChannels = utils.deepcopy(self.lightChannels)
@@ -271,13 +272,7 @@ function reflection:draw()
     end
     style.tooltip(selectedProbe .. "\n\nSelect the envprobe resource used by this reflection probe.")
 
-    style.mutedText("Visualize outline")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
 
     style.mutedText("Ambient Mode")
     ImGui.SameLine()

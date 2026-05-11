@@ -1,4 +1,5 @@
 local spawnable = require("modules/classes/spawn/spawnable")
+local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local visualizer = require("modules/utils/visualizer")
@@ -10,17 +11,17 @@ local occluderPaths = {
 }
 
 ---Class for worldStaticOccluderMeshNode
----@class occluder : spawnable
+---@class occluder : visualized
 ---@field public scale {x: number, y: number, z: number}
 ---@field public occluderType integer
 ---@field public occluderMesh integer
 ---@field private previewed boolean
 ---@field private occluderTypes table
 ---@field public maxPropertyWidth number
-local occluder = setmetatable({}, { __index = spawnable })
+local occluder = setmetatable({}, { __index = visualized })
 
 function occluder:new()
-	local o = spawnable.new(self)
+	local o = visualized.new(self)
 
     o.spawnListType = "files"
     o.dataType = "Static Occluder"
@@ -36,6 +37,7 @@ function occluder:new()
     o.occluderType = 0
     o.occluderMesh = 1
     o.previewed = true
+    o.previewShape = "box"
     o.maxPropertyWidth = nil
 
     o.uk10 = 1120
@@ -71,13 +73,11 @@ function occluder:spawn()
 end
 
 function occluder:save()
-    local data = spawnable.save(self)
+    local data = visualized.save(self)
 
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
     data.occluderType = self.occluderType
     data.occluderMesh = self.occluderMesh
-    data.previewed = self.previewed
-
     return data
 end
 
@@ -124,13 +124,7 @@ function occluder:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Occluder Mesh", "Occluder Type" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    style.mutedText("Visualize outline")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
 
     local names = {}
     for _, path in ipairs(occluderPaths) do

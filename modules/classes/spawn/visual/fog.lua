@@ -1,4 +1,5 @@
 local spawnable = require("modules/classes/spawn/spawnable")
+local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local visualizer = require("modules/utils/visualizer")
 local utils = require("modules/utils/utils")
@@ -13,7 +14,7 @@ local propertyNames = {
 }
 
 ---Class for worldStaticFogVolumeNode
----@class fog : spawnable
+---@class fog : visualized
 ---@field public scale {x: number, y: number, z: number}
 ---@field private previewed boolean
 ---@field public absorption number
@@ -23,10 +24,10 @@ local propertyNames = {
 ---@field public densityFalloff number
 ---@field private maxPropertyWidth number
 ---@field public lightChannels boolean[]
-local fog = setmetatable({}, { __index = spawnable })
+local fog = setmetatable({}, { __index = visualized })
 
 function fog:new()
-	local o = spawnable.new(self)
+	local o = visualized.new(self)
 
     o.spawnListType = "files"
     o.dataType = "Fog Volume"
@@ -47,6 +48,7 @@ function fog:new()
     o.lightChannels = { true, true, true, true, true, true, true, true, true, false, false, false }
 
     o.previewed = true
+    o.previewShape = "box"
 
     o.uk10 = 1056
     o.uk11 = 512
@@ -83,7 +85,7 @@ function fog:spawn()
 end
 
 function fog:save()
-    local data = spawnable.save(self)
+    local data = visualized.save(self)
 
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
     data.absorption = self.absorption
@@ -91,7 +93,6 @@ function fog:save()
     data.color = { self.color[1], self.color[2], self.color[3] }
     data.densityFactor = self.densityFactor
     data.densityFalloff = self.densityFalloff
-    data.previewed = self.previewed
     data.lightChannels = utils.deepcopy(self.lightChannels)
 
     return data
@@ -116,17 +117,13 @@ end
 function fog:draw()
     spawnable.draw(self)
 
-    style.mutedText("Visualize outline")
-    ImGui.SameLine()
-    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox("Visualize outline")
 
     if not self.maxPropertyWidth then
         self.maxPropertyWidth = utils.getTextMaxWidth(propertyNames) + 4 * ImGui.GetStyle().ItemSpacing.x
     end
 
+    style.mutedText("Color")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.color, _, finished = style.trackedColor(self.object, "##color", self.color, 60)

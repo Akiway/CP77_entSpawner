@@ -1,18 +1,19 @@
 local spawnable = require("modules/classes/spawn/spawnable")
+local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local visualizer = require("modules/utils/visualizer")
 
 ---Class for connected markers (Not a node, meta class used for area outlines and splines)
----@class connectedMarker : spawnable
+---@class connectedMarker : visualized
 ---@field protected previewed boolean
 ---@field protected connectorApp string
 ---@field protected markerApp string
 ---@field protected previewText string
-local connectedMarker = setmetatable({}, { __index = spawnable })
+local connectedMarker = setmetatable({}, { __index = visualized })
 
 function connectedMarker:new()
-	local o = spawnable.new(self)
+	local o = visualized.new(self)
 
     o.previewed = true
     o.previewText = ""
@@ -69,11 +70,7 @@ function connectedMarker:spawn()
 end
 
 function connectedMarker:save()
-    local data = spawnable.save(self)
-
-    data.previewed = self.previewed
-
-    return data
+    return visualized.save(self)
 end
 
 function connectedMarker:onParentChanged(oldParent)
@@ -166,18 +163,16 @@ function connectedMarker:setPreview(state, syncNeighbors, visited)
     end
 end
 
+function connectedMarker:calculateIntersection(origin, ray)
+    return spawnable.calculateIntersection(self, origin, ray)
+end
+
 function connectedMarker:draw()
     if not self.maxPropertyWidth then
         self.maxPropertyWidth = utils.getTextMaxWidth({ self.previewText }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    style.mutedText(self.previewText)
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.previewed, changed = style.toggleButton(IconGlyphs.HospitalMarker, self.previewed)
-    if changed then
-        self:setPreview(self.previewed)
-    end
+    self:drawPreviewCheckbox(self.previewText, self.maxPropertyWidth)
 end
 
 function connectedMarker:getGroupedProperties()
