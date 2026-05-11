@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local editor = require("modules/utils/editor/editor")
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
+local field = require("modules/utils/field")
 local history = require("modules/utils/history")
 local input = require("modules/utils/input")
 local registry = require("modules/utils/nodeRefRegistry")
@@ -2422,6 +2423,11 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
         ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.3, 0.3, 0.3, 0.3)
     end
 
+    local brushSourceGroupId = editor.getBrushSourceGroupId and editor.getBrushSourceGroupId() or nil
+    if brushSourceGroupId and element and element.id == brushSourceGroupId then
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.16, 0.45, 0.16, 0.6)
+    end
+
     ImGui.TableNextColumn()
 
     if dummy then
@@ -2486,6 +2492,10 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
 
     if rowClicked and not spawnedUI.draggingSelected and spawnedUI.hierarchyPickRequest then
         spawnedUI.resolveHierarchyPick(element)
+    end
+
+    if rowClicked and editor.isBrushActive and editor.isBrushActive() and editor.captureBrushSourceFromSelection then
+        editor.captureBrushSourceFromSelection(false)
     end
 
     spawnedUI.handleDrag(element, indentX)
@@ -2806,6 +2816,77 @@ function spawnedUI.drawDivider()
     ImGui.PopStyleColor()
 end
 
+---@param width number
+local function sameLineDummy(width)
+    ImGui.SameLine()
+    ImGui.Dummy((width or 0) * style.viewSize, 0)
+    ImGui.SameLine()
+end
+
+---@param id number?
+---@return string?
+local function getGroupNameById(id)
+    if not id then
+        return nil
+    end
+
+    for _, entry in pairs(spawnedUI.containerPaths or {}) do
+        if entry and entry.ref and entry.ref.id == id then
+            return entry.ref.name
+        end
+    end
+
+    return nil
+end
+
+---@param ready boolean
+---@param sourceName string
+---@param targetName string
+---@param issues string[]
+local function drawBrushStatusTooltip(ready, sourceName, targetName, issues)
+    if not ImGui.IsItemHovered() then
+        return
+    end
+
+    local function isAvailableName(name)
+        return type(name) == "string" and name ~= "" and name ~= "None"
+    end
+
+    ImGui.BeginTooltip()
+
+    if ready then
+        style.styledText("Ready: brush can be used.", style.successColor)
+    else
+        style.styledText("Not ready yet.", style.warnColor)
+    end
+
+    style.mutedText("Source group:")
+    ImGui.SameLine()
+    if isAvailableName(sourceName) then
+        ImGui.Text(sourceName)
+    else
+        style.mutedText("None")
+    end
+
+    style.mutedText("Target group:")
+    ImGui.SameLine()
+    if isAvailableName(targetName) then
+        ImGui.Text(targetName)
+    else
+        style.mutedText("None")
+    end
+
+    if issues and #issues > 0 then
+        ImGui.Spacing()
+        style.mutedText("Issues:")
+        for _, issue in ipairs(issues) do
+            style.styledText("- " .. issue, style.warnColor)
+        end
+    end
+
+    ImGui.EndTooltip()
+end
+
 ---@protected
 function spawnedUI.drawTop()
     local previousFilter = spawnedUI.filter
@@ -2875,6 +2956,27 @@ function spawnedUI.drawTop()
         editor.toggle(nextEditorState)
     end
     style.tooltip("Toggle 3D-Editor mode")
+
+    if editor.isBrushActive and editor.setBrushActive then
+        ImGui.SameLine()
+        local brushDisabled = not editor.active
+        if brushDisabled then
+            style.pushGreyedOut(true)
+            ImGui.Button(IconGlyphs.Brush)
+            style.popGreyedOut(true)
+        else
+            local nextBrushState, brushToggleChanged = style.toggleButton(IconGlyphs.Brush, editor.isBrushActive())
+            if brushToggleChanged then
+                editor.setBrushActive(nextBrushState)
+            end
+        end
+
+        if editor.active then
+            style.tooltip("Toggle Brush paint mode\nWorks with Randomized group\nHold LMB to Paint")
+        else
+            style.tooltip("Brush is only available in 3D-Editor mode")
+        end
+    end
 
     style.pushButtonNoBG(true)
     
@@ -3003,6 +3105,8 @@ function spawnedUI.drawTop()
                 ImGui.MenuItem("Repeat last spawn under cursor", "CTRL-R")
                 ImGui.MenuItem("Open spawn new popup", "SHIFT-A")
                 ImGui.MenuItem("Open depth select menu", "SHIFT-D")
+                ImGui.MenuItem("Brush paint", "Hold LMB")
+                ImGui.MenuItem("Brush radius", "Drag field / CTRL+Click to type")
                 ImGui.MenuItem("Select / Confirm", "LMB")
                 ImGui.MenuItem("Box Select", "CTRL + LMB Drag")
                 ImGui.MenuItem("Open context menu / Cancel", "RMB")
@@ -3161,6 +3265,141 @@ function spawnedUI.drawTop()
     end
     style.tooltip("Hide all elements (or filtered elements)")
     ImGui.EndDisabled()
+
+    if editor.active and editor.isBrushActive and editor.isBrushActive() then
+        ImGui.Dummy(0, 4 * style.viewSize)
+
+        local brushSourceGroupId = editor.getBrushSourceGroupId and editor.getBrushSourceGroupId() or nil
+        local brushSourceEntryCount = editor.getBrushSourceEntryCount and editor.getBrushSourceEntryCount() or 0
+        local brushTargetGroupId = editor.getBrushTargetGroupId and editor.getBrushTargetGroupId() or nil
+        local hasBrushSourceGroup = brushSourceGroupId ~= nil
+        local hasBrushSourceEntries = brushSourceEntryCount > 0
+        local hasBrushTargetGroup = brushTargetGroupId ~= nil
+        local brushReady = hasBrushSourceGroup and hasBrushSourceEntries and hasBrushTargetGroup
+        local brushIssues = {}
+
+        local sourceGroupName = getGroupNameById(brushSourceGroupId) or "None"
+        local targetGroupName = getGroupNameById(brushTargetGroupId)
+        if not targetGroupName then
+            local activeSpawnUI = spawnedUI.spawner and spawnedUI.spawner.baseUI and spawnedUI.spawner.baseUI.spawnUI or nil
+            local selectedGroupIndex = activeSpawnUI and activeSpawnUI.selectedGroup or 0
+            local selectedTargetRef = selectedGroupIndex ~= 0
+                and spawnedUI.containerPaths[selectedGroupIndex]
+                and spawnedUI.containerPaths[selectedGroupIndex].ref
+                or nil
+
+            if selectedTargetRef == spawnedUI.root then
+                targetGroupName = "Root (invalid)"
+            elseif selectedTargetRef and selectedTargetRef.name then
+                targetGroupName = selectedTargetRef.name
+            else
+                targetGroupName = "None"
+            end
+        end
+
+        if not hasBrushSourceGroup then
+            table.insert(brushIssues, "No randomized source group selected.")
+        elseif not hasBrushSourceEntries then
+            table.insert(brushIssues, "Selected randomized group is empty.")
+        end
+
+        if not hasBrushTargetGroup then
+            table.insert(brushIssues, "No valid Spawn New target group set (root is invalid).")
+        end
+
+        if brushReady then
+            style.styledText(IconGlyphs.Brush .. " Brush", style.successColor)
+        else
+            style.styledText(IconGlyphs.Brush .. " Brush", style.warnColor)
+        end
+        drawBrushStatusTooltip(brushReady, sourceGroupName, targetGroupName, brushIssues)
+        sameLineDummy(8)
+        style.mutedText("Size")
+        ImGui.SameLine()
+
+        local radius = editor.getBrushRadius and editor.getBrushRadius() or 10
+        local nextRadius, radiusChanged = field.advancedTrackedFloat(nil, "##brushRadiusControl", radius, {
+            step = 0.25,
+            shiftStep = 0.25,
+            min = 1,
+            max = 200,
+            format = "%.1f",
+            shiftFormat = "%.1f",
+            suffix = " m",
+            width = 115
+        })
+
+        if radiusChanged and editor.setBrushRadius then
+            editor.setBrushRadius(nextRadius)
+        end
+
+        sameLineDummy(8)
+        style.mutedText("Intensity")
+        ImGui.SameLine()
+
+        local intensity = editor.getBrushIntensity and editor.getBrushIntensity() or 12.5
+        local nextIntensity, intensityChanged = field.advancedTrackedFloat(nil, "##brushIntensityControl", intensity, {
+            step = 0.2,
+            shiftStep = 0.2,
+            min = 1,
+            max = 40,
+            format = "%.1f",
+            shiftFormat = "%.1f",
+            suffix = " /s",
+            width = 115
+        })
+
+        if intensityChanged and editor.setBrushIntensity then
+            editor.setBrushIntensity(nextIntensity)
+        end
+        style.tooltip("Brush paint frequency (strokes per second)")
+
+        ImGui.Dummy(0, 2 * style.viewSize)
+        style.mutedText("Rotation variations")
+
+        ImGui.SameLine()
+        local randomRotX = editor.getBrushRandomizeRotationAxis and editor.getBrushRandomizeRotationAxis("x") or false
+        local nextRotX, rotXChanged = ImGui.Checkbox("Pitch##brushRandomRotX", randomRotX)
+        if rotXChanged and editor.setBrushRandomizeRotationAxis then
+            editor.setBrushRandomizeRotationAxis("x", nextRotX)
+        end
+        style.tooltip("Randomize rotation around X axis (Pitch).")
+
+        sameLineDummy(2)
+        local randomRotY = editor.getBrushRandomizeRotationAxis and editor.getBrushRandomizeRotationAxis("y") or false
+        local nextRotY, rotYChanged = ImGui.Checkbox("Roll##brushRandomRotY", randomRotY)
+        if rotYChanged and editor.setBrushRandomizeRotationAxis then
+            editor.setBrushRandomizeRotationAxis("y", nextRotY)
+        end
+        style.tooltip("Randomize rotation around Y axis (Roll).")
+
+        sameLineDummy(2)
+        local randomRotZ = editor.getBrushRandomizeRotationAxis and editor.getBrushRandomizeRotationAxis("z") or false
+        local nextRotZ, rotZChanged = ImGui.Checkbox("Yaw##brushRandomRotZ", randomRotZ)
+        if rotZChanged and editor.setBrushRandomizeRotationAxis then
+            editor.setBrushRandomizeRotationAxis("z", nextRotZ)
+        end
+        style.tooltip("Randomize rotation around Z axis (Yaw).")
+
+        sameLineDummy(8)
+        style.mutedText("Scale variations")
+        ImGui.SameLine()
+        local scaleVariation = editor.getBrushScaleVariation and editor.getBrushScaleVariation() or 0
+        local nextScaleVariation, scaleVariationChanged = field.advancedTrackedFloat(nil, "##brushScaleVariation", scaleVariation, {
+            step = 0.01,
+            shiftStep = 0.01,
+            min = 0,
+            max = 2,
+            format = "%.2f",
+            shiftFormat = "%.2f",
+            prefix = "+/- ",
+            width = 90
+        })
+        if scaleVariationChanged and editor.setBrushScaleVariation then
+            editor.setBrushScaleVariation(nextScaleVariation)
+        end
+        style.tooltip("Uniform scale variation range.\nExample: +/-0.20 => random scale factor between 0.80x and 1.20x.")
+    end
 
     style.pushButtonNoBG(false)
 end

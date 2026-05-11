@@ -6,6 +6,7 @@ local visualizer = require("modules/utils/visualizer")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
+local brushTool = require("modules/utils/editor/brush")
 
 ---@class editor
 ---@field active boolean
@@ -63,13 +64,27 @@ local editor = {
     wireframeBoundsCache = {},
     wireframeMultiLeafCache = nil,
 
-    freeflyWasActive = false
+    freeflyWasActive = false,
+    brush = {
+        active = false,
+        sourceGroup = nil,
+        sourceGroupId = nil,
+        radius = 10,
+        strokeCooldown = 0,
+        randomizeRotX = false,
+        randomizeRotY = false,
+        randomizeRotZ = false,
+        scaleVariation = 0,
+        rngState = nil
+    }
 }
 
 ---@return boolean
 local function selectedVisualizersEnabled()
     return settings.selectedVisualizersEnabled ~= false
 end
+
+brushTool.attach(editor)
 
 ---@alias elevatorDoorSide "left"|"right"|"top"|"bottom"
 ---@alias elevatorDoorLayout table<integer, elevatorDoorSide>
@@ -199,6 +214,10 @@ local function tryResolveHierarchyPickFromWorld()
 end
 
 function editor.confirmEditingTransform()
+    if editor.isBrushActive and editor.isBrushActive() then
+        return
+    end
+
     if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit then
         local hierarchyPickActive = editor.spawnedUI
             and type(editor.spawnedUI.isHierarchyPickActive) == "function"
@@ -1587,10 +1606,14 @@ function editor.onDraw()
     drawElevatorDoorHelpers()
 
     if editor.active and input.context.viewport.hovered then
-        editor.checkArrow()
-        editor.updateDrag()
-        editor.drawDepthSelect()
-        editor.handleBoxSelect()
+        if editor.isBrushActive() then
+            editor.updateBrush()
+        else
+            editor.checkArrow()
+            editor.updateDrag()
+            editor.drawDepthSelect()
+            editor.handleBoxSelect()
+        end
     end
 end
 
@@ -1628,6 +1651,10 @@ function editor.toggle(state)
     editor.baseUI.loadTabSize = true
 
     if not state then
+        editor.setBrushActive(false)
+        if editor.clearBrushSourceGroup then
+            editor.clearBrushSourceGroup()
+        end
         editor.baseUI.restoreWindowPosition = true
         editor.removeHighlight(false)
         editor.currentAxis = "none"

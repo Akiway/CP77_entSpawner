@@ -408,7 +408,7 @@ function settingsUI.draw(spawner)
 
     if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)
-        if ImGui.Button("Reset camera position") and spawner.editor.active then
+        if ImGui.Button(IconGlyphs.CameraRetakeOutline .. " Reset camera position") and spawner.editor.active then
             if spawner.editor.camera and spawner.editor.camera.resetPosition and spawner.editor.camera.resetPosition() then
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Camera position reset"))
             end

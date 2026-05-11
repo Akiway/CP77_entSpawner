@@ -33,6 +33,11 @@ local projectedWireframe = {}
 ---@field badgeOffsetY number|nil Vertical offset for badge placement.
 ---@field fontRatio number|nil Text size multiplier relative to overlay font size.
 ---@field clampToScreen boolean|nil When true, marker is clamped to screen bounds.
+---@class projectedWireframeCircleOptions
+---@field color integer|nil Outline color for circle stroke.
+---@field fillColor integer|nil Optional fill color for a projected fan.
+---@field thickness number|nil Outline thickness in pixels.
+---@field segments number|nil Number of circle segments (minimum 12).
 
 local cubeEdgeVertices = {
     { 1, 2 }, { 2, 4 }, { 3, 4 }, { 1, 3 },
@@ -385,6 +390,65 @@ function projectedWireframe.drawWorldMarker(drawList, screen, position, options)
 
     if text ~= nil and tostring(text) ~= "" then
         drawBadge(drawList, screen, origin, tostring(text), true, badgeOffsetY, markerColor, labelColor, fontRatio)
+    end
+
+    return true
+end
+
+---Draws a horizontal world-space circle projected to screen-space.
+---Circle points are sampled on the XY plane at `center.z`.
+---@param drawList table ImGui draw list obtained from `beginOverlay`.
+---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.
+---@param center Vector4 Circle world-space center.
+---@param radius number Circle radius in world units.
+---@param options projectedWireframeCircleOptions|nil Rendering options.
+---@return boolean drawn True when all circle points were projected and rendered.
+function projectedWireframe.drawWorldCircle(drawList, screen, center, radius, options)
+    options = options or {}
+
+    radius = tonumber(radius) or 0
+    if radius <= 0 then
+        return false
+    end
+
+    local color = options.color or 0xFF00CC66
+    local fillColor = options.fillColor
+    local thickness = tonumber(options.thickness) or 2.0
+    local segments = math.max(12, math.floor(tonumber(options.segments) or 48))
+
+    local points = {}
+    for i = 0, segments - 1 do
+        local angle = (i / segments) * math.pi * 2
+        local worldPoint = Vector4.new(
+            center.x + math.cos(angle) * radius,
+            center.y + math.sin(angle) * radius,
+            center.z,
+            center.w or 0
+        )
+
+        local projected = projectWorldPoint(screen, worldPoint)
+        if not projected or projected.behind then
+            return false
+        end
+
+        table.insert(points, projected)
+    end
+
+    if fillColor then
+        for i = 2, #points - 1 do
+            drawTriangle(drawList, { points[1], points[i], points[i + 1] }, fillColor)
+        end
+    end
+
+    for i = 1, #points do
+        local nextIndex = (i % #points) + 1
+        ImGui.ImDrawListAddLine(
+            drawList,
+            points[i].x, points[i].y,
+            points[nextIndex].x, points[nextIndex].y,
+            color,
+            thickness
+        )
     end
 
     return true
