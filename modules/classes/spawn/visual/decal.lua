@@ -1,4 +1,5 @@
 local spawnable = require("modules/classes/spawn/spawnable")
+local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local intersection = require("modules/utils/editor/intersection")
 local cache = require("modules/utils/cache")
@@ -6,6 +7,7 @@ local builder = require("modules/utils/entityBuilder")
 local preview = require("modules/utils/previewUtils")
 local utils = require("modules/utils/utils")
 local colorUtil = require("modules/utils/color")
+local DECAL_VISUALIZER_THICKNESS = 0.025
 local diffuseColorScaleNormalization = {
     count = 4,
     fallback = { 1, 1, 1, 1 },
@@ -18,7 +20,7 @@ local diffuseColorScaleNormalization = {
 }
 
 ---Class for worldStaticDecalNode
----@class decal : spawnable
+---@class decal : visualized
 ---@field private alpha number
 ---@field private horizontalFlip boolean
 ---@field private verticalFlip boolean
@@ -27,10 +29,10 @@ local diffuseColorScaleNormalization = {
 ---@field private diffuseColorScale number[]
 ---@field private isTiling boolean
 ---@field private maxPropertyWidth number
-local decal = setmetatable({}, { __index = spawnable })
+local decal = setmetatable({}, { __index = visualized })
 
 function decal:new()
-	local o = spawnable.new(self)
+	local o = visualized.new(self)
 
     o.spawnListType = "list"
     o.dataType = "Decals"
@@ -50,6 +52,9 @@ function decal:new()
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.05
     o.isTiling = false
+    o.previewed = false
+    o.previewShape = "box"
+    o.previewColor = "violet"
 
     o.maxPropertyWidth = nil
 
@@ -58,7 +63,11 @@ function decal:new()
 end
 
 function decal:onAssemble(entity)
-    spawnable.onAssemble(self, entity)
+    if self.isAssetPreview then
+        spawnable.onAssemble(self, entity)
+    else
+        visualized.onAssemble(self, entity)
+    end
 
     local component = entDecalComponent.new()
     ResourceHelper.LoadReferenceResource(component, "material", self.spawnData, true)
@@ -151,7 +160,7 @@ end
 function decal:save()
     self.diffuseColorScale = colorUtil.normalizeChannels(self.diffuseColorScale, diffuseColorScaleNormalization)
 
-    local data = spawnable.save(self)
+    local data = visualized.save(self)
     data.alpha = self.alpha
     data.horizontalFlip = self.horizontalFlip
     data.verticalFlip = self.verticalFlip
@@ -168,7 +177,16 @@ function decal:save()
 end
 
 function decal:getSize()
-    return { x = self.scale.x, y = self.scale.y, z = 0.025 }
+    return { x = self.scale.x, y = self.scale.y, z = DECAL_VISUALIZER_THICKNESS * math.abs(self.scale.z) }
+end
+
+function decal:getVisualizerSize()
+    local size = self:getSize()
+    return {
+        x = math.abs(size.x) / 2,
+        y = math.abs(size.y) / 2,
+        z = math.abs(size.z) / 2
+    }
 end
 
 function decal:getBBox()
@@ -210,10 +228,16 @@ function decal:updateScale()
     if not entity then return end
 
     local component = entity:FindComponentByName("decal")
-    component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
+    if component then
+        component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
 
-    component:Toggle(false)
-    component:Toggle(true)
+        if component:IsEnabled() then
+            component:Toggle(false)
+            component:Toggle(true)
+        end
+    end
+
+    visualized.updateScale(self)
 
     self:setOutline(self.outline)
 end
@@ -229,8 +253,10 @@ function decal:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Alpha", "Vertical Flip", "Horizontal Flip", "Auto Hide Distance", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Alpha", "Vertical Flip", "Horizontal Flip", "Auto Hide Distance", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
+
+    self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
 
     style.mutedText("Alpha")
     ImGui.SameLine()
