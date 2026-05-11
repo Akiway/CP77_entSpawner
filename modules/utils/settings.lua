@@ -37,6 +37,7 @@ local config = require("modules/utils/config")
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
+---@field public spawnNewVisualizerEnabledByModule table<string, boolean>
 ---@field public filterTags table
 ---@field public favoritesFilter string
 ---@field public favoritesTagsAND boolean
@@ -102,6 +103,7 @@ local settingsData = {
     nodeRefPrefix = "mod",
     cacheExclusions = {},
     assetPreviewEnabled = {},
+    spawnNewVisualizerEnabledByModule = {},
     mainWindowName = "World Builder",
     draggingThreshold = 5,
     ignoreHiddenDuringExport = false,

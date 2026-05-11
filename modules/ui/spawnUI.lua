@@ -94,6 +94,8 @@ local spawnData = {}
 local typeNames = {}
 local variantNames = {}
 local modulePathToSpawnList = {}
+local spawnNewVisualizerClassGroups = {}
+local spawnNewVisualizerModuleSet = {}
 local reflectionProbeModulePath = "meta/reflectionProbe"
 local reflectionProbeDefaultLabel = "Reflection Probe - Default"
 
@@ -190,6 +192,79 @@ local function getSortedVariantNames(typeName)
     return names
 end
 
+---@param instance spawnable?
+---@return boolean
+local function supportsSpawnNewVisualizerDefault(instance)
+    return instance
+        and instance.previewed ~= nil
+        and type(instance.setPreview) == "function"
+        and type(instance.drawPreviewCheckbox) == "function"
+end
+
+local function rebuildSpawnNewVisualizerClassCatalog()
+    local groups = {}
+    local moduleSet = {}
+    local changed = false
+
+    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
+        settings.spawnNewVisualizerEnabledByModule = {}
+        changed = true
+    end
+
+    for _, typeName in ipairs(getSortedTypeNames()) do
+        local entries = {}
+        for _, variantName in ipairs(getSortedVariantNames(typeName)) do
+            local variant = types[typeName].variants[variantName]
+            local instance = variant and variant.class and variant.class:new() or nil
+
+            if supportsSpawnNewVisualizerDefault(instance) then
+                local defaultPreviewed = instance.previewed == true
+                local modulePath = instance.modulePath
+
+                table.insert(entries, {
+                    name = variantName,
+                    modulePath = modulePath,
+                    defaultPreviewed = defaultPreviewed
+                })
+                moduleSet[modulePath] = true
+
+                if type(settings.spawnNewVisualizerEnabledByModule[modulePath]) ~= "boolean" then
+                    settings.spawnNewVisualizerEnabledByModule[modulePath] = defaultPreviewed
+                    changed = true
+                end
+            end
+        end
+
+        if #entries > 0 then
+            groups[typeName] = entries
+        end
+    end
+
+    spawnNewVisualizerClassGroups = groups
+    spawnNewVisualizerModuleSet = moduleSet
+
+    if changed then
+        settings.save()
+    end
+end
+
+---@return table[]
+function spawnUI.getVisualizerClassGroups()
+    local groups = {}
+
+    for _, typeName in ipairs(getSortedTypeNames()) do
+        local entries = spawnNewVisualizerClassGroups[typeName]
+        if entries and #entries > 0 then
+            table.insert(groups, {
+                typeName = typeName,
+                entries = entries
+            })
+        end
+    end
+
+    return groups
+end
+
 ---Replaces reflection probe path list with a single generic spawn entry.
 ---The concrete envprobe can be changed later in node properties.
 ---@param spawnList table
@@ -267,6 +342,8 @@ function spawnUI.loadSpawnData(spawner)
             end
         end
     end
+
+    rebuildSpawnNewVisualizerClassCatalog()
 
     typeNames = getSortedTypeNames()
 
@@ -2224,6 +2301,28 @@ local function isFavoriteGroupData(data)
     return false
 end
 
+---@param data table?
+local function applySpawnNewVisualizerDefault(data)
+    if type(data) ~= "table" then
+        return
+    end
+
+    local modulePath = data.modulePath
+    if not modulePath or spawnNewVisualizerModuleSet[modulePath] ~= true then
+        return
+    end
+
+    local defaults = settings.spawnNewVisualizerEnabledByModule
+    if type(defaults) ~= "table" then
+        return
+    end
+
+    local defaultPreviewed = defaults[modulePath]
+    if type(defaultPreviewed) == "boolean" then
+        data.previewed = defaultPreviewed
+    end
+end
+
 ---Spawns a new entry (or favorite/group) and records history metadata.
 ---@param entry table|favorite
 ---@param class table
@@ -2296,6 +2395,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
     if not isFavorite then
         data.modulePath = class:new().modulePath
+        applySpawnNewVisualizerDefault(data)
         data.position = { x = pos.x, y = pos.y, z = pos.z, w = 0 }
         data.rotation = { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw }
     end

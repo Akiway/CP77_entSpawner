@@ -152,6 +152,152 @@ local function refreshSelectedVisualizers(spawner)
 end
 
 ---@param spawner spawner
+---@return table[]
+local function getSpawnNewVisualizerClassGroups(spawner)
+    local spawnUI = spawner and spawner.baseUI and spawner.baseUI.spawnUI or nil
+    if not spawnUI or type(spawnUI.getVisualizerClassGroups) ~= "function" then
+        return {}
+    end
+
+    return spawnUI.getVisualizerClassGroups() or {}
+end
+
+---@param groups table[]
+---@return string
+---@return number
+---@return number
+local function getSpawnNewVisualizerSummary(groups)
+    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
+        settings.spawnNewVisualizerEnabledByModule = {}
+        settings.save()
+    end
+
+    local enabledCount = 0
+    local totalCount = 0
+    for _, group in ipairs(groups) do
+        for _, entry in ipairs(group.entries or {}) do
+            totalCount = totalCount + 1
+            if settings.spawnNewVisualizerEnabledByModule[entry.modulePath] == true then
+                enabledCount = enabledCount + 1
+            end
+        end
+    end
+
+    if totalCount == 0 then
+        return "No classes", enabledCount, totalCount
+    end
+
+    return string.format("%d / %d enabled", enabledCount, totalCount), enabledCount, totalCount
+end
+
+---@param groups table[]
+---@param state boolean
+---@return boolean
+local function setSpawnNewVisualizerDefaultsForAll(groups, state)
+    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
+        settings.spawnNewVisualizerEnabledByModule = {}
+    end
+
+    local changed = false
+    for _, group in ipairs(groups) do
+        for _, entry in ipairs(group.entries or {}) do
+            if settings.spawnNewVisualizerEnabledByModule[entry.modulePath] ~= state then
+                settings.spawnNewVisualizerEnabledByModule[entry.modulePath] = state
+                changed = true
+            end
+        end
+    end
+
+    if changed then
+        settings.save()
+    end
+
+    return changed
+end
+
+---@param groups table[]
+---@return boolean
+local function resetSpawnNewVisualizerDefaultsToClassDefaults(groups)
+    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
+        settings.spawnNewVisualizerEnabledByModule = {}
+    end
+
+    local changed = false
+    for _, group in ipairs(groups) do
+        for _, entry in ipairs(group.entries or {}) do
+            local defaultValue = entry.defaultPreviewed == true
+            if settings.spawnNewVisualizerEnabledByModule[entry.modulePath] ~= defaultValue then
+                settings.spawnNewVisualizerEnabledByModule[entry.modulePath] = defaultValue
+                changed = true
+            end
+        end
+    end
+
+    if changed then
+        settings.save()
+    end
+
+    return changed
+end
+
+---@param spawner spawner
+local function drawSpawnNewVisualizerDefaultSelector(spawner)
+    local groups = getSpawnNewVisualizerClassGroups(spawner)
+    local summaryLabel, _, totalCount = getSpawnNewVisualizerSummary(groups)
+
+    ImGui.SetNextWindowSizeConstraints(1, 1, 550 * style.viewSize, 520 * style.viewSize)
+    ImGui.SetNextItemWidth(math.max(280 * style.viewSize, 1))
+    if ImGui.BeginCombo("Active visualizers by default##spawnNewVisualizerDefaults", summaryLabel) then
+        style.styledTextWrapped("This only affects elements newly added from the Spawn New tab.", style.mutedColor)
+        style.mutedText("Saved/Favorites keep their own preview state.")
+        ImGui.Spacing()
+
+        if totalCount > 0 then
+            style.pushButtonNoBG(true)
+            if ImGui.Button(IconGlyphs.ExpandAllOutline .. "##spawnNewVisualizerEnableAll") then
+                setSpawnNewVisualizerDefaultsForAll(groups, true)
+            end
+            ImGui.SameLine()
+            if ImGui.Button(IconGlyphs.CollapseAllOutline .. "##spawnNewVisualizerDisableAll") then
+                setSpawnNewVisualizerDefaultsForAll(groups, false)
+            end
+            style.pushButtonNoBG(false)
+            ImGui.SameLine()
+            if ImGui.Button(IconGlyphs.Restore .. " Reset to defaults##spawnNewVisualizerResetDefaults") then
+                resetSpawnNewVisualizerDefaultsToClassDefaults(groups)
+            end
+
+            ImGui.Separator()
+            ImGui.Spacing()
+            for _, group in ipairs(groups) do
+                style.sectionHeaderStart(group.typeName)
+
+                for _, entry in ipairs(group.entries or {}) do
+                    local id = "##spawnNewVisualizerDefault_" .. tostring(entry.modulePath)
+                    local current = settings.spawnNewVisualizerEnabledByModule[entry.modulePath] == true
+                    local nextState, toggled = ImGui.Checkbox(entry.name .. id, current)
+
+                    if toggled then
+                        settings.spawnNewVisualizerEnabledByModule[entry.modulePath] = nextState
+                        settings.save()
+                    end
+
+                    style.tooltip("Module: " .. tostring(entry.modulePath))
+                end
+
+                style.sectionHeaderEnd(false)
+            end
+        else
+            style.mutedText("No Spawn New classes with visualizer controls were found.")
+        end
+
+        ImGui.EndCombo()
+    end
+
+    style.tooltip("Choose which Spawn New classes start with visualization helper enabled by default.")
+end
+
+---@param spawner spawner
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
 
@@ -313,7 +459,12 @@ function settingsUI.draw(spawner)
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)
-        style.sectionHeaderStart("AI SPOT PREVIEW")
+        style.sectionHeaderStart("Visualization Helpers")
+        drawSpawnNewVisualizerDefaultSelector(spawner)
+        style.sectionHeaderEnd()
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("AI Spot Preview")
         settings.defaultAISpotNPC, changed = ImGui.InputTextWithHint("Default AI Spot NPC Record", "Character.", settings.defaultAISpotNPC, 128)
         if changed then
             settings.defaultAISpotNPC = string.gsub(settings.defaultAISpotNPC, "[\128-\255]", "")
@@ -335,7 +486,7 @@ function settingsUI.draw(spawner)
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)
-        style.sectionHeaderStart("SPLINE PREVIEW")
+        style.sectionHeaderStart("Spline Preview")
         settings.defaultSplineCurveQuality, changed = ImGui.InputInt("Default Curve Quality", settings.defaultSplineCurveQuality, 1, 1)
         if changed then
             settings.defaultSplineCurveQuality = math.max(8, math.min(24, math.floor(settings.defaultSplineCurveQuality)))
@@ -345,7 +496,7 @@ function settingsUI.draw(spawner)
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)
-        style.sectionHeaderStart("COLLIDERS")
+        style.sectionHeaderStart("Colliders")
         settings.colliderColor, changed = ImGui.Combo("Collider color", settings.colliderColor, colliderColors, #colliderColors)
         if changed then settings.save() end
         style.sectionHeaderEnd()
