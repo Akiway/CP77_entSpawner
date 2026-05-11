@@ -334,7 +334,8 @@ function settingsUI.draw(spawner)
     end
 
     if ImGui.TreeNodeEx("Editing", ImGuiTreeNodeFlags.SpanFullWidth) then
-        if ImGui.RadioButton("Make cloned group original groups child", settings.moveCloneToParent == 1) then
+        style.mutedText("When duplicating a group, place the cloned group:")
+        if ImGui.RadioButton("Inside the original group", settings.moveCloneToParent == 1) then
             settings.moveCloneToParent = 1
             settings.save()
         end
@@ -342,11 +343,13 @@ function settingsUI.draw(spawner)
 
         ImGui.SameLine()
 
-        if ImGui.RadioButton("Move cloned group to groups parent", settings.moveCloneToParent == 2) then
+        if ImGui.RadioButton("At the same level as the original group", settings.moveCloneToParent == 2) then
             settings.moveCloneToParent = 2
             settings.save()
         end
         style.tooltip("When cloning a group, place the newly created group at the same level as the the one it was cloned from")
+        
+        ImGui.Dummy(0, 4 * style.viewSize)
 
         settings.draggingThreshold, changed = ImGui.InputFloat("Dragging Threshold", settings.draggingThreshold, 0, 100, "%.1f")
         if changed then

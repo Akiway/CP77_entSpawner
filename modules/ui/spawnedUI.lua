@@ -1285,13 +1285,15 @@ function spawnedUI.paste(elements, element)
         parent = element.parent
         index = utils.indexValue(parent.childs, element) + 1
         if element.expandable then
-            parent = element
-            index = 1
+            -- This setting is meant for group cloning only. Keep non-group paste behavior unchanged.
+            if settings.moveCloneToParent == 2 then
+                parent = element.parent
+                index = utils.indexValue(parent.childs, element) + 1
+            else
+                parent = element
+                index = 1
+            end
         end
-    end
-
-    if settings.moveCloneToParent == 2 then
-        parent = parent.parent or parent
     end
 
     for _, entry in ipairs(elements) do
