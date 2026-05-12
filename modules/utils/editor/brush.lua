@@ -24,6 +24,7 @@ local BRUSH_COLOR = 0xFF00CC66
 local BRUSH_FILL_COLOR = 0x3300CC66
 local BRUSH_LABEL_COLOR = 0xFFE6F2EA
 local BRUSH_TEMPLATE_SERIALIZE_REFRESH = 0.35
+local BRUSH_SURFACE_LOCK_HALF_DEPTH = 4.0
 
 ---@param values table
 local function clearArray(values)
@@ -41,6 +42,12 @@ local function getBrushRuntime(editor)
     runtime.targetCache = runtime.targetCache or {
         selectedGroup = nil,
         target = nil
+    }
+    runtime.targetExcludeCache = runtime.targetExcludeCache or {
+        selectedGroup = nil,
+        targetRef = nil,
+        cacheEpoch = -1,
+        excludeIds = nil
     }
     runtime.templateCache = runtime.templateCache or {
         sourceGroupId = nil,
@@ -204,6 +211,67 @@ local function resolveBrushTargetGroup(editor)
     runtime.targetCache.selectedGroup = selectedGroup
     runtime.targetCache.target = parent
     return parent
+end
+
+---@param editor editor
+---@param targetGroup positionableGroup?
+---@return table<number, boolean>?
+local function getBrushTargetExcludeIds(editor, targetGroup)
+    local runtime = getBrushRuntime(editor)
+    local cache = runtime.targetExcludeCache
+    local spawnedUI = editor.spawnedUI
+    local selectedGroup = editor.spawnUI and editor.spawnUI.selectedGroup or 0
+    local cacheEpoch = spawnedUI and tonumber(spawnedUI.cacheEpoch) or -1
+
+    if cache.selectedGroup == selectedGroup
+        and cache.targetRef == targetGroup
+        and cache.cacheEpoch == cacheEpoch then
+        return cache.excludeIds
+    end
+
+    local excludeIds = nil
+    if targetGroup and targetGroup.getDescendants then
+        excludeIds = {}
+        for _, descendant in ipairs(targetGroup:getDescendants() or {}) do
+            if descendant and descendant.id then
+                excludeIds[descendant.id] = true
+            end
+        end
+    end
+
+    cache.selectedGroup = selectedGroup
+    cache.targetRef = targetGroup
+    cache.cacheEpoch = cacheEpoch
+    cache.excludeIds = excludeIds
+
+    return excludeIds
+end
+
+---@param base table<number, boolean>?
+---@return table<number, boolean>
+local function makeMutableExcludeIds(base)
+    if not base then
+        return {}
+    end
+
+    return setmetatable({}, { __index = base })
+end
+
+---@param excludeIds table<number, boolean>?
+---@param entry element?
+local function extendExcludedSubtree(excludeIds, entry)
+    if not excludeIds or not entry or not entry.id then
+        return
+    end
+
+    excludeIds[entry.id] = true
+    if entry.getDescendants then
+        for _, descendant in ipairs(entry:getDescendants() or {}) do
+            if descendant and descendant.id then
+                excludeIds[descendant.id] = true
+            end
+        end
+    end
 end
 
 ---@param editor editor
@@ -415,40 +483,97 @@ local function collectBrushTemplates(editor, group)
 end
 
 ---@param editor editor
----@param hitCenter Vector4
 ---@param radius number
----@return Vector4
-local function getRandomPointInBrushCircle(editor, hitCenter, radius)
+---@return number, number
+local function getRandomDiskOffset(editor, radius)
     local angle = nextBrushRandom(editor) * math.pi * 2
     local distance = math.sqrt(nextBrushRandom(editor)) * radius
 
+    return math.cos(angle) * distance, math.sin(angle) * distance
+end
+
+---@param hitData {hit: boolean, result: table?}
+---@return Vector4
+local function getBrushSurfaceNormal(hitData)
+    local normal = hitData and hitData.result and hitData.result.normal or nil
+    if normal then
+        local candidate = Vector4.new(normal.x or 0, normal.y or 0, normal.z or 1, 0)
+        if candidate:Length() > 0.0001 then
+            return candidate:Normalize()
+        end
+    end
+
+    return Vector4.new(0, 0, 1, 0)
+end
+
+---@param normal Vector4
+---@return Vector4, Vector4
+local function getSurfaceTangents(normal)
+    local reference = math.abs(normal.z or 0) < 0.95 and Vector4.new(0, 0, 1, 0) or Vector4.new(1, 0, 0, 0)
+    local tangent = reference:Cross(normal)
+    if tangent:Length() <= 0.0001 then
+        tangent = Vector4.new(0, 1, 0, 0):Cross(normal)
+    end
+    if tangent:Length() <= 0.0001 then
+        tangent = Vector4.new(1, 0, 0, 0)
+    else
+        tangent = tangent:Normalize()
+    end
+
+    local bitangent = normal:Cross(tangent)
+    if bitangent:Length() <= 0.0001 then
+        bitangent = Vector4.new(0, 1, 0, 0)
+    else
+        bitangent = bitangent:Normalize()
+    end
+
+    return tangent, bitangent
+end
+
+---@param editor editor
+---@param center Vector4
+---@param tangent Vector4
+---@param bitangent Vector4
+---@param radius number
+---@return Vector4
+local function getRandomPointInBrushSurface(editor, center, tangent, bitangent, radius)
+    local offsetX, offsetY = getRandomDiskOffset(editor, radius)
+
     return Vector4.new(
-        hitCenter.x + math.cos(angle) * distance,
-        hitCenter.y + math.sin(angle) * distance,
-        hitCenter.z,
+        center.x + tangent.x * offsetX + bitangent.x * offsetY,
+        center.y + tangent.y * offsetX + bitangent.y * offsetY,
+        center.z + tangent.z * offsetX + bitangent.z * offsetY,
         0
     )
 end
 
 ---@param editor editor
 ---@param point Vector4
----@param fallbackZ number
+---@param normal Vector4
 ---@return Vector4
-local function projectPointToFloor(editor, point, fallbackZ)
+local function projectPointToSurface(editor, point, normal)
     if not editor.interface then
-        return Vector4.new(point.x, point.y, fallbackZ, 0)
+        return Vector4.new(point.x, point.y, point.z, 0)
     end
 
-    local origin = Vector4.new(point.x, point.y, point.z + 1000, 0)
-    local target = Vector4.new(point.x, point.y, point.z - 2000, 0)
+    local offset = utils.multVector(normal, BRUSH_SURFACE_LOCK_HALF_DEPTH)
+    local origin = Vector4.new(point.x + offset.x, point.y + offset.y, point.z + offset.z, 0)
+    local target = Vector4.new(point.x - offset.x, point.y - offset.y, point.z - offset.z, 0)
+
     local raycast = editor.interface:RaycastWithASingleGroup(origin, target, "PlayerBlocker")
+    if raycast and raycast:IsValid() then
+        local hitPoint = Vector4.Vector3To4(raycast.position)
+        return Vector4.new(hitPoint.x, hitPoint.y, hitPoint.z, 0)
+    end
+
+    raycast = editor.interface:RaycastWithASingleGroup(target, origin, "PlayerBlocker")
 
     if raycast and raycast:IsValid() then
         local hitPoint = Vector4.Vector3To4(raycast.position)
         return Vector4.new(hitPoint.x, hitPoint.y, hitPoint.z, 0)
     end
 
-    return Vector4.new(point.x, point.y, fallbackZ, 0)
+    return Vector4.new(point.x, point.y, point.z, 0)
 end
 
 ---@param instance positionable
@@ -630,15 +755,20 @@ local function paintBrushStroke(editor, hitData)
     end
 
     local created = {}
-    local excludeIds = {}
+    local targetExcludeIds = getBrushTargetExcludeIds(editor, targetParent)
+    local excludeIds = makeMutableExcludeIds(targetExcludeIds)
     local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
+    local surfaceNormal = getBrushSurfaceNormal(hitData)
+    local tangent, bitangent = getSurfaceTangents(surfaceNormal)
+
     for _, candidate in ipairs(candidates) do
-        local randomPoint = getRandomPointInBrushCircle(editor, center, radius)
-        local floorPoint = projectPointToFloor(editor, randomPoint, center.z)
-        local spawned = spawnBrushTemplate(editor, candidate, targetParent, floorPoint, excludeIds)
+        local randomPoint = getRandomPointInBrushSurface(editor, center, tangent, bitangent, radius)
+        local surfacePoint = projectPointToSurface(editor, randomPoint, surfaceNormal)
+        local spawned = spawnBrushTemplate(editor, candidate, targetParent, surfacePoint, excludeIds)
         if spawned and spawned.parent then
             table.insert(created, spawned)
             excludeIds[spawned.id] = true
+            extendExcludedSubtree(targetExcludeIds, spawned)
         end
     end
 
@@ -928,7 +1058,9 @@ function brushTool.attach(editor)
 
         local ray = editor.getScreenToWorldRay()
         local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
-        local hit = editor.getRaySceneIntersection(ray, origin, nil, true)
+        local targetGroup = resolveBrushTargetGroup(editor)
+        local targetExcludeIds = getBrushTargetExcludeIds(editor, targetGroup)
+        local hit = editor.getRaySceneIntersection(ray, origin, targetExcludeIds, true)
         if not hit.hit or not hit.result then
             editor.brush.strokeCooldown = 0
             return
