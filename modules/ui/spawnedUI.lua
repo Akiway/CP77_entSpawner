@@ -2854,18 +2854,12 @@ local function drawBrushStatusTooltip(ready, sourceName, targetName, issues)
 
     ImGui.BeginTooltip()
 
-    if ready then
-        style.styledText("Ready: brush can be used.", style.successColor)
-    else
-        style.styledText("Not ready yet.", style.warnColor)
-    end
-
     style.mutedText("Source group:")
     ImGui.SameLine()
     if isAvailableName(sourceName) then
         ImGui.Text(sourceName)
     else
-        style.mutedText("None")
+        style.styledText("None", style.warnColor)
     end
 
     style.mutedText("Target group:")
@@ -2873,7 +2867,7 @@ local function drawBrushStatusTooltip(ready, sourceName, targetName, issues)
     if isAvailableName(targetName) then
         ImGui.Text(targetName)
     else
-        style.mutedText("None")
+        style.styledText("None", style.warnColor)
     end
 
     if issues and #issues > 0 then
@@ -3300,17 +3294,17 @@ function spawnedUI.drawTop()
         if not hasBrushSourceGroup then
             table.insert(brushIssues, "No randomized source group selected.")
         elseif not hasBrushSourceEntries then
-            table.insert(brushIssues, "Selected randomized group is empty.")
+            table.insert(brushIssues, "Selected randomized group is empty, add elements to paint.")
         end
 
         if not hasBrushTargetGroup then
-            table.insert(brushIssues, "No valid Spawn New target group set (root is invalid).")
+            table.insert(brushIssues, "No valid target group, set a normal group as \"Spawn New\" target (root is invalid).")
         end
 
         if brushReady then
-            style.styledText(IconGlyphs.Brush .. " Brush", style.successColor)
+            style.styledText(IconGlyphs.Brush .. " Ready", style.successColor)
         else
-            style.styledText(IconGlyphs.Brush .. " Brush", style.warnColor)
+            style.styledText(IconGlyphs.Brush .. " Not ready", style.warnColor)
         end
         drawBrushStatusTooltip(brushReady, sourceGroupName, targetGroupName, brushIssues)
         sameLineDummy(8)
@@ -3326,7 +3320,7 @@ function spawnedUI.drawTop()
             format = "%.1f",
             shiftFormat = "%.1f",
             suffix = " m",
-            width = 115
+            width = 70
         })
 
         if radiusChanged and editor.setBrushRadius then
@@ -3346,13 +3340,39 @@ function spawnedUI.drawTop()
             format = "%.1f",
             shiftFormat = "%.1f",
             suffix = " /s",
-            width = 115
+            width = 70
         })
 
         if intensityChanged and editor.setBrushIntensity then
             editor.setBrushIntensity(nextIntensity)
         end
         style.tooltip("Brush paint frequency (strokes per second)")
+
+        sameLineDummy(8)
+        local paintHidden = editor.getBrushPaintHidden and editor.getBrushPaintHidden() or false
+        local hiddenPaintLabel = IconGlyphs.DotsHexagon .. " Dot painting##brushPaintHidden"
+        local nextHiddenPaint, hiddenPaintChanged = style.toggleButton(hiddenPaintLabel, paintHidden)
+        if hiddenPaintChanged and editor.setBrushPaintHidden then
+            editor.setBrushPaintHidden(nextHiddenPaint)
+        end
+        style.tooltip("Paint hidden objects instead of rendering them, to help with performances.\nEach hidden spawn is shown as a dot marker.\nDots are cleared when Brush mode is disabled.")
+
+        local effectiveHiddenPaint = hiddenPaintChanged and nextHiddenPaint or paintHidden
+        if effectiveHiddenPaint then
+            ImGui.SameLine()
+            local dotColor = editor.getBrushHiddenDotColor and editor.getBrushHiddenDotColor() or { 0.0, 0.6, 1.0 }
+            local colorFlags = nil
+            if ImGuiColorEditFlags then
+                colorFlags = (ImGuiColorEditFlags.NoInputs or 0) + (ImGuiColorEditFlags.NoLabel or 0) + (ImGuiColorEditFlags.NoAlpha or 0)
+            end
+
+            local nextDotColor, dotColorChanged = style.trackedColor(nil, "##brushDotColor", dotColor, 14, colorFlags)
+            if dotColorChanged and editor.setBrushHiddenDotColor then
+                editor.setBrushHiddenDotColor(nextDotColor)
+            end
+            local dotColorPreview = dotColorChanged and nextDotColor or dotColor
+            style.tooltip("Dot color")
+        end
 
         ImGui.Dummy(0, 2 * style.viewSize)
         style.mutedText("Rotation variations")
@@ -3393,7 +3413,7 @@ function spawnedUI.drawTop()
             format = "%.2f",
             shiftFormat = "%.2f",
             prefix = "+/- ",
-            width = 90
+            width = 70
         })
         if scaleVariationChanged and editor.setBrushScaleVariation then
             editor.setBrushScaleVariation(nextScaleVariation)

@@ -74,6 +74,8 @@ local editor = {
         randomizeRotX = false,
         randomizeRotY = false,
         randomizeRotZ = false,
+        hiddenPaint = false,
+        hiddenDotColor = { 0.0, 0.6, 1.0 },
         scaleVariation = 0,
         rngState = nil
     }
@@ -1605,10 +1607,11 @@ function editor.onDraw()
     drawSpawnableStreamingRanges()
     drawElevatorDoorHelpers()
 
-    if editor.active and input.context.viewport.hovered then
+    if editor.active then
         if editor.isBrushActive() then
+            -- Keep brush overlays (hidden-dot markers) visible even when hovering WB UI.
             editor.updateBrush()
-        else
+        elseif input.context.viewport.hovered then
             editor.checkArrow()
             editor.updateDrag()
             editor.drawDepthSelect()

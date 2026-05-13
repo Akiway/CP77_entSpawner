@@ -2,7 +2,9 @@ local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
 local input = require("modules/utils/input")
+local settings = require("modules/utils/settings")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
+local colorUtil = require("modules/utils/color")
 
 local brushTool = {}
 
@@ -23,6 +25,10 @@ local BRUSH_DOWN_DIRECTION = nil
 local BRUSH_COLOR = 0xFF00CC66
 local BRUSH_FILL_COLOR = 0x3300CC66
 local BRUSH_LABEL_COLOR = 0xFFE6F2EA
+local BRUSH_DEFAULT_HIDDEN_DOT_COLOR = { 0.0, 0.6, 1.0 }
+local BRUSH_HIDDEN_DOT_ALPHA = 0.8
+local BRUSH_HIDDEN_DOT_RADIUS = 3.5
+local BRUSH_HIDDEN_DOT_INNER_RATIO = 0.45
 local BRUSH_TEMPLATE_SERIALIZE_REFRESH = 0.35
 local BRUSH_SURFACE_LOCK_HALF_DEPTH = 4.0
 
@@ -57,6 +63,7 @@ local function getBrushRuntime(editor)
         ruleKey = nil,
         candidates = nil
     }
+    runtime.hiddenDots = runtime.hiddenDots or {}
     runtime.moduleConstructors = runtime.moduleConstructors or {}
     runtime.scratchSelected = runtime.scratchSelected or {}
     runtime.scratchShown = runtime.scratchShown or {}
@@ -80,6 +87,12 @@ local function invalidateTemplateCache(editor)
 end
 
 ---@param editor editor
+local function clearHiddenBrushDots(editor)
+    local runtime = getBrushRuntime(editor)
+    clearArray(runtime.hiddenDots)
+end
+
+---@param editor editor
 local function ensureBrushState(editor)
     editor.brush = editor.brush or {}
     local brush = editor.brush
@@ -91,6 +104,8 @@ local function ensureBrushState(editor)
     if brush.randomizeRotX == nil then brush.randomizeRotX = false end
     if brush.randomizeRotY == nil then brush.randomizeRotY = false end
     if brush.randomizeRotZ == nil then brush.randomizeRotZ = false end
+    if brush.hiddenPaint == nil then brush.hiddenPaint = false end
+    brush.hiddenDotColor = colorUtil.normalizeRGB(brush.hiddenDotColor, BRUSH_DEFAULT_HIDDEN_DOT_COLOR)
     if brush.rngState == nil then brush.rngState = nil end
 
     brush.radius = tonumber(brush.radius) or BRUSH_DEFAULT_RADIUS
@@ -100,8 +115,94 @@ local function ensureBrushState(editor)
     getBrushRuntime(editor)
 end
 
+---@param editor editor
+---@return number[]
+local function getHiddenDotColor(editor)
+    return colorUtil.normalizeRGB(
+        editor.brush and editor.brush.hiddenDotColor,
+        BRUSH_DEFAULT_HIDDEN_DOT_COLOR
+    )
+end
+
+---@param position Vector4?
+---@return Vector4?
+local function clonePosition(position)
+    if not position then
+        return nil
+    end
+
+    return Vector4.new(position.x, position.y, position.z, position.w or 0)
+end
+
+---@param editor editor
+---@param instance element?
+---@param fallbackPosition Vector4?
+local function addHiddenBrushDot(editor, instance, fallbackPosition)
+    local position = nil
+    if instance and instance.getPosition then
+        position = clonePosition(instance:getPosition())
+    end
+
+    if not position then
+        position = clonePosition(fallbackPosition)
+    end
+
+    if not position then
+        return
+    end
+
+    local runtime = getBrushRuntime(editor)
+    table.insert(runtime.hiddenDots, { position = position })
+end
+
+---@param editor editor
+---@param screen projectedScreenContext
+---@param drawList table
+local function drawHiddenBrushDots(editor, screen, drawList)
+    local runtime = getBrushRuntime(editor)
+    local dots = runtime.hiddenDots
+    if #dots == 0 then
+        return
+    end
+
+    local viewSize = style.viewSize or 1
+    local radius = math.max(2.0, BRUSH_HIDDEN_DOT_RADIUS * viewSize)
+    local innerRadius = math.max(1.0, radius * BRUSH_HIDDEN_DOT_INNER_RATIO)
+    local dotColor = getHiddenDotColor(editor)
+    local markerColor = colorUtil.packAABBGGRR(dotColor, BRUSH_HIDDEN_DOT_ALPHA)
+    local markerInnerColor = colorUtil.packAABBGGRR(colorUtil.readableTextColor(dotColor, 3.0), 1.0)
+
+    for _, dot in ipairs(dots) do
+        local position = dot and dot.position or nil
+        if position then
+            projectedWireframe.drawWorldMarker(drawList, screen, position, {
+                color = markerColor,
+                labelColor = markerInnerColor,
+                radius = radius,
+                innerRadius = innerRadius,
+                clampToScreen = false
+            })
+        end
+    end
+end
+
 ---@return boolean
 local function isWorldBuilderWindowHovered()
+    if settings and settings.editorWidth and settings.editorWidth > 0 then
+        local mouseX, mouseY = ImGui.GetMousePos()
+        local screenWidth, screenHeight = GetDisplayResolution()
+        local insideVerticalBounds = mouseY >= 0 and mouseY <= screenHeight
+
+        if insideVerticalBounds then
+            if settings.editorDockLeft and mouseX >= 0 and mouseX <= settings.editorWidth then
+                return true
+            end
+            if not settings.editorDockLeft and mouseX >= (screenWidth - settings.editorWidth) and mouseX <= screenWidth then
+                return true
+            end
+        end
+    end
+
     if not input or not input.context then
         return false
     end
@@ -109,6 +210,46 @@ local function isWorldBuilderWindowHovered()
     local mainHovered = input.context.main and input.context.main.hovered
     local hierarchyHovered = input.context.hierarchy and input.context.hierarchy.hovered
     return mainHovered == true or hierarchyHovered == true
+end
+
+---@return boolean
+local function isMouseInViewportArea()
+    local mouseX, mouseY = ImGui.GetMousePos()
+    local screenWidth, screenHeight = GetDisplayResolution()
+
+    if mouseY < 0 or mouseY > screenHeight then
+        return false
+    end
+
+    local editorWidth = settings and tonumber(settings.editorWidth) or 0
+    if editorWidth > 0 then
+        if settings.editorDockLeft then
+            return mouseX > editorWidth and mouseX <= screenWidth
+        end
+
+        return mouseX >= 0 and mouseX < (screenWidth - editorWidth)
+    end
+
+    return mouseX >= 0 and mouseX <= screenWidth
+end
+
+---@return boolean
+local function isViewportInputAvailable()
+    local viewportHovered = input
+        and input.context
+        and input.context.viewport
+        and input.context.viewport.hovered == true
+
+    if not viewportHovered then
+        return false
+    end
+
+    local io = ImGui.GetIO and ImGui.GetIO() or nil
+    if io and io.WantCaptureMouse then
+        return false
+    end
+
+    return true
 end
 
 ---@return Vector4?
@@ -660,8 +801,9 @@ end
 ---@param parent positionableGroup
 ---@param position Vector4
 ---@param excludeIds table<number, boolean>
+---@param spawnHidden boolean?
 ---@return element?
-local function spawnBrushTemplate(editor, candidate, parent, position, excludeIds)
+local function spawnBrushTemplate(editor, candidate, parent, position, excludeIds, spawnHidden)
     if not candidate or not candidate.child then
         return nil
     end
@@ -689,7 +831,8 @@ local function spawnBrushTemplate(editor, candidate, parent, position, excludeId
     end
 
     local serialized = utils.deepcopy(candidate.serialized)
-    serialized.visible = true
+    local hidden = spawnHidden == true
+    serialized.visible = not hidden
     serialized.hiddenByParent = false
     serialized.selected = false
     serialized.locked = false
@@ -708,7 +851,7 @@ local function spawnBrushTemplate(editor, candidate, parent, position, excludeId
     end
 
     new:setSilent(false)
-    new:setVisible(true, true)
+    new:setVisible(not hidden, true)
     new:setParent(parent)
 
     local downDirection = getBrushDownDirection()
@@ -727,6 +870,10 @@ local function spawnBrushTemplate(editor, candidate, parent, position, excludeId
     end
 
     applyBrushTransformVariation(editor, new)
+
+    if hidden and new.setVisibleRecursive then
+        new:setVisibleRecursive(false, true)
+    end
 
     return new
 end
@@ -758,17 +905,21 @@ local function paintBrushStroke(editor, hitData)
     local targetExcludeIds = getBrushTargetExcludeIds(editor, targetParent)
     local excludeIds = makeMutableExcludeIds(targetExcludeIds)
     local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
+    local spawnHidden = editor.getBrushPaintHidden and editor.getBrushPaintHidden() or false
     local surfaceNormal = getBrushSurfaceNormal(hitData)
     local tangent, bitangent = getSurfaceTangents(surfaceNormal)
 
     for _, candidate in ipairs(candidates) do
         local randomPoint = getRandomPointInBrushSurface(editor, center, tangent, bitangent, radius)
         local surfacePoint = projectPointToSurface(editor, randomPoint, surfaceNormal)
-        local spawned = spawnBrushTemplate(editor, candidate, targetParent, surfacePoint, excludeIds)
+        local spawned = spawnBrushTemplate(editor, candidate, targetParent, surfacePoint, excludeIds, spawnHidden)
         if spawned and spawned.parent then
             table.insert(created, spawned)
             excludeIds[spawned.id] = true
             extendExcludedSubtree(targetExcludeIds, spawned)
+            if spawnHidden then
+                addHiddenBrushDot(editor, spawned, surfacePoint)
+            end
         end
     end
 
@@ -780,32 +931,32 @@ end
 ---@param editor editor
 ---@param hitData {hit: boolean, result: table?}
 local function drawBrushPreview(editor, hitData)
-    if not hitData or not hitData.hit or not hitData.result or not hitData.result.position then
-        return
-    end
-
     local screen, drawList = projectedWireframe.beginOverlay("##brushOverlay")
     if not screen then
         return
     end
 
-    local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
-    local center = hitData.result.position
-    projectedWireframe.drawWorldCircle(drawList, screen, center, radius, {
-        color = BRUSH_COLOR,
-        fillColor = BRUSH_FILL_COLOR,
-        thickness = 2.0,
-        segments = 56
-    })
-    projectedWireframe.drawWorldMarker(drawList, screen, center, {
-        color = BRUSH_COLOR,
-        labelColor = BRUSH_LABEL_COLOR,
-        text = string.format("Brush %.1f m", radius),
-        radius = 4.5 * style.viewSize,
-        innerRadius = 2.2 * style.viewSize,
-        badgeOffsetY = -16 * style.viewSize,
-        fontRatio = 0.78
-    })
+    drawHiddenBrushDots(editor, screen, drawList)
+
+    if hitData and hitData.hit and hitData.result and hitData.result.position then
+        local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
+        local center = hitData.result.position
+        projectedWireframe.drawWorldCircle(drawList, screen, center, radius, {
+            color = BRUSH_COLOR,
+            fillColor = BRUSH_FILL_COLOR,
+            thickness = 2.0,
+            segments = 56
+        })
+        projectedWireframe.drawWorldMarker(drawList, screen, center, {
+            color = BRUSH_COLOR,
+            labelColor = BRUSH_LABEL_COLOR,
+            text = string.format("Brush %.1f m", radius),
+            radius = 4.5 * style.viewSize,
+            innerRadius = 2.2 * style.viewSize,
+            badgeOffsetY = -16 * style.viewSize,
+            fontRatio = 0.78
+        })
+    end
 
     projectedWireframe.endOverlay()
 end
@@ -939,6 +1090,7 @@ function brushTool.attach(editor)
         runtime.selectionResolvedSourceId = nil
 
         if not nextState then
+            clearHiddenBrushDots(editor)
             return
         end
 
@@ -981,6 +1133,30 @@ function brushTool.attach(editor)
     function editor.setBrushIntensity(value)
         local intensity = tonumber(value) or BRUSH_DEFAULT_INTENSITY
         editor.brush.intensity = math.max(BRUSH_MIN_INTENSITY, math.min(BRUSH_MAX_INTENSITY, intensity))
+    end
+
+    ---Returns whether hidden paint mode is enabled.
+    ---@return boolean
+    function editor.getBrushPaintHidden()
+        return editor.brush.hiddenPaint == true
+    end
+
+    ---Enables/disables hidden paint mode.
+    ---@param state boolean
+    function editor.setBrushPaintHidden(state)
+        editor.brush.hiddenPaint = state == true
+    end
+
+    ---Returns the current hidden-dot RGB color.
+    ---@return number[]
+    function editor.getBrushHiddenDotColor()
+        return getHiddenDotColor(editor)
+    end
+
+    ---Sets hidden-dot RGB color.
+    ---@param value table
+    function editor.setBrushHiddenDotColor(value)
+        editor.brush.hiddenDotColor = colorUtil.normalizeRGB(value, BRUSH_DEFAULT_HIDDEN_DOT_COLOR)
     end
 
     ---Returns whether random rotation for a specific axis is enabled.
@@ -1037,22 +1213,24 @@ function brushTool.attach(editor)
             return
         end
 
-        if isWorldBuilderWindowHovered() then
+        if not isMouseInViewportArea() or isWorldBuilderWindowHovered() or not isViewportInputAvailable() then
             editor.brush.strokeCooldown = 0
+            drawBrushPreview(editor, nil)
             return
         end
 
         validateBrushSourceGroup(editor)
         editor.captureBrushSourceFromSelection(false)
 
-        if not editor.brush.sourceGroup then
+        local player = GetPlayer()
+        if not player then
             editor.brush.strokeCooldown = 0
             return
         end
 
-        local player = GetPlayer()
-        if not player then
+        if not editor.brush.sourceGroup then
             editor.brush.strokeCooldown = 0
+            drawBrushPreview(editor, nil)
             return
         end
 
@@ -1061,12 +1239,11 @@ function brushTool.attach(editor)
         local targetGroup = resolveBrushTargetGroup(editor)
         local targetExcludeIds = getBrushTargetExcludeIds(editor, targetGroup)
         local hit = editor.getRaySceneIntersection(ray, origin, targetExcludeIds, true)
+        drawBrushPreview(editor, hit)
         if not hit.hit or not hit.result then
             editor.brush.strokeCooldown = 0
             return
         end
-
-        drawBrushPreview(editor, hit)
 
         local dt = editor.camera and editor.camera.deltaTime or 0.016
         editor.brush.strokeCooldown = math.max(0, editor.brush.strokeCooldown - dt)
