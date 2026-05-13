@@ -594,7 +594,9 @@ function quickElevatorSetupUI.install(device, options)
         ImGui.SetNextWindowSize(defaultWidth, defaultHeight, ImGuiCond.FirstUseEver)
         ImGui.SetNextWindowSizeConstraints(minWidth, minHeight, maxWidth, maxHeight)
 
-        if not ImGui.BeginPopupModal(quickElevatorSetupUI.POPUP_ID, true) then
+        local popupIsOpen = ImGui.BeginPopupModal(quickElevatorSetupUI.POPUP_ID, true)
+        if not popupIsOpen then
+            self.quickLiftSetupPopupWasOpen = false
             return
         end
 
@@ -621,6 +623,16 @@ function quickElevatorSetupUI.install(device, options)
             end
         end
 
+        local canGenerateElevatorNodeRef = self.object ~= nil and self.object.parent ~= nil
+        local popupJustOpened = not self.quickLiftSetupPopupWasOpen
+        self.quickLiftSetupPopupWasOpen = true
+        if popupJustOpened and canGenerateElevatorNodeRef and sanitizeConnectionValue(self.nodeRef) == "" then
+            local generatedNodeRef = sanitizeConnectionValue(registry.generate(self.object))
+            if generatedNodeRef ~= "" then
+                applyElevatorNodeRef(generatedNodeRef)
+            end
+        end
+
         style.mutedText("Elevator Node Ref")
         ImGui.SameLine()
         ImGui.SetCursorPosX(settingsLabelX)
@@ -637,7 +649,6 @@ function quickElevatorSetupUI.install(device, options)
         end
         ImGui.SameLine()
         style.pushButtonNoBG(true)
-        local canGenerateElevatorNodeRef = self.object ~= nil and self.object.parent ~= nil
         ImGui.BeginDisabled(not canGenerateElevatorNodeRef)
         if ImGui.Button(IconGlyphs.ReloadAlert .. "##liftSetupElevatorNodeRefGenerate") and canGenerateElevatorNodeRef then
             applyElevatorNodeRef(registry.generate(self.object))
