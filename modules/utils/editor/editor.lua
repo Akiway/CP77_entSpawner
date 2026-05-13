@@ -1635,25 +1635,31 @@ end
 ---Toggles editor mode and applies related side effects (camera, freefly, player modifiers).
 ---@param state boolean? Desired editor active state.
 function editor.toggle(state)
+    local wasEditorEnabled = editor.active == true
+    local editorEnabled = state == true
     local freefly = GetMod("freefly")
 
     if freefly then
-        if state and freefly.runtimeData.active then
+        if editorEnabled and freefly.runtimeData.active then
             freefly.runtimeData.active = false
             freefly.logic.toggleFlight(freefly, freefly.runtimeData.active)
             editor.freeflyWasActive = true
-        elseif not state and editor.freeflyWasActive then
+        elseif not editorEnabled and editor.freeflyWasActive then
             freefly.runtimeData.active = true
             freefly.logic.toggleFlight(freefly, freefly.runtimeData.active)
             editor.freeflyWasActive = false
         end
     end
 
-    editor.active = state
-    editor.camera.toggle(state)
+    editor.active = editorEnabled
+    editor.camera.toggle(editorEnabled)
     editor.baseUI.loadTabSize = true
 
-    if not state then
+    if editorEnabled ~= wasEditorEnabled and GameOptions and GameOptions.SetFloat then
+        GameOptions.SetFloat("World", "StreamingTeleportMagSq", editorEnabled and 2147483648.00 or 4096.000000)
+    end
+
+    if not editorEnabled then
         editor.setBrushActive(false)
         if editor.clearBrushSourceGroup then
             editor.clearBrushSourceGroup()
