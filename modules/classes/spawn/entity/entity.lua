@@ -344,31 +344,31 @@ local function normalizeInstanceDataPath(path)
     return normalized
 end
 
----@param value any
----@param object positionable
----@return string
-local function resolveNodeRefDisplayValue(value, object)
-    local raw = tostring(value or "")
-    if raw == "" or string.find(raw, "%D") then
-        return raw
+---@param object positionable?
+---@return string?
+local function resolveElevatorFloorMarkerNodeRefFromSibling(object)
+    if not object or not object.parent or not object.spawnable then
+        return nil
     end
 
-    if not object or not object.getRootParent then
-        return raw
+    if tostring(object.spawnable.deviceClassName or "") ~= "ElevatorFloorTerminalControllerPS" then
+        return nil
     end
 
-    local root = object:getRootParent()
-    if not root or not root.name or not registry.refs[root.name] then
-        return raw
-    end
-
-    for ref, _ in pairs(registry.refs[root.name]) do
-        if utils.nodeRefStringToHashString(ref) == raw then
-            return ref
+    for _, sibling in ipairs(object.parent.childs or {}) do
+        if sibling ~= object
+            and utils.isA(sibling, "spawnableElement")
+            and sibling.spawnable
+            and sibling.spawnable.modulePath == "meta/staticMarker" then
+            local nodeRef = tostring(sibling.spawnable.nodeRef or "")
+            nodeRef = nodeRef:gsub("^%s+", ""):gsub("%s+$", "")
+            if nodeRef ~= "" then
+                return nodeRef
+            end
         end
     end
 
-    return raw
+    return nil
 end
 
 local function clampCustomNumericProperty(key, value)
@@ -2002,13 +2002,22 @@ function entity:drawTableProp(componentID, key, data, path, max, modified, prope
         style.popStyleColor(modified)
         return
     elseif info.typeName == "NodeRef" then
+        local keyName = tostring(key)
+        local rawDisplayValue = tostring(data["$value"] or "")
+        local displayValue = registry.resolveDisplayRef(self.object, rawDisplayValue)
+        if keyName == "floorMarker" and displayValue == rawDisplayValue then
+            local siblingMarkerRef = resolveElevatorFloorMarkerNodeRefFromSibling(self.object)
+            if siblingMarkerRef and siblingMarkerRef ~= "" then
+                displayValue = siblingMarkerRef
+            end
+        end
+
         table.insert(path, "$value")
 
-        ImGui.Text(tostring(key))
+        ImGui.Text(keyName)
         ImGui.SameLine()
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(key) + max)
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(keyName) + max)
 
-        local displayValue = resolveNodeRefDisplayValue(data["$value"], self.object)
         local value, finished = registry.drawNodeRefSelector(style.getMaxWidth(250), displayValue, self.object, false)
         style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)

@@ -19,6 +19,25 @@ local registry = {
     dirty = true
 }
 
+---@param value any
+---@return string
+local function sanitizeRef(value)
+    local raw = tostring(value or "")
+    return raw:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+---@param candidateHash string
+---@param normalizedHash string
+---@param rawNumber number?
+---@return boolean
+local function hashMatches(candidateHash, normalizedHash, rawNumber)
+    if candidateHash == normalizedHash then
+        return true
+    end
+
+    return rawNumber ~= nil and tonumber(candidateHash) == rawNumber
+end
+
 ---Bind the registry to the active spawned UI tree.
 ---This should be called once after the main spawner UI is initialized.
 ---@param spawner spawner Root spawner object containing `baseUI.spawnedUI`.
@@ -94,6 +113,64 @@ function registry.getSpawnableByNodeRef(object, ref)
     return entry and entry.spawnable or nil
 end
 
+---Resolve a hash-like NodeRef value to a readable NodeRef string under the same root.
+---If `ref` is already textual (contains non-digits), it is returned unchanged.
+---@param object positionable?
+---@param ref string?
+---@return string
+function registry.resolveDisplayRef(object, ref)
+    local raw = sanitizeRef(ref)
+    if raw == "" then
+        return raw
+    end
+
+    local rawNumber = tonumber(raw)
+    local normalizedHash = raw
+    if rawNumber then
+        normalizedHash = string.format("%.0f", rawNumber)
+    elseif raw:find("%D") then
+        return raw
+    end
+
+    if not object or not object.getRootParent then
+        return raw
+    end
+
+    registry.update()
+
+    local root = object:getRootParent()
+    if not root then
+        return raw
+    end
+
+    local rootRefs = root.name and registry.refs[root.name] or nil
+    if rootRefs then
+        for nodeRef, _ in pairs(rootRefs) do
+            local candidateHash = utils.nodeRefStringToHashString(nodeRef)
+            if hashMatches(candidateHash, normalizedHash, rawNumber) then
+                return nodeRef
+            end
+        end
+    end
+
+    if root.getPathsRecursive then
+        for _, path in ipairs(root:getPathsRecursive(true) or {}) do
+            local pathRef = path and path.ref or nil
+            if utils.isA(pathRef, "spawnableElement") and pathRef.spawnable then
+                local candidate = sanitizeRef(pathRef.spawnable.nodeRef)
+                if candidate ~= "" then
+                    local candidateHash = utils.nodeRefStringToHashString(candidate)
+                    if hashMatches(candidateHash, normalizedHash, rawNumber) then
+                        return candidate
+                    end
+                end
+            end
+        end
+    end
+
+    return raw
+end
+
 ---Generate a unique NodeRef for one object under its root group.
 ---Format: `$/<settings.nodeRefPrefix>/<parent>/#<root>_<name>` (prefix omitted when empty).
 ---When a collision exists in the same root group, a copy suffix is appended until unique.
@@ -131,6 +208,7 @@ end
 ---@return boolean finished True when user commits a value (selects, clears, or finishes text edit).
 function registry.drawNodeRefSelector(width, ref, object, record)
     local finished = false
+    ref = registry.resolveDisplayRef(object, ref)
 
     ImGui.SetNextItemWidth(width * style.viewSize)
     if (ImGui.BeginCombo("##nodeRefSelector", ref)) then
