@@ -8,12 +8,14 @@ local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 
 local minScriptVersion = "1.0.4"
 local sectorCategory
+local ELEVATOR_FLOOR_TERMINAL_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
 local serializedGroupModulePaths = {
     ["modules/classes/editor/positionableGroup"] = true,
     ["modules/classes/editor/randomizedGroup"] = true
 }
 local issueOrder = {
     "nodeRefDuplicated",
+    "missingElevatorFloorSetup",
     "noOutlineMarkers",
     "noSplineMarker",
     "spotEmptyRef",
@@ -45,6 +47,7 @@ exportUI = {
     exportHovered = false,
     exportIssues = {
         nodeRefDuplicated = {},
+        missingElevatorFloorSetup = {},
         noOutlineMarkers = {},
         noSplineMarker = {},
         spotEmptyRef = {},
@@ -923,6 +926,37 @@ function exportUI.drawIssues()
             ImGui.EndPopup()
         end
     end
+    if exportUI.getCurrentIssue() == "missingElevatorFloorSetup" then
+        ImGui.OpenPopup("Missing Elevator Floor Setup")
+        if ImGui.BeginPopupModal("Missing Elevator Floor Setup", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.Text("Persistent elevator floor terminal data is missing and export cannot safely create .psrep entries.")
+
+            ImGui.Separator()
+
+            for _, entry in pairs(exportUI.exportIssues.missingElevatorFloorSetup) do
+                style.mutedText("Node Name:")
+                ImGui.SameLine()
+                ImGui.Text(entry.name)
+
+                style.mutedText("Group:")
+                ImGui.SameLine()
+                ImGui.Text(entry.group)
+
+                style.mutedText("NodeRef:")
+                ImGui.SameLine()
+                ImGui.Text(entry.nodeRef ~= "" and entry.nodeRef or "(empty)")
+
+                style.mutedText("Issue:")
+                ImGui.SameLine()
+                ImGui.Text(entry.reason)
+
+                ImGui.Separator()
+            end
+
+            drawIssueButtons("missingElevatorFloorSetup")
+            ImGui.EndPopup()
+        end
+    end
     if exportUI.getCurrentIssue() == "noOutlineMarkers" then
         ImGui.OpenPopup("Missing Outline Markers")
         if ImGui.BeginPopupModal("Missing Outline Markers", true, ImGuiWindowFlags.AlwaysAutoResize) then
@@ -1285,6 +1319,33 @@ function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)
     return nodeRefMap[nodeRef]
 end
 
+---@param value any
+---@return string
+local function sanitizeValue(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    sanitized = sanitized:gsub("[\128-\255]", "")
+    return sanitized
+end
+
+---@param object table
+---@param reason string
+local function addMissingElevatorFloorSetupIssue(object, reason)
+    local ref = object and object.ref
+    local spawnable = ref and ref.spawnable
+    if not spawnable then
+        return
+    end
+
+    local root = ref and ref.getRootParent and ref:getRootParent() or nil
+    table.insert(exportUI.exportIssues.missingElevatorFloorSetup, {
+        name = tostring(ref and ref.name or "Unknown"),
+        group = tostring(root and root.name or "Unknown"),
+        nodeRef = sanitizeValue(spawnable.nodeRef),
+        reason = tostring(reason or "Missing elevator floor setup")
+    })
+end
+
 function exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
     local hash = utils.nodeRefStringToHashString(object.ref.spawnable.nodeRef)
 
@@ -1314,12 +1375,22 @@ function exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
     }
 
     if object.ref.spawnable.persistent and object.ref.spawnable.nodeRef ~= "" then
-        local PSID = PersistentID.ForComponent(entEntityID.new({ hash = loadstring("return " .. hash .. "ULL", "")() }), object.ref.spawnable.controllerComponent):ToHash()
-        PSID = tostring(PSID):gsub("ULL", "")
-
         local psData = object.ref.spawnable:getPSData()
+        local className = sanitizeValue(object.ref.spawnable.deviceClassName)
+        local isElevatorFloorTerminal = className == ELEVATOR_FLOOR_TERMINAL_CONTROLLER_CLASS
+
+        if isElevatorFloorTerminal then
+            if type(psData) ~= "table" then
+                addMissingElevatorFloorSetupIssue(object, "Persistent data is missing")
+            elseif type(psData.elevatorFloorSetup) ~= "table" then
+                addMissingElevatorFloorSetupIssue(object, "persistentState.Data.elevatorFloorSetup is missing")
+            end
+        end
 
         if psData then
+            local PSID = PersistentID.ForComponent(entEntityID.new({ hash = loadstring("return " .. hash .. "ULL", "")() }), object.ref.spawnable.controllerComponent):ToHash()
+            PSID = tostring(PSID):gsub("ULL", "")
+
             psEntries[PSID] = {
                 PSID = PSID,
                 instanceData = psData

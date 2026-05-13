@@ -217,7 +217,7 @@ function quickElevatorSetupUI.install(device, options)
             "NodeRef...",
             terminalNodeRefFieldWidth
         )
-        if nodeRefChanged and nodeRefFinished then
+        if nodeRefFinished then
             applyTerminalNodeRef(editedNodeRef)
         end
         if entry.rawNodeRef and entry.nodeRef and entry.rawNodeRef ~= entry.nodeRef then
@@ -314,7 +314,7 @@ function quickElevatorSetupUI.install(device, options)
         )
         ImGui.EndDisabled()
         style.tooltip("NodeRef used by this ground marker and this floor terminal connection.")
-        if markerNodeRefChanged and markerNodeRefFinished then
+        if markerNodeRefFinished then
             applyMarkerNodeRef(editedMarkerNodeRef)
         end
         ImGui.SameLine()
@@ -515,7 +515,7 @@ function quickElevatorSetupUI.install(device, options)
                     "Door NodeRef...",
                     getRowFieldWidth({ IconGlyphs.ReloadAlert, IconGlyphs.DeleteOutline })
                 )
-                if doorNodeRefChanged and doorNodeRefFinished then
+                if doorNodeRefFinished then
                     self:updateLiftFloorDoorNodeRef(entry, doorEntry, editedDoorNodeRef)
                 end
                 style.tooltip("NodeRef used by the door and this floor terminal connection.")
@@ -639,7 +639,7 @@ function quickElevatorSetupUI.install(device, options)
             "NodeRef...",
             elevatorNodeRefFieldWidth
         )
-        if elevatorNodeRefChanged and elevatorNodeRefFinished then
+        if elevatorNodeRefFinished then
             applyElevatorNodeRef(editedElevatorNodeRef)
         end
         ImGui.SameLine()
