@@ -228,7 +228,7 @@ end
 function mesh:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.appSearch = self.appSearch or ""
-    self.appSearch = string.gsub(self.appSearch, "[\128-\255]", "")
+    self.appSearch = utils.stripNonASCII(self.appSearch)
     self:loadMeshResourceData(false)
 end
 

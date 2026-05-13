@@ -19,13 +19,6 @@ local registry = {
     dirty = true
 }
 
----@param value any
----@return string
-local function sanitizeRef(value)
-    local raw = tostring(value or "")
-    return raw:gsub("^%s+", ""):gsub("%s+$", "")
-end
-
 ---@param candidateHash string
 ---@param normalizedHash string
 ---@param rawNumber number?
@@ -119,7 +112,7 @@ end
 ---@param ref string?
 ---@return string
 function registry.resolveDisplayRef(object, ref)
-    local raw = sanitizeRef(ref)
+    local raw = utils.trimString(ref)
     if raw == "" then
         return raw
     end
@@ -157,7 +150,7 @@ function registry.resolveDisplayRef(object, ref)
         for _, path in ipairs(root:getPathsRecursive(true) or {}) do
             local pathRef = path and path.ref or nil
             if utils.isA(pathRef, "spawnableElement") and pathRef.spawnable then
-                local candidate = sanitizeRef(pathRef.spawnable.nodeRef)
+                local candidate = utils.trimString(pathRef.spawnable.nodeRef)
                 if candidate ~= "" then
                     local candidateHash = utils.nodeRefStringToHashString(candidate)
                     if hashMatches(candidateHash, normalizedHash, rawNumber) then

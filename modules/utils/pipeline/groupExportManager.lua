@@ -239,8 +239,7 @@ end
 ---@param variantName string?
 ---@return string, boolean
 local function normalizeVariantName(variantName)
-    local normalized = tostring(variantName or "")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
+    local normalized = utils.trimString(variantName)
 
     if normalized == "" or normalized:lower() == "default" then
         return "default", true

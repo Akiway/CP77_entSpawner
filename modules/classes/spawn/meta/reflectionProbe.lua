@@ -33,7 +33,7 @@ local reflection = setmetatable({}, { __index = visualized })
 ---@param value string?
 ---@return string
 local function normalizeProbePath(value)
-    return tostring(value or ""):gsub("/", "\\")
+    return utils.normalizePath(value, { separator = "backslash" })
 end
 
 function reflection:new()
@@ -115,7 +115,7 @@ function reflection:getFilteredEnvProbeOptions(searchValue)
     self:loadEnvProbeOptions()
 
     local options = self.envProbeOptions or {}
-    local query = string.lower(tostring(searchValue or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+    local query = string.lower(utils.trimString(searchValue))
     if query == "" then
         self.envProbeFilterCache = {
             query = "",

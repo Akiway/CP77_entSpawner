@@ -28,17 +28,11 @@ local workspotRigStoreLoaded = false
 local COMMUNITY_ATTACH_POPUP_ID = "Add Workspot To Community"
 
 local function normalizeRigPath(path)
-    if not path or path == "" then
-        return nil
-    end
-
-    local normalized = tostring(path):gsub("/", "\\")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
-    if normalized == "" then
-        return nil
-    end
-
-    return normalized:lower()
+    return utils.normalizePath(path, {
+        separator = "backslash",
+        lowercase = true,
+        emptyAsNil = true
+    })
 end
 
 local function normalizeRigList(rigs)
@@ -174,7 +168,7 @@ local function ensureCharacterRecordsLoaded()
     end
 
     for line in file:lines() do
-        local record = tostring(line or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        local record = utils.trimString(line)
         if record:match("^Character%.") then
             table.insert(characterRecords, record)
         end
@@ -320,15 +314,7 @@ end
 local aiSpot = setmetatable({}, { __index = visualized })
 
 local function sanitizePreviewValue(value, fallback)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-
-    if sanitized == "" then
-        return fallback or ""
-    end
-
-    return sanitized
+    return utils.sanitizeText(value, fallback or "")
 end
 
 ---@param cname any
@@ -672,12 +658,12 @@ end
 function aiSpot:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
-    self.previewNPC = string.gsub(self.previewNPC, "[\128-\255]", "")
+    self.previewNPC = utils.stripNonASCII(self.previewNPC)
     self.previewNPCAppearance = sanitizePreviewValue(self.previewNPCAppearance, settings.defaultAISpotAppearance or "default")
     self.previewNPCSearch = self.previewNPCSearch or ""
     self.previewNPCAppearanceSearch = self.previewNPCAppearanceSearch or ""
-    self.previewNPCSearch = string.gsub(self.previewNPCSearch, "[\128-\255]", "")
-    self.previewNPCAppearanceSearch = string.gsub(self.previewNPCAppearanceSearch, "[\128-\255]", "")
+    self.previewNPCSearch = utils.stripNonASCII(self.previewNPCSearch)
+    self.previewNPCAppearanceSearch = utils.stripNonASCII(self.previewNPCAppearanceSearch)
     self.communityAttachCommunity = self.communityAttachCommunity or ""
     self.communityAttachCommunitySearch = self.communityAttachCommunitySearch or ""
     self.communityAttachEntry = self.communityAttachEntry or ""

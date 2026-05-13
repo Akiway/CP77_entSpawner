@@ -23,12 +23,7 @@ function quickElevatorSetupUI.install(device, options)
     local liftControllerClass = tostring(options.liftControllerClass or "LiftControllerPS")
     local elevatorFloorControllerClass = tostring(options.elevatorFloorControllerClass or "ElevatorFloorTerminalControllerPS")
     local elevatorFloorTerminalComponentID = tostring(options.elevatorFloorTerminalComponentID or "1394923055520256000")
-    local sanitizeConnectionValue = options.sanitizeConnectionValue or function(value)
-        local sanitized = tostring(value or "")
-        sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-        sanitized = sanitized:gsub("[\128-\255]", "")
-        return sanitized
-    end
+    local sanitizeConnectionValue = options.sanitizeConnectionValue or utils.sanitizeText
     local boolToInt = options.boolToInt or function(value, defaultValue)
         if value == nil then
             value = defaultValue
@@ -112,11 +107,11 @@ function quickElevatorSetupUI.install(device, options)
                         and headerFloorSetup.floorDisplayName["$value"]
                         or ""
                     )
-                    headerFloorName = headerFloorName:gsub("^%s+", ""):gsub("%s+$", "")
+                    headerFloorName = utils.trimString(headerFloorName)
 
                     if headerFloorName ~= "" and headerFloorName ~= "None" then
                         local localizedHeaderFloorName = tostring(self:resolveLocKey(headerFloorName) or headerFloorName)
-                        localizedHeaderFloorName = localizedHeaderFloorName:gsub("^%s+", ""):gsub("%s+$", "")
+                        localizedHeaderFloorName = utils.trimString(localizedHeaderFloorName)
 
                         if localizedHeaderFloorName ~= "" and localizedHeaderFloorName ~= "None" then
                             floorHeaderLabel = string.format("%s | %s", folderName, localizedHeaderFloorName)

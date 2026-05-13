@@ -157,14 +157,8 @@ function entity:new()
 end
 
 ---Normalizes a device class name for lookup/caching (trim + strip non-ASCII).
----@param value any
----@return string
-local function sanitizeDeviceClassName(value)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-    return sanitized
-end
+---@type fun(value: any, fallback: any?): string
+local sanitizeDeviceClassName = utils.sanitizeText
 
 ---Public wrapper for device class normalization used across modules.
 ---@param value any
@@ -289,7 +283,7 @@ end
 function entity:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.appSearch = self.appSearch or ""
-    self.appSearch = string.gsub(self.appSearch, "[\128-\255]", "")
+    self.appSearch = utils.stripNonASCII(self.appSearch)
     self.deviceClassName = sanitizeDeviceClassName(self.deviceClassName)
     self:updateDeviceSecondaryIcon()
     self:loadAppearanceData(false)
@@ -360,8 +354,7 @@ local function resolveElevatorFloorMarkerNodeRefFromSibling(object)
             and utils.isA(sibling, "spawnableElement")
             and sibling.spawnable
             and sibling.spawnable.modulePath == "meta/staticMarker" then
-            local nodeRef = tostring(sibling.spawnable.nodeRef or "")
-            nodeRef = nodeRef:gsub("^%s+", ""):gsub("%s+$", "")
+            local nodeRef = utils.trimString(sibling.spawnable.nodeRef)
             if nodeRef ~= "" then
                 return nodeRef
             end
@@ -463,7 +456,7 @@ local function decodeLightChannelSelection(value)
         return selection
     end
 
-    local normalized = tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+    local normalized = utils.trimString(value)
     if normalized == "" or normalized == "0" then
         return selection
     end
@@ -474,7 +467,7 @@ local function decodeLightChannelSelection(value)
     end
 
     for token in normalized:gmatch("[^,]+") do
-        local key = tostring(token):gsub("^%s+", ""):gsub("%s+$", "")
+        local key = utils.trimString(token)
         local index = lightChannelNameToIndex[key]
         if index then
             selection[index] = true

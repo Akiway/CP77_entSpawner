@@ -644,7 +644,7 @@ end
 ---@param path string?
 ---@return string
 local function normalizeHierarchyAssetPath(path)
-    return tostring(path or ""):gsub("/", "\\"):gsub("^%s+", ""):gsub("%s+$", "")
+    return utils.normalizePath(path, { separator = "backslash" })
 end
 
 ---Splits an asset path into non-empty hierarchy segments.
@@ -683,7 +683,7 @@ end
 ---@param path string
 ---@return string?
 local function getPathOriginKeyFromPath(path)
-    local normalizedPath = tostring(path or ""):gsub("/", "\\"):gsub("^%s+", ""):gsub("%s+$", "")
+    local normalizedPath = utils.normalizePath(path, { separator = "backslash" })
     if normalizedPath == "" then
         return nil
     end

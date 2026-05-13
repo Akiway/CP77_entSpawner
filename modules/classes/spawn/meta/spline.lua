@@ -74,7 +74,7 @@ end
 function spline:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
-    self.previewCharacter = string.gsub(self.previewCharacter, "[\128-\255]", "")
+    self.previewCharacter = utils.stripNonASCII(self.previewCharacter)
     self.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
 
     self.pointDefs = {}

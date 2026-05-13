@@ -90,17 +90,6 @@ local function getIconPickerState(id)
     return iconPickerStates[pickerId], pickerId
 end
 
----Trim leading/trailing whitespace and normalize nil to empty string.
----@param value string? Raw text value.
----@return string trimmed
-local function trimText(value)
-    if not value then
-        return ""
-    end
-
-    return value:match("^%s*(.-)%s*$") or ""
-end
-
 ---Normalize text for case-insensitive token search.
 ---@param value string? Raw text.
 ---@return string normalized
@@ -109,7 +98,7 @@ local function normalizeSearchText(value)
     normalized = normalized:gsub("[%-%._/]+", " ")
     normalized = normalized:gsub("%s+", " ")
 
-    return trimText(normalized)
+    return utils.trimString(normalized)
 end
 
 ---Split comma-separated metadata text into trimmed non-empty values.
@@ -119,7 +108,7 @@ local function splitMetadataValues(rawValue)
     local values = {}
 
     for value in tostring(rawValue or ""):gmatch("([^,]+)") do
-        value = trimText(value)
+        value = utils.trimString(value)
         if value ~= "" then
             table.insert(values, value)
         end
@@ -132,7 +121,7 @@ end
 ---@param value string? Source text.
 ---@return string titleCased
 local function toTitleCaseWords(value)
-    local normalized = trimText(tostring(value or ""))
+    local normalized = utils.trimString(tostring(value or ""))
     normalized = normalized:gsub("([a-z0-9])([A-Z])", "%1 %2")
     normalized = normalized:gsub("([A-Z]+)([A-Z][a-z])", "%1 %2")
     normalized = normalized:gsub("[%-%._/]+", " ")
@@ -169,7 +158,7 @@ local function buildIconSearchMeta()
         local metadata = key and iconSearchMeta[key]
 
         if metadata then
-            local canonicalName = trimText(line:match("U%+[%x]+%s+([^,]+)"))
+            local canonicalName = utils.trimString(line:match("U%+[%x]+%s+([^,]+)"))
             local aliases = splitMetadataValues((line:match("aliases:%s*(.-)(, tags:|$)")))
             local tags = splitMetadataValues(line:match("tags:%s*(.+)$"))
             local searchParts = { key }

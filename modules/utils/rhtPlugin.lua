@@ -723,7 +723,7 @@ local function getRemovalPresetPath(removalEditor, currentFile)
     if debug and type(debug.getinfo) == "function" and type(addRemoval) == "function" then
         local ok, info = pcall(debug.getinfo, addRemoval, "S")
         if ok and info and type(info.source) == "string" then
-            local source = tostring(info.source):gsub("^@", ""):gsub("\\", "/")
+            local source = utils.normalizePath(tostring(info.source):gsub("^@", ""), { separator = "slash" })
             local modRoot = source:match("^(.*)/init%.lua$")
             if modRoot then
                 table.insert(candidates, modRoot .. "/data/" .. currentFile)

@@ -11,21 +11,11 @@ local style = require("modules/ui/style")
 ---@field public alwaysSpawned boolean
 local record = setmetatable({}, { __index = entity })
 
----Normalizes a record type prefix token (trim + strip non-ASCII).
----@param value any
----@return string
-local function sanitizeRecordTypePrefix(value)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-    return sanitized
-end
-
 ---Extracts the TweakDB record type prefix (for example `AttachableObject`) from a spawnData value.
 ---@param spawnData string?
 ---@return string
 function record.getTypePrefix(spawnData)
-    local cleaned = sanitizeRecordTypePrefix(spawnData)
+    local cleaned = utils.sanitizeText(spawnData)
     if cleaned == "" then
         return ""
     end
@@ -38,7 +28,7 @@ function record.getTypePrefix(spawnData)
         prefix = cleaned
     end
 
-    return sanitizeRecordTypePrefix(prefix)
+    return utils.sanitizeText(prefix)
 end
 
 function record:new()

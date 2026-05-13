@@ -84,7 +84,7 @@ function meshCollider:loadSpawnData(data, position, rotation)
         elseif #split == 2 then
             -- Backward-compat: old loader could split "sectorHash shapeHash meshType"
             -- into { deviceClassName = sectorHash, spawnData = "shapeHash meshType" }.
-            local maybeSectorHash = tostring(data.deviceClassName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            local maybeSectorHash = utils.trimString(data.deviceClassName)
             if maybeSectorHash ~= "" then
                 self.sectorHash = maybeSectorHash
                 self.shapeHash = split[1]

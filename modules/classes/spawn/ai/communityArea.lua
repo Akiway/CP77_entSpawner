@@ -20,13 +20,8 @@ local HIERARCHY_COLOR_PERIOD = 0xFF377fcd
 local HIERARCHY_COLOR_PHASE = 0xFF48c731
 local HIERARCHY_COLOR_ENTRY = 0xFFb7692d
 
-local function sanitizeValue(value)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-
-    return sanitized
-end
+---@type fun(value: any, fallback: any?): string
+local sanitizeValue = utils.sanitizeText
 
 local function ensureCharacterRecordsLoaded()
     if characterRecords ~= nil then

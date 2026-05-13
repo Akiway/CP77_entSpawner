@@ -18,6 +18,67 @@ function miscUtils.split(str, sep)
     return result
 end
 
+---Trims leading/trailing whitespace from any value converted to string.
+---@param value any
+---@return string
+function miscUtils.trimString(value)
+    local sanitized = tostring(value or "")
+    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
+    return sanitized
+end
+
+---Strips non-ASCII bytes from any value converted to string.
+---@param value any
+---@return string
+function miscUtils.stripNonASCII(value)
+    return tostring(value or ""):gsub("[\128-\255]", "")
+end
+
+---Normalizes free-form text for stable comparisons/storage (trim + ASCII-only).
+---When fallback is provided, it is used if the normalized value is empty.
+---@param value any
+---@param fallback any?
+---@return string
+function miscUtils.sanitizeText(value, fallback)
+    local sanitized = miscUtils.trimString(value)
+    sanitized = miscUtils.stripNonASCII(sanitized)
+
+    if sanitized == "" and fallback ~= nil then
+        return miscUtils.sanitizeText(fallback)
+    end
+
+    return sanitized
+end
+
+---Normalizes a path-like string for comparisons and keys.
+---@param path any
+---@param options table? { separator: "backslash"|"slash", lowercase: boolean, asciiOnly: boolean, emptyAsNil: boolean }
+---@return string|nil
+function miscUtils.normalizePath(path, options)
+    local opts = options or {}
+    local normalized = miscUtils.trimString(path)
+
+    if opts.separator == "backslash" then
+        normalized = normalized:gsub("/", "\\")
+    elseif opts.separator == "slash" then
+        normalized = normalized:gsub("\\", "/")
+    end
+
+    if opts.asciiOnly then
+        normalized = miscUtils.stripNonASCII(normalized)
+    end
+
+    if opts.lowercase then
+        normalized = normalized:lower()
+    end
+
+    if opts.emptyAsNil and normalized == "" then
+        return nil
+    end
+
+    return normalized
+end
+
 ---@alias vec3Like { x: number, y: number, z: number }
 ---@alias vec4Like { x: number, y: number, z: number, w: number? }
 ---@alias eulerLike { roll: number, pitch: number, yaw: number }

@@ -63,16 +63,6 @@ local function bumpWireframeEpoch(instance)
 	end
 end
 
----@param value string?
----@return string
-local function trimText(value)
-    if type(value) ~= "string" then
-        return ""
-    end
-
-    return value:match("^%s*(.-)%s*$") or ""
-end
-
 ---@param value number?
 ---@return number
 local function clamp01(value)
@@ -115,7 +105,7 @@ local function normalizeProjectData(project)
         return nil
     end
 
-    local name = trimText(project.name)
+    local name = type(project.name) == "string" and utils.trimString(project.name) or ""
     if name == "" then
         return nil
     end

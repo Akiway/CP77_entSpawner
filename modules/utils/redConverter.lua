@@ -64,10 +64,6 @@ local knownBitFieldDefinitions = {
     }
 }
 
-local function trimString(value)
-    return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
 local function getBitFieldDefinition(propType)
     if bitFieldDefinitionCache[propType] ~= nil then
         return bitFieldDefinitionCache[propType] or nil
@@ -182,7 +178,7 @@ local function parseBitFieldMask(propType, value)
         return nil
     end
 
-    local normalized = trimString(value)
+    local normalized = utils.trimString(value)
 
     if normalized == "" or normalized == "0" then
         return 0
@@ -203,7 +199,7 @@ local function parseBitFieldMask(propType, value)
     local used = {}
 
     for token in normalized:gmatch("[^,]+") do
-        local key = trimString(token)
+        local key = utils.trimString(token)
         local bitValue = definition.values[key]
 
         if bitValue and not used[key] then
@@ -304,7 +300,7 @@ local function convertBitField(propValue, propType)
     end
 
     if type(propValue) == "string" then
-        local normalized = trimString(propValue)
+        local normalized = utils.trimString(propValue)
 
         if normalized == "" then
             return "0"
@@ -328,7 +324,7 @@ local function convertBitField(propValue, propType)
         end
 
         if type(directValue) == "string" then
-            local normalized = trimString(directValue)
+            local normalized = utils.trimString(directValue)
 
             if normalized ~= "" then
                 return normalized

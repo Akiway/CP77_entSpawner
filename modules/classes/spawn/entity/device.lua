@@ -82,14 +82,8 @@ local propertyNames = {
 ---@field public controllerComponent string
 local device = setmetatable({}, { __index = entity })
 
----@param value any
----@return string
-local function sanitizeConnectionValue(value)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-    return sanitized
-end
+---@type fun(value: any, fallback: any?): string
+local sanitizeConnectionValue = utils.sanitizeText
 
 ---@param value any
 ---@param defaultValue number?
@@ -787,7 +781,7 @@ function device:normalizeElevatorFloorSetup(floorSetup, markerNodeRef)
             normalized.floorMarker["$value"] = sanitizeConnectionValue(normalized.floorMarker["$value"])
         else
             local markerValue = tostring(normalized.floorMarker["$value"] or "0")
-            markerValue = markerValue:gsub("^%s+", ""):gsub("%s+$", "")
+            markerValue = utils.trimString(markerValue)
             if markerValue == "" then
                 markerValue = "0"
             elseif string.find(markerValue, "%D") then

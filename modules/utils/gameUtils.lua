@@ -1,5 +1,6 @@
 local settings = require("modules/utils/settings")
 local Cron = require("modules/utils/Cron")
+local utils = require("modules/utils/utils")
 
 local gameUtils = {}
 local locKeyCache = {}
@@ -60,16 +61,12 @@ local function resolveTeleportRotation(player, fallbackRotation)
     return EulerAngles.new(0, 0, 0)
 end
 
-local function trimTextValue(value)
-    return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
 local function isLocKey(value)
-    return type(value) == "string" and string.match(trimTextValue(value), "^LocKey#%d+$") ~= nil
+    return type(value) == "string" and string.match(utils.trimString(value), "^LocKey#%d+$") ~= nil
 end
 
 local function isSecondaryKey(value)
-    return type(value) == "string" and string.match(trimTextValue(value), "^SecondaryKey#%d+$") ~= nil
+    return type(value) == "string" and string.match(utils.trimString(value), "^SecondaryKey#%d+$") ~= nil
 end
 
 local function isRawLocalizationKey(value)
@@ -77,7 +74,7 @@ local function isRawLocalizationKey(value)
         return false
     end
 
-    local normalized = trimTextValue(value)
+    local normalized = utils.trimString(value)
     if string.match(normalized, "^#%d+$") then
         return true
     end
@@ -91,7 +88,7 @@ local function isNamespacedLocalizationKey(value)
         return false
     end
 
-    local normalized = trimTextValue(value)
+    local normalized = utils.trimString(value)
     if normalized == "" or string.find(normalized, "%s") then
         return false
     end
@@ -229,7 +226,7 @@ function gameUtils.resolveLocKey(value, cache)
         return nil
     end
 
-    local key = trimTextValue(value)
+    local key = utils.trimString(value)
     if key == "" or key == "None" or key == "0" then
         return nil
     end
@@ -249,7 +246,7 @@ function gameUtils.resolveLocKey(value, cache)
             return nil, nil
         end
 
-        local normalized = trimTextValue(candidate)
+        local normalized = utils.trimString(candidate)
         if normalized == "" or normalized == currentKey then
             return nil, nil
         end

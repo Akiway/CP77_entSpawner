@@ -24,12 +24,10 @@ local version = 9
 ---@param path string|nil Raw path value.
 ---@return string normalizedPath Empty string when input is nil/blank.
 local function normalizeSpawnPath(path)
-    if not path then return "" end
-
-    local normalized = path:gsub("/", "\\")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
-
-    return string.lower(normalized)
+    return utils.normalizePath(path, {
+        separator = "backslash",
+        lowercase = true
+    })
 end
 
 local cacheKeySuffixes = {

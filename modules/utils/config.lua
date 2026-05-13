@@ -438,7 +438,7 @@ function config.loadLists(path, paths)
     ---@return string spawnPath
     local function parseSpawnListLine(line)
         local raw = tostring(line or "")
-        local trimmed = raw:gsub("^%s+", ""):gsub("%s+$", "")
+        local trimmed = utils.trimString(raw)
 
         if trimmed == "" then
             return "", ""
@@ -458,7 +458,7 @@ function config.loadLists(path, paths)
             return "", trimmed
         end
 
-        local normalizedRest = rest:gsub("^%s+", ""):gsub("%s+$", "")
+        local normalizedRest = utils.trimString(rest)
 
         -- Only treat first token as class prefix when the remainder is a real path.
         -- This preserves hash-style triplets used by Collision Mesh lists:

@@ -863,9 +863,9 @@ function style.trackedTextField(element, text, value, hint, width)
     ImGui.SetNextItemWidth(width * style.viewSize)
     local newValue, changed = ImGui.InputTextWithHint(text, hint, value, 500)
 
-    local finished = ImGui.IsItemDeactivatedAfterEdit()
+	local finished = ImGui.IsItemDeactivatedAfterEdit()
 	if finished then
-        newValue = string.gsub(newValue, "[\128-\255]", "")
+        newValue = utils.stripNonASCII(newValue)
 		dragBeingEdited = false
 	end
 	if changed and element and not dragBeingEdited then
@@ -971,8 +971,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
 
         local xButton, _ = ImGui.GetItemRectSize()
         local customValue = tostring(searchValue or "")
-        customValue = customValue:gsub("^%s+", ""):gsub("%s+$", "")
-        customValue = customValue:gsub("[\128-\255]", "")
+        customValue = utils.sanitizeText(customValue)
         local customExists = false
         if customValue ~= "" then
             if optionExistsFn then

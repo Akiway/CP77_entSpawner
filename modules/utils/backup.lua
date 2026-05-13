@@ -1,4 +1,5 @@
 local config = require("modules/utils/config")
+local utils = require("modules/utils/utils")
 
 local backup = {
     root = "backup",
@@ -13,7 +14,7 @@ local backup = {
 ---@param path string|nil Raw path that may include Windows separators.
 ---@return string normalizedPath
 local function normalizePath(path)
-    return (path or ""):gsub("\\", "/")
+    return utils.normalizePath(path, { separator = "slash" })
 end
 
 ---Checks whether a directory exists and can be listed.
@@ -170,28 +171,12 @@ local function isValidTimestamp(value)
     return type(value) == "string" and value ~= "" and value ~= "-"
 end
 
----Trims leading and trailing whitespace from a string.
----@param value string|nil Input value.
----@return string|nil trimmed Nil when input is not a non-empty string.
-local function trimString(value)
-    if type(value) ~= "string" then
-        return nil
-    end
-
-    local trimmed = value:match("^%s*(.-)%s*$")
-    if trimmed == "" then
-        return nil
-    end
-
-    return trimmed
-end
-
 ---Normalizes timestamp-like strings into `YYYY-MM-DD HH:MM:SS` when possible.
 ---@param value string|nil Timestamp candidate.
 ---@return string|nil normalizedTimestamp
 local function normalizeTimestampString(value)
-    local trimmed = trimString(value)
-    if not trimmed then
+    local trimmed = type(value) == "string" and utils.trimString(value) or nil
+    if trimmed == "" or not trimmed then
         return nil
     end
 
