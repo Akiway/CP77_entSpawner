@@ -29,6 +29,14 @@ local BRUSH_DEFAULT_HIDDEN_DOT_COLOR = { 0.0, 0.6, 1.0 }
 local BRUSH_HIDDEN_DOT_ALPHA = 0.8
 local BRUSH_HIDDEN_DOT_RADIUS = 3.5
 local BRUSH_HIDDEN_DOT_INNER_RATIO = 0.45
+local BRUSH_HIDDEN_DOT_MIN_RADIUS = 1.8
+local BRUSH_HIDDEN_DOT_MAX_RADIUS = 7.5
+local BRUSH_HIDDEN_DOT_DISTANCE_NEAR = 10.0
+local BRUSH_HIDDEN_DOT_DISTANCE_FAR = 150.0
+local BRUSH_HIDDEN_DOT_NEAR_SCALE = 1.5
+local BRUSH_HIDDEN_DOT_FAR_SCALE = 0.4
+local BRUSH_HIDDEN_DOT_CAMERA_RECALC_DISTANCE = 5
+local BRUSH_HIDDEN_DOT_CAMERA_RECALC_DISTANCE_SQ = BRUSH_HIDDEN_DOT_CAMERA_RECALC_DISTANCE * BRUSH_HIDDEN_DOT_CAMERA_RECALC_DISTANCE
 local BRUSH_TEMPLATE_SERIALIZE_REFRESH = 0.35
 local BRUSH_SURFACE_LOCK_HALF_DEPTH = 4.0
 
@@ -37,6 +45,14 @@ local function clearArray(values)
     for index = #values, 1, -1 do
         values[index] = nil
     end
+end
+
+---@param value number
+---@param minValue number
+---@param maxValue number
+---@return number
+local function clampNumber(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
 end
 
 ---@param editor editor
@@ -64,6 +80,13 @@ local function getBrushRuntime(editor)
         candidates = nil
     }
     runtime.hiddenDots = runtime.hiddenDots or {}
+    runtime.hiddenDotSizeCache = runtime.hiddenDotSizeCache or {
+        dirty = true,
+        lastViewSize = nil,
+        lastCameraX = nil,
+        lastCameraY = nil,
+        lastCameraZ = nil
+    }
     runtime.moduleConstructors = runtime.moduleConstructors or {}
     runtime.scratchSelected = runtime.scratchSelected or {}
     runtime.scratchShown = runtime.scratchShown or {}
@@ -90,6 +113,95 @@ end
 local function clearHiddenBrushDots(editor)
     local runtime = getBrushRuntime(editor)
     clearArray(runtime.hiddenDots)
+    runtime.hiddenDotSizeCache.dirty = true
+end
+
+---@param distance number
+---@param baseRadius number
+---@param minRadius number
+---@param maxRadius number
+---@return number
+local function getHiddenDotRadiusForDistance(distance, baseRadius, minRadius, maxRadius)
+    local nearDistance = BRUSH_HIDDEN_DOT_DISTANCE_NEAR
+    local farDistance = BRUSH_HIDDEN_DOT_DISTANCE_FAR
+    local t = 1.0
+
+    if farDistance > nearDistance then
+        t = clampNumber((distance - nearDistance) / (farDistance - nearDistance), 0.0, 1.0)
+    end
+
+    local scale = BRUSH_HIDDEN_DOT_NEAR_SCALE + ((BRUSH_HIDDEN_DOT_FAR_SCALE - BRUSH_HIDDEN_DOT_NEAR_SCALE) * t)
+    return clampNumber(baseRadius * scale, minRadius, maxRadius)
+end
+
+---@param dots table[]
+---@param sizeCache table
+---@param cameraWorld Vector4?
+---@param viewSize number
+local function recalculateHiddenDotSizes(dots, sizeCache, cameraWorld, viewSize)
+    local baseRadius = math.max(2.0, BRUSH_HIDDEN_DOT_RADIUS * viewSize)
+    local minRadius = math.max(1.0, BRUSH_HIDDEN_DOT_MIN_RADIUS * viewSize)
+    local maxRadius = math.max(minRadius, BRUSH_HIDDEN_DOT_MAX_RADIUS * viewSize)
+
+    for _, dot in ipairs(dots) do
+        local radius = baseRadius
+        local position = dot and dot.position or nil
+
+        if cameraWorld and position then
+            local dx = position.x - cameraWorld.x
+            local dy = position.y - cameraWorld.y
+            local dz = position.z - cameraWorld.z
+            local distance = math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+            radius = getHiddenDotRadiusForDistance(distance, baseRadius, minRadius, maxRadius)
+        else
+            radius = clampNumber(baseRadius, minRadius, maxRadius)
+        end
+
+        dot.radius = radius
+        dot.innerRadius = math.max(1.0, radius * BRUSH_HIDDEN_DOT_INNER_RATIO)
+    end
+
+    sizeCache.dirty = false
+    sizeCache.lastViewSize = viewSize
+
+    if cameraWorld then
+        sizeCache.lastCameraX = cameraWorld.x
+        sizeCache.lastCameraY = cameraWorld.y
+        sizeCache.lastCameraZ = cameraWorld.z
+    else
+        sizeCache.lastCameraX = nil
+        sizeCache.lastCameraY = nil
+        sizeCache.lastCameraZ = nil
+    end
+end
+
+---@param sizeCache table
+---@param cameraWorld Vector4?
+---@param viewSize number
+---@return boolean
+local function shouldRecalculateHiddenDotSizes(sizeCache, cameraWorld, viewSize)
+    if sizeCache.dirty then
+        return true
+    end
+
+    if sizeCache.lastViewSize == nil or math.abs(sizeCache.lastViewSize - viewSize) > 0.001 then
+        return true
+    end
+
+    if not cameraWorld then
+        return false
+    end
+
+    if sizeCache.lastCameraX == nil or sizeCache.lastCameraY == nil or sizeCache.lastCameraZ == nil then
+        return true
+    end
+
+    local dx = cameraWorld.x - sizeCache.lastCameraX
+    local dy = cameraWorld.y - sizeCache.lastCameraY
+    local dz = cameraWorld.z - sizeCache.lastCameraZ
+    local movedDistanceSq = (dx * dx) + (dy * dy) + (dz * dz)
+
+    return movedDistanceSq >= BRUSH_HIDDEN_DOT_CAMERA_RECALC_DISTANCE_SQ
 end
 
 ---@param editor editor
@@ -152,7 +264,8 @@ local function addHiddenBrushDot(editor, instance, fallbackPosition)
     end
 
     local runtime = getBrushRuntime(editor)
-    table.insert(runtime.hiddenDots, { position = position })
+    table.insert(runtime.hiddenDots, { position = position, radius = nil, innerRadius = nil })
+    runtime.hiddenDotSizeCache.dirty = true
 end
 
 ---@param editor editor
@@ -165,9 +278,22 @@ local function drawHiddenBrushDots(editor, screen, drawList)
         return
     end
 
-    local viewSize = style.viewSize or 1
-    local radius = math.max(2.0, BRUSH_HIDDEN_DOT_RADIUS * viewSize)
-    local innerRadius = math.max(1.0, radius * BRUSH_HIDDEN_DOT_INNER_RATIO)
+    local viewSize = tonumber(style.viewSize) or 1
+    if viewSize <= 0 then
+        viewSize = 1
+    end
+
+    local sizeCache = runtime.hiddenDotSizeCache
+    local cameraWorld = screen and screen.cameraWorld or nil
+    if shouldRecalculateHiddenDotSizes(sizeCache, cameraWorld, viewSize) then
+        recalculateHiddenDotSizes(dots, sizeCache, cameraWorld, viewSize)
+    end
+
+    local fallbackRadius = clampNumber(
+        math.max(2.0, BRUSH_HIDDEN_DOT_RADIUS * viewSize),
+        math.max(1.0, BRUSH_HIDDEN_DOT_MIN_RADIUS * viewSize),
+        math.max(1.0, BRUSH_HIDDEN_DOT_MAX_RADIUS * viewSize)
+    )
     local dotColor = getHiddenDotColor(editor)
     local markerColor = colorUtil.packAABBGGRR(dotColor, BRUSH_HIDDEN_DOT_ALPHA)
     local markerInnerColor = colorUtil.packAABBGGRR(colorUtil.readableTextColor(dotColor, 3.0), 1.0)
@@ -175,6 +301,8 @@ local function drawHiddenBrushDots(editor, screen, drawList)
     for _, dot in ipairs(dots) do
         local position = dot and dot.position or nil
         if position then
+            local radius = dot.radius or fallbackRadius
+            local innerRadius = dot.innerRadius or math.max(1.0, radius * BRUSH_HIDDEN_DOT_INNER_RATIO)
             projectedWireframe.drawWorldMarker(drawList, screen, position, {
                 color = markerColor,
                 labelColor = markerInnerColor,
