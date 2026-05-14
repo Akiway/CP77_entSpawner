@@ -2966,7 +2966,7 @@ function spawnedUI.drawTop()
         end
 
         if editor.active then
-            style.tooltip("Toggle Brush paint mode\nWorks with Randomized group\nHold LMB to Paint")
+            style.tooltip("Toggle Brush paint mode\nWorks with Randomized group\nHold LMB to Paint\nHold Shift + LMB to Erase")
         else
             style.tooltip("Brush is only available in 3D-Editor mode")
         end
@@ -3100,6 +3100,7 @@ function spawnedUI.drawTop()
                 ImGui.MenuItem("Open spawn new popup", "SHIFT-A")
                 ImGui.MenuItem("Open depth select menu", "SHIFT-D")
                 ImGui.MenuItem("Brush paint", "Hold LMB")
+                ImGui.MenuItem("Brush erase", "Hold SHIFT + LMB")
                 ImGui.MenuItem("Brush radius", "Drag field / CTRL+Click to type")
                 ImGui.MenuItem("Select / Confirm", "LMB")
                 ImGui.MenuItem("Box Select", "CTRL + LMB Drag")

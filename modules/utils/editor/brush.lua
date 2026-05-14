@@ -25,6 +25,8 @@ local BRUSH_DOWN_DIRECTION = nil
 local BRUSH_COLOR = 0xFF00CC66
 local BRUSH_FILL_COLOR = 0x3300CC66
 local BRUSH_LABEL_COLOR = 0xFFE6F2EA
+local BRUSH_ERASE_COLOR = 0xFF3B3BFF
+local BRUSH_ERASE_FILL_COLOR = 0x333B3BFF
 local BRUSH_DEFAULT_HIDDEN_DOT_COLOR = { 0.0, 0.6, 1.0 }
 local BRUSH_HIDDEN_DOT_ALPHA = 0.8
 local BRUSH_HIDDEN_DOT_RADIUS = 3.5
@@ -87,6 +89,14 @@ local function getBrushRuntime(editor)
         lastCameraY = nil,
         lastCameraZ = nil
     }
+    runtime.ownedElementSourceById = runtime.ownedElementSourceById or {}
+    runtime.ownedElementStampById = runtime.ownedElementStampById or {}
+    runtime.nextOwnershipStamp = runtime.nextOwnershipStamp or 0
+    runtime.cleanupCacheEpoch = runtime.cleanupCacheEpoch or -1
+    runtime.dotSyncState = runtime.dotSyncState or {
+        cacheEpoch = -1,
+        targetGroupId = -1
+    }
     runtime.moduleConstructors = runtime.moduleConstructors or {}
     runtime.scratchSelected = runtime.scratchSelected or {}
     runtime.scratchShown = runtime.scratchShown or {}
@@ -114,6 +124,8 @@ local function clearHiddenBrushDots(editor)
     local runtime = getBrushRuntime(editor)
     clearArray(runtime.hiddenDots)
     runtime.hiddenDotSizeCache.dirty = true
+    runtime.dotSyncState.cacheEpoch = -1
+    runtime.dotSyncState.targetGroupId = -1
 end
 
 ---@param distance number
@@ -249,14 +261,20 @@ end
 ---@param editor editor
 ---@param instance element?
 ---@param fallbackPosition Vector4?
-local function addHiddenBrushDot(editor, instance, fallbackPosition)
+---@param ownerId number?
+---@param ownerStamp number?
+local function addHiddenBrushDot(editor, instance, fallbackPosition, ownerId, ownerStamp)
     local position = nil
-    if instance and instance.getPosition then
-        position = clonePosition(instance:getPosition())
+    if fallbackPosition then
+        position = clonePosition(fallbackPosition)
     end
 
-    if not position then
-        position = clonePosition(fallbackPosition)
+    if not position and instance and instance.getCenter then
+        position = clonePosition(instance:getCenter())
+    end
+
+    if not position and instance and instance.getPosition then
+        position = clonePosition(instance:getPosition())
     end
 
     if not position then
@@ -264,8 +282,297 @@ local function addHiddenBrushDot(editor, instance, fallbackPosition)
     end
 
     local runtime = getBrushRuntime(editor)
-    table.insert(runtime.hiddenDots, { position = position, radius = nil, innerRadius = nil })
+    table.insert(runtime.hiddenDots, {
+        position = position,
+        radius = nil,
+        innerRadius = nil,
+        ownerId = ownerId,
+        ownerStamp = ownerStamp,
+        ownerRef = instance
+    })
     runtime.hiddenDotSizeCache.dirty = true
+end
+
+---@param editor editor
+---@param ownedIds table<number, boolean>
+---@param ownedStamps table<number, number>?
+local function removeHiddenBrushDotsByOwnerIds(editor, ownedIds, ownedStamps)
+    if not ownedIds then
+        return
+    end
+
+    local runtime = getBrushRuntime(editor)
+    local dots = runtime.hiddenDots
+    if #dots == 0 then
+        return
+    end
+
+    local removed = false
+    for index = #dots, 1, -1 do
+        local dot = dots[index]
+        local ownerId = dot and dot.ownerId or nil
+        local dotStamp = dot and tonumber(dot.ownerStamp) or nil
+        local ownerStamp = ownerId and ownedStamps and tonumber(ownedStamps[ownerId]) or nil
+        local stampMatches = (not dotStamp) or (not ownerStamp) or dotStamp == ownerStamp
+        if ownerId and ownedIds[ownerId] and stampMatches then
+            dots[index] = nil
+            table.remove(dots, index)
+            removed = true
+        end
+    end
+
+    if removed then
+        runtime.hiddenDotSizeCache.dirty = true
+    end
+end
+
+---@param editor editor
+---@param sourceGroupId number
+---@param entry element?
+---@param ownerStamp number?
+local function markBrushOwnedElement(editor, sourceGroupId, entry, ownerStamp)
+    if not sourceGroupId or not entry or not entry.id then
+        return
+    end
+
+    local runtime = getBrushRuntime(editor)
+    local stamp = tonumber(ownerStamp) or tonumber(entry._brushOwnerStamp) or 0
+    if stamp <= 0 then
+        runtime.nextOwnershipStamp = runtime.nextOwnershipStamp + 1
+        stamp = runtime.nextOwnershipStamp
+    end
+
+    runtime.ownedElementSourceById[entry.id] = sourceGroupId
+    runtime.ownedElementStampById[entry.id] = stamp
+    entry._brushOwnerSourceGroupId = sourceGroupId
+    entry._brushOwnerStamp = stamp
+end
+
+---@param editor editor
+---@param sourceGroupId number
+---@param entry element?
+---@param ownerStamp number?
+local function markBrushOwnedSubtree(editor, sourceGroupId, entry, ownerStamp)
+    if not sourceGroupId or not entry then
+        return
+    end
+
+    markBrushOwnedElement(editor, sourceGroupId, entry, ownerStamp)
+
+    if entry.getDescendants then
+        for _, descendant in ipairs(entry:getDescendants() or {}) do
+            markBrushOwnedElement(editor, sourceGroupId, descendant, ownerStamp)
+        end
+    end
+end
+
+---@param editor editor
+---@return number
+local function allocateBrushOwnershipStamp(editor)
+    local runtime = getBrushRuntime(editor)
+    runtime.nextOwnershipStamp = runtime.nextOwnershipStamp + 1
+    return runtime.nextOwnershipStamp
+end
+
+---@param editor editor
+---@param entry element?
+---@return number?, number?
+local function getBrushOwnerData(editor, entry)
+    if not entry or not entry.id then
+        return nil, nil
+    end
+
+    local runtime = getBrushRuntime(editor)
+    local sourceId = tonumber(entry._brushOwnerSourceGroupId) or tonumber(runtime.ownedElementSourceById[entry.id])
+    local stamp = tonumber(entry._brushOwnerStamp) or tonumber(runtime.ownedElementStampById[entry.id])
+    if not sourceId or sourceId <= 0 then
+        return nil, nil
+    end
+
+    if not stamp or stamp <= 0 then
+        -- Legacy ownership entries may be missing a stamp; mint one once for consistency.
+        runtime.nextOwnershipStamp = runtime.nextOwnershipStamp + 1
+        stamp = runtime.nextOwnershipStamp
+        runtime.ownedElementSourceById[entry.id] = sourceId
+        runtime.ownedElementStampById[entry.id] = stamp
+        entry._brushOwnerSourceGroupId = sourceId
+        entry._brushOwnerStamp = stamp
+    end
+
+    return sourceId, stamp
+end
+
+---@param entry element?
+---@return boolean
+local function isBrushRemovableEntry(entry)
+    if not entry or not entry.parent then
+        return false
+    end
+
+    if entry.lockedRemove == true then
+        return false
+    end
+
+    return not entry:isLocked()
+end
+
+---@param editor editor
+---@param entry element?
+---@param sourceGroupId number
+---@param ownerStamp number?
+---@return element?
+local function resolveBrushRemovableOwnerEntry(editor, entry, sourceGroupId, ownerStamp)
+    local current = entry
+    while current and current.parent do
+        local currentSourceId, currentStamp = getBrushOwnerData(editor, current)
+        if not currentSourceId or currentSourceId ~= sourceGroupId then
+            return nil
+        end
+        if ownerStamp and currentStamp and currentStamp ~= ownerStamp then
+            return nil
+        end
+
+        if isBrushRemovableEntry(current) then
+            return current
+        end
+
+        current = current.parent
+    end
+
+    return nil
+end
+
+---@param editor editor
+---@param targetGroup positionableGroup?
+local function syncHiddenBrushDotsForTarget(editor, targetGroup)
+    local runtime = getBrushRuntime(editor)
+    local state = runtime.dotSyncState
+    local spawnedUI = editor.spawnedUI
+    local cacheEpoch = spawnedUI and tonumber(spawnedUI.cacheEpoch) or -1
+    local targetGroupId = targetGroup and targetGroup.id or -1
+
+    if state.cacheEpoch == cacheEpoch and state.targetGroupId == targetGroupId then
+        return
+    end
+
+    state.cacheEpoch = cacheEpoch
+    state.targetGroupId = targetGroupId
+
+    clearArray(runtime.hiddenDots)
+    runtime.hiddenDotSizeCache.dirty = true
+
+    if not targetGroup then
+        return
+    end
+
+    for _, entry in ipairs(targetGroup:getDescendants() or {}) do
+        if entry
+            and entry.parent
+            and entry.id
+            and utils.isA(entry, "spawnableElement")
+            and (entry.visible == false or entry.hiddenByParent == true) then
+            local sourceId, stamp = getBrushOwnerData(editor, entry)
+            if sourceId and stamp then
+                local dotPosition = entry.getPosition and entry:getPosition() or nil
+                addHiddenBrushDot(editor, entry, dotPosition, entry.id, stamp)
+            end
+        end
+    end
+end
+
+---@param center Vector4?
+---@param point Vector4?
+---@param radiusSq number
+---@return boolean
+local function isPointInsideBrushRadius(center, point, radiusSq)
+    if not center or not point then
+        return false
+    end
+
+    local dx = point.x - center.x
+    local dy = point.y - center.y
+    local dz = point.z - center.z
+    return ((dx * dx) + (dy * dy) + (dz * dz)) <= radiusSq
+end
+
+---@return boolean
+local function isBrushEraseInputActive()
+    return ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
+end
+
+---@param editor editor
+local function pruneBrushRuntimeState(editor)
+    local runtime = getBrushRuntime(editor)
+    local spawnedUI = editor.spawnedUI
+    local cacheEpoch = spawnedUI and tonumber(spawnedUI.cacheEpoch) or -1
+
+    if runtime.cleanupCacheEpoch == cacheEpoch then
+        return
+    end
+
+    runtime.cleanupCacheEpoch = cacheEpoch
+    if not spawnedUI or not spawnedUI.paths then
+        return
+    end
+
+    local aliveEntriesById = {}
+    local ownersById = runtime.ownedElementSourceById
+    local ownerStampsById = runtime.ownedElementStampById
+    for _, pathEntry in pairs(spawnedUI.paths) do
+        local ref = pathEntry and pathEntry.ref or nil
+        if ref and ref.id then
+            aliveEntriesById[ref.id] = ref
+
+            local sourceId = tonumber(ref._brushOwnerSourceGroupId)
+            local stamp = tonumber(ref._brushOwnerStamp)
+            if sourceId and sourceId > 0 and stamp and stamp > 0 then
+                ownersById[ref.id] = sourceId
+                ownerStampsById[ref.id] = stamp
+            else
+                local mappedSourceId = tonumber(ownersById[ref.id])
+                local mappedStamp = tonumber(ownerStampsById[ref.id])
+                if mappedSourceId and mappedSourceId > 0 and mappedStamp and mappedStamp > 0 then
+                    ref._brushOwnerSourceGroupId = mappedSourceId
+                    ref._brushOwnerStamp = mappedStamp
+                end
+            end
+        end
+    end
+
+    local dots = runtime.hiddenDots
+    local removedDot = false
+    for index = #dots, 1, -1 do
+        local dot = dots[index]
+        local ownerId = dot and dot.ownerId or nil
+        local ownerRef = dot and dot.ownerRef or nil
+        local liveOwner = nil
+        if ownerRef and ownerRef.parent ~= nil then
+            liveOwner = ownerRef
+        elseif ownerId then
+            liveOwner = aliveEntriesById[ownerId]
+        end
+        local dotStamp = dot and tonumber(dot.ownerStamp) or 0
+        local liveStamp = liveOwner and tonumber(liveOwner._brushOwnerStamp or ownerStampsById[ownerId]) or 0
+        local removeDot = false
+
+        if not ownerId or not liveOwner then
+            removeDot = true
+        elseif liveOwner.parent == nil then
+            removeDot = true
+        elseif dotStamp > 0 and liveStamp > 0 and dotStamp ~= liveStamp then
+            removeDot = true
+        end
+
+        if removeDot then
+            dots[index] = nil
+            table.remove(dots, index)
+            removedDot = true
+        end
+    end
+
+    if removedDot then
+        runtime.hiddenDotSizeCache.dirty = true
+    end
 end
 
 ---@param editor editor
@@ -300,6 +607,14 @@ local function drawHiddenBrushDots(editor, screen, drawList)
 
     for _, dot in ipairs(dots) do
         local position = dot and dot.position or nil
+        local ownerRef = dot and dot.ownerRef or nil
+        if ownerRef and ownerRef.parent ~= nil and ownerRef.getPosition then
+            local ownerPosition = ownerRef:getPosition()
+            if ownerPosition then
+                position = ownerPosition
+                dot.position = clonePosition(ownerPosition)
+            end
+        end
         if position then
             local radius = dot.radius or fallbackRadius
             local innerRadius = dot.innerRadius or math.max(1.0, radius * BRUSH_HIDDEN_DOT_INNER_RATIO)
@@ -1030,6 +1345,7 @@ local function paintBrushStroke(editor, hitData)
     end
 
     local created = {}
+    local sourceGroupId = tonumber(editor.brush.sourceGroupId)
     local targetExcludeIds = getBrushTargetExcludeIds(editor, targetParent)
     local excludeIds = makeMutableExcludeIds(targetExcludeIds)
     local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
@@ -1043,11 +1359,31 @@ local function paintBrushStroke(editor, hitData)
         local spawned = spawnBrushTemplate(editor, candidate, targetParent, surfacePoint, excludeIds, spawnHidden)
         if spawned and spawned.parent then
             table.insert(created, spawned)
+            if sourceGroupId then
+                local ownerStamp = allocateBrushOwnershipStamp(editor)
+                markBrushOwnedSubtree(editor, sourceGroupId, spawned, ownerStamp)
+                if spawnHidden then
+                    local subtreeEntries = { spawned }
+                    if spawned.getDescendants then
+                        for _, descendant in ipairs(spawned:getDescendants() or {}) do
+                            table.insert(subtreeEntries, descendant)
+                        end
+                    end
+
+                    for _, hiddenEntry in ipairs(subtreeEntries) do
+                        if hiddenEntry
+                            and hiddenEntry.parent
+                            and hiddenEntry.id
+                            and utils.isA(hiddenEntry, "spawnableElement")
+                            and (hiddenEntry.visible == false or hiddenEntry.hiddenByParent == true) then
+                            local hiddenPos = hiddenEntry.getPosition and hiddenEntry:getPosition() or surfacePoint
+                            addHiddenBrushDot(editor, hiddenEntry, hiddenPos, hiddenEntry.id, ownerStamp)
+                        end
+                    end
+                end
+            end
             excludeIds[spawned.id] = true
             extendExcludedSubtree(targetExcludeIds, spawned)
-            if spawnHidden then
-                addHiddenBrushDot(editor, spawned, surfacePoint)
-            end
         end
     end
 
@@ -1058,7 +1394,137 @@ end
 
 ---@param editor editor
 ---@param hitData {hit: boolean, result: table?}
-local function drawBrushPreview(editor, hitData)
+local function eraseBrushStroke(editor, hitData)
+    local sourceGroupId = tonumber(editor.brush.sourceGroupId)
+    if not sourceGroupId then
+        return
+    end
+
+    local targetParent = resolveBrushTargetGroup(editor)
+    if not targetParent then
+        return
+    end
+
+    local center = hitData and hitData.result and hitData.result.position or nil
+    if not center then
+        return
+    end
+
+    local runtime = getBrushRuntime(editor)
+    local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
+    local entriesById = {}
+    for _, entry in ipairs(targetParent:getDescendants() or {}) do
+        if entry and entry.parent and entry.id then
+            entriesById[entry.id] = entry
+        end
+    end
+
+    local removeLookup = {}
+
+    -- Hidden paint removal: evaluate strictly against visible dot positions.
+    for _, dot in ipairs(runtime.hiddenDots or {}) do
+        local ownerId = dot and dot.ownerId or nil
+        if ownerId and not removeLookup[ownerId] then
+            local ownerEntry = dot and dot.ownerRef or nil
+            if not ownerEntry or ownerEntry.parent == nil then
+                ownerEntry = entriesById[ownerId]
+            end
+            local ownerSourceId, ownerStamp = getBrushOwnerData(editor, ownerEntry)
+            local dotStamp = dot and tonumber(dot.ownerStamp) or nil
+            if ownerSourceId and ownerSourceId == sourceGroupId then
+                if (not dotStamp) or (not ownerStamp) or ownerStamp == dotStamp then
+                    if isPointInsideBrushRadius(center, dot.position, radius * radius) then
+                        local targetEntry = resolveBrushRemovableOwnerEntry(editor, ownerEntry, sourceGroupId, ownerStamp)
+                        if targetEntry and targetEntry.id then
+                            removeLookup[targetEntry.id] = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Visible paint removal: remove owned visible spawnable elements based on actual element position.
+    for _, entry in pairs(entriesById) do
+        local entryId = entry.id
+        if entryId and not removeLookup[entryId] then
+            local ownerSourceId = select(1, getBrushOwnerData(editor, entry))
+            if ownerSourceId and ownerSourceId == sourceGroupId
+                and isBrushRemovableEntry(entry)
+                and utils.isA(entry, "spawnableElement")
+                and entry.visible ~= false
+                and entry.hiddenByParent ~= true then
+                local entryPosition = entry.getPosition and entry:getPosition() or nil
+                if isPointInsideBrushRadius(center, entryPosition, radius * radius) then
+                    removeLookup[entryId] = true
+                end
+            end
+        end
+    end
+
+    local removeList = {}
+    for entryId, shouldRemove in pairs(removeLookup) do
+        if shouldRemove then
+            local entry = entriesById[entryId]
+            if isBrushRemovableEntry(entry) then
+                local parent = entry.parent
+                local hasRemovedAncestor = false
+                while parent do
+                    if parent.id and removeLookup[parent.id] then
+                        hasRemovedAncestor = true
+                        break
+                    end
+                    parent = parent.parent
+                end
+
+                if not hasRemovedAncestor then
+                    table.insert(removeList, entry)
+                end
+            end
+        end
+    end
+
+    if #removeList == 0 then
+        return
+    end
+
+    local removedOwnedIds = {}
+    local removedOwnedStamps = {}
+    for _, entry in ipairs(removeList) do
+        if entry and entry.id then
+            removedOwnedIds[entry.id] = true
+            local entryStamp = tonumber(entry._brushOwnerStamp)
+            if entryStamp and entryStamp > 0 then
+                removedOwnedStamps[entry.id] = entryStamp
+            end
+        end
+        if entry and entry.getDescendants then
+            for _, descendant in ipairs(entry:getDescendants() or {}) do
+                if descendant and descendant.id then
+                    removedOwnedIds[descendant.id] = true
+                    local descendantStamp = tonumber(descendant._brushOwnerStamp)
+                    if descendantStamp and descendantStamp > 0 then
+                        removedOwnedStamps[descendant.id] = descendantStamp
+                    end
+                end
+            end
+        end
+    end
+
+    local removeAction = history.getRemove(removeList)
+    for _, entry in ipairs(removeList) do
+        if entry and entry.parent then
+            entry:remove()
+        end
+    end
+    history.addAction(removeAction)
+    removeHiddenBrushDotsByOwnerIds(editor, removedOwnedIds, removedOwnedStamps)
+end
+
+---@param editor editor
+---@param hitData {hit: boolean, result: table?}
+---@param eraseActive boolean?
+local function drawBrushPreview(editor, hitData, eraseActive)
     local screen, drawList = projectedWireframe.beginOverlay("##brushOverlay")
     if not screen then
         return
@@ -1069,16 +1535,18 @@ local function drawBrushPreview(editor, hitData)
     if hitData and hitData.hit and hitData.result and hitData.result.position then
         local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
         local center = hitData.result.position
+        local brushColor = eraseActive and BRUSH_ERASE_COLOR or BRUSH_COLOR
+        local brushFillColor = eraseActive and BRUSH_ERASE_FILL_COLOR or BRUSH_FILL_COLOR
         projectedWireframe.drawWorldCircle(drawList, screen, center, radius, {
-            color = BRUSH_COLOR,
-            fillColor = BRUSH_FILL_COLOR,
+            color = brushColor,
+            fillColor = brushFillColor,
             thickness = 2.0,
             segments = 56
         })
         projectedWireframe.drawWorldMarker(drawList, screen, center, {
-            color = BRUSH_COLOR,
+            color = brushColor,
             labelColor = BRUSH_LABEL_COLOR,
-            text = string.format("Brush %.1f m", radius),
+            text = string.format("%s %.1f m", eraseActive and "Erase" or "Brush", radius),
             radius = 4.5 * style.viewSize,
             innerRadius = 2.2 * style.viewSize,
             badgeOffsetY = -16 * style.viewSize,
@@ -1216,6 +1684,8 @@ function brushTool.attach(editor)
         runtime.selectionFirstId = nil
         runtime.selectionLastId = nil
         runtime.selectionResolvedSourceId = nil
+        runtime.dotSyncState.cacheEpoch = -1
+        runtime.dotSyncState.targetGroupId = -1
 
         if not nextState then
             clearHiddenBrushDots(editor)
@@ -1341,9 +1811,13 @@ function brushTool.attach(editor)
             return
         end
 
+        pruneBrushRuntimeState(editor)
+        local targetGroup = resolveBrushTargetGroup(editor)
+        syncHiddenBrushDotsForTarget(editor, targetGroup)
+        local eraseActive = isBrushEraseInputActive()
         if not isMouseInViewportArea() or isWorldBuilderWindowHovered() or not isViewportInputAvailable() then
             editor.brush.strokeCooldown = 0
-            drawBrushPreview(editor, nil)
+            drawBrushPreview(editor, nil, eraseActive)
             return
         end
 
@@ -1358,16 +1832,15 @@ function brushTool.attach(editor)
 
         if not editor.brush.sourceGroup then
             editor.brush.strokeCooldown = 0
-            drawBrushPreview(editor, nil)
+            drawBrushPreview(editor, nil, eraseActive)
             return
         end
 
         local ray = editor.getScreenToWorldRay()
         local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
-        local targetGroup = resolveBrushTargetGroup(editor)
         local targetExcludeIds = getBrushTargetExcludeIds(editor, targetGroup)
         local hit = editor.getRaySceneIntersection(ray, origin, targetExcludeIds, true)
-        drawBrushPreview(editor, hit)
+        drawBrushPreview(editor, hit, eraseActive)
         if not hit.hit or not hit.result then
             editor.brush.strokeCooldown = 0
             return
@@ -1378,7 +1851,11 @@ function brushTool.attach(editor)
 
         if ImGui.IsMouseDown(ImGuiMouseButton.Left) then
             if editor.brush.strokeCooldown <= 0 then
-                paintBrushStroke(editor, hit)
+                if eraseActive then
+                    eraseBrushStroke(editor, hit)
+                else
+                    paintBrushStroke(editor, hit)
+                end
                 editor.brush.strokeCooldown = editor.getBrushStrokeInterval()
             end
         else
