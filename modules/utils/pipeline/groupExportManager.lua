@@ -2,6 +2,7 @@ local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
 local Cron = require("modules/utils/Cron")
 local pipelineCommon = require("modules/utils/pipeline/common")
+local groupExportSidecar = require("modules/utils/pipeline/groupExportSidecar")
 
 local groupExportManager = {}
 local EXPORT_ERROR_LOG_PATH = "data/export_errors.log"
@@ -25,7 +26,17 @@ local function createExportRuntime(previous)
         completedGroups = 0,
         current = nil,
         project = nil,
+        projectPath = nil,
+        sidecarPath = nil,
         state = nil,
+        mode = "full", -- full|incremental
+        incremental = nil,
+        groupContributions = {},
+        incrementalStats = {
+            changed = 0,
+            unchanged = 0,
+            removed = 0
+        },
         request = nil,
         buildChunkSize = buildChunkSize,
         buildTimeBudgetMs = buildTimeBudgetMs,
@@ -156,7 +167,24 @@ local function queueBuildEntry(current, data, parent)
     current.buildTotal = current.buildTotal + 1
 end
 
-local function mergeGroupExportData(runtime, data, devices, psEntries, subChilds, communities, spots)
+local function registerGroupContribution(runtime, group, contribution)
+    if not runtime or not group or not group.name then
+        return
+    end
+
+    runtime.groupContributions[group.name] = {
+        signature = group.signature or "",
+        sectorName = contribution and contribution.sectorName or "",
+        deviceHashes = utils.deepcopy(contribution and contribution.deviceHashes or {}),
+        psEntryIds = utils.deepcopy(contribution and contribution.psEntryIds or {}),
+        childs = utils.deepcopy(contribution and contribution.childs or {}),
+        communities = utils.deepcopy(contribution and contribution.communities or {}),
+        spotNodes = utils.deepcopy(contribution and contribution.spotNodes or {}),
+        nodeRefs = utils.deepcopy(contribution and contribution.nodeRefs or {})
+    }
+end
+
+local function mergeGroupExportData(runtime, group, data, devices, psEntries, subChilds, communities, spots, duplicateNodes)
     local project = runtime.project
     local state = runtime.state
 
@@ -170,13 +198,221 @@ local function mergeGroupExportData(runtime, data, devices, psEntries, subChilds
         project.psEntries[psid] = entry
     end
 
-    utils.combine(state.communities, communities)
-    utils.combine(state.spotNodes, spots)
-    utils.combine(state.childs, subChilds)
+    utils.combine(state.communities, utils.deepcopy(communities or {}))
+    utils.combine(state.spotNodes, utils.deepcopy(spots or {}))
+    utils.combine(state.childs, utils.deepcopy(subChilds or {}))
 
     if runtime.request and runtime.request.collectDuplicateNodeRefs then
-        runtime.request.collectDuplicateNodeRefs(state.nodeRefs, data.nodes)
+        runtime.request.collectDuplicateNodeRefs(state.nodeRefs, duplicateNodes or data.nodes or {})
     end
+
+    registerGroupContribution(runtime, group, groupExportSidecar.buildContribution(data, devices, psEntries, subChilds, communities, spots))
+end
+
+local function buildSubsetMap(source, keys)
+    local result = {}
+    if type(source) ~= "table" then
+        return result
+    end
+
+    for _, key in ipairs(keys or {}) do
+        local normalizedKey = tostring(key)
+        if source[normalizedKey] ~= nil then
+            result[normalizedKey] = utils.deepcopy(source[normalizedKey])
+        end
+    end
+
+    return result
+end
+
+local function mapSectorsByName(sectors)
+    local result = {}
+
+    for _, sector in ipairs(sectors or {}) do
+        if sector and sector.name and sector.name ~= "" then
+            result[sector.name] = sector
+        end
+    end
+
+    return result
+end
+
+local function validateSidecarDocument(meta, runtime)
+    if type(meta) ~= "table" then
+        return false, "metadata is invalid"
+    end
+
+    if tonumber(meta.schemaVersion) ~= groupExportSidecar.SCHEMA_VERSION then
+        return false, string.format("unsupported sidecar schema (expected %d)", groupExportSidecar.SCHEMA_VERSION)
+    end
+
+    if tostring(meta.projectName or "") ~= tostring(runtime.project.name or "") then
+        return false, "project mismatch"
+    end
+
+    if tostring(meta.version or "") ~= tostring(runtime.project.version or "") then
+        return false, "version mismatch"
+    end
+
+    if type(meta.groups) ~= "table" then
+        return false, "group metadata is missing"
+    end
+
+    return true
+end
+
+local function isReusableGroupEntry(entry, sectorsByName, existingProject)
+    if type(entry) ~= "table" then
+        return false
+    end
+
+    if type(entry.sectorName) ~= "string" or entry.sectorName == "" then
+        return false
+    end
+
+    if not sectorsByName[entry.sectorName] then
+        return false
+    end
+
+    if type(entry.deviceHashes) ~= "table" or type(entry.psEntryIds) ~= "table" then
+        return false
+    end
+
+    if type(entry.childs) ~= "table" or type(entry.communities) ~= "table" or type(entry.spotNodes) ~= "table" or type(entry.nodeRefs) ~= "table" then
+        return false
+    end
+
+    local existingDevices = existingProject and existingProject.devices or {}
+    for _, hash in ipairs(entry.deviceHashes or {}) do
+        if existingDevices[tostring(hash)] == nil then
+            return false
+        end
+    end
+
+    local existingPsEntries = existingProject and existingProject.psEntries or {}
+    for _, psid in ipairs(entry.psEntryIds or {}) do
+        if existingPsEntries[tostring(psid)] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function prepareIncrementalRuntime(runtime)
+    local exportPath = runtime.projectPath
+    local sidecarPath = runtime.sidecarPath
+
+    if not config.fileExists(exportPath) then
+        return false, "base export file not found"
+    end
+
+    if not config.fileExists(sidecarPath) then
+        return false, "sidecar metadata file not found"
+    end
+
+    local existingProject = config.loadFile(exportPath)
+    if type(existingProject) ~= "table" or tostring(existingProject.name or "") ~= tostring(runtime.project.name) then
+        return false, "base export file is invalid or mismatched"
+    end
+    if tostring(existingProject.version or "") ~= tostring(runtime.project.version or "") then
+        return false, "base export version mismatch"
+    end
+
+    local meta = config.loadFile(sidecarPath)
+    local validMeta, metaErr = validateSidecarDocument(meta, runtime)
+    if not validMeta then
+        return false, metaErr
+    end
+
+    local sectorsByName = mapSectorsByName(existingProject.sectors)
+    local knownNames = {}
+    local changed = 0
+    local unchanged = 0
+
+    for _, group in ipairs(runtime.groups) do
+        knownNames[group.name] = true
+        local sidecarGroup = meta.groups[group.name]
+        local matchesSignature = sidecarGroup and sidecarGroup.signature == group.signature
+
+        if matchesSignature and isReusableGroupEntry(sidecarGroup, sectorsByName, existingProject) then
+            group.incrementalReuse = true
+            group.sidecarEntry = sidecarGroup
+            group.cachedSector = sectorsByName[sidecarGroup.sectorName]
+            unchanged = unchanged + 1
+        else
+            group.incrementalReuse = false
+            group.sidecarEntry = nil
+            group.cachedSector = nil
+            changed = changed + 1
+        end
+    end
+
+    local removed = 0
+    for previousGroupName, _ in pairs(meta.groups or {}) do
+        if not knownNames[previousGroupName] then
+            removed = removed + 1
+        end
+    end
+
+    runtime.incremental = {
+        existingProject = existingProject
+    }
+
+    runtime.incrementalStats.changed = changed
+    runtime.incrementalStats.unchanged = unchanged
+    runtime.incrementalStats.removed = removed
+
+    return true
+end
+
+local function mergeReusedGroupExportData(runtime, group)
+    local existingProject = runtime.incremental and runtime.incremental.existingProject
+    local entry = group and group.sidecarEntry
+    local sector = group and group.cachedSector
+    if not existingProject or not entry or not sector then
+        return false, "reused group data is missing"
+    end
+
+    local devices = buildSubsetMap(existingProject.devices, entry.deviceHashes)
+    local psEntries = buildSubsetMap(existingProject.psEntries, entry.psEntryIds)
+    local childs = utils.deepcopy(entry.childs or {})
+    local communities = utils.deepcopy(entry.communities or {})
+    local spots = utils.deepcopy(entry.spotNodes or {})
+    local duplicateNodes = utils.deepcopy(entry.nodeRefs or {})
+
+    mergeGroupExportData(
+        runtime,
+        group,
+        utils.deepcopy(sector),
+        devices,
+        psEntries,
+        childs,
+        communities,
+        spots,
+        duplicateNodes
+    )
+
+    return true
+end
+
+local function buildSidecarDocument(runtime)
+    local sidecarDocument = groupExportSidecar.createDocument(
+        runtime.project.name,
+        runtime.project.version,
+        {
+            ignoreHiddenDuringExport = runtime.request and runtime.request.ignoreHiddenDuringExport == true
+        }
+    )
+
+    for _, group in ipairs(runtime.groups or {}) do
+        local contribution = runtime.groupContributions[group.name]
+        if contribution then
+            sidecarDocument.groups[group.name] = utils.deepcopy(contribution)
+        end
+    end
+
+    return sidecarDocument
 end
 
 local function finalizeDeviceParents(project, childs)
@@ -406,8 +642,14 @@ local function finalizeExportRuntime(runtime)
             return
         end
 
-        local saved, saveErr = config.saveFile("export/" .. runtime.project.name .. "_exported.json", runtime.project)
+        local saved, saveErr = config.saveFile(runtime.projectPath, runtime.project)
         if saved then
+            local sidecarSaved, sidecarErr = config.saveFile(runtime.sidecarPath, buildSidecarDocument(runtime))
+            if not sidecarSaved then
+                logExportError(runtime, "finalize_sidecar", string.format("Failed to save sidecar \"%s\": %s", tostring(runtime.sidecarPath), tostring(sidecarErr)))
+                queueToast("warning", 5000, "Export succeeded but metadata sidecar could not be saved")
+            end
+
             local projectLabel = runtime.request and runtime.request.projectName or runtime.project.name
             toastKind = "success"
             toastDuration = 2500
@@ -458,6 +700,30 @@ beginNextGroup = function (runtime)
 
     local group = runtime.groups[runtime.groupIndex]
     if not group then
+        advanceGroup(runtime, false)
+        return
+    end
+
+    if group.incrementalReuse then
+        local merged, mergeErr = pcall(function ()
+            local okReuse, reason = mergeReusedGroupExportData(runtime, group)
+            if not okReuse then
+                error(reason or "unknown incremental reuse error")
+            end
+        end)
+
+        if not merged then
+            abortExport(runtime, "reuse_group", string.format("Failed reusing group \"%s\": %s", tostring(group.name), tostring(mergeErr)))
+            return
+        end
+
+        if hasBlockingIssues(runtime) then
+            pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
+                advanceGroup(runtime, false)
+            end)
+            return
+        end
+
         advanceGroup(runtime, false)
         return
     end
@@ -564,7 +830,7 @@ beginNextGroup = function (runtime)
             runtime.phase = "export"
 
             if (runtime.current.totalNodes or 0) == 0 then
-                mergeGroupExportData(runtime, runtime.current.exported, runtime.current.devices, runtime.current.psEntries, runtime.current.childs, runtime.current.communities, runtime.current.spotNodes)
+                mergeGroupExportData(runtime, runtime.current.group, runtime.current.exported, runtime.current.devices, runtime.current.psEntries, runtime.current.childs, runtime.current.communities, runtime.current.spotNodes)
                 if hasBlockingIssues(runtime) then
                     pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
                         clearCurrentGroup(runtime)
@@ -642,7 +908,7 @@ beginNextGroup = function (runtime)
                     exportTimer:Halt()
                     runtime.timer = nil
 
-                    mergeGroupExportData(runtime, exportCurrent.exported, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.communities, exportCurrent.spotNodes)
+                    mergeGroupExportData(runtime, exportCurrent.group, exportCurrent.exported, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.communities, exportCurrent.spotNodes)
                     if hasBlockingIssues(runtime) then
                         pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
                             clearCurrentGroup(runtime)
@@ -667,13 +933,16 @@ function groupExportManager.start(request)
     if not request.handleDevice or not request.handleCommunities then return false end
 
     local runtime = createExportRuntime(groupExportManager.state)
+    local requestedMode = request.mode == "incremental" and "incremental" or "full"
     utils.resetExportBufferIds()
     runtime.active = true
     runtime.phase = "build"
+    runtime.mode = requestedMode
     runtime.groups = {}
     runtime.totalGroups = 0
     runtime.groupIndex = 1
     runtime.completedGroups = 0
+    runtime.groupContributions = {}
     runtime.project = {
         name = utils.createFileName(request.projectName):lower():gsub(" ", "_"),
         xlFormat = request.xlFormat,
@@ -682,6 +951,8 @@ function groupExportManager.start(request)
         psEntries = {},
         version = request.version
     }
+    runtime.projectPath = groupExportSidecar.getExportPath(runtime.project.name)
+    runtime.sidecarPath = groupExportSidecar.getSidecarPath(runtime.project.name)
     runtime.state = {
         nodeRefs = {},
         spotNodes = {},
@@ -696,11 +967,12 @@ function groupExportManager.start(request)
         handleDevice = request.handleDevice,
         handleCommunities = request.handleCommunities,
         collectDuplicateNodeRefs = request.collectDuplicateNodeRefs,
-        hasBlockingIssues = request.hasBlockingIssues
+        hasBlockingIssues = request.hasBlockingIssues,
+        ignoreHiddenDuringExport = request.ignoreHiddenDuringExport == true
     }
 
     for _, group in ipairs(request.groups) do
-        table.insert(runtime.groups, {
+        local mappedGroup = {
             name = group.name,
             category = group.category,
             level = group.level,
@@ -709,8 +981,17 @@ function groupExportManager.start(request)
             streamingZ = group.streamingZ,
             prefabRef = group.prefabRef,
             variantRef = group.variantRef,
-            variantData = utils.deepcopy(group.variantData or {})
+            variantData = utils.deepcopy(group.variantData or {}),
+            incrementalReuse = false,
+            sidecarEntry = nil,
+            cachedSector = nil
+        }
+        mappedGroup.signature = groupExportSidecar.buildGroupSignature(mappedGroup, {
+            version = request.version,
+            ignoreHiddenDuringExport = runtime.request.ignoreHiddenDuringExport
         })
+
+        table.insert(runtime.groups, mappedGroup)
     end
     runtime.totalGroups = #runtime.groups
 
@@ -725,6 +1006,33 @@ function groupExportManager.start(request)
     end
     if request.exportTimeBudgetMs and request.exportTimeBudgetMs > 0 then
         runtime.exportTimeBudgetMs = request.exportTimeBudgetMs
+    end
+
+    if runtime.mode == "incremental" and runtime.totalGroups > 0 then
+        local incrementalReady, incrementalErr = prepareIncrementalRuntime(runtime)
+        if not incrementalReady then
+            runtime.mode = "full"
+            runtime.incremental = nil
+
+            for _, group in ipairs(runtime.groups) do
+                group.incrementalReuse = false
+                group.sidecarEntry = nil
+                group.cachedSector = nil
+            end
+
+            queueToast("warning", 5000, string.format("Update Changed fallback to Full Export: %s", tostring(incrementalErr or "metadata unavailable")))
+        else
+            queueToast(
+                "info",
+                5000,
+                string.format(
+                    "Update Changed: %d changed, %d reused, %d removed",
+                    runtime.incrementalStats.changed or 0,
+                    runtime.incrementalStats.unchanged or 0,
+                    runtime.incrementalStats.removed or 0
+                )
+            )
+        end
     end
 
     groupExportManager.state = runtime
@@ -828,6 +1136,16 @@ function groupExportManager.drawProgress(style)
         phaseText = string.format("Exporting \"%s\"", current.name or "Group")
         counterText = string.format("%d/%d", completed, current.totalNodes or 0)
         helpText = "Serializing nodes in chunks."
+    elseif runtime.mode == "incremental" and not runtime.current and runtime.groupIndex <= runtime.totalGroups then
+        local currentGroup = runtime.groups and runtime.groups[runtime.groupIndex]
+        phaseProgress = 0
+        phaseText = string.format("Updating \"%s\"", currentGroup and currentGroup.name or "Group")
+        counterText = ""
+        if currentGroup and currentGroup.incrementalReuse then
+            helpText = "Reusing unchanged group data from the previous export."
+        else
+            helpText = "Preparing changed group for rebuild."
+        end
     else
         phaseProgress = 1
         phaseText = "Finalizing export"

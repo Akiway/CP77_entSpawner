@@ -1217,15 +1217,26 @@ function exportUI.draw()
     end
 
     style.pushGreyedOut(#exportUI.groups == 0 or exportUI.projectName == "" or exporting)
-    local exportLabel = "Export"
+    local fullExportLabel = "Full export"
+    local updateChangedLabel = "Update existing export"
     if exporting then
-        exportLabel = string.format("Exporting... (%d/%d)", runtime.completedGroups or 0, runtime.totalGroups or 0)
+        local modeLabel = runtime and runtime.mode == "incremental" and "Updating..." or "Exporting..."
+        fullExportLabel = string.format("%s (%d/%d)", modeLabel, runtime.completedGroups or 0, runtime.totalGroups or 0)
+        updateChangedLabel = fullExportLabel
     end
-    if ImGui.Button(exportLabel) and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
-        exportUI.export()
+
+    if ImGui.Button(updateChangedLabel) and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
+        exportUI.export("incremental")
     end
-    style.tooltip("Export the currently selected groups to a .json file, ready for import into WKit")
+    style.tooltip("Update the existing export file by rebuilding only changed groups.")
     exportUI.exportHovered = ImGui.IsItemHovered()
+
+    ImGui.SameLine()
+    if ImGui.Button(fullExportLabel) and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
+        exportUI.export("full")
+    end
+    style.tooltip("Export all selected groups from scratch, overriding the existing export file.")
+    exportUI.exportHovered = exportUI.exportHovered or ImGui.IsItemHovered()
 
     ImGui.SameLine()
     if ImGui.Button("Save as Template") and #exportUI.groups > 0 and exportUI.projectName ~= "" and not exporting then
@@ -1802,11 +1813,13 @@ local function collectDuplicateNodeRefs(nodeRefs, nodes)
     end
 end
 
-function exportUI.export()
+---@param mode string?
+function exportUI.export(mode)
     if groupExportManager.isActive() then
         return
     end
 
+    local exportMode = mode == "incremental" and "incremental" or "full"
     exportUI.resetIssues()
 
     if not sectorCategory then
@@ -1824,7 +1837,9 @@ function exportUI.export()
         handleDevice = exportUI.handleDevice,
         handleCommunities = exportUI.handleCommunities,
         collectDuplicateNodeRefs = collectDuplicateNodeRefs,
-        hasBlockingIssues = exportUI.hasBlockingIssues
+        hasBlockingIssues = exportUI.hasBlockingIssues,
+        mode = exportMode,
+        ignoreHiddenDuringExport = settings.ignoreHiddenDuringExport == true
     })
 end
 
