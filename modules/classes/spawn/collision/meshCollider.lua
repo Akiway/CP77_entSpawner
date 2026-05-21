@@ -5,6 +5,7 @@ local utils = require("modules/utils/utils")
 local intersection = require("modules/utils/editor/intersection")
 local builder = require("modules/utils/entityBuilder")
 local cache = require("modules/utils/cache")
+local collisionMeshesUtils = require("modules/utils/data/collisionMeshes")
 
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local materials = colliderBase.getColliderGenerics().materials
@@ -72,23 +73,19 @@ function meshCollider:loadSpawnData(data, position, rotation)
     ]]--
     local rawSpawnData = type(data.spawnData) == "string" and data.spawnData or tostring(self.spawnData or "")
     if not string.find(rawSpawnData, "%.") then
-        local split = {}
-        for token in tostring(rawSpawnData):gmatch("%S+") do
-            table.insert(split, token)
-        end
-
-        if #split == 3 then
-            self.sectorHash = split[1]
-            self.shapeHash = split[2]
-            self.meshType = split[3]
-        elseif #split == 2 then
+        local sectorHash, shapeHash, shapeType = collisionMeshesUtils.parseCollisionMeshesFileLine(rawSpawnData)
+        if sectorHash and shapeHash and shapeType then
+            self.sectorHash = sectorHash
+            self.shapeHash = shapeHash
+            self.meshType = shapeType
+        elseif sectorHash and shapeHash then
             -- Backward-compat: old loader could split "sectorHash shapeHash meshType"
             -- into { deviceClassName = sectorHash, spawnData = "shapeHash meshType" }.
             local maybeSectorHash = utils.trimString(data.deviceClassName)
             if maybeSectorHash ~= "" then
                 self.sectorHash = maybeSectorHash
-                self.shapeHash = split[1]
-                self.meshType = split[2]
+                self.shapeHash = sectorHash
+                self.meshType = shapeHash
             end
         end
     end

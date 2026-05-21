@@ -2,14 +2,43 @@ local config = require("modules/utils/config")
 local tasks = require("modules/utils/pipeline/tasks")
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
+local collisionMeshesUtils = require("modules/utils/data/collisionMeshes")
+local meshesShapeHashesUtils = require("modules/utils/data/meshesShapeHashes")
 
 local sanitizeSpawnData = false
 local data = {}
 
+---@class CacheStaticData
+---@field ambientData table
+---@field staticData table
+---@field ambientQuad table
+---@field ambientMetadata table
+---@field staticMetadata table
+---@field ambientMetadataAll table
+---@field staticMetadataAll table
+---@field signposts table
+---@field bendedRigMatrices table
+---@field spawnSets table
+---@field meshesCollisionShapeHashes { [string]: { [string]: string[] } }
+
 ---@class cache
----@field staticData {ambientData : table, staticData : table, ambientQuad : table, ambientMetadata : table, staticMetadata : table, ambientMetadataAll : table, staticMetadataAll : table, signposts : table, bendedRigMatrices : table, spawnSets : table}
+---@field staticData CacheStaticData
+---@field collisionShapesDatas { [string]: { type: string, sectorsHashes: string[] } }
 local cache = {
-    staticData = {}
+    staticData = {
+        ambientData = {},
+        staticData = {},
+        ambientQuad = {},
+        ambientMetadata = {},
+        staticMetadata = {},
+        ambientMetadataAll = {},
+        staticMetadataAll = {},
+        signposts = {},
+        bendedRigMatrices = {},
+        spawnSets = {},
+        meshesCollisionShapeHashes = {},
+    },
+    collisionShapesDatas = {},
 }
 
 local version = 9
@@ -212,6 +241,12 @@ function cache.loadStaticData()
             end
         end
     end
+
+    local collisionShapesDatas = collisionMeshesUtils.parseCollisionMeshesFileToCollisionShapeDatas("data/spawnables/colliders/collision_meshes.txt")
+    cache.collisionShapesDatas = collisionShapesDatas
+
+    local meshesShapeHashesData = meshesShapeHashesUtils.parseMeshesShapeHashesFile("data/static/meshes-shape-hashes.json")
+    cache.staticData.meshesCollisionShapeHashes = meshesShapeHashesUtils.mapMeshesPathsToShapesHashesByTypes(meshesShapeHashesData, collisionShapesDatas)
 end
 
 ---Builds cache keys used to store mesh-derived resources.
@@ -364,6 +399,27 @@ function cache.getMeshResource(spawnData)
         occluder = occluder,
         rigMatrices = rigMatrices
     }
+end
+
+---Gets the collision shape hashes for a mesh.
+---@param meshPath string Mesh path.
+---@param shapeType string Shape type.
+---@return string[] hashes
+function cache.getMeshCollisionShapeHashes(meshPath, shapeType)
+    local key = normalizeSpawnPath(meshPath)
+    local meshShapesHashesByTypes = cache.staticData.meshesCollisionShapeHashes[key] or {}
+    return meshShapesHashesByTypes[shapeType] or {}
+end
+
+---Gets the collision shape sectors hashes.
+---@param collisionShapeHash string Collision shape hash.
+---@return string[] sectorsHashes
+function cache.getCollisionShapeSectorsHashes(collisionShapeHash)
+    local collisionShapeData = cache.collisionShapesDatas[collisionShapeHash]
+    if not collisionShapeData then
+        return {}
+    end
+    return collisionShapeData.sectorsHashes or {}
 end
 
 ---Stores one cache value and persists cache data to disk.

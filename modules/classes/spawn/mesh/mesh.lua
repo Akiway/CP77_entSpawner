@@ -15,7 +15,7 @@ local appearanceHelper = require("modules/utils/appearanceHelper")
 ---Handles resource-driven mesh appearance loading, editor UI, preview rendering,
 ---mesh-type conversion, collider generation helpers, and export serialization.
 
-local colliderShapes = { "Box", "Capsule", "Sphere" }
+local colliderShapeTypes = { "Box", "Capsule", "Sphere", "ConvexMesh", "BV4TriangleMesh" }
 local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
 local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
 local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
@@ -67,8 +67,10 @@ local lossyConversionPairs = {
 ---@field protected shadowHeaderState boolean
 ---@field protected maxShadowPropertiesWidth number?
 ---@field public bBox table {min: Vector4, max: Vector4}
----@field public colliderShape integer
 ---@field public hideGenerate boolean
+---@field public colliderShapeTypeIndex integer
+---@field public colliderShapeHashIndex integer
+---@field public colliderShapeSectorHashIndex integer
 ---@field private bBoxLoaded boolean
 ---@field private assetStartTime number
 ---@field protected maxPropertyWidth number?
@@ -112,7 +114,9 @@ function mesh:new()
     o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
     o.bBoxLoaded = false
 
-    o.colliderShape = 0
+    o.colliderShapeTypeIndex = 0
+    o.colliderShapeHashIndex = 0
+    o.colliderShapeSectorHashIndex = 0
     o.hideGenerate = false
     o.maxPropertyWidth = nil
     o.convertTarget = 0
@@ -533,17 +537,7 @@ function mesh:draw()
     style.tooltip("Reload appearance list for this asset and refresh cached data.")
 
     if not self.hideGenerate then
-        style.mutedText("Collider")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(self.maxPropertyWidth)
-        ImGui.SetNextItemWidth(110 * style.viewSize)
-        self.colliderShape, changed = ImGui.Combo("##colliderShape", self.colliderShape, colliderShapes, #colliderShapes)
-
-        ImGui.SameLine()
-
-        if ImGui.Button("Generate") then
-            self:generateCollider()
-        end
+        self:drawColliderSelector()
     end
 
     if self.hasOccluder then
@@ -596,6 +590,93 @@ function mesh:draw()
     if self.node == "worldMeshNode" then
         self:drawConversionSelector("##meshConverterType", "Lossy Conversion##meshSingle")
     end
+end
+
+function mesh:drawColliderSelector()
+    style.mutedText("Collider")
+    
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.SetNextItemWidth(160 * style.viewSize)
+    local nextColliderShapeTypeIndex, colliderShapeTypeIndexChanged = ImGui.Combo("##colliderShapeType", self.colliderShapeTypeIndex, colliderShapeTypes, #colliderShapeTypes)
+    if colliderShapeTypeIndexChanged then
+        self.colliderShapeTypeIndex = nextColliderShapeTypeIndex
+        self.colliderShapeHashIndex = 0
+        self.colliderShapeSectorHashIndex = 0
+    end
+
+    -----------------------------------------------------
+    --- Simple collider shapes
+    -----------------------------------------------------
+    if nextColliderShapeTypeIndex ~= 3 and nextColliderShapeTypeIndex ~= 4 then
+        ImGui.SameLine()
+        if ImGui.Button("Generate") then
+            self:generateCollider()
+        end
+        return
+    end
+
+    -----------------------------------------------------
+    --- Complex collider shapes
+    -----------------------------------------------------
+    local meshCollisionShapeHashes = cache.getMeshCollisionShapeHashes(self.spawnData, colliderShapeTypes[nextColliderShapeTypeIndex + 1])
+    if changed then
+        self.colliderShapeHashIndex = 0
+        self.colliderShapeSectorHashIndex = 0
+    end
+
+    if #meshCollisionShapeHashes == 0 then
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        style.drawIconLabelRow(IconGlyphs.Alert, nil, {iconColor = style.warnColor, fieldX = ImGui.CalcTextSize(IconGlyphs.Alert) + ImGui.GetStyle().ItemSpacing.x})
+        ImGui.SameLine()
+        style.mutedText(colliderShapeTypes[nextColliderShapeTypeIndex + 1] .. " shapes not found")
+    else
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        style.mutedText("Shape Hash")
+        
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        ImGui.SetNextItemWidth(160 * style.viewSize)
+        local nextColliderShapeHashIndex, colliderShapeHashIndexChanged = ImGui.Combo(
+            "##colliderShapeHash",
+            self.colliderShapeHashIndex,
+            meshCollisionShapeHashes,
+            #meshCollisionShapeHashes
+        )
+        if colliderShapeHashIndexChanged then
+            self.colliderShapeHashIndex = nextColliderShapeHashIndex
+            self.colliderShapeSectorHashIndex = 0
+        end
+
+        local meshCollisionShapeSectorHashes = cache.getCollisionShapeSectorsHashes(meshCollisionShapeHashes[nextColliderShapeHashIndex + 1])
+        if #meshCollisionShapeSectorHashes == 0 then
+            ImGui.SetCursorPosX(self.maxPropertyWidth)
+            style.drawIconLabelRow(IconGlyphs.Alert, nil, {iconColor = style.warnColor, fieldX = ImGui.CalcTextSize(IconGlyphs.Alert) + ImGui.GetStyle().ItemSpacing.x})
+            ImGui.SameLine()
+            style.mutedText("Shape sectors not found")
+        else
+            ImGui.SetCursorPosX(self.maxPropertyWidth)
+            style.mutedText("Shape Sector Hash")
+
+            ImGui.SetCursorPosX(self.maxPropertyWidth)
+            ImGui.SetNextItemWidth(160 * style.viewSize)
+            local nextColliderShapeSectorHashIndex, colliderShapeSectorHashIndexChanged = ImGui.Combo(
+                "##colliderShapeSectorHash",
+                self.colliderShapeSectorHashIndex,
+                meshCollisionShapeSectorHashes,
+                #meshCollisionShapeSectorHashes
+            )
+            if colliderShapeSectorHashIndexChanged then
+                self.colliderShapeSectorHashIndex = nextColliderShapeSectorHashIndex
+            end
+
+            ImGui.SameLine()
+            if ImGui.Button("Generate") then
+                self:generateCollider()
+            end
+        end
+    end
+
+    ImGui.Spacing()
 end
 
 ---Builds single-selection property groups for the editor sidebar.
@@ -937,7 +1018,7 @@ function mesh:getGroupedProperties()
             style.mutedText("Collider Shape")
             ImGui.SameLine()
             ImGui.SetNextItemWidth(110 * style.viewSize)
-            element.groupOperationData["mesh"].shape, _ = ImGui.Combo("##colliderShape", element.groupOperationData["mesh"].shape, colliderShapes, #colliderShapes)
+            element.groupOperationData["mesh"].shape, _ = ImGui.Combo("##colliderShape", element.groupOperationData["mesh"].shape, colliderShapeTypes, 3)
 
             ImGui.SameLine()
 
@@ -960,7 +1041,7 @@ function mesh:getGroupedProperties()
                 end
 
                 for _, entry in ipairs(selectedEntries) do
-                    entry.spawnable.colliderShape = element.groupOperationData["mesh"].shape
+                    entry.spawnable.colliderShapeTypeIndex = element.groupOperationData["mesh"].shape
                     local action = entry.spawnable:generateCollider(true)
                     if action then
                         table.insert(actions, action)
@@ -1016,39 +1097,64 @@ function mesh:generateCollider(skipHistory)
     group:setParent(parent, index)
     local insertGroup = history.getInsert({ group })
 
-    local collider = require("modules/classes/spawn/collision/collider"):new()
-
-    local x = (self.bBox.max.x - self.bBox.min.x) * self.scale.x
-    local y = (self.bBox.max.y - self.bBox.min.y) * self.scale.y
-    local z = (self.bBox.max.z - self.bBox.min.z) * self.scale.z
-
     local pos = Vector4.new(self.position.x, self.position.y, self.position.z, 0)
     local rotation = EulerAngles.new(self.rotation.roll, self.rotation.pitch, self.rotation.yaw)
+    
+    local collider = nil
+    local data = nil
+    if self.colliderShapeTypeIndex ~= 3 and self.colliderShapeTypeIndex ~= 4 then
+        collider = require("modules/classes/spawn/collision/collider"):new()
 
-    local offset = Vector4.new((self.bBox.min.x * self.scale.x) + x / 2, (self.bBox.min.y * self.scale.y) + y / 2, (self.bBox.min.z * self.scale.z) + z / 2, 0)
-    offset = self.rotation:ToQuat():Transform(offset)
-    pos = Game['OperatorAdd;Vector4Vector4;Vector4'](pos, offset)
+        local x = (self.bBox.max.x - self.bBox.min.x) * self.scale.x
+        local y = (self.bBox.max.y - self.bBox.min.y) * self.scale.y
+        local z = (self.bBox.max.z - self.bBox.min.z) * self.scale.z
 
-    local radius = math.max(x, y) / 2
-    local height = z - radius * 2
-    if self.colliderShape == 1 then
-        if x > z or y > z then
-            radius = z / 2
-            height = math.max(x, y) - radius * 2
-            rotation.roll = rotation.roll + 90
+        local offset = Vector4.new((self.bBox.min.x * self.scale.x) + x / 2, (self.bBox.min.y * self.scale.y) + y / 2, (self.bBox.min.z * self.scale.z) + z / 2, 0)
+        offset = self.rotation:ToQuat():Transform(offset)
+        pos = Game['OperatorAdd;Vector4Vector4;Vector4'](pos, offset)
 
-            if y > x then
-                rotation.yaw = rotation.yaw + 90
+        local radius = math.max(x, y) / 2
+        local height = z - radius * 2
+        if self.colliderShapeTypeIndex == 1 then
+            if x > z or y > z then
+                radius = z / 2
+                height = math.max(x, y) - radius * 2
+                rotation.roll = rotation.roll + 90
+
+                if y > x then
+                    rotation.yaw = rotation.yaw + 90
+                end
             end
         end
-    end
 
-    local data = {
-        extents = { x = x / 2, y = y / 2, z = z / 2 },
-        radius = radius,
-        height = height,
-        shape = self.colliderShape
-    }
+        data = {
+            extents = { x = x / 2, y = y / 2, z = z / 2 },
+            radius = radius,
+            height = height,
+            shape = self.colliderShapeTypeIndex
+        }
+    else
+        collider = require("modules/classes/spawn/collision/meshCollider"):new()
+
+        local shapeType = colliderShapeTypes[self.colliderShapeTypeIndex + 1]
+
+        local meshCollisionShapeHashes = cache.getMeshCollisionShapeHashes(self.spawnData, shapeType)
+        if #meshCollisionShapeHashes == 0 then
+            return nil
+        end
+
+        local shapeHash = meshCollisionShapeHashes[self.colliderShapeHashIndex + 1]
+        local shapeSectorsHashes = cache.getCollisionShapeSectorsHashes(shapeHash)
+        if #shapeSectorsHashes == 0 then
+            return nil
+        end
+
+        local shapeSectorHash = shapeSectorsHashes[self.colliderShapeSectorHashIndex + 1]
+
+        data = {
+            spawnData = shapeSectorHash .. " " .. shapeHash .. " " .. shapeType,
+        }
+    end
 
     collider:loadSpawnData(data, pos, rotation)
 

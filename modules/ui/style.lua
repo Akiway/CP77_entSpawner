@@ -326,7 +326,7 @@ end
 
 ---Draw an icon + label row with optional offsets and aligned field position.
 ---@param icon string
----@param label string
+---@param label string?
 ---@param opts table?
 ---@return number rowStartY
 function style.drawIconLabelRow(icon, label, opts)
