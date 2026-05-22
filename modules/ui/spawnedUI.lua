@@ -961,6 +961,15 @@ function spawnedUI.registerHotkeys()
     -- Inputs that might get pressed while using properties panel, so use hotkeyRunConditionProperties
     input.registerImGuiHotkey({ ImGuiKey.Backspace }, function()
         if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
+        if ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl) then return end
+        spawnedUI.moveToParent(true)
+    end, hotkeyRunConditionProperties)
+    input.registerImGuiHotkey({ ImGuiKey.Backspace, ImGuiKey.LeftCtrl }, function()
+        if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
+        spawnedUI.moveToRoot(true)
+    end, hotkeyRunConditionProperties)
+    input.registerImGuiHotkey({ ImGuiKey.Backspace, ImGuiKey.RightCtrl }, function()
+        if #spawnedUI.selectedPaths == 0 or hasActiveNameEdit() then return end
         spawnedUI.moveToRoot(true)
     end, hotkeyRunConditionProperties)
     input.registerImGuiHotkey({ ImGuiKey.Escape }, function()
@@ -1318,6 +1327,60 @@ end
 
 ---@param isMulti boolean
 ---@param element element?
+function spawnedUI.moveToParent(isMulti, element)
+    if isMulti then
+        local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
+        if #roots == 0 then return end
+
+        local elements = {}
+        for _, entry in ipairs(roots) do
+            local ref = entry.ref
+            if not ref:isLocked() and ref.parent ~= nil and not ref.parent:isRoot(true) then
+                table.insert(elements, ref)
+            end
+        end
+
+        if #elements == 0 then return end
+        local remove = history.getRemove(elements)
+        local nextInsertByParentId = {}
+
+        for _, ref in ipairs(elements) do
+            local parent = ref.parent
+            local grandParent = parent and parent.parent or nil
+            if grandParent ~= nil then
+                local key = parent.id
+                local insertIndex = nextInsertByParentId[key]
+                if insertIndex == nil then
+                    insertIndex = utils.indexValue(grandParent.childs, parent) + 1
+                end
+
+                ref:setParent(grandParent, insertIndex)
+                nextInsertByParentId[key] = insertIndex + 1
+            end
+        end
+
+        local insert = history.getInsert(elements)
+        history.addAction(history.getMove(remove, insert))
+    elseif element and not element:isLocked() and element.parent ~= nil and not element.parent:isRoot(true) then
+        spawnedUI.unselectAll()
+
+        local parent = element.parent
+        local grandParent = parent and parent.parent or nil
+        if grandParent == nil then return end
+
+        local remove = history.getRemove({ element })
+        local insertIndex = utils.indexValue(grandParent.childs, parent) + 1
+        element:setParent(grandParent, insertIndex)
+        local insert = history.getInsert({ element })
+        history.addAction(history.getMove(remove, insert))
+
+        element:setSelected(true)
+        spawnedUI.scrollToSelected = true
+    end
+end
+
+---@param isMulti boolean
+---@param element element?
 function spawnedUI.moveToRoot(isMulti, element)
     if isMulti then
         local elements = {}
@@ -1484,7 +1547,10 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
         ImGui.Separator()
-        if ImGui.MenuItem(IconGlyphs.ArrowTopLeftBoldBoxOutline .. " Move to Root", "BACKSPACE") then
+        if ImGui.MenuItem(IconGlyphs.ArrowUpLeftBold .. " Move to parent level", "BACKSPACE") then
+            spawnedUI.moveToParent(isMulti, element)
+        end
+        if ImGui.MenuItem(IconGlyphs.ArrowTopLeftBoldBoxOutline .. " Move to Root", "CTRL-BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
         end
         if ImGui.MenuItem(IconGlyphs.FolderMultiplePlusOutline .. " Move to new group", "CTRL-G") then
@@ -3071,7 +3137,8 @@ function spawnedUI.drawTop()
                 ImGui.MenuItem("Toggle selected visibility", "H")
                 ImGui.MenuItem("Multiselect", "Hold CTRL")
                 ImGui.MenuItem("Range select", "Hold SHIFT")
-                ImGui.MenuItem("Move selected to root", "BACKSPACE")
+                ImGui.MenuItem("Move selected to parent level", "BACKSPACE")
+                ImGui.MenuItem("Move selected to root", "CTRL-BACKSPACE")
                 ImGui.MenuItem("Move selected to new group", "CTRL-G")
                 ImGui.MenuItem("Drop selected to floor", "CTRL-E")
                 ImGui.MenuItem("Set as \"Spawn New\" group", "CTRL-N")
