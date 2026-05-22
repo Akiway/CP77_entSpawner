@@ -467,9 +467,23 @@ function style.toggleButton(text, state)
         ImGui.PopStyleColor(4)
     else
         -- toggled off state
+        local borderSize = 1 * style.viewSize
         ImGui.PushStyleColor(ImGuiCol.Text, style.mutedColor)
         style.pushButtonNoBG(true)
+        ImGui.PushStyleColor(ImGuiCol.Border, style.mutedColor)
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, borderSize)
         clicked = ImGui.Button(text)
+        ImGui.PopStyleVar()
+        ImGui.PopStyleColor()
+
+        if ImGui.IsItemHovered() then
+            local drawList = ImGui.GetWindowDrawList()
+            local minX, minY = ImGui.GetItemRectMin()
+            local maxX, maxY = ImGui.GetItemRectMax()
+            local frameRounding = ImGui.GetStyle().FrameRounding or 0
+            ImGui.ImDrawListAddRect(drawList, minX, minY, maxX, maxY, style.activeColor, frameRounding, 0, borderSize)
+        end
+
         style.pushButtonNoBG(false)
         ImGui.PopStyleColor()
     end
