@@ -154,16 +154,23 @@ function record:update()
     local handle = self:getEntity()
     if not handle then return end
 
-    if handle:GetClassName().value == "NPCPuppet" then
+    if handle:IsA("NPCPuppet") then
         local cmd = AITeleportCommand.new()
         cmd.position = self.position
         cmd.rotation = self.rotation.yaw
         cmd.doNavTest = false
 
         handle:GetAIControllerComponent():SendCommand(cmd)
-    else
-        Game.GetTeleportationFacility():Teleport(handle, self.position,  self.rotation)
+        return
     end
+
+    if handle:IsA("gameObject") then
+        Game.GetTeleportationFacility():Teleport(handle, self.position,  self.rotation)
+        return
+    end
+
+    -- Dynamic record entities can be plain entEntity handles, which cannot be teleported via TeleportationFacility.
+    spawnable.update(self)
 end
 
 ---@return entEntity?
