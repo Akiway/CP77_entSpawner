@@ -65,7 +65,8 @@ local function getBrushRuntime(editor)
 
     runtime.targetCache = runtime.targetCache or {
         selectedGroup = nil,
-        target = nil
+        target = nil,
+        sourceGroupId = nil
     }
     runtime.targetExcludeCache = runtime.targetExcludeCache or {
         selectedGroup = nil,
@@ -759,6 +760,7 @@ local function resolveBrushTargetGroup(editor)
     local spawnedUI = editor.spawnedUI
     local spawnUI = editor.spawnUI
     local root = spawnedUI and spawnedUI.root or nil
+    local sourceGroupId = tonumber(editor.brush and editor.brush.sourceGroupId) or nil
     if not root or not editor.spawnUI then
         return nil
     end
@@ -767,10 +769,12 @@ local function resolveBrushTargetGroup(editor)
     if selectedGroup == 0 then
         runtime.targetCache.selectedGroup = selectedGroup
         runtime.targetCache.target = nil
+        runtime.targetCache.sourceGroupId = sourceGroupId
         return nil
     end
 
-    if runtime.targetCache.selectedGroup == selectedGroup then
+    if runtime.targetCache.selectedGroup == selectedGroup
+        and runtime.targetCache.sourceGroupId == sourceGroupId then
         local cachedTarget = runtime.targetCache.target
         if cachedTarget and cachedTarget.parent ~= nil and cachedTarget ~= root then
             return cachedTarget
@@ -789,11 +793,20 @@ local function resolveBrushTargetGroup(editor)
     if not parent or parent == root then
         runtime.targetCache.selectedGroup = selectedGroup
         runtime.targetCache.target = nil
+        runtime.targetCache.sourceGroupId = sourceGroupId
+        return nil
+    end
+
+    if sourceGroupId and parent.id == sourceGroupId then
+        runtime.targetCache.selectedGroup = selectedGroup
+        runtime.targetCache.target = nil
+        runtime.targetCache.sourceGroupId = sourceGroupId
         return nil
     end
 
     runtime.targetCache.selectedGroup = selectedGroup
     runtime.targetCache.target = parent
+    runtime.targetCache.sourceGroupId = sourceGroupId
     return parent
 end
 
@@ -1524,7 +1537,8 @@ end
 ---@param editor editor
 ---@param hitData {hit: boolean, result: table?}
 ---@param eraseActive boolean?
-local function drawBrushPreview(editor, hitData, eraseActive)
+---@param brushReady boolean?
+local function drawBrushPreview(editor, hitData, eraseActive, brushReady)
     local screen, drawList = projectedWireframe.beginOverlay("##brushOverlay")
     if not screen then
         return
@@ -1532,7 +1546,7 @@ local function drawBrushPreview(editor, hitData, eraseActive)
 
     drawHiddenBrushDots(editor, screen, drawList)
 
-    if hitData and hitData.hit and hitData.result and hitData.result.position then
+    if brushReady and hitData and hitData.hit and hitData.result and hitData.result.position then
         local radius = tonumber(editor.brush.radius) or BRUSH_DEFAULT_RADIUS
         local center = hitData.result.position
         local brushColor = eraseActive and BRUSH_ERASE_COLOR or BRUSH_COLOR
@@ -1660,12 +1674,14 @@ function brushTool.attach(editor)
     end
 
     ---Returns whether Spawn New target is a valid non-root group for brush painting.
+    ---Target group must also be different from the current brush source group.
     ---@return boolean
     function editor.hasBrushValidTargetGroup()
         return resolveBrushTargetGroup(editor) ~= nil
     end
 
-    ---Returns active brush target group id, or nil when target is invalid/root.
+    ---Returns active brush target group id, or nil when target is invalid.
+    ---Invalid when root, missing, or matching the current brush source group.
     ---@return number?
     function editor.getBrushTargetGroupId()
         local target = resolveBrushTargetGroup(editor)
@@ -1812,17 +1828,26 @@ function brushTool.attach(editor)
         end
 
         pruneBrushRuntimeState(editor)
+        validateBrushSourceGroup(editor)
+        editor.captureBrushSourceFromSelection(false)
+
         local targetGroup = resolveBrushTargetGroup(editor)
         syncHiddenBrushDotsForTarget(editor, targetGroup)
+        local sourceEntryCount = editor.getBrushSourceEntryCount and editor.getBrushSourceEntryCount() or 0
+        local brushReady = editor.brush.sourceGroup ~= nil and sourceEntryCount > 0 and targetGroup ~= nil
         local eraseActive = isBrushEraseInputActive()
+
         if not isMouseInViewportArea() or isWorldBuilderWindowHovered() or not isViewportInputAvailable() then
             editor.brush.strokeCooldown = 0
-            drawBrushPreview(editor, nil, eraseActive)
+            drawBrushPreview(editor, nil, eraseActive, brushReady)
             return
         end
 
-        validateBrushSourceGroup(editor)
-        editor.captureBrushSourceFromSelection(false)
+        if not brushReady then
+            editor.brush.strokeCooldown = 0
+            drawBrushPreview(editor, nil, eraseActive, false)
+            return
+        end
 
         local player = GetPlayer()
         if not player then
@@ -1830,17 +1855,11 @@ function brushTool.attach(editor)
             return
         end
 
-        if not editor.brush.sourceGroup then
-            editor.brush.strokeCooldown = 0
-            drawBrushPreview(editor, nil, eraseActive)
-            return
-        end
-
         local ray = editor.getScreenToWorldRay()
         local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
         local targetExcludeIds = getBrushTargetExcludeIds(editor, targetGroup)
         local hit = editor.getRaySceneIntersection(ray, origin, targetExcludeIds, true)
-        drawBrushPreview(editor, hit, eraseActive)
+        drawBrushPreview(editor, hit, eraseActive, brushReady)
         if not hit.hit or not hit.result then
             editor.brush.strokeCooldown = 0
             return
