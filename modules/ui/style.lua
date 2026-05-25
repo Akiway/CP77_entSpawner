@@ -945,29 +945,38 @@ end
 
 ---Searchable dropdown with decoupled search text state.
 ---Use this when selected value and typed filter must be independent.
----@param element table? Element used for undo history tracking when selection changes.
+---@class TrackedSearchDropdownOpts
+---@field element table? Element used for undo history tracking when selection changes.
+---@field width number? Combo width in unscaled style units (default `100`).
+---@field matchContentWidth boolean? When true, popup max width expands up to the longest option text.
+---@field allowCustom boolean? When true, allows selecting typed search text as a custom value.
+---@field optionDisplayFn fun(optionText: string): string? Optional display transformer.
+---@field optionTooltipFn fun(optionText: string, optionLabel: string): string? Optional tooltip resolver for each option row.
+---@field optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
+---@field optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
 ---@param text string Combo label / ID.
 ---@param searchHint string Placeholder for the filter input.
 ---@param value string Current selected value.
 ---@param searchValue string Current typed filter.
 ---@param options table List of selectable values.
----@param width number? Combo width in unscaled style units (default `100`).
----@param matchContentWidth boolean? When true, popup max width expands up to the longest option text.
----@param allowCustom boolean? When true, allows selecting typed search text as a custom value.
----@param optionDisplayFn fun(optionText: string): string? Optional display transformer.
----@param optionTooltipFn fun(optionText: string, optionLabel: string): string? Optional tooltip resolver for each option row.
----@param optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
----@param optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
+---@param opts TrackedSearchDropdownOpts?
 ---@return string value
 ---@return string searchValue
 ---@return boolean finished
-function style.trackedSearchDropdown(element, text, searchHint, value, searchValue, options, width, matchContentWidth, allowCustom, optionDisplayFn, optionTooltipFn, optionExistsFn, optionFilterFn)
+function style.trackedSearchDropdown(text, searchHint, value, searchValue, options, opts)
+    opts = opts or {}
+
     value = value or ""
     searchValue = searchValue or ""
     options = options or {}
-    width = width or 100
-    matchContentWidth = matchContentWidth == true
-    allowCustom = allowCustom == true
+    local element = opts.element
+    local width = opts.width or 100
+    local matchContentWidth = opts.matchContentWidth == true
+    local allowCustom = opts.allowCustom == true
+    local optionDisplayFn = opts.optionDisplayFn
+    local optionTooltipFn = opts.optionTooltipFn
+    local optionExistsFn = opts.optionExistsFn
+    local optionFilterFn = opts.optionFilterFn
 
     local finished = false
     local selectedValue = tostring(value)

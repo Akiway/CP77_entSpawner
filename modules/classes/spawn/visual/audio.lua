@@ -106,7 +106,7 @@ function sound:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.emitterMetadataSearch = self.emitterMetadataSearch or ""
-    self.emitterMetadataName, self.emitterMetadataSearch, change = style.trackedSearchDropdown(self.object, "##emitterMetadataName", "Search...", self.emitterMetadataName, self.emitterMetadataSearch, cache.staticData.staticMetadataAll, style.getMaxWidth(250))
+    self.emitterMetadataName, self.emitterMetadataSearch, change = style.trackedSearchDropdown("##emitterMetadataName", "Search...", self.emitterMetadataName, self.emitterMetadataSearch, cache.staticData.staticMetadataAll, { element = self.object, width = style.getMaxWidth(250) })
 end
 
 function sound:getArrowSize()

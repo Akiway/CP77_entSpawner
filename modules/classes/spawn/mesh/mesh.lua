@@ -504,14 +504,16 @@ function mesh:draw()
 
     local changed
     selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
-        self.object,
         "##app",
         "Search appearance...",
         selectedApp,
         self.appSearch,
         list,
-        160,
-        true
+        {
+            element = self.object,
+            width = 160,
+            matchContentWidth = true
+        }
     )
     style.tooltip("Select the mesh appearance")
     if changed and #self.apps > 0 then

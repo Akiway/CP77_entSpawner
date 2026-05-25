@@ -129,14 +129,16 @@ function colliderBase:draw()
     local selectedPreset = colliderGenerics.presets[self.preset + 1] or colliderGenerics.presets[1] or ""
     local presetChanged
     selectedPreset, self.presetSearch, presetChanged = style.trackedSearchDropdown(
-        self.object,
         "##preset",
         "Search preset...",
         selectedPreset,
         self.presetSearch or "",
         colliderGenerics.presets,
-        200,
-        true
+        {
+            element = self.object,
+            width = 200,
+            matchContentWidth = true
+        }
     )
     if presetChanged then
         self.preset = presetToIndex[selectedPreset] or self.preset
@@ -150,14 +152,16 @@ function colliderBase:draw()
     local selectedMaterial = getMaterialDisplayByIndex(self.material)
     local materialChanged
     selectedMaterial, self.materialSearch, materialChanged = style.trackedSearchDropdown(
-        self.object,
         "##material",
         "Search material...",
         selectedMaterial,
         self.materialSearch or "",
         materialDisplayOptions,
-        200,
-        true
+        {
+            element = self.object,
+            width = 200,
+            matchContentWidth = true
+        }
     )
     if materialChanged then
         self.material = materialDisplayToIndex[selectedMaterial] or self.material
@@ -246,14 +250,15 @@ function colliderBase:getGroupedProperties()
             local selectedMaterial = getMaterialDisplayByIndex(groupData.material)
             local materialChanged
             selectedMaterial, groupData.materialSearch, materialChanged = style.trackedSearchDropdown(
-                nil,
                 "##collisionMaterial",
                 "Search material...",
                 selectedMaterial,
                 groupData.materialSearch,
                 materialDisplayOptions,
-                150,
-                true
+                {
+                    width = 150,
+                    matchContentWidth = true
+                }
             )
             if materialChanged then
                 groupData.material = materialDisplayToIndex[selectedMaterial] or groupData.material

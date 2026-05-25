@@ -1374,14 +1374,16 @@ function entity:drawEntityBaseProperties()
 
     local changed
     selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
-        self.object,
         "##app",
         "Search appearance...",
         selectedApp,
         self.appSearch,
         list,
-        160,
-        true
+        {
+            element = self.object,
+            width = 160,
+            matchContentWidth = true
+        }
     )
     if changed and #self.apps > 0 and self:isSpawned() then
         self.app = selectedApp

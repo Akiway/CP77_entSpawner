@@ -52,7 +52,7 @@ function ambientArea:drawEvents(eventKey, default)
         for index, event in pairs(self.trigger.Settings.Data[eventKey]) do
             ImGui.PushID(tostring(index) .. eventKey)
             local eventSearch = self.eventSearchValues[eventKey][index] or ""
-            event["event"]["$value"], eventSearch, _ = style.trackedSearchDropdown(self.object, "##event", default, event["event"]["$value"], eventSearch, cache.staticData.ambientData[eventKey], style.getMaxWidth(250) - 30)
+            event["event"]["$value"], eventSearch, _ = style.trackedSearchDropdown("##event", default, event["event"]["$value"], eventSearch, cache.staticData.ambientData[eventKey], { element = self.object, width = style.getMaxWidth(250) - 30 })
             self.eventSearchValues[eventKey][index] = eventSearch
 
             ImGui.SameLine()
@@ -138,13 +138,13 @@ function ambientArea:drawAmbient(changed)
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
     self.reverbSearch = self.reverbSearch or ""
-    self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, _ = style.trackedSearchDropdown(self.object, "##reverb", "Search...", self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, cache.staticData.ambientData.reverb, style.getMaxWidth(250))
+    self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, _ = style.trackedSearchDropdown("##reverb", "Search...", self.trigger.Settings.Data.Reverb["$value"], self.reverbSearch, cache.staticData.ambientData.reverb, { element = self.object, width = style.getMaxWidth(250) })
 
     style.mutedText("Metadata Parent")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
     self.metadataParentSearch = self.metadataParentSearch or ""
-    self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, _ = style.trackedSearchDropdown(self.object, "##metadataParent", "Search...", self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, cache.staticData.ambientMetadataAll, style.getMaxWidth(250))
+    self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, _ = style.trackedSearchDropdown("##metadataParent", "Search...", self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, cache.staticData.ambientMetadataAll, { element = self.object, width = style.getMaxWidth(250) })
 
     style.mutedText("Is Music")
     ImGui.SameLine()
@@ -160,7 +160,7 @@ function ambientArea:drawAmbient(changed)
         for index, parameter in pairs(self.trigger.Settings.Data["Parameters"]) do
             ImGui.PushID(tostring(index) .. "parameter")
             local parameterSearch = self.parameterSearchValues[index] or ""
-            parameter["name"]["$value"], parameterSearch, _ = style.trackedSearchDropdown(self.object, "##parameter", "Search...", parameter["name"]["$value"], parameterSearch, cache.staticData.ambientData.parameters, style.getMaxWidth(250) - 120)
+            parameter["name"]["$value"], parameterSearch, _ = style.trackedSearchDropdown("##parameter", "Search...", parameter["name"]["$value"], parameterSearch, cache.staticData.ambientData.parameters, { element = self.object, width = style.getMaxWidth(250) - 120 })
             self.parameterSearchValues[index] = parameterSearch
             ImGui.SameLine()
             parameter["value"], _ = style.trackedDragFloat(self.object, "##value", parameter["value"], 0.01, 0, 1, "%.2f", 75)

@@ -1963,14 +1963,16 @@ function bendedMesh:drawAppearanceSelector()
 
     local changed
     selectedApp, self.appSearch, changed = style.trackedSearchDropdown(
-        self.object,
         "##bendedApp",
         "Search appearance...",
         selectedApp,
         self.appSearch,
         list,
-        180,
-        true
+        {
+            element = self.object,
+            width = 180,
+            matchContentWidth = true
+        }
     )
     style.tooltip("Select the mesh appearance")
 

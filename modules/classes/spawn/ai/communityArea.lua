@@ -501,15 +501,17 @@ function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
         local options = buildSelectorOptions(baseAppearanceOptions, currentValue)
         phase.appearances[appKey] = currentValue
         phase.appearances[appKey], search, _ = style.trackedSearchDropdown(
-            self.object,
             "##appearance",
             "Search appearance...",
             currentValue,
             search,
             options,
-            style.getMaxWidth(220) - 110,
-            true,
-            true
+            {
+                element = self.object,
+                width = style.getMaxWidth(220) - 110,
+                matchContentWidth = true,
+                allowCustom = true
+            }
         )
         self.phaseAppearanceSearch[searchKey] = search
         style.tooltip(loaded
@@ -893,15 +895,17 @@ function community:drawEntries()
             local recordSearch = self.entryRecordSearch[entryKey] or ""
             local recordOptions = buildSelectorOptions(characterRecords, entry.characterRecordId)
             entry.characterRecordId, recordSearch, _ = style.trackedSearchDropdown(
-                self.object,
                 "##characterRecordId",
                 "Search character record...",
                 entry.characterRecordId,
                 recordSearch,
                 recordOptions,
-                200,
-                true,
-                true
+                {
+                    element = self.object,
+                    width = 200,
+                    matchContentWidth = true,
+                    allowCustom = true
+                }
             )
             self.entryRecordSearch[entryKey] = recordSearch
             style.tooltip("Select the character record (TweakDBID) for this community entry, or type one and choose 'Use custom: ...'.")
@@ -922,14 +926,16 @@ function community:drawEntries()
                 local phaseSearch = self.entryInitialPhaseSearch[phaseSearchKey] or ""
                 local previousInitialPhase = entry.initialPhaseName
                 entry.initialPhaseName, phaseSearch, _ = style.trackedSearchDropdown(
-                    self.object,
                     "##initialPhaseName",
                     "Search phase...",
                     entry.initialPhaseName,
                     phaseSearch,
                     phaseOptions,
-                    220,
-                    true
+                    {
+                        element = self.object,
+                        width = 220,
+                        matchContentWidth = true
+                    }
                 )
                 if entry.initialPhaseName ~= previousInitialPhase then
                     self.entryInitialPhaseTouched[entryKey] = true

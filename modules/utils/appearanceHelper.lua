@@ -384,14 +384,15 @@ function appearanceHelper.getGroupedProperties(spawnable)
 
                     local searchValue = groupedData.selectorSearches[group.key] or ""
                     selectedApp, searchValue, _ = style.trackedSearchDropdown(
-                        nil,
                         "##groupAppearance",
                         GROUPED_APPEARANCE_SEARCH_HINT,
                         selectedApp,
                         searchValue,
                         apps,
-                        comboWidth / style.viewSize,
-                        true
+                        {
+                            width = comboWidth / style.viewSize,
+                            matchContentWidth = true
+                        }
                     )
                     groupedData.selectors[group.key] = selectedApp
                     groupedData.selectorSearches[group.key] = searchValue

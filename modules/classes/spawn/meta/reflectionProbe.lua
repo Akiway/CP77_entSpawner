@@ -242,28 +242,30 @@ function reflection:draw()
     local selectedProbe = normalizeProbePath(self.spawnData)
     local changed
     selectedProbe, self.envProbeSearch, changed = style.trackedSearchDropdown(
-        self.object,
         "##envProbePath",
         "Search envprobe...",
         selectedProbe,
         self.envProbeSearch,
         selectorOptions,
-        selectorWidth,
-        false,
-        true,
-        function(optionText)
-            return utils.shortenPath(optionText, itemWidth, true)
-        end,
-        function(optionText)
-            return optionText
-        end,
-        function(optionText)
-            return envProbeOptionSetCache and envProbeOptionSetCache[string.lower(normalizeProbePath(optionText))] == true
-        end,
-        function(optionText, query)
-            local optionLower = (envProbeLowerCache and envProbeLowerCache[optionText]) or string.lower(optionText)
-            return string.find(optionLower, query, 1, true) ~= nil
-        end
+        {
+            element = self.object,
+            width = selectorWidth,
+            matchContentWidth = false,
+            allowCustom = true,
+            optionDisplayFn = function(optionText)
+                return utils.shortenPath(optionText, itemWidth, true)
+            end,
+            optionTooltipFn = function(optionText)
+                return optionText
+            end,
+            optionExistsFn = function(optionText)
+                return envProbeOptionSetCache and envProbeOptionSetCache[string.lower(normalizeProbePath(optionText))] == true
+            end,
+            optionFilterFn = function(optionText, query)
+                local optionLower = (envProbeLowerCache and envProbeLowerCache[optionText]) or string.lower(optionText)
+                return string.find(optionLower, query, 1, true) ~= nil
+            end
+        }
     )
 
     if changed and selectedProbe ~= "" and selectedProbe ~= self.spawnData then

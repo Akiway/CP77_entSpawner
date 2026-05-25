@@ -1271,14 +1271,15 @@ function aiSpot:drawCommunityAttachPopup()
         table.insert(communityOptions, target.label)
     end
     self.communityAttachCommunity, self.communityAttachCommunitySearch, _ = style.trackedSearchDropdown(
-        nil,
         "##communityAttachCommunity",
         "Search community...",
         self.communityAttachCommunity,
         self.communityAttachCommunitySearch,
         communityOptions,
-        controlWidth,
-        true
+        {
+            width = controlWidth,
+            matchContentWidth = true
+        }
     )
     
     ImGui.Dummy(0, 8 * style.viewSize)
@@ -1316,38 +1317,41 @@ function aiSpot:drawCommunityAttachPopup()
         ImGui.TableNextRow()
         ImGui.TableSetColumnIndex(0)
         self.communityAttachEntry, self.communityAttachEntrySearch, _ = style.trackedSearchDropdown(
-            nil,
             "##communityAttachEntry",
             "Search entry...",
             self.communityAttachEntry,
             self.communityAttachEntrySearch,
             entryOptions,
-            inlineSelectorWidth,
-            true
+            {
+                width = inlineSelectorWidth,
+                matchContentWidth = true
+            }
         )
 
         ImGui.TableSetColumnIndex(1)
         self.communityAttachPhase, self.communityAttachPhaseSearch, _ = style.trackedSearchDropdown(
-            nil,
             "##communityAttachPhase",
             "Search phase...",
             self.communityAttachPhase,
             self.communityAttachPhaseSearch,
             phaseOptions,
-            inlineSelectorWidth,
-            true
+            {
+                width = inlineSelectorWidth,
+                matchContentWidth = true
+            }
         )
 
         ImGui.TableSetColumnIndex(2)
         self.communityAttachPeriod, self.communityAttachPeriodSearch, _ = style.trackedSearchDropdown(
-            nil,
             "##communityAttachPeriod",
             "Search time period...",
             self.communityAttachPeriod,
             self.communityAttachPeriodSearch,
             periodOptions,
-            inlineSelectorWidth,
-            true
+            {
+                width = inlineSelectorWidth,
+                matchContentWidth = true
+            }
         )
 
         ImGui.EndTable()
@@ -1465,15 +1469,17 @@ function aiSpot:draw()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         local finished = false
         self.previewNPC, self.previewNPCSearch, finished = style.trackedSearchDropdown(
-            self.object,
             "##previewNPCRigPicker",
             "Character.",
             self.previewNPC,
             self.previewNPCSearch,
             compatibleRecords,
-            250,
-            false,
-            true
+            {
+                element = self.object,
+                width = 250,
+                matchContentWidth = false,
+                allowCustom = true
+            }
         )
         style.tooltip("Select a compatible character record, or type one and choose 'Use custom: ...'.")
         if finished then
@@ -1511,15 +1517,17 @@ function aiSpot:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
         self.previewNPCAppearance, self.previewNPCAppearanceSearch, changed = style.trackedSearchDropdown(
-            self.object,
             "##previewNPCAppPicker",
             "Search appearance...",
             self.previewNPCAppearance,
             self.previewNPCAppearanceSearch,
             previewAppOptions,
-            250,
-            true,
-            true
+            {
+                element = self.object,
+                width = 250,
+                matchContentWidth = true,
+                allowCustom = true
+            }
         )
         style.tooltip(#self.apps > 0
             and "Appearance used when spawning the preview NPC in this workspot. You can also type one and choose 'Use custom: ...'."

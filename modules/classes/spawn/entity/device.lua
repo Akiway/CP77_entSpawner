@@ -1563,15 +1563,17 @@ function device:draw()
             local nodeRefOptions = self:getConnectionNodeRefOptions(connection.nodeRef)
             local nodeRefChanged
             connection.nodeRef, searchValue, nodeRefChanged = style.trackedSearchDropdown(
-                self.object,
                 "##nodeRef",
                 "Search node ref...",
                 connection.nodeRef,
                 searchValue,
                 nodeRefOptions,
-                style.getMaxWidth(250) - 30,
-                true,
-                true
+                {
+                    element = self.object,
+                    width = style.getMaxWidth(250) - 30,
+                    matchContentWidth = true,
+                    allowCustom = true
+                }
             )
             connection.nodeRef = sanitizeConnectionValue(connection.nodeRef)
             self.connectionNodeRefSearch[searchKey] = searchValue
