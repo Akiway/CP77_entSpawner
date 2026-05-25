@@ -1,4 +1,5 @@
 local utils = require("modules/utils/utils")
+local logger = require("modules/utils/logger")
 local red = {}
 
 --GetMod("entSpawner").e(Game.GetTargetingSystem():GetLookAtObject(Game.GetPlayer(), false, false):FindComponentByName("spotlight_lightsource"))
@@ -284,7 +285,7 @@ local function convertSimple(propValue, propClass, prop)
     elseif propClass == "String" then
         propData = propValue
     else
-        utils.log(string.format("[%s] Unsupported simple type: %s", prop:GetName().value, propClass))
+        logger:warn(string.format("[Red Converter] [%s] Unsupported simple type: %s", prop:GetName().value, propClass))
     end
 
     return propData
@@ -461,7 +462,7 @@ function red.convertAny(metaType, propType, value, prop, data)
     elseif metaType == ERTTIType.ResourceAsyncReference then
         propData = convertResRefAsync(value)
     else
-        utils.log(string.format("[%s] Unsupported type: %s", prop:GetName().value, metaType))
+        logger:warn(string.format("[Red Converter] [%s] Unsupported type: %s", prop:GetName().value, metaType))
     end
 
     return propData
@@ -711,7 +712,7 @@ function red.importAny(metaType, propType, value, prop, data, key)
     elseif metaType == ERTTIType.ResourceAsyncReference then
         propData = importResourceRefAsync(value)
     else
-        utils.log("Unsupported type: ", metaType)
+        logger:warn("[Red Converter] Unsupported type: ", metaType)
     end
 
     return propData

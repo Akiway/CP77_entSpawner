@@ -1,4 +1,5 @@
 --[[
+local logger = require("modules/utils/logger")
 GameSettings.lua
 Game Settings Manager
 

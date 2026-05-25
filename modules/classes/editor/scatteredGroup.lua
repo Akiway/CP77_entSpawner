@@ -5,6 +5,7 @@ local Cron = require("modules/utils/Cron")
 local scatteredRectangleArea = require("modules/classes/editor/scatteredRectangleArea")
 local scatteredCylinderArea = require("modules/classes/editor/scatteredCylinderArea")
 local scatteredPrismArea = require("modules/classes/editor/scatteredPrismArea")
+local logger = require("modules/utils/logger")
 
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 
@@ -215,7 +216,7 @@ function scatteredGroup:calculatePosition(prismIndex)
 	elseif self.area.type == "SHAPE" then
 		return self:calculatePositionPrism(prismIndex)
 	else
-		print("Unsupported area type: " .. tostring(self.area.type))
+		logger:warn("Unsupported area type: " .. tostring(self.area.type))
 		return self.baseGroup:getPosition()
 	end
 end
@@ -267,7 +268,7 @@ function scatteredGroup:calculateElementCount(scatterConfig, prismIndex)
 	elseif self.area.type == "SHAPE" then 
 		return self.area.shape[prismIndex]:getInstancesCount(density)
 	else
-		print("Unsupported Area type: " .. tostring(self.area.type))
+		logger:warn("Unsupported Area type: " .. tostring(self.area.type))
 		return 0
 	end
 end
@@ -467,7 +468,7 @@ function scatteredGroup:triangulate()
         end
 
         if not earFound then
-            print("Ear clipping failed: polygon may be degenerate or self-intersecting.")
+            logger:warn("Ear clipping failed: polygon may be degenerate or self-intersecting.")
         end
     end
 

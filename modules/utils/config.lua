@@ -1,3 +1,4 @@
+local logger = require("modules/utils/logger")
 config = {}
 
 ---@class ConfigSpawnFileEntry
@@ -135,7 +136,7 @@ function config.loadFile(path)
 
     local raw = readAll(path)
     if raw == nil then
-        print("Failed to load file: " .. path .. ", restoring empty state")
+        logger:warn("Failed to load file: " .. path .. ", restoring empty state")
         return {}
     end
 
@@ -143,12 +144,8 @@ function config.loadFile(path)
     local success = pcall(function ()
         decoded = json.decode(raw)
     end)
-    if not success then
-        print("Failed to load file: " .. path .. ", restoring empty state")
-        return {}
-    end
-    if type(decoded) ~= "table" then
-        print("Failed to load file: " .. path .. ", restoring empty state")
+    if not success or type(decoded) ~= "table" then
+        logger:warn("Failed to load file: " .. path .. ", restoring empty state")
         return {}
     end
 
@@ -352,7 +349,7 @@ function config.saveFile(path, data)
 
     local encoded, encodeErr = encodeJSONForSave(data)
     if not encoded then
-        print("Failed to encode file: " .. path .. " (" .. tostring(encodeErr) .. ")")
+        logger:error("Failed to encode file: " .. path .. " (" .. tostring(encodeErr) .. ")")
         return false, tostring(encodeErr)
     end
 
@@ -383,14 +380,14 @@ function config.saveFile(path, data)
     local written, writeErr = writeAll(tmpPath, encoded)
     if not written then
         os.remove(tmpPath)
-        print("Failed to write temp file: " .. tmpPath .. " (" .. tostring(writeErr) .. ")")
+        logger:error("Failed to write temp file: " .. tmpPath .. " (" .. tostring(writeErr) .. ")")
         return false, tostring(writeErr)
     end
 
     local replaced, replaceErr = replaceFile(path, tmpPath)
     if not replaced then
         os.remove(tmpPath)
-        print("Failed to replace file: " .. path .. " (" .. tostring(replaceErr) .. ")")
+        logger:error("Failed to replace file: " .. path .. " (" .. tostring(replaceErr) .. ")")
         return false, tostring(replaceErr)
     end
 

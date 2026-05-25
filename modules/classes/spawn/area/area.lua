@@ -1,6 +1,7 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
+local logger = require("modules/utils/logger")
 
 ---Class for worldAreaShapeNode
 ---@class area : visualized
@@ -198,7 +199,7 @@ function area:export(_, _, markersZOffset)
     end
 
     if #markers > 255 then
-        print(string.format("[entSpawner] Issue during export: Area outline %s has more than 255 markers. Only the first 255 will be utilized.", self.outlinePath))
+        logger:warn(string.format("Issue during export: Area outline %s has more than 255 markers. Only the first 255 will be utilized.", self.outlinePath))
     end
 
     -- Grab center

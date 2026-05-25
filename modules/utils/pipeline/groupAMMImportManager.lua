@@ -2,6 +2,7 @@ local Cron = require("modules/utils/Cron")
 local config = require("modules/utils/config")
 local amm = require("modules/utils/ammUtils")
 local pipelineCommon = require("modules/utils/pipeline/common")
+local logger = require("modules/utils/logger")
 
 local groupAMMImportManager = {}
 
@@ -71,7 +72,7 @@ local function finishRuntime(runtime, cancelled)
             runtime.savedUI.reload()
         end)
         if not ok then
-            print(string.format("[AMMImport] Failed to reload Saved UI: %s", tostring(err)))
+            logger:error(string.format("[AMMImport] Failed to reload Saved UI: %s", tostring(err)))
         end
     end
 
@@ -105,7 +106,7 @@ local function scanImportFiles(runtime)
 
             if type(data.props) ~= "table" then
                 runtime.skippedFiles = runtime.skippedFiles + 1
-                print("[AMMImport] Skipped \"" .. file.name .. "\" because it is not an AMM preset export.")
+                logger:info("[AMMImport] Skipped \"" .. file.name .. "\" because it is not an AMM preset export.")
             else
                 table.insert(runtime.files, {
                     name = file.name,
@@ -219,7 +220,7 @@ function groupAMMImportManager.start(request)
 
         if not ok then
             runtime.failedFiles = runtime.failedFiles + 1
-            print(string.format("[AMMImport] Failed while scanning presets: %s", tostring(scanOk)))
+            logger:warn(string.format("[AMMImport] Failed while scanning presets: %s", tostring(scanOk)))
             finishRuntime(runtime, false)
             return
         end
@@ -231,7 +232,7 @@ function groupAMMImportManager.start(request)
 
         amm.total = math.max(1, runtime.totalObjects or 0)
         beginNextFile(runtime)
-    end)
+    end, {})
 
     return true
 end

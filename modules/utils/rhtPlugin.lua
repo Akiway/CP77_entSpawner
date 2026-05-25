@@ -4,6 +4,7 @@ local Cron = require("modules/utils/Cron")
 local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
 local gameUtils = require("modules/utils/gameUtils")
+local logger = require("modules/utils/logger")
 
 ---@class rht
 ---@field public spawnUI spawnUI?
@@ -386,7 +387,7 @@ local TYPE_PRIORITY = {
 }
 
 local function log(message)
-    print("[entSpawner][RHT] " .. tostring(message))
+    logger:info("[RHT plugin] " .. tostring(message))
 end
 
 local function sanitizeReplacerMode(mode)

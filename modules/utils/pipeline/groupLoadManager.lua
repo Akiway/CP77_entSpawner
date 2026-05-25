@@ -3,6 +3,7 @@ local Cron = require("modules/utils/Cron")
 local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
 local pipelineCommon = require("modules/utils/pipeline/common")
+local logger = require("modules/utils/logger")
 
 local groupLoadManager = {}
 local FAST_LOAD_BUDGET_MS = 20
@@ -77,7 +78,7 @@ local function enqueueBuildEntry(state, data, parent)
 end
 
 local function logLoadError(phase, name, err)
-    print(string.format("[entSpawner] [%s] Failed to process \"%s\": %s", phase, name or "Unknown", tostring(err)))
+    logger:error(string.format("[Group Load Manager] [%s] Failed to process \"%s\": %s", phase, name or "Unknown", tostring(err)))
 end
 
 local function getLoadName(state)

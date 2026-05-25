@@ -4,6 +4,7 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local collisionMeshesUtils = require("modules/utils/data/collisionMeshes")
 local meshesShapeHashesUtils = require("modules/utils/data/meshesShapeHashes")
+local logger = require("modules/utils/logger")
 
 local sanitizeSpawnData = false
 local data = {}
@@ -154,7 +155,7 @@ function cache.load()
     if not data.version or data.version < version then
         data = { version = version }
         config.saveFile("data/cache.json", data)
-        print("[entSpawner] Cache is outdated, resetting cache")
+        logger:info("Cache is outdated, resetting cache")
     end
 
     cache.loadStaticData()

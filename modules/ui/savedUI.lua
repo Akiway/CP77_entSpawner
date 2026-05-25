@@ -11,6 +11,7 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local backup = require("modules/utils/backup")
+local logger = require("modules/utils/logger")
 
 local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
@@ -626,14 +627,14 @@ function savedUI.backwardComp()
 
                 local new = savedUI.convertObject(data, true)
                 config.saveFile("data/objects/" .. file.name, new)
-                print("[" .. settings.mainWindowName .. "] Converted \"" .. file.name .. "\" to the new file format.")
+                logger:warn("Converted \"" .. file.name .. "\" to the new file format.")
             elseif data.type == "group" and not data.isUsingSpawnables then
                 config.saveFile("data/oldFormat/" .. file.name, data)
 
                 data = savedUI.convertGroup(data)
                 data.isUsingSpawnables = true
                 config.saveFile("data/objects/" .. file.name, data)
-                print("[" .. settings.mainWindowName .. "] Converted \"" .. file.name .. "\" to the new file format.")
+                logger:warn("Converted \"" .. file.name .. "\" to the new file format.")
             end
         end
     end

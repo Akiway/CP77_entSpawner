@@ -1,5 +1,6 @@
 local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
+local logger = require("modules/utils/logger")
 
 local backup = {
     root = "backup",
@@ -510,9 +511,9 @@ function backup.init()
     end
 
     if not available then
-        print("[entSpawner] Backup folders are unavailable; backup features may be limited.")
+        logger:error("[Backup] Backup folders are unavailable; backup features may be limited.")
         if #missingPaths > 0 then
-            print("[entSpawner] Missing backup folders: " .. table.concat(missingPaths, ", "))
+            logger:error("[Backup] Missing backup folders: " .. table.concat(missingPaths, ", "))
         end
     end
 end
@@ -527,7 +528,7 @@ function backup.snapshotOnGameLoad()
     backup.metadata.on_game_load = {}
 
     if not ensureDir("backup/on_game_load/data") then
-        print("[entSpawner] Backup path unavailable: backup/on_game_load/data")
+        logger:error("[Backup] Backup path unavailable: backup/on_game_load/data")
         return false
     end
 
@@ -556,7 +557,7 @@ function backup.backupObjectBeforeSave(fileName)
     end
 
     if not ensureParentDir(targetPath) then
-        print("[entSpawner] Backup path unavailable: " .. targetPath)
+        logger:error("[Backup] Backup path unavailable: " .. targetPath)
         return false
     end
 

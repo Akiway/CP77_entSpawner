@@ -2,6 +2,7 @@ local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
 local task = require("modules/utils/pipeline/tasks")
 local intersection = require("modules/utils/editor/intersection")
+local logger = require("modules/utils/logger")
 
 local builder = {
     assembleCallbacks = {},
@@ -47,7 +48,7 @@ function builder.init()
 
     Observe('EntityBuilder', 'OnResourceReady', function(_, token)
         if type(token) ~= "userdata" then
-            print("Token not userdata")
+            logger:warn("[EntityBuilder] Token not userdata")
             return
         end
         if not IsDefined(token) then return end
@@ -168,16 +169,16 @@ function builder.getEntityBBox(entity, callback)
                     return builder.getComponentOffset(entity, component)
                 end)
                 if not okOffset or not offset then
-                    utils.log("[entityBuilder] STALE COMPONENT: failed offset for mesh " .. path)
+                    -- logger:info("[entityBuilder] STALE COMPONENT: failed offset for mesh " .. path)
                     meshesTask:taskCompleted()
                     return
                 end
 
-                utils.log("[entityBuilder] task for mesh " .. path)
+                -- logger:info("[entityBuilder] task for mesh " .. path)
 
                 cache.tryGet(path .. "_bBox_max", path .. "_bBox_min", path .. "_collision")
                 .notFound(function (task)
-                    utils.log("[entityBuilder] MISSING: BBOX for mesh " .. path)
+                    -- logger:info("[entityBuilder] MISSING: BBOX for mesh " .. path)
 
                     builder.registerLoadResource(path, function(resource)
                         local min = resource.boundingBox.Min
@@ -195,7 +196,7 @@ function builder.getEntityBBox(entity, callback)
                         cache.addValue(path .. "_bBox_min", utils.fromVector(min))
                         cache.addValue(path .. "_collision", collision)
 
-                        utils.log("[entityBuilder] LOADED: BBOX for mesh " .. path)
+                        -- logger:info("[entityBuilder] LOADED: BBOX for mesh " .. path)
 
                         task:taskCompleted()
                     end)
@@ -212,7 +213,7 @@ function builder.getEntityBBox(entity, callback)
                         }
                     end)
                     if not okComponentData or not componentData then
-                        utils.log("[entityBuilder] STALE COMPONENT: failed data extraction for mesh " .. path)
+                        -- logger:info("[entityBuilder] STALE COMPONENT: failed data extraction for mesh " .. path)
                         meshesTask:taskCompleted()
                         return
                     end
@@ -250,8 +251,8 @@ function builder.getEntityBBox(entity, callback)
                         globalRotation = componentData.localToWorld:GetRotation()
                     })
 
-                    utils.log("[entityBuilder] FOUND: BBOX for mesh " .. path)
-                    utils.log("[entityBuilder] " .. meshesTask.tasksTodo - 1 .. " Meshes todo for " .. entityPath)
+                    -- logger:info("[entityBuilder] FOUND: BBOX for mesh " .. path)
+                    -- logger:info("[entityBuilder] " .. meshesTask.tasksTodo - 1 .. " Meshes todo for " .. entityPath)
                     meshesTask:taskCompleted()
                 end)
             end)
@@ -261,7 +262,7 @@ function builder.getEntityBBox(entity, callback)
     end
 
     meshesTask:onFinalize(function ()
-        utils.log("[entityBuilder] onFinalize BBOX for entity " .. entityPath)
+        -- logger:info("[entityBuilder] onFinalize BBOX for entity " .. entityPath)
         local bboxMin, bboxMax = utils.getVector4BBox(bBoxPoints)
         callback({ bBox = { min = bboxMin, max = bboxMax }, meshes = meshes }) -- Keep mesh for more accurate bbox check for entity
     end)

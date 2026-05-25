@@ -6,6 +6,7 @@ local intersection = require("modules/utils/editor/intersection")
 local builder = require("modules/utils/entityBuilder")
 local cache = require("modules/utils/cache")
 local collisionMeshesUtils = require("modules/utils/data/collisionMeshes")
+local logger = require("modules/utils/logger")
 
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local materials = colliderBase.getColliderGenerics().materials
@@ -154,7 +155,7 @@ function meshCollider:onAssemble(entity)
 
     if not self.previewArchiveInstalled then return end
     if tostring(self.sectorHash or "") == "" or tostring(self.shapeHash or "") == "" or tostring(self.meshType or "") == "" then
-        print("Error: Missing sectorHash, shapeHash, or meshType. Cannot set up mesh collider.")
+        logger:error("[Mesh Collider] Missing sectorHash, shapeHash, or meshType. Cannot set up mesh collider.")
         return
     end
 
@@ -168,7 +169,7 @@ function meshCollider:onAssemble(entity)
     else
         local component = entity:FindComponentByName("collision_mesh_0")
         if not component then
-            print("Error: collision_mesh_0 component not found on entity. Cannot set up mesh collider.")
+            logger:error("[Mesh Collider] collision_mesh_0 component not found on entity. Cannot set up mesh collider.")
             return
         end
 

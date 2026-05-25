@@ -10,6 +10,7 @@ local registry = require("modules/utils/nodeRefRegistry")
 local editor = require("modules/utils/editor/editor")
 local GameSettings = require("modules/utils/GameSettings")
 local preview = require("modules/utils/previewUtils")
+local logger = require("modules/utils/logger")
 
 ---Base class for any object / node that can be spawned
 ---@class spawnable
@@ -209,7 +210,7 @@ function spawnable:spawn(ignoreSpawning)
 
     local templatePath = type(self.spawnData) == "string" and self.spawnData or ""
     if utils.trimString(templatePath) == "" then
-        print(string.format("[entSpawner] Refused to spawn \"%s\": empty template path", tostring(self.dataType or "unknown")))
+        logger:warn(string.format("Refused to spawn \"%s\": empty template path", tostring(self.dataType or "unknown")))
         return false
     end
 
@@ -223,7 +224,7 @@ function spawnable:spawn(ignoreSpawning)
     if not spawnedId or not spawnedId.hash or spawnedId.hash == 0 then
         self.spawning = false
         self.spawned = false
-        print(string.format("[entSpawner] Failed to spawn template path \"%s\" (%s)", templatePath, tostring(self.dataType or "unknown")))
+        logger:warn(string.format("Failed to spawn template path \"%s\" (%s)", templatePath, tostring(self.dataType or "unknown")))
         return false
     end
 
@@ -418,6 +419,9 @@ function spawnable:getProperties()
             local nodeRefValue, nodeRefChanged, _ = style.trackedTextField(self.object, "##noderef", self.nodeRef, "$/#foobar", style.getMaxWidth(250) - 30 - (refDuplicate and 25 or 0))
             self.nodeRef = nodeRefValue
             if nodeRefChanged then
+                logger:info(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
+                logger:warn(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
+                logger:error(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
                 registry.invalidate()
             end
             style.pushButtonNoBG(true)

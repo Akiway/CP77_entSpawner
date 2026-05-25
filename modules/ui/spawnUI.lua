@@ -9,6 +9,7 @@ local Cron = require("modules/utils/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
+local logger = require("modules/utils/logger")
 
 local types = {
     ["Entity"] = {
@@ -2041,11 +2042,11 @@ function spawnUI.drawNoMatch()
         local manualPath = utils.trimString(spawnUI.filter or "")
         if manualPath == "" then
             ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "Cannot spawn: path is empty"))
-            print("[entSpawner] Spawn attempt ignored: empty manual path in Spawn New")
+            logger:warn("Spawn attempt ignored: empty manual path in Spawn New")
             return
         end
 
-        print(string.format("[entSpawner] Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
+        logger:info(string.format("Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
 
         local class = spawnUI.getActiveSpawnList().class
         spawnUI.spawnNew({
@@ -2472,12 +2473,12 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         local spawnLifetimeToken = new.spawnable.getSpawnLifetimeToken and new.spawnable:getSpawnLifetimeToken() or nil
         Cron.After(0.1, function ()
             if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
-                print(string.format("[entSpawner] Skipped stale spawn adjust callback for \"%s\"", tostring(new.name or "unknown")))
+                logger:warn(string.format("Skipped stale spawn adjust callback for \"%s\"", tostring(new.name or "unknown")))
                 return
             end
             if new.parent == nil then return end
             new:setPosition(adjustedPos)
-        end)
+        end, {})
     end
 
     new:setParent(parent)
@@ -2491,7 +2492,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
         Cron.Every(0.05, function (timer)
             if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
-                print(string.format("[entSpawner] Halted stale spawn wait callback for \"%s\"", tostring(new.name or "unknown")))
+                logger:warn(string.format("Halted stale spawn wait callback for \"%s\"", tostring(new.name or "unknown")))
                 timer:Halt()
                 return
             end
@@ -2502,7 +2503,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
             if new.spawnable.bBoxLoaded and new.spawnable:getEntity() then
                 Cron.After(0.1, function ()
                     if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
-                        print(string.format("[entSpawner] Skipped stale post-BBOX spawn callback for \"%s\"", tostring(new.name or "unknown")))
+                        logger:warn(string.format("Skipped stale post-BBOX spawn callback for \"%s\"", tostring(new.name or "unknown")))
                         return
                     end
                     if new.parent == nil then return end
@@ -2513,7 +2514,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
                 timer:Halt()
             end
-        end)
+        end, {})
     else
         history.addAction(history.getInsert({ new }))
     end

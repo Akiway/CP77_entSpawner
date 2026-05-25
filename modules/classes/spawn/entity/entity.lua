@@ -12,6 +12,7 @@ local registry = require("modules/utils/nodeRefRegistry")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
 local appearanceHelper = require("modules/utils/appearanceHelper")
+local logger = require("modules/utils/logger")
 
 local deviceClassSecondaryIconByName = {
     LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
@@ -596,7 +597,7 @@ function entity:onAssemble(entRef)
         self:loadInstanceData(entRef, false)
     end)
     if not loadOk then
-        print(string.format("[entSpawner] [entity] Failed to apply instance data for \"%s\": %s", self.spawnData or "unknown", tostring(loadErr)))
+        logger:error(string.format("[entity] Failed to apply instance data for \"%s\": %s", self.spawnData or "unknown", tostring(loadErr)))
     end
 
     self:applyComponentOverrides(entRef)
@@ -620,7 +621,7 @@ function entity:onAttached(entRef)
 
     Cron.AfterTicks(10, function ()
         if spawnToken and (not self.isSpawnLifetimeTokenCurrent or not self:isSpawnLifetimeTokenCurrent(spawnToken, entRef)) then
-            utils.log(string.format("[Entity] Skipped stale attach callback for %s", tostring(self.spawnData or "unknown")))
+            logger:info(string.format("[Entity] Skipped stale attach callback for %s", tostring(self.spawnData or "unknown")))
             return
         end
 
@@ -632,11 +633,11 @@ function entity:onAttached(entRef)
 
         builder.getEntityBBox(entRef, function (data)
             if spawnToken and (not self.isSpawnLifetimeTokenCurrent or not self:isSpawnLifetimeTokenCurrent(spawnToken, entRef)) then
-                utils.log(string.format("[Entity] Skipped stale BBOX callback for %s", tostring(self.spawnData or "unknown")))
+                logger:info(string.format("[Entity] Skipped stale BBOX callback for %s", tostring(self.spawnData or "unknown")))
                 return
             end
 
-            utils.log("[Entity] Loaded initial BBOX for entity " .. self.spawnData .. " with " .. #data.meshes .. " meshes.")
+            -- logger:info("[Entity] Loaded initial BBOX for entity " .. self.spawnData .. " with " .. #data.meshes .. " meshes.")
             self.bBox = data.bBox
             self.meshes = data.meshes
 
@@ -792,7 +793,7 @@ function entity:save()
                 data.instanceDataChanges[key] = nil
             end
         else
-            print("[entSpawner] Something went wrong with instance data for entity " .. self.object.name .. " had to reset some data...")
+            logger:warn("Something went wrong with instance data for entity " .. self.object.name .. " had to reset some data...")
             data.instanceDataChanges[key] = nil
         end
     end

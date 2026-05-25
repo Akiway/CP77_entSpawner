@@ -4,6 +4,7 @@ local style = require("modules/ui/style")
 local config = require("modules/utils/config")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
+local logger = require("modules/utils/logger")
 
 ---@class category
 ---@field name string
@@ -303,7 +304,7 @@ function category:merge(toMerge)
 
 	toMerge:delete()
 
-	print(string.format("[%s] Merged %s into %s, resulting in the merging of %d favorites.", settings.mainWindowName, toMerge.name, self.name, merges))
+	logger:info(string.format("[%s] Merged %s into %s, resulting in the merging of %d favorites.", settings.mainWindowName, toMerge.name, self.name, merges))
 end
 
 function category:drawEditPopup()

@@ -3,6 +3,7 @@ local entityBuilder = require("modules/utils/entityBuilder")
 local settings = require("modules/utils/settings")
 local config = require("modules/utils/config")
 local Cron = require("modules/utils/Cron")
+local logger = require("modules/utils/logger")
 
 local amm = {
     importing = false,
@@ -246,7 +247,7 @@ local function callOptional(callback, ...)
 
     local ok, err = pcall(callback, ...)
     if not ok then
-        print(string.format("[AMMImport] Callback failed: %s", tostring(err)))
+        logger:error(string.format("[AMMImport] Callback failed: %s", tostring(err)))
     end
 end
 
@@ -293,7 +294,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         local ok, result = pcall(shouldCancel)
         if not ok then
             hadErrors = true
-            print("[AMMImport] Cancel callback failed: " .. tostring(result))
+            logger:error("[AMMImport] Cancel callback failed: " .. tostring(result))
             return false
         end
 
@@ -317,7 +318,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
     end
 
     if type(data.props) ~= "table" then
-        print("[AMMImport] Skipped \"" .. tostring(data.file_name or "unknown") .. "\" because it has no props table.")
+        logger:warn("[AMMImport] Skipped \"" .. tostring(data.file_name or "unknown") .. "\" because it has no props table.")
         finish({
             success = false,
             cancelled = false,
@@ -352,7 +353,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end
 
         if cancelled and skipSaveOnCancel then
-            print("[AMMImport] Cancelled import for \"" .. tostring(data.file_name or "AMM_Preset") .. "\" before saving.")
+            logger:info("[AMMImport] Cancelled import for \"" .. tostring(data.file_name or "AMM_Preset") .. "\" before saving.")
             finish({
                 success = false,
                 cancelled = true,
@@ -366,10 +367,10 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end)
 
         if saved then
-            print("[" .. settings.mainWindowName .. "] Imported \"" .. data.file_name .. "\" from AMM.")
+            logger:info("[AMMImport] Imported \"" .. data.file_name .. "\" from AMM.")
         else
             hadErrors = true
-            print("[AMMImport] Failed saving \"" .. tostring(data.file_name or "AMM_Preset") .. "\": " .. tostring(saveErr))
+            logger:error("[AMMImport] Failed saving \"" .. tostring(data.file_name or "AMM_Preset") .. "\": " .. tostring(saveErr))
         end
 
         finish({
@@ -391,7 +392,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
 
         if not parsed or type(propData) ~= "table" then
             hadErrors = true
-            print("[AMMImport] Failed parsing prop \"" .. tostring(prop and prop.name or "unknown") .. "\" in \"" .. tostring(data.file_name or "unknown") .. "\".")
+            logger:warn("[AMMImport] Failed parsing prop \"" .. tostring(prop and prop.name or "unknown") .. "\" in \"" .. tostring(data.file_name or "unknown") .. "\".")
             completeOne()
             return
         end
@@ -412,20 +413,20 @@ function amm.importSinglePreset(data, spawnedUI, options)
                 o:setParent(lightNodes)
             else
                 hadErrors = true
-                print("[AMMImport] Failed importing light prop \"" .. tostring(propData.name) .. "\": " .. tostring(lightOrErr))
+                logger:warn("[AMMImport] Failed importing light prop \"" .. tostring(propData.name) .. "\": " .. tostring(lightOrErr))
             end
             completeOne()
             return
         end
 
         if isVehicle then
-            print("[AMMImport] Skipped " .. propData.name .. " as it is a vehicle, must be spawned via Entity Record.")
+            logger:warn("[AMMImport] Skipped " .. propData.name .. " as it is a vehicle, must be spawned via Entity Record.")
             completeOne()
             return
         end
 
         if not Game.GetResourceDepot():ResourceExists(propData.path) then
-            print("[AMMImport] Resource for " .. propData.path .. " does not exist, skipping...")
+            logger:warn("[AMMImport] Resource for " .. propData.path .. " does not exist, skipping...")
             completeOne()
             return
         end
@@ -444,7 +445,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
                 end
             end)
             if not despawned then
-                print("[AMMImport] Failed despawning temp entity: " .. tostring(despawnErr))
+                logger:warn("[AMMImport] Failed despawning temp entity: " .. tostring(despawnErr))
             end
 
             inFlight = math.max(0, inFlight - 1)
@@ -460,7 +461,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end)
         if not loaded then
             hadErrors = true
-            print("[AMMImport] Failed loading spawn data for \"" .. tostring(propData.name) .. "\": " .. tostring(loadErr))
+            logger:warn("[AMMImport] Failed loading spawn data for \"" .. tostring(propData.name) .. "\": " .. tostring(loadErr))
             completeAsync()
             return
         end
@@ -485,7 +486,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     end
 
                     spawnable:loadInstanceData(entity, true)
-                    print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
+                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
                 end
                 if isScaled and not canConvert then
                     setInstanceDataMesh(entity, propData, spawnable)
@@ -495,7 +496,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     o:setParent(scaledProps)
 
                     o.spawnable:loadInstanceData(entity, true)
-                    print("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
+                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
                 end
                 if canConvert then
                     local scale = spawnable.meshes[1].originalScale
@@ -513,18 +514,18 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     o.spawnable = mesh
                     o.name = o.spawnable:generateName(propData.name)
                     o:setParent(meshes)
-                    print("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
+                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
                 elseif not isLight and not isScaled then
                     o.spawnable = convertProp(propData)
                     o.name = o.spawnable:generateName(propData.name)
                     o:setParent(props)
-                    print("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
+                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
                 end
             end)
 
             if not imported then
                 hadErrors = true
-                print("[AMMImport] Failed importing prop \"" .. tostring(propData.name) .. "\": " .. tostring(importErr))
+                logger:warn("[AMMImport] Failed importing prop \"" .. tostring(propData.name) .. "\": " .. tostring(importErr))
             end
 
             completeAsync()
@@ -535,7 +536,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end)
         if not spawned then
             hadErrors = true
-            print("[AMMImport] Failed spawning temp entity for \"" .. tostring(propData.name) .. "\": " .. tostring(spawnErr))
+            logger:warn("[AMMImport] Failed spawning temp entity for \"" .. tostring(propData.name) .. "\": " .. tostring(spawnErr))
             completeAsync()
         end
     end
@@ -600,7 +601,7 @@ function amm.importPresets(savedUI)
                 data.file_name = data.file_name or file.name
 
                 if type(data.props) ~= "table" then
-                    print("[AMMImport] Skipped \"" .. file.name .. "\" because it is not an AMM preset export.")
+                    logger:info("[AMMImport] Skipped \"" .. file.name .. "\" because it is not an AMM preset export.")
                     importTasks:taskCompleted()
                     return
                 end
@@ -622,7 +623,7 @@ function amm.importPresets(savedUI)
     end
 
     importTasks:onFinalize(function ()
-        print("[AMMImport] All presets imported.")
+        logger:info("[AMMImport] All presets imported.")
         amm.importing = false
     end)
 

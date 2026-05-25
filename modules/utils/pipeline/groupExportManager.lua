@@ -3,6 +3,7 @@ local utils = require("modules/utils/utils")
 local Cron = require("modules/utils/Cron")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local groupExportSidecar = require("modules/utils/pipeline/groupExportSidecar")
+local logger = require("modules/utils/logger")
 
 local groupExportManager = {}
 local EXPORT_ERROR_LOG_PATH = "data/export_errors.log"
@@ -51,7 +52,7 @@ groupExportManager.pendingToasts = {}
 local function appendExportErrorLog(line)
     local file, openErr = io.open(EXPORT_ERROR_LOG_PATH, "a")
     if not file then
-        print(string.format("[entSpawner] Failed to open export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(openErr)))
+        logger:error(string.format("[Group Export Manager] Failed to open export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(openErr)))
         return
     end
 
@@ -61,7 +62,7 @@ local function appendExportErrorLog(line)
     file:close()
 
     if not ok then
-        print(string.format("[entSpawner] Failed to write export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(writeErr)))
+        logger:error(string.format("[Group Export Manager] Failed to write export log \"%s\": %s", EXPORT_ERROR_LOG_PATH, tostring(writeErr)))
     end
 end
 
@@ -81,7 +82,7 @@ local function logExportError(runtime, phase, message)
     local timestamp = os.date("%Y-%m-%d %H:%M:%S")
     local line = string.format("[%s] phase=%s project=%s group=%s error=%s", timestamp or "unknown_time", tostring(phase), tostring(projectName), tostring(groupName), tostring(message))
 
-    print("[entSpawner] " .. line)
+    logger:error("[Group Export Manager] " .. line)
     appendExportErrorLog(line)
 end
 
@@ -90,7 +91,7 @@ local function queueToast(kind, duration, text)
         pipelineCommon.queueToast(groupExportManager.pendingToasts, kind, duration, text)
     end)
     if not ok then
-        print(string.format("[entSpawner] Failed to queue toast: %s", tostring(err)))
+        logger:warn(string.format("[Group Export Manager] Failed to queue toast: %s", tostring(err)))
     end
 end
 
@@ -654,13 +655,13 @@ local function finalizeExportRuntime(runtime)
             toastKind = "success"
             toastDuration = 2500
             toastMessage = string.format("Exported \"%s\"", projectLabel)
-            print("[entSpawner] Exported project " .. runtime.project.name)
+            logger:info("[Group Export Manager] " .. toastMessage)
         else
             toastKind = "error"
             toastDuration = 7000
             toastMessage = string.format("Export failed: %s", tostring(saveErr or "unknown_error"))
             logExportError(runtime, "finalize_save", toastMessage)
-            print("[entSpawner] " .. toastMessage)
+            logger:error("[Group Export Manager] " .. toastMessage)
         end
     end)
 
@@ -669,7 +670,7 @@ local function finalizeExportRuntime(runtime)
         toastDuration = 7000
         toastMessage = string.format("Export failed: %s", tostring(err))
         logExportError(runtime, "finalize_exception", toastMessage)
-        print("[entSpawner] " .. toastMessage)
+        logger:error("[Group Export Manager] " .. toastMessage)
     end
 
     if runtime.paused then

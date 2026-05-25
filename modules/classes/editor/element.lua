@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local backup = require("modules/utils/backup")
+local logger = require("modules/utils/logger")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
@@ -654,7 +655,7 @@ function element:save(showToast)
 	end)
 	if not serializeOk or type(data) ~= "table" then
 		local errMsg = string.format("Failed to serialize \"%s\": %s", tostring(self.name), tostring(serializeErr))
-		print("[entSpawner] " .. errMsg)
+		logger:error("[Element] " .. errMsg)
 
 		if showToast then
 			local toastType = ImGui.ToastType.Success
@@ -683,7 +684,7 @@ function element:save(showToast)
 		end
 
 		local errMsg = string.format("Failed to save \"%s\": %s", tostring(fileName), tostring(saveErr))
-		print("[entSpawner] " .. errMsg)
+		logger:error("[Element] " .. errMsg)
 
 		if showToast then
 			local toastType = ImGui.ToastType.Success

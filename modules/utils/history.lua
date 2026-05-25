@@ -1,4 +1,5 @@
 local utils = require("modules/utils/utils")
+local logger = require("modules/utils/logger")
 
 local maxHistory = 999
 local maxPendingRequests = 16
@@ -39,7 +40,7 @@ end
 ---@param message string Human-readable context for the failure.
 ---@param err any Error object/message returned by `pcall`.
 local function logActionError(message, err)
-    print("[entSpawner][history] " .. tostring(message) .. ": " .. tostring(err))
+    logger:error("[history] " .. tostring(message) .. ": " .. tostring(err))
 end
 
 ---Find an element by runtime ID in a subtree.
@@ -543,7 +544,7 @@ function history.getElementChange(element)
     local function swap()
         local target = resolveElementByPath(action.path, false, action.id, true)
         if not target then
-            print("[entSpawner][history] Element change target not found for path: " .. tostring(action.path))
+            logger:warn("[history] Element change target not found for path: " .. tostring(action.path))
             return
         end
 
@@ -594,7 +595,7 @@ function history.getRename(data, current, new, id)
     local function swap(path)
         local target = resolveElementByPath(path, true, action.id, true)
         if not target then
-            print("[entSpawner][history] Rename target not found for path: " .. tostring(path))
+            logger:warn("[history] Rename target not found for path: " .. tostring(path))
             return
         end
 

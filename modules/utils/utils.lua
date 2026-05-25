@@ -1,3 +1,4 @@
+local logger = require("modules/utils/logger")
 local miscUtils = {
     data = {},
     archives = {}
@@ -537,25 +538,6 @@ function miscUtils.generateCopyName(name)
     else
         return name .. "_1"
     end
-end
-
----Debug logger (currently disabled by early return).
----@param ... any Values to print.
----@return nil
-function miscUtils.log(...)
-    if true then return end
-
-    local args = {...}
-    local str = ""
-
-    for i, arg in ipairs(args) do
-        str = str .. tostring(arg)
-        if i < #args then
-            str = str .. "\t"
-        end
-    end
-
-    print(str)
 end
 
 ---Extracts filename stem from a path; leaves non-path record IDs unchanged.

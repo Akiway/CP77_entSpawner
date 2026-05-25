@@ -4,6 +4,7 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
 local Cron = require("modules/utils/Cron")
+local logger = require("modules/utils/logger")
 
 ---@class favoritesUI
 ---@field spawnUI spawnUI?
@@ -55,9 +56,9 @@ local function quarantineInvalidFavoriteFile(fileName, reason)
 
     local moved = os.rename(sourcePath, targetPath)
     if moved then
-        print(string.format("[%s] Invalid favorite file '%s' (%s). Moved to '%s' for recovery.", settings.mainWindowName, fileName, reason, targetPath))
+        logger:warn(string.format("[Favorites UI] [%s] Invalid favorite file '%s' (%s). Moved to '%s' for recovery.", settings.mainWindowName, fileName, reason, targetPath))
     else
-        print(string.format("[%s] Invalid favorite file '%s' (%s). Could not move it; left original file in place.", settings.mainWindowName, fileName, reason))
+        logger:error(string.format("[Favorites UI] [%s] Invalid favorite file '%s' (%s). Could not move it; left original file in place.", settings.mainWindowName, fileName, reason))
     end
 end
 
