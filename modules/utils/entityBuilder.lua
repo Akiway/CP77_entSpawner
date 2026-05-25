@@ -149,7 +149,13 @@ function builder.getEntityBBox(entity, callback)
     local meshesTask = task:new()
 
     for _, component in ipairs(components) do
-        local use = builder.shouldUseMesh(component)
+        local okUse, use = pcall(function ()
+            return builder.shouldUseMesh(component)
+        end)
+
+        if not okUse or type(use) ~= "table" then
+            goto continue
+        end
 
         if use.use or (use.isDestruction and use.meshExists) then
             local path = ResRef.FromHash(component.mesh.hash):ToString()
@@ -158,7 +164,15 @@ function builder.getEntityBBox(entity, callback)
             end
 
             meshesTask:addTask(function ()
-                local offset = builder.getComponentOffset(entity, component)
+                local okOffset, offset = pcall(function ()
+                    return builder.getComponentOffset(entity, component)
+                end)
+                if not okOffset or not offset then
+                    utils.log("[entityBuilder] STALE COMPONENT: failed offset for mesh " .. path)
+                    meshesTask:taskCompleted()
+                    return
+                end
+
                 utils.log("[entityBuilder] task for mesh " .. path)
 
                 cache.tryGet(path .. "_bBox_max", path .. "_bBox_min", path .. "_collision")
@@ -187,7 +201,23 @@ function builder.getEntityBBox(entity, callback)
                     end)
                 end)
                 .found(function ()
-                    local originalScale = Vector4.Vector3To4(component.visualScale or Vector3.new(1, 1, 1))
+                    local okComponentData, componentData = pcall(function ()
+                        local localToWorld = component:GetLocalToWorld()
+                        local meshAppearance = component.meshAppearance and component.meshAppearance.value or "default"
+                        return {
+                            originalScale = Vector4.Vector3To4(component.visualScale or Vector3.new(1, 1, 1)),
+                            isPhysical = component:IsA("entPhysicalMeshComponent") or component:IsA("entPhysicalDestructionComponent"),
+                            meshAppearance = meshAppearance,
+                            localToWorld = localToWorld
+                        }
+                    end)
+                    if not okComponentData or not componentData then
+                        utils.log("[entityBuilder] STALE COMPONENT: failed data extraction for mesh " .. path)
+                        meshesTask:taskCompleted()
+                        return
+                    end
+
+                    local originalScale = componentData.originalScale
                     local scalingFactor = intersection.getResourcePathScalingFactor(path, originalScale)
                     local scale = utils.multVecXVec(originalScale, scalingFactor)
                     local meshResource = cache.getMeshResource(path)
@@ -214,10 +244,10 @@ function builder.getEntityBBox(entity, callback)
                         },
                         path = path,
                         originalScale = originalScale,
-                        collision = cache.getValue(path .. "_collision") and (component:IsA("entPhysicalMeshComponent") or component:IsA("entPhysicalDestructionComponent")),
-                        app = component.meshAppearance.value,
-                        globalPosition = component:GetLocalToWorld():GetTranslation(),
-                        globalRotation = component:GetLocalToWorld():GetRotation()
+                        collision = cache.getValue(path .. "_collision") and componentData.isPhysical,
+                        app = componentData.meshAppearance,
+                        globalPosition = componentData.localToWorld:GetTranslation(),
+                        globalRotation = componentData.localToWorld:GetRotation()
                     })
 
                     utils.log("[entityBuilder] FOUND: BBOX for mesh " .. path)
@@ -226,6 +256,8 @@ function builder.getEntityBBox(entity, callback)
                 end)
             end)
         end
+
+        ::continue::
     end
 
     meshesTask:onFinalize(function ()

@@ -132,10 +132,14 @@ function visualizer.addCapsule(entity, radius, height, color)
     addMesh(entity, "capsule_top", "base\\spawner\\capsule_cap.mesh", { x = radius, y = radius, z = radius }, color, true)
 
     local component = entity:FindComponentByName("capsule_top")
-    component:SetLocalPosition(Vector4.new(0, 0, height / 2, 0))
-    local component = entity:FindComponentByName("capsule_bottom")
-    component:SetLocalPosition(Vector4.new(0, 0, -height / 2, 0))
-    component:SetLocalOrientation(EulerAngles.new(0, 180, 0):ToQuat())
+    if component then
+        component:SetLocalPosition(Vector4.new(0, 0, height / 2, 0))
+    end
+    component = entity:FindComponentByName("capsule_bottom")
+    if component then
+        component:SetLocalPosition(Vector4.new(0, 0, -height / 2, 0))
+        component:SetLocalOrientation(EulerAngles.new(0, 180, 0):ToQuat())
+    end
 end
 
 ---Attach axis arrows preview mesh named `"arrows"`.
@@ -176,30 +180,36 @@ function visualizer.updateCapsuleScale(entity, radius, height)
     if not entity then return end
 
     local top = entity:FindComponentByName("capsule_top")
-    top.visualScale = ToVector3({ x = radius, y = radius, z = radius })
-    top:SetLocalPosition(Vector4.new(0, 0, height / 2, 0))
+    if top then
+        top.visualScale = ToVector3({ x = radius, y = radius, z = radius })
+        top:SetLocalPosition(Vector4.new(0, 0, height / 2, 0))
 
-    if top:IsEnabled() then
-        top:Toggle(false)
-        top:Toggle(true)
+        if top:IsEnabled() then
+            top:Toggle(false)
+            top:Toggle(true)
+        end
     end
 
     local bottom = entity:FindComponentByName("capsule_bottom")
-    bottom.visualScale = ToVector3({ x = radius, y = radius, z = radius })
-    bottom:SetLocalPosition(Vector4.new(0, 0, -height / 2, 0))
-    bottom:SetLocalOrientation(EulerAngles.new(0, 180, 0):ToQuat())
+    if bottom then
+        bottom.visualScale = ToVector3({ x = radius, y = radius, z = radius })
+        bottom:SetLocalPosition(Vector4.new(0, 0, -height / 2, 0))
+        bottom:SetLocalOrientation(EulerAngles.new(0, 180, 0):ToQuat())
 
-    if bottom:IsEnabled() then
-        bottom:Toggle(false)
-        bottom:Toggle(true)
+        if bottom:IsEnabled() then
+            bottom:Toggle(false)
+            bottom:Toggle(true)
+        end
     end
 
     local body = entity:FindComponentByName("capsule_body")
-    body.visualScale = ToVector3({ x = radius, y = radius, z = height / 2 })
+    if body then
+        body.visualScale = ToVector3({ x = radius, y = radius, z = height / 2 })
 
-    if body:IsEnabled() then
-        body:Toggle(false)
-        body:Toggle(true)
+        if body:IsEnabled() then
+            body:Toggle(false)
+            body:Toggle(true)
+        end
     end
 end
 
@@ -212,6 +222,8 @@ function visualizer.showArrows(entity, state)
     if not entity then return end
 
     local component = entity:FindComponentByName("arrows")
+    if not component then return end
+
     component:Toggle(state)
 end
 
@@ -240,6 +252,7 @@ function visualizer.highlightArrow(entity, app)
     if not entity then return end
 
     local component = entity:FindComponentByName("arrows")
+    if not component then return end
 
     component.meshAppearance = CName.new(app)
     component:LoadAppearance()

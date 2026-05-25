@@ -662,8 +662,26 @@ function editor.checkArrow()
 
     local ray = editor.getScreenToWorldRay()
     local arrowWidth = 0.04 * math.max(selected:getArrowSize().x, selected:getArrowSize().y, selected:getArrowSize().z)
+    local entityRef = selected:getEntity()
+    if not entityRef then
+        editor.hoveredArrow = "none"
+        return
+    end
 
-    local arrowTransform = selected:getEntity():FindComponentByName("arrows"):GetLocalToWorld()
+    local arrowsComponent = entityRef:FindComponentByName("arrows")
+    if not arrowsComponent then
+        editor.hoveredArrow = "none"
+        return
+    end
+
+    local okArrowTransform, arrowTransform = pcall(function ()
+        return arrowsComponent:GetLocalToWorld()
+    end)
+    if not okArrowTransform or not arrowTransform then
+        editor.hoveredArrow = "none"
+        return
+    end
+
     local rotation = arrowTransform:GetRotation()
     local position = arrowTransform:GetTranslation()
 

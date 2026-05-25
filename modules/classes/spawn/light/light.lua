@@ -857,6 +857,8 @@ function light:updateParameters()
     if not entity then return end
 
     local comp = entity:FindComponentByName("light")
+    if not comp then return end
+
     comp:SetColor(Color.new({ Red = math.floor(self.color[1] * 255), Green = math.floor(self.color[2] * 255), Blue = math.floor(self.color[3] * 255) }))
     comp:SetIntensity(math.floor(self.intensity))
     comp:SetAngles(self.innerAngle, self.outerAngle)

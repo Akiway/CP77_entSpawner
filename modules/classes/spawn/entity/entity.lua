@@ -228,7 +228,8 @@ end
 ---@protected
 ---@param forceRefresh boolean?
 function entity:loadAppearanceData(forceRefresh)
-    local cacheKey = self.spawnData .. "_apps"
+    local requestedSpawnData = self.spawnData
+    local cacheKey = requestedSpawnData .. "_apps"
 
     if forceRefresh then
         cache.removeValue(cacheKey)
@@ -239,7 +240,12 @@ function entity:loadAppearanceData(forceRefresh)
 
     cache.tryGet(cacheKey)
     .notFound(function (task)
-        builder.registerLoadResource(self.spawnData, function (resource)
+        builder.registerLoadResource(requestedSpawnData, function (resource)
+            if requestedSpawnData ~= self.spawnData then
+                task:taskCompleted()
+                return
+            end
+
             local apps = {}
 
             for _, appearance in ipairs(resource.appearances) do
@@ -251,6 +257,10 @@ function entity:loadAppearanceData(forceRefresh)
         end)
     end)
     .found(function ()
+        if requestedSpawnData ~= self.spawnData then
+            return
+        end
+
         local previousApp = self.app
         self.apps = cache.getValue(cacheKey) or {}
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
@@ -606,8 +616,14 @@ end
 
 function entity:onAttached(entRef)
     spawnable.onAttached(self, entRef)
+    local spawnToken = self.getSpawnLifetimeToken and self:getSpawnLifetimeToken() or nil
 
     Cron.AfterTicks(10, function ()
+        if spawnToken and (not self.isSpawnLifetimeTokenCurrent or not self:isSpawnLifetimeTokenCurrent(spawnToken, entRef)) then
+            utils.log(string.format("[Entity] Skipped stale attach callback for %s", tostring(self.spawnData or "unknown")))
+            return
+        end
+
         local success = pcall(function ()
             entRef:GetTemplatePath()
         end)
@@ -615,6 +631,11 @@ function entity:onAttached(entRef)
         if not success then return end
 
         builder.getEntityBBox(entRef, function (data)
+            if spawnToken and (not self.isSpawnLifetimeTokenCurrent or not self:isSpawnLifetimeTokenCurrent(spawnToken, entRef)) then
+                utils.log(string.format("[Entity] Skipped stale BBOX callback for %s", tostring(self.spawnData or "unknown")))
+                return
+            end
+
             utils.log("[Entity] Loaded initial BBOX for entity " .. self.spawnData .. " with " .. #data.meshes .. " meshes.")
             self.bBox = data.bBox
             self.meshes = data.meshes
@@ -631,7 +652,7 @@ function entity:onAttached(entRef)
                 self:setAssetPreviewTextPostition()
             end
         end)
-    end)
+    end, {})
 end
 
 function entity:getAssetPreviewTextAnchor()

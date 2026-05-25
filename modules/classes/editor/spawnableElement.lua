@@ -182,14 +182,24 @@ function spawnableElement:setVisualizerDirection(direction)
 	if direction == "y" or direction == "relY" or direction == "roll" or direction == "scaleY" then color = "y" end
 	if direction == "z" or direction == "relZ" or direction == "yaw" or direction == "scaleZ" then color = "z" end
 
-	if not self.spawnable:isSpawned() or not self.spawnable:getEntity() or not self.visualizerState then return end
+	if not self.spawnable:isSpawned() or not self.visualizerState then return end
 
-	visualizer.highlightArrow(self.spawnable:getEntity(), color)
+	local entity = self.spawnable:getEntity()
+	if not entity then return end
+
+	visualizer.highlightArrow(entity, color)
+    local arrowsComponent = entity:FindComponentByName("arrows")
+    if not arrowsComponent then return end
+
 	if direction == "x" or direction == "y" or direction == "z" then
 		local diff = Quaternion.MulInverse(EulerAngles.new(0, 0, 0):ToQuat(), self:getRotation():ToQuat())
-		self.spawnable:getEntity():FindComponentByName("arrows"):SetLocalOrientation(diff) -- This seems to fuck with component visibility
+		pcall(function ()
+			arrowsComponent:SetLocalOrientation(diff) -- This seems to fuck with component visibility
+		end)
 	else
-		self.spawnable:getEntity():FindComponentByName("arrows"):SetLocalOrientation(EulerAngles.new(0, 0, 0):ToQuat())
+		pcall(function ()
+			arrowsComponent:SetLocalOrientation(EulerAngles.new(0, 0, 0):ToQuat())
+		end)
 	end
 end
 

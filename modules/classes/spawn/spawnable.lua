@@ -42,6 +42,8 @@ local preview = require("modules/utils/previewUtils")
 ---@field private rotationRelative boolean
 ---@field protected outline integer
 ---@field private spawnedAndCachedCallback function[]
+---@field protected spawnGeneration integer
+---@field protected currentSpawnToken {generation: integer, entityHash: integer}?
 ---@field protected nodeRef string
 ---@field public noExport boolean
 ---@field private worldNodePropertyWidth number
@@ -96,6 +98,8 @@ function spawnable:new()
     o.despawning = false
     o.queueRespawn = false
     o.spawnedAndCachedCallback = {}
+    o.spawnGeneration = 0
+    o.currentSpawnToken = nil
     o.worldNodePropertyWidth = nil
     o.streamingPropertyWidth = nil
     o.streamingPresetIndex = 0
@@ -153,28 +157,97 @@ function spawnable:registerSpawnedAndAttachedCallback(callback)
     table.insert(self.spawnedAndCachedCallback, callback)
 end
 
+---Returns a snapshot token that identifies the current spawn lifetime.
+---@return {generation: integer, entityHash: integer}?
+function spawnable:getSpawnLifetimeToken()
+    if type(self.currentSpawnToken) ~= "table" then
+        return nil
+    end
+
+    return {
+        generation = self.currentSpawnToken.generation,
+        entityHash = self.currentSpawnToken.entityHash
+    }
+end
+
+---Checks whether the provided token still matches the currently active spawn lifetime.
+---@param token {generation: integer, entityHash: integer}?
+---@param entity entEntity?
+---@return boolean
+function spawnable:isSpawnLifetimeTokenCurrent(token, entity)
+    if type(token) ~= "table" or type(self.currentSpawnToken) ~= "table" then
+        return false
+    end
+
+    if token.generation ~= self.currentSpawnToken.generation then
+        return false
+    end
+
+    if token.entityHash ~= self.currentSpawnToken.entityHash then
+        return false
+    end
+
+    if entity ~= nil then
+        local okEntityId, entityId = pcall(function ()
+            return entity:GetEntityID()
+        end)
+
+        if okEntityId and entityId and entityId.hash and entityId.hash ~= token.entityHash then
+            return false
+        end
+    end
+
+    return true
+end
+
 ---Spawns the spawnable if not spawned already, must register a callback for entityAssemble which calls onAssemble
 ---@param ignoreSpawning boolean? If true, spawn call will be issued even if already spawning
 function spawnable:spawn(ignoreSpawning)
-    if self:isSpawned() or (self.spawning and not ignoreSpawning) then return end
+    if self:isSpawned() or (self.spawning and not ignoreSpawning) then
+        return false
+    end
+
+    local templatePath = type(self.spawnData) == "string" and self.spawnData or ""
+    if utils.trimString(templatePath) == "" then
+        print(string.format("[entSpawner] Refused to spawn \"%s\": empty template path", tostring(self.dataType or "unknown")))
+        return false
+    end
 
     local spec = StaticEntitySpec.new()
-    spec.templatePath = self.spawnData
+    spec.templatePath = templatePath
     spec.position = self.position
     spec.orientation = self.rotation:ToQuat()
     spec.attached = true
     spec.appearanceName = self.app
-    self.entityID = Game.GetStaticEntitySystem():SpawnEntity(spec)
+    local spawnedId = Game.GetStaticEntitySystem():SpawnEntity(spec)
+    if not spawnedId or not spawnedId.hash or spawnedId.hash == 0 then
+        self.spawning = false
+        self.spawned = false
+        print(string.format("[entSpawner] Failed to spawn template path \"%s\" (%s)", templatePath, tostring(self.dataType or "unknown")))
+        return false
+    end
+
+    self.entityID = spawnedId
+    self.spawnGeneration = self.spawnGeneration + 1
+    local token = {
+        generation = self.spawnGeneration,
+        entityHash = self.entityID.hash
+    }
+    self.currentSpawnToken = token
     self.spawning = true
 
     builder.registerAssembleCallback(self.entityID, function (entity)
+        if not self:isSpawnLifetimeTokenCurrent(token, entity) then return end
         self.entity = entity
         self:onAssemble(entity)
     end)
 
     builder.registerAttachCallback(self.entityID, function (entity)
+        if not self:isSpawnLifetimeTokenCurrent(token, entity) then return end
         self:onAttached(entity)
     end)
+
+    return true
 end
 
 ---@return boolean
@@ -248,7 +321,22 @@ function spawnable:onEdited(edited) end
 
 ---@return entEntity?
 function spawnable:getEntity()
-    return Game.GetStaticEntitySystem():GetEntity(self.entityID) or self.entity
+    local liveEntity = Game.GetStaticEntitySystem():GetEntity(self.entityID)
+    if liveEntity then
+        return liveEntity
+    end
+
+    if self.entity then
+        local okEntityId, entityId = pcall(function ()
+            return self.entity:GetEntityID()
+        end)
+
+        if okEntityId and entityId and entityId.hash and self.entityID and entityId.hash == self.entityID.hash then
+            return self.entity
+        end
+    end
+
+    return nil
 end
 
 --- Generate valid name from given name / path

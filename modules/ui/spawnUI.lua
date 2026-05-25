@@ -1429,6 +1429,25 @@ local function setComponentEnabled(component, enabled)
     end)
 end
 
+---@param entity entEntity?
+---@param componentName string
+---@return IComponent?
+local function findEntityComponent(entity, componentName)
+    if not entity or not componentName then
+        return nil
+    end
+
+    local okComponent, component = pcall(function ()
+        return entity:FindComponentByName(componentName)
+    end)
+
+    if not okComponent then
+        return nil
+    end
+
+    return component
+end
+
 ---Returns the `flashlight` mod logic table when available.
 ---Uses nil-safe checks because this integration is optional.
 ---@return table?
@@ -1516,27 +1535,33 @@ local function buildLightSuppressionTargets()
     for _, entry in ipairs(spawnUI.spawnedUI.root:getPathsRecursive(true)) do
         local ref = entry.ref
         if utils.isA(ref, "spawnableElement") and ref.spawnable and ref.spawnable.modulePath == LIGHT_MODULE_PATH then
-            local entity = ref.spawnable:getEntity()
-            if entity then
-                local target = {
-                    spawnable = ref.spawnable,
-                    lightComponent = entity:FindComponentByName("light"),
-                    visualizerComponents = {}
-                }
-
-                for _, componentName in ipairs(LIGHT_VISUALIZER_COMPONENT_NAMES) do
-                    local component = entity:FindComponentByName(componentName)
-                    if component then
-                        table.insert(target.visualizerComponents, component)
-                    end
-                end
-
-                table.insert(targets, target)
-            end
+            table.insert(targets, {
+                spawnable = ref.spawnable,
+                lightComponentName = "light",
+                visualizerComponentNames = LIGHT_VISUALIZER_COMPONENT_NAMES
+            })
         end
     end
 
     return targets
+end
+
+---@param target table
+---@return entEntity?
+local function resolveLightSuppressionEntity(target)
+    if not target or not target.spawnable or type(target.spawnable.getEntity) ~= "function" then
+        return nil
+    end
+
+    local okEntity, entity = pcall(function ()
+        return target.spawnable:getEntity()
+    end)
+
+    if not okEntity then
+        return nil
+    end
+
+    return entity
 end
 
 ---@return table
@@ -1577,19 +1602,24 @@ function spawnUI.setAssetPreviewActive(state)
                 visualizerWasEnabled = {}
             }
 
-            if target.lightComponent and target.spawnable and target.spawnable.cameraFollowEnabled == true then
-                stateEntry.lightSuppressed = true
-                stateEntry.lightWasEnabled = getComponentEnabledState(target.lightComponent)
-                if stateEntry.lightWasEnabled then
-                    setComponentEnabled(target.lightComponent, false)
+            local entity = resolveLightSuppressionEntity(target)
+            if entity then
+                if target.spawnable and target.spawnable.cameraFollowEnabled == true then
+                    local lightComponent = findEntityComponent(entity, target.lightComponentName or "light")
+                    stateEntry.lightSuppressed = true
+                    stateEntry.lightWasEnabled = getComponentEnabledState(lightComponent)
+                    if stateEntry.lightWasEnabled and lightComponent then
+                        setComponentEnabled(lightComponent, false)
+                    end
                 end
-            end
 
-            for idx, component in ipairs(target.visualizerComponents) do
-                local wasEnabled = getComponentEnabledState(component)
-                stateEntry.visualizerWasEnabled[idx] = wasEnabled
-                if wasEnabled then
-                    setComponentEnabled(component, false)
+                for _, componentName in ipairs(target.visualizerComponentNames or {}) do
+                    local component = findEntityComponent(entity, componentName)
+                    local wasEnabled = getComponentEnabledState(component)
+                    stateEntry.visualizerWasEnabled[componentName] = wasEnabled
+                    if wasEnabled and component then
+                        setComponentEnabled(component, false)
+                    end
                 end
             end
 
@@ -1603,14 +1633,21 @@ function spawnUI.setAssetPreviewActive(state)
 
     for _, stateEntry in ipairs(spawnUI.activeLightSuppressionStates) do
         local target = stateEntry.target
-        if stateEntry.lightSuppressed and target.lightComponent then
-            setComponentEnabled(target.lightComponent, stateEntry.lightWasEnabled)
-        end
+        local entity = resolveLightSuppressionEntity(target)
 
-        for idx, component in ipairs(target.visualizerComponents) do
-            local wasEnabled = stateEntry.visualizerWasEnabled[idx]
-            if wasEnabled ~= nil then
-                setComponentEnabled(component, wasEnabled)
+        if entity then
+            if stateEntry.lightSuppressed then
+                local lightComponent = findEntityComponent(entity, target.lightComponentName or "light")
+                if lightComponent then
+                    setComponentEnabled(lightComponent, stateEntry.lightWasEnabled)
+                end
+            end
+
+            for componentName, wasEnabled in pairs(stateEntry.visualizerWasEnabled) do
+                local component = findEntityComponent(entity, componentName)
+                if wasEnabled ~= nil and component then
+                    setComponentEnabled(component, wasEnabled)
+                end
             end
         end
     end
@@ -1628,6 +1665,7 @@ function spawnUI.stopActiveAssetPreview()
 
     if spawnUI.previewInstance then
         spawnUI.previewInstance:assetPreview(false)
+        spawnUI.previewInstance = nil
     end
 
     spawnUI.setAssetPreviewActive(false)
@@ -2000,9 +2038,18 @@ function spawnUI.drawNoMatch()
     style.mutedText(("Spawn \"%s\" anyways?"):format(spawnUI.filter))
 
     if ImGui.Button("Spawn") then
+        local manualPath = utils.trimString(spawnUI.filter or "")
+        if manualPath == "" then
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "Cannot spawn: path is empty"))
+            print("[entSpawner] Spawn attempt ignored: empty manual path in Spawn New")
+            return
+        end
+
+        print(string.format("[entSpawner] Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
+
         local class = spawnUI.getActiveSpawnList().class
         spawnUI.spawnNew({
-            data = { spawnData = spawnUI.filter }, lastSpawned = nil, name = spawnUI.filter, fileName = spawnUI.filter
+            data = { spawnData = manualPath }, lastSpawned = nil, name = manualPath, fileName = manualPath
         }, class, false)
     end
 end
@@ -2422,7 +2469,13 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
     if utils.isA(new, "spawnableElement") and new.spawnable.bBoxLoaded == nil and snap then -- Bbox is immediately available
         local adjustedPos = utils.addVector(spawnUI.popupSpawnHit.result.position, utils.multVector(spawnUI.popupSpawnHit.result.normal, math.abs(new.spawnable:getBBox().min.z)))
+        local spawnLifetimeToken = new.spawnable.getSpawnLifetimeToken and new.spawnable:getSpawnLifetimeToken() or nil
         Cron.After(0.1, function ()
+            if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
+                print(string.format("[entSpawner] Skipped stale spawn adjust callback for \"%s\"", tostring(new.name or "unknown")))
+                return
+            end
+            if new.parent == nil then return end
             new:setPosition(adjustedPos)
         end)
     end
@@ -2434,10 +2487,25 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
     if utils.isA(new, "spawnableElement") and snap and new.spawnable.bBoxLoaded ~= nil then
         local position = spawnUI.popupSpawnHit.result.position
         local normal = spawnUI.popupSpawnHit.result.normal
+        local spawnLifetimeToken = new.spawnable.getSpawnLifetimeToken and new.spawnable:getSpawnLifetimeToken() or nil
 
         Cron.Every(0.05, function (timer)
+            if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
+                print(string.format("[entSpawner] Halted stale spawn wait callback for \"%s\"", tostring(new.name or "unknown")))
+                timer:Halt()
+                return
+            end
+            if new.parent == nil then
+                timer:Halt()
+                return
+            end
             if new.spawnable.bBoxLoaded and new.spawnable:getEntity() then
                 Cron.After(0.1, function ()
+                    if spawnLifetimeToken and (not new.spawnable or not new.spawnable.isSpawnLifetimeTokenCurrent or not new.spawnable:isSpawnLifetimeTokenCurrent(spawnLifetimeToken)) then
+                        print(string.format("[entSpawner] Skipped stale post-BBOX spawn callback for \"%s\"", tostring(new.name or "unknown")))
+                        return
+                    end
+                    if new.parent == nil then return end
                     local adjustedPos = utils.addVector(position, utils.multVector(normal, math.abs(new.spawnable:getBBox().min.z)))
                     new:setPosition(adjustedPos)
                     history.addAction(history.getInsert({ new }))
