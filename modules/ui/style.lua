@@ -28,6 +28,20 @@ local style = {
     greyedColor = 0xff777777,
 }
 
+---@param optionText string
+---@param optionDisplayFn fun(optionText: string): string?
+---@return string
+local function resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
+    if type(optionDisplayFn) == "function" then
+        local ok, optionLabel = pcall(optionDisplayFn, optionText)
+        if ok and optionLabel ~= nil then
+            return tostring(optionLabel)
+        end
+    end
+
+    return optionText
+end
+
 local initialized = false
 
 ---@param lhs number?
@@ -909,7 +923,7 @@ local function getSearchDropdownPopupMaxWidth(options, baseWidth, optionDisplayF
 
     for _, option in pairs(options or {}) do
         local optionText = tostring(option)
-        local optionLabel = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+        local optionLabel = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
         local optionWidth, _ = ImGui.CalcTextSize(optionLabel)
         if optionWidth > maxTextWidth then
             maxTextWidth = optionWidth
@@ -957,10 +971,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
 
     local finished = false
     local selectedValue = tostring(value)
-    local previewValue = selectedValue
-    if optionDisplayFn then
-        previewValue = tostring(optionDisplayFn(selectedValue) or selectedValue)
-    end
+    local previewValue = resolveSearchDropdownOptionLabel(selectedValue, optionDisplayFn)
     local comboWidth = width * style.viewSize
     local popupMaxWidth = comboWidth
 
@@ -988,8 +999,9 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
         customValue = utils.sanitizeText(customValue)
         local customExists = false
         if customValue ~= "" then
-            if optionExistsFn then
-                customExists = optionExistsFn(customValue) == true
+            if type(optionExistsFn) == "function" then
+                local ok, exists = pcall(optionExistsFn, customValue)
+                customExists = ok and exists == true
             else
                 customExists = utils.indexValue(options, customValue) ~= -1
             end
@@ -999,10 +1011,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
         local hasQuery = query ~= ""
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
             if showCustomOption then
-                local customLabel = customValue
-                if optionDisplayFn then
-                    customLabel = tostring(optionDisplayFn(customValue) or customValue)
-                end
+                local customLabel = resolveSearchDropdownOptionLabel(customValue, optionDisplayFn)
                 if ImGui.Selectable("Use custom: " .. customLabel) then
                     if element then
                         history.addAction(history.getElementChange(element))
@@ -1017,10 +1026,11 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                 end
             end
 
-            local function drawOptionRow(optionText)
+            local function drawOptionRow(optionText, optionIndex)
                 if hasQuery then
-                    if optionFilterFn then
-                        if optionFilterFn(optionText, query) ~= true then
+                    if type(optionFilterFn) == "function" then
+                        local ok, matched = pcall(optionFilterFn, optionText, query)
+                        if not ok or matched ~= true then
                             return
                         end
                     else
@@ -1028,7 +1038,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                         local matchesRaw = utils.safePatternMatch(optionTextLower, query)
 
                         if not matchesRaw then
-                            local optionLabelForMatch = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+                            local optionLabelForMatch = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
                             local matchesLabel = optionLabelForMatch ~= optionText and utils.safePatternMatch(string.lower(optionLabelForMatch), query)
                             if not matchesLabel then
                                 return
@@ -1037,7 +1047,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                     end
                 end
 
-                local optionLabel = optionDisplayFn and tostring(optionDisplayFn(optionText) or optionText) or optionText
+                local optionLabel = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
                 local selected = optionText == selectedValue
                 if selected then
                     local rowX, rowY = ImGui.GetCursorScreenPos()
@@ -1055,6 +1065,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                     )
                 end
 
+                ImGui.PushID(optionIndex or optionText)
                 if ImGui.Selectable(optionLabel) then
                     if element then
                         history.addAction(history.getElementChange(element))
@@ -1064,12 +1075,13 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                     ImGui.CloseCurrentPopup()
                 end
 
-                if optionTooltipFn then
-                    local optionTooltip = optionTooltipFn(optionText, optionLabel)
-                    if optionTooltip and optionTooltip ~= "" then
+                if type(optionTooltipFn) == "function" then
+                    local ok, optionTooltip = pcall(optionTooltipFn, optionText, optionLabel)
+                    if ok and optionTooltip and optionTooltip ~= "" then
                         style.tooltip(optionTooltip)
                     end
                 end
+                ImGui.PopID()
             end
 
             if not finished then
@@ -1081,7 +1093,7 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                     clipper:Begin(optionCount, -1)
                     while clipper:Step() do
                         for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-                            drawOptionRow(tostring(options[i]))
+                            drawOptionRow(tostring(options[i]), i)
                             if finished then
                                 break
                             end
@@ -1090,9 +1102,12 @@ function style.trackedSearchDropdown(element, text, searchHint, value, searchVal
                             break
                         end
                     end
+                    if clipper.End then
+                        clipper:End()
+                    end
                 else
-                    for _, option in ipairs(options) do
-                        drawOptionRow(tostring(option))
+                    for i, option in ipairs(options) do
+                        drawOptionRow(tostring(option), i)
                         if finished then
                             break
                         end
