@@ -31,6 +31,46 @@ baseUI = {
 local menuButtonHovered = false
 local dockButtonHovered = false
 
+---Draw the mod version on the right side of the native ImGui title bar.
+---The centered title keeps priority; version text is hidden if it would overlap.
+---@param titleText string
+---@param versionText string
+local function drawRightAlignedTitleBarVersion(titleText, versionText)
+    if titleText == nil or titleText == "" or versionText == nil or versionText == "" then
+        return
+    end
+
+    local drawList = ImGui.GetWindowDrawList()
+    if not drawList then
+        return
+    end
+
+    local windowPosX, windowPosY = ImGui.GetWindowPos()
+    local windowWidth = ImGui.GetWindowWidth()
+    local titleBarHeight = ImGui.GetFrameHeight()
+    local styleData = ImGui.GetStyle()
+
+    local titleWidth, _ = ImGui.CalcTextSize(titleText)
+    local versionWidth, versionHeight = ImGui.CalcTextSize(versionText)
+
+    local centerX = windowPosX + windowWidth * 0.5
+    local titleRight = centerX + titleWidth * 0.5
+    local versionRight = windowPosX + windowWidth - styleData.WindowPadding.x
+    local versionLeft = versionRight - versionWidth
+    local minimumGap = styleData.ItemSpacing.x
+
+    if versionLeft <= titleRight + minimumGap then
+        return
+    end
+
+    local versionY = windowPosY + (titleBarHeight - versionHeight) * 0.5
+
+    -- Window draw list can be clipped to the content region; temporarily include title bar.
+    ImGui.PushClipRect(windowPosX, windowPosY, windowPosX + windowWidth, windowPosY + titleBarHeight, false)
+    ImGui.ImDrawListAddText(drawList, versionLeft, versionY, style.mutedColor, versionText)
+    ImGui.PopClipRect()
+end
+
 local tabs = {
     {
         id = "spawn",
@@ -246,13 +286,18 @@ function baseUI.draw(spawner)
 
     style.pushStyleColor(editorActive, ImGuiCol.WindowBg, 0, 0, 0, 1)
     style.pushStyleVar(editorActive, ImGuiStyleVar.WindowRounding, 0)
+    style.pushStyleVar(not editorActive, ImGuiStyleVar.WindowTitleAlign, 0.5, 0.5)
 
     local flags = tabs[baseUI.activeTab].flags
     if editorActive then
         flags = flags + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar
     end
 
-    if ImGui.Begin(settings.mainWindowName .. " " .. ModVersion, flags) then
+    if ImGui.Begin(settings.mainWindowName, flags) then
+        if not editorActive then
+            drawRightAlignedTitleBarVersion(settings.mainWindowName, ModVersion)
+        end
+
         input.updateContext("main")
         groupLoadManager.drawToasts()
         groupAMMImportManager.drawToasts()
@@ -303,6 +348,7 @@ function baseUI.draw(spawner)
         ImGui.End()
     end
 
+    style.popStyleVar(not editorActive)
     style.popStyleColor(editorActive)
     style.popStyleVar(editorActive)
 
