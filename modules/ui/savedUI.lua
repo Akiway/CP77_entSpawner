@@ -8,6 +8,8 @@ local history = require("modules/utils/history")
 local field = require("modules/utils/field")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
+local ammImportReportPopup = require("modules/utils/ui/ammImportReportPopup")
+local ammImportPresetPopup = require("modules/utils/ui/ammImportPresetPopup")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local backup = require("modules/utils/backup")
@@ -640,11 +642,16 @@ function savedUI.backwardComp()
     end
 end
 
-function savedUI.importAMMPresets()
-    if groupLoadManager.isActive() or amm.importing or groupAMMImportManager.isActive() then return end
+---@param selectedPresetFiles table?
+---@return boolean
+function savedUI.importAMMPresets(selectedPresetFiles)
+    if ammImportPresetPopup.isBlocked() then
+        return false
+    end
 
-    groupAMMImportManager.start({
-        savedUI = savedUI
+    return groupAMMImportManager.start({
+        savedUI = savedUI,
+        selectedPresetFiles = selectedPresetFiles
     })
 end
 
@@ -971,22 +978,27 @@ function savedUI.draw(spawner)
         style.pushButtonNoBG(false)
     end
 
+    ammImportReportPopup.syncAutoOpen()
+    local hasImportReport = ammImportReportPopup.hasReport()
     local ammImportActive = groupAMMImportManager.isActive()
-    local blockImport = groupLoadManager.isActive() or amm.importing or ammImportActive
+    local blockImport = ammImportPresetPopup.isBlocked()
     local framePaddingX = ImGui.GetStyle().FramePadding.x
     local itemSpacingX = ImGui.GetStyle().ItemSpacing.x
-    local importLabel = ammImportActive and "Importing AMM Presets..." or "Import AMM Presets"
+    local importLabel = IconGlyphs.FileImportOutline .. (ammImportActive and " Importing AMM Presets..." or " Import AMM Presets")
+    local reportLabel = IconGlyphs.FileChartOutline .. " View report"
     local importLabelWidth, _ = ImGui.CalcTextSize(importLabel)
+    local reportLabelWidth, _ = ImGui.CalcTextSize(reportLabel)
     local reloadLabelWidth, _ = ImGui.CalcTextSize(IconGlyphs.Reload)
     local primaryActionWidth = importLabelWidth + framePaddingX * 2
+    local reportActionWidth = reportLabelWidth + framePaddingX * 2
     local reloadActionWidth = reloadLabelWidth + framePaddingX * 2
-    local topActionsWidth = primaryActionWidth + itemSpacingX * 2 + reloadActionWidth
+    local topActionsWidth = primaryActionWidth + reportActionWidth + reloadActionWidth + itemSpacingX * 3
 
     ImGui.SameLine()
     ImGui.SetCursorPosX(ImGui.GetWindowWidth() - topActionsWidth)
     style.pushGreyedOut(blockImport)
     if ImGui.Button(importLabel) and not blockImport then
-        savedUI.importAMMPresets()
+        ammImportPresetPopup.requestOpen()
     end
     style.popGreyedOut(blockImport)
 
@@ -997,7 +1009,19 @@ function savedUI.draw(spawner)
     elseif amm.importing then
         style.tooltip("Another AMM operation is currently running.")
     else
-        style.tooltip("Imports all presets from the AMMImport folder.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised.")
+        style.tooltip("Choose which presets to import from data/AMMImport.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised.")
+    end
+
+    ImGui.SameLine()
+    style.pushGreyedOut(not hasImportReport)
+    if ImGui.Button(reportLabel) and hasImportReport then
+        ammImportReportPopup.requestOpen()
+    end
+    style.popGreyedOut(not hasImportReport)
+    if hasImportReport then
+        style.tooltip("Open the latest AMM import report.")
+    else
+        style.tooltip("No AMM import report available yet.")
     end
 
     ImGui.SameLine()
@@ -1391,6 +1415,11 @@ function savedUI.handlePopUp()
             ImGui.EndPopup()
         end
     end
+
+    ammImportPresetPopup.draw(function(selectedPresetFiles)
+        return savedUI.importAMMPresets(selectedPresetFiles)
+    end)
+    ammImportReportPopup.draw()
 end
 
 function savedUI.reload()
@@ -1405,6 +1434,7 @@ function savedUI.reload()
     savedUI.groupProjectCreateState = {}
     savedUI.groupProjectIconSearch = {}
     savedUI.pendingGroupProjectPopupId = nil
+    ammImportPresetPopup.reset()
 
     for _, file in pairs(dir("data/objects")) do
         if file.name:match("^.+(%..+)$") == ".json" then

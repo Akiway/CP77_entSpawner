@@ -251,6 +251,57 @@ local function callOptional(callback, ...)
     end
 end
 
+local AMM_IMPORT_REPORT_SAMPLE_LIMIT = math.huge
+
+---@param sample any
+---@return any
+local function normalizeIssueSample(sample)
+    if sample == nil then
+        return nil
+    end
+
+    if type(sample) == "table" then
+        return sample
+    end
+
+    return {
+        message = tostring(sample)
+    }
+end
+
+---@param report table
+---@param issueKey string
+---@param sample any
+local function recordImportIssue(report, issueKey, sample)
+    if type(report) ~= "table" or type(issueKey) ~= "string" or issueKey == "" then
+        return
+    end
+
+    report.issueCounts[issueKey] = (report.issueCounts[issueKey] or 0) + 1
+
+    local bucket = report.issueSamples[issueKey]
+    if not bucket then
+        bucket = {
+            sampleLimit = report.sampleLimit or AMM_IMPORT_REPORT_SAMPLE_LIMIT,
+            truncated = 0,
+            samples = {}
+        }
+        report.issueSamples[issueKey] = bucket
+    end
+
+    local normalizedSample = normalizeIssueSample(sample)
+    if normalizedSample == nil then
+        return
+    end
+
+    local cap = math.max(1, tonumber(bucket.sampleLimit) or AMM_IMPORT_REPORT_SAMPLE_LIMIT)
+    if #bucket.samples < cap then
+        table.insert(bucket.samples, normalizedSample)
+    else
+        bucket.truncated = (bucket.truncated or 0) + 1
+    end
+end
+
 ---@class ammImportOptions
 ---@field shouldCancel function?
 ---@field onProgress function?
@@ -265,6 +316,7 @@ end
 ---@param options ammImportOptions?
 function amm.importSinglePreset(data, spawnedUI, options)
     options = options or {}
+    data = type(data) == "table" and data or {}
 
     local shouldCancel = options.shouldCancel or function ()
         return false
@@ -275,6 +327,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
     local timeBudgetMs = math.max(0.1, tonumber(options.timeBudgetMs) or 2.5)
     local maxInFlight = math.max(1, math.floor(tonumber(options.maxInFlight) or 2))
     local skipSaveOnCancel = options.skipSaveOnCancel ~= false
+    local fileName = tostring((data and data.file_name) or "AMM_Preset")
 
     local vehicles = {}
     for _, vehicle in pairs(config.loadFile("data/static/vehicles.json")) do
@@ -289,12 +342,32 @@ function amm.importSinglePreset(data, spawnedUI, options)
     local cancelled = false
     local hadErrors = false
     local timer = nil
+    local report = {
+        sampleLimit = AMM_IMPORT_REPORT_SAMPLE_LIMIT,
+        fileStats = {
+            fileName = fileName,
+            totalProps = 0,
+            processed = 0,
+            imported = 0,
+            skipped = 0,
+            failed = 0,
+            success = false,
+            cancelled = false,
+            saveError = nil
+        },
+        issueCounts = {},
+        issueSamples = {}
+    }
 
     local function isCancelled()
         local ok, result = pcall(shouldCancel)
         if not ok then
             hadErrors = true
             logger:error("[AMMImport] Cancel callback failed: " .. tostring(result))
+            recordImportIssue(report, "cancel_callback_failed", {
+                fileName = fileName,
+                detail = tostring(result)
+            })
             return false
         end
 
@@ -310,19 +383,29 @@ function amm.importSinglePreset(data, spawnedUI, options)
             timer = nil
         end
 
+        result = result or {}
+        result.report = report
+        result.fileName = result.fileName or fileName
+        report.fileStats.success = result.success == true
+        report.fileStats.cancelled = result.cancelled == true
+        report.fileStats.saveError = result.saveError and tostring(result.saveError) or nil
         callOptional(onFinished, result)
     end
 
     local function progress(count)
-        callOptional(onProgress, math.max(0, tonumber(count) or 0), data and data.file_name)
+        callOptional(onProgress, math.max(0, tonumber(count) or 0), fileName)
     end
 
-    if type(data.props) ~= "table" then
-        logger:warn("[AMMImport] Skipped \"" .. tostring(data.file_name or "unknown") .. "\" because it has no props table.")
+    local dataProps = data and data.props
+    if type(dataProps) ~= "table" then
+        logger:warn("[AMMImport] Skipped \"" .. fileName .. "\" because it has no props table.")
+        recordImportIssue(report, "missing_props_table", {
+            fileName = fileName
+        })
         finish({
             success = false,
             cancelled = false,
-            fileName = data.file_name or "unknown",
+            fileName = fileName,
             error = "missing_props_table"
         })
         return
@@ -332,7 +415,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         data.lights = {}
     end
 
-    local root = generateGroup(spawnedUI, (data.file_name or "AMM_Preset"):gsub(".json", ""), nil)
+    local root = generateGroup(spawnedUI, fileName:gsub(".json", ""), nil)
     local props = generateGroup(spawnedUI, "Props", root)
     local lights = generateGroup(spawnedUI, "Lights", root)
     local lightNodes = generateGroup(spawnedUI, "Light Nodes", lights)
@@ -340,7 +423,8 @@ function amm.importSinglePreset(data, spawnedUI, options)
     local scaledProps = generateGroup(spawnedUI, "Scaled Props", root)
     local meshes = generateGroup(spawnedUI, "Meshes", root)
 
-    local total = #data.props
+    local total = #dataProps
+    report.fileStats.totalProps = total
     local nextIndex = 1
     local inFlight = 0
 
@@ -353,11 +437,11 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end
 
         if cancelled and skipSaveOnCancel then
-            logger:info("[AMMImport] Cancelled import for \"" .. tostring(data.file_name or "AMM_Preset") .. "\" before saving.")
+            logger:info("[AMMImport] Cancelled import for \"" .. fileName .. "\" before saving.")
             finish({
                 success = false,
                 cancelled = true,
-                fileName = data.file_name
+                fileName = fileName
             })
             return
         end
@@ -367,21 +451,33 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end)
 
         if saved then
-            logger:info("[AMMImport] Imported \"" .. data.file_name .. "\" from AMM.")
+            logger:info("[AMMImport] Imported \"" .. fileName .. "\" from AMM.")
         else
             hadErrors = true
-            logger:error("[AMMImport] Failed saving \"" .. tostring(data.file_name or "AMM_Preset") .. "\": " .. tostring(saveErr))
+            logger:error("[AMMImport] Failed saving \"" .. fileName .. "\": " .. tostring(saveErr))
+            recordImportIssue(report, "save_failed", {
+                fileName = fileName,
+                detail = tostring(saveErr)
+            })
         end
 
         finish({
             success = saved and not hadErrors,
             cancelled = cancelled,
-            fileName = data.file_name,
+            fileName = fileName,
             saveError = saveErr
         })
     end
 
-    local function completeOne()
+    local function completeOne(outcome)
+        report.fileStats.processed = report.fileStats.processed + 1
+        if outcome == "imported" then
+            report.fileStats.imported = report.fileStats.imported + 1
+        elseif outcome == "skipped" then
+            report.fileStats.skipped = report.fileStats.skipped + 1
+        else
+            report.fileStats.failed = report.fileStats.failed + 1
+        end
         progress(1)
     end
 
@@ -392,8 +488,13 @@ function amm.importSinglePreset(data, spawnedUI, options)
 
         if not parsed or type(propData) ~= "table" then
             hadErrors = true
-            logger:warn("[AMMImport] Failed parsing prop \"" .. tostring(prop and prop.name or "unknown") .. "\" in \"" .. tostring(data.file_name or "unknown") .. "\".")
-            completeOne()
+            local failedName = tostring(prop and prop.name or "unknown")
+            logger:warn("[AMMImport] Failed parsing prop \"" .. failedName .. "\" in \"" .. fileName .. "\".")
+            recordImportIssue(report, "prop_parse_failed", {
+                fileName = fileName,
+                propName = failedName
+            })
+            completeOne("failed")
             return
         end
 
@@ -411,23 +512,40 @@ function amm.importSinglePreset(data, spawnedUI, options)
                 o.spawnable = lightOrErr
                 o.name = o.spawnable:generateName(propData.name)
                 o:setParent(lightNodes)
+                completeOne("imported")
             else
                 hadErrors = true
                 logger:warn("[AMMImport] Failed importing light prop \"" .. tostring(propData.name) .. "\": " .. tostring(lightOrErr))
+                recordImportIssue(report, "light_import_failed", {
+                    fileName = fileName,
+                    propName = tostring(propData.name),
+                    path = tostring(propData.path),
+                    detail = tostring(lightOrErr)
+                })
+                completeOne("failed")
             end
-            completeOne()
             return
         end
 
         if isVehicle then
             logger:warn("[AMMImport] Skipped " .. propData.name .. " as it is a vehicle, must be spawned via Entity Record.")
-            completeOne()
+            recordImportIssue(report, "vehicle_skipped", {
+                fileName = fileName,
+                propName = tostring(propData.name),
+                path = tostring(propData.path)
+            })
+            completeOne("skipped")
             return
         end
 
         if not Game.GetResourceDepot():ResourceExists(propData.path) then
             logger:warn("[AMMImport] Resource for " .. propData.path .. " does not exist, skipping...")
-            completeOne()
+            recordImportIssue(report, "resource_missing", {
+                fileName = fileName,
+                propName = tostring(propData.name),
+                path = tostring(propData.path)
+            })
+            completeOne("skipped")
             return
         end
 
@@ -435,7 +553,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
         local spawnable = require("modules/classes/spawn/entity/entityTemplate"):new()
         local completed = false
 
-        local function completeAsync()
+        local function completeAsync(outcome)
             if completed then return end
             completed = true
 
@@ -446,10 +564,16 @@ function amm.importSinglePreset(data, spawnedUI, options)
             end)
             if not despawned then
                 logger:warn("[AMMImport] Failed despawning temp entity: " .. tostring(despawnErr))
+                recordImportIssue(report, "temp_entity_despawn_failed", {
+                    fileName = fileName,
+                    propName = tostring(propData.name),
+                    path = tostring(propData.path),
+                    detail = tostring(despawnErr)
+                })
             end
 
             inFlight = math.max(0, inFlight - 1)
-            completeOne()
+            completeOne(outcome)
             finalizeIfDone()
         end
 
@@ -462,18 +586,25 @@ function amm.importSinglePreset(data, spawnedUI, options)
         if not loaded then
             hadErrors = true
             logger:warn("[AMMImport] Failed loading spawn data for \"" .. tostring(propData.name) .. "\": " .. tostring(loadErr))
-            completeAsync()
+            recordImportIssue(report, "spawn_data_load_failed", {
+                fileName = fileName,
+                propName = tostring(propData.name),
+                path = tostring(propData.path),
+                detail = tostring(loadErr)
+            })
+            completeAsync("failed")
             return
         end
 
         spawnable:onBBoxLoaded(function (entity)
             if isCancelled() then
                 cancelled = true
-                completeAsync()
+                completeAsync("skipped")
                 return
             end
 
             local canConvert = amm.canConvertToMesh(spawnable, entity)
+            local propImported = false
 
             local imported, importErr = pcall(function ()
                 if isLight then
@@ -486,7 +617,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     end
 
                     spawnable:loadInstanceData(entity, true)
-                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
+                    -- logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " light components.")
                 end
                 if isScaled and not canConvert then
                     setInstanceDataMesh(entity, propData, spawnable)
@@ -496,7 +627,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     o:setParent(scaledProps)
 
                     o.spawnable:loadInstanceData(entity, true)
-                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
+                    -- logger:info("[AMMImport] Imported prop " .. propData.name .. " by generating instanceData for " .. utils.tableLength(spawnable.instanceDataChanges) .. " mesh components.")
                 end
                 if canConvert then
                     local scale = spawnable.meshes[1].originalScale
@@ -514,21 +645,30 @@ function amm.importSinglePreset(data, spawnedUI, options)
                     o.spawnable = mesh
                     o.name = o.spawnable:generateName(propData.name)
                     o:setParent(meshes)
-                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
+                    -- logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to mesh node.")
                 elseif not isLight and not isScaled then
                     o.spawnable = convertProp(propData)
                     o.name = o.spawnable:generateName(propData.name)
                     o:setParent(props)
-                    logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
+                    -- logger:info("[AMMImport] Imported prop " .. propData.name .. " by converting to entity node.")
                 end
+                propImported = true
             end)
 
             if not imported then
                 hadErrors = true
                 logger:warn("[AMMImport] Failed importing prop \"" .. tostring(propData.name) .. "\": " .. tostring(importErr))
+                recordImportIssue(report, "prop_import_failed", {
+                    fileName = fileName,
+                    propName = tostring(propData.name),
+                    path = tostring(propData.path),
+                    detail = tostring(importErr)
+                })
+                completeAsync("failed")
+                return
             end
 
-            completeAsync()
+            completeAsync(propImported and "imported" or "failed")
         end)
 
         local spawned, spawnErr = pcall(function ()
@@ -537,7 +677,13 @@ function amm.importSinglePreset(data, spawnedUI, options)
         if not spawned then
             hadErrors = true
             logger:warn("[AMMImport] Failed spawning temp entity for \"" .. tostring(propData.name) .. "\": " .. tostring(spawnErr))
-            completeAsync()
+            recordImportIssue(report, "temp_entity_spawn_failed", {
+                fileName = fileName,
+                propName = tostring(propData.name),
+                path = tostring(propData.path),
+                detail = tostring(spawnErr)
+            })
+            completeAsync("failed")
         end
     end
 
@@ -558,7 +704,7 @@ function amm.importSinglePreset(data, spawnedUI, options)
             and nextIndex <= total
             and inFlight < maxInFlight
             and dispatched < chunkQuantity do
-            local prop = data.props[nextIndex]
+            local prop = dataProps[nextIndex]
             nextIndex = nextIndex + 1
             dispatched = dispatched + 1
 
