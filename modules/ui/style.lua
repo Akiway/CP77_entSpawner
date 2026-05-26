@@ -1074,7 +1074,7 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                     )
                 end
 
-                ImGui.PushID(optionIndex or optionText)
+                ImGui.PushID(tostring(optionIndex or optionText))
                 if ImGui.Selectable(optionLabel) then
                     if element then
                         history.addAction(history.getElementChange(element))
@@ -1094,32 +1094,10 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
             end
 
             if not finished then
-                local optionCount = #options
-                local canClip = not hasQuery and optionCount > 0
-
-                if canClip then
-                    local clipper = ImGuiListClipper.new()
-                    clipper:Begin(optionCount, -1)
-                    while clipper:Step() do
-                        for i = clipper.DisplayStart + 1, clipper.DisplayEnd do
-                            drawOptionRow(tostring(options[i]), i)
-                            if finished then
-                                break
-                            end
-                        end
-                        if finished then
-                            break
-                        end
-                    end
-                    if clipper.End then
-                        clipper:End()
-                    end
-                else
-                    for i, option in ipairs(options) do
-                        drawOptionRow(tostring(option), i)
-                        if finished then
-                            break
-                        end
+                for optionIndex, option in pairs(options) do
+                    drawOptionRow(tostring(option), optionIndex)
+                    if finished then
+                        break
                     end
                 end
             end
