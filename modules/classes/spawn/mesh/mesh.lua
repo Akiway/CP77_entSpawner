@@ -485,7 +485,7 @@ function mesh:draw()
         self.maxPropertyWidth = utils.getTextMaxWidth({ "Appearance", "Collider", "Occluder", "Enable Wind Impulse" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
-    style.pushGreyedOut(#self.apps == 0)
+    style.pushGreyedOut(#self.apps <= 1)
 
     local list = self.apps
 
@@ -529,7 +529,7 @@ function mesh:draw()
             self:setOutline(self.outline)
         end
     end
-    style.popGreyedOut(#self.apps == 0)
+    style.popGreyedOut(#self.apps <= 1)
     ImGui.SameLine()
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.Reload .. "##reloadMeshAppearanceList") then

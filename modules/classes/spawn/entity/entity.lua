@@ -1354,7 +1354,7 @@ function entity:drawEntityBaseProperties()
         }
     end
 
-    local greyOut = #self.apps == 0 or not self:isSpawned()
+    local greyOut = #self.apps <= 1 or not self:isSpawned()
     style.pushGreyedOut(greyOut)
 
     local list = self.apps

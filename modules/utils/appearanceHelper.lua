@@ -383,6 +383,7 @@ function appearanceHelper.getGroupedProperties(spawnable)
                     end
 
                     local searchValue = groupedData.selectorSearches[group.key] or ""
+                    style.pushGreyedOut(appCount == 1)
                     selectedApp, searchValue, _ = style.trackedSearchDropdown(
                         "##groupAppearance",
                         GROUPED_APPEARANCE_SEARCH_HINT,
@@ -394,6 +395,7 @@ function appearanceHelper.getGroupedProperties(spawnable)
                             matchContentWidth = true
                         }
                     )
+                    style.popGreyedOut(appCount == 1)
                     groupedData.selectors[group.key] = selectedApp
                     groupedData.selectorSearches[group.key] = searchValue
                     style.tooltip("Select an appearance to apply to all matching selected entries.")

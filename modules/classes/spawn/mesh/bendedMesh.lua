@@ -1946,7 +1946,7 @@ end
 
 function bendedMesh:drawAppearanceSelector()
     local list = self.apps
-    style.pushGreyedOut(#self.apps == 0)
+    style.pushGreyedOut(#self.apps <= 1)
 
     if #list == 0 then
         list = { "No apps" }
@@ -1991,7 +1991,7 @@ function bendedMesh:drawAppearanceSelector()
         end
     end
 
-    style.popGreyedOut(#self.apps == 0)
+    style.popGreyedOut(#self.apps <= 1)
     ImGui.SameLine()
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.Reload .. "##reloadBendedAppearanceList") then
