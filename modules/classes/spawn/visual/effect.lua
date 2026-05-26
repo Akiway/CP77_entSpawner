@@ -203,11 +203,15 @@ function effect:draw()
             previewSyncManager.refreshSpawnable(self)
         end
 
-        local openTimelineLabel = ((IconGlyphs.ChartTimeline and IconGlyphs.ChartTimeline ~= "") and (IconGlyphs.ChartTimeline .. " ") or "") .. "Open Preview Timeline##effectPreviewTimelineOpen"
+        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "effectPreviewTimelineOpen")
         if ImGui.Button(openTimelineLabel) then
             previewTimeline.openForSpawnable(self)
         end
-        style.tooltip("Open Preview Timeline focused on this effect's synchronization domain.")
+        if openTimelineHiddenText then
+            style.tooltipActionLabel(openTimelineHiddenText, openTimelineHiddenText .. "\nOpen Preview Timeline focused on this effect's synchronization domain.")
+        else
+            style.tooltip("Open Preview Timeline focused on this effect's synchronization domain.")
+        end
 
         ImGui.TreePop()
     end

@@ -721,11 +721,15 @@ local function drawTimelineCanvas(section, entries)
     ImGui.SameLine()
     style.mutedText(string.format("Duration: %s", formatTimelineTime(timelineDuration)))
     ImGui.SameLine()
-    local syncLabel = ((IconGlyphs.Restart and IconGlyphs.Restart ~= "") and (IconGlyphs.Restart .. " ") or "") .. "Sync Now##previewTimelineSyncNow"
+    local syncLabel, syncHiddenText = style.resolveActionLabel(IconGlyphs.Restart, "Sync Now", "previewTimelineSyncNow")
     if ImGui.Button(syncLabel) then
         previewSyncManager.syncDomain(section.domainId)
     end
-    style.tooltip("Restart synchronized preview timing for this domain.")
+    if syncHiddenText then
+        style.tooltipActionLabel(syncHiddenText, syncHiddenText .. "\nRestart synchronized preview timing for this domain.")
+    else
+        style.tooltip("Restart synchronized preview timing for this domain.")
+    end
 
     ImGui.SameLine()
     local snapEnabled, snapChanged = ImGui.Checkbox("Snap##previewTimelineSnap", previewTimeline.snapEnabled)

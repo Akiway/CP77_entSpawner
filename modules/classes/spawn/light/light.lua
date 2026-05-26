@@ -923,12 +923,18 @@ function light:draw()
         end
 
         local selected = self.lightType == typeIndex
+        local typeLabel, hiddenTypeText = style.resolveActionLabel(
+            self:getLightTypeIcon(typeIndex),
+            self:getLightTypeLabel(typeIndex),
+            "lightTypeTab" .. tostring(typeIndex)
+        )
         local clicked = style.switchTabButton(
-            string.format("%s %s##lightTypeTab%d", self:getLightTypeIcon(typeIndex), self:getLightTypeLabel(typeIndex), typeIndex),
+            typeLabel,
             selected,
             lightTypeTabWidth,
             0
         )
+        style.tooltipActionLabel(hiddenTypeText)
 
         if clicked and self.lightType ~= typeIndex then
             if self.object then
@@ -1170,7 +1176,8 @@ function light:draw()
             local hierarchyPickDisabled = not hasHierarchyPicker or directTargetingDisabled
 
             ImGui.BeginDisabled(directTargetingDisabled)
-            if ImGui.Button(IconGlyphs.TargetAccount .. " Aim at Player##lightAimAtPlayer") then
+            local aimAtPlayerLabel, aimAtPlayerHiddenText = style.resolveActionLabel(IconGlyphs.TargetAccount, "Aim at Player", "lightAimAtPlayer")
+            if ImGui.Button(aimAtPlayerLabel) then
                 local player = GetPlayer()
                 if player then
                     targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
@@ -1178,22 +1185,38 @@ function light:draw()
             end
             ImGui.EndDisabled()
             if targetingDisabledByCameraFollow then
-                style.tooltip("Disable Follow Camera to target the player manually.")
+                local tooltipText = "Disable Follow Camera to target the player manually."
+                if aimAtPlayerHiddenText then
+                    style.tooltipActionLabel(aimAtPlayerHiddenText, aimAtPlayerHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             elseif rotationTargetingDisabled and self.object and self.object.rotationLocked then
-                style.tooltip("Unlock rotation to target the player.")
+                local tooltipText = "Unlock rotation to target the player."
+                if aimAtPlayerHiddenText then
+                    style.tooltipActionLabel(aimAtPlayerHiddenText, aimAtPlayerHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             else
-                style.tooltip("Rotate this light to point at the player's current world position.")
+                local tooltipText = "Rotate this light to point at the player's current world position."
+                if aimAtPlayerHiddenText then
+                    style.tooltipActionLabel(aimAtPlayerHiddenText, aimAtPlayerHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             end
 
             ImGui.SameLine()
 
             ImGui.BeginDisabled(hierarchyPickDisabled)
-            local hierarchyButtonLabel = hierarchyPickActive and " Cancel Target Pick" or " Aim at Element"
+            local hierarchyButtonText = hierarchyPickActive and "Cancel Target Pick" or "Aim at Element"
+            local hierarchyLabel, hierarchyHiddenText = style.resolveActionLabel(IconGlyphs.Target, hierarchyButtonText, "lightHierarchyTargetPick")
             local hierarchyButtonClicked = false
             if hierarchyPickActive then
-                hierarchyButtonClicked = style.successButton(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+                hierarchyButtonClicked = style.successButton(hierarchyLabel)
             else
-                hierarchyButtonClicked = ImGui.Button(IconGlyphs.Target .. hierarchyButtonLabel .. "##lightHierarchyTargetPick")
+                hierarchyButtonClicked = ImGui.Button(hierarchyLabel)
             end
             if hierarchyButtonClicked then
                 if hierarchyPickActive then
@@ -1219,13 +1242,33 @@ function light:draw()
             end
             ImGui.EndDisabled()
             if targetingDisabledByCameraFollow then
-                style.tooltip("Disable Follow Camera to use hierarchy targeting.")
+                local tooltipText = "Disable Follow Camera to use hierarchy targeting."
+                if hierarchyHiddenText then
+                    style.tooltipActionLabel(hierarchyHiddenText, hierarchyHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             elseif hierarchyPickDisabled and self.object and self.object.rotationLocked then
-                style.tooltip("Unlock rotation to use hierarchy targeting.")
+                local tooltipText = "Unlock rotation to use hierarchy targeting."
+                if hierarchyHiddenText then
+                    style.tooltipActionLabel(hierarchyHiddenText, hierarchyHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             elseif hierarchyPickActive then
-                style.tooltip("Click an element in the hierarchy or click anywhere in the 3D world to aim this light.\nPress Esc or click this button again to cancel.")
+                local tooltipText = "Click an element in the hierarchy or click anywhere in the 3D world to aim this light.\nPress Esc or click this button again to cancel."
+                if hierarchyHiddenText then
+                    style.tooltipActionLabel(hierarchyHiddenText, hierarchyHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             else
-                style.tooltip("Pick a hierarchy element or click in the 3D world to rotate this light toward that target.")
+                local tooltipText = "Pick a hierarchy element or click in the 3D world to rotate this light toward that target."
+                if hierarchyHiddenText then
+                    style.tooltipActionLabel(hierarchyHiddenText, hierarchyHiddenText .. "\n" .. tooltipText)
+                else
+                    style.tooltip(tooltipText)
+                end
             end
         style.sectionHeaderEnd(false)
     end
@@ -1233,8 +1276,9 @@ function light:draw()
     style.sectionHeaderStart("Be the light")
         local cameraFollowToggleDisabled = rotationTargetingDisabled and not self.cameraFollowEnabled
         ImGui.BeginDisabled(cameraFollowToggleDisabled)
+        local followCameraLabel, followCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraLockOutline, "Follow Camera", "lightCameraFollow")
         local newCameraFollowEnabled, cameraFollowChanged = style.toggleButton(
-            IconGlyphs.CameraLockOutline .. " Follow Camera##lightCameraFollow",
+            followCameraLabel,
             self.cameraFollowEnabled
         )
         ImGui.EndDisabled()
@@ -1245,11 +1289,26 @@ function light:draw()
             self:setCameraFollowEnabled(newCameraFollowEnabled)
         end
         if cameraFollowToggleDisabled and self.object and self.object.rotationLocked then
-            style.tooltip("Unlock rotation to enable camera follow.")
+            local tooltipText = "Unlock rotation to enable camera follow."
+            if followCameraHiddenText then
+                style.tooltipActionLabel(followCameraHiddenText, followCameraHiddenText .. "\n" .. tooltipText)
+            else
+                style.tooltip(tooltipText)
+            end
         elseif self.cameraFollowEnabled then
-            style.tooltip("Light follows player camera position and direction.\nDisable to keep the current transform.")
+            local tooltipText = "Light follows player camera position and direction.\nDisable to keep the current transform."
+            if followCameraHiddenText then
+                style.tooltipActionLabel(followCameraHiddenText, followCameraHiddenText .. "\n" .. tooltipText)
+            else
+                style.tooltip(tooltipText)
+            end
         else
-            style.tooltip("Attach this light to the player camera and align direction to camera view.")
+            local tooltipText = "Attach this light to the player camera and align direction to camera view."
+            if followCameraHiddenText then
+                style.tooltipActionLabel(followCameraHiddenText, followCameraHiddenText .. "\n" .. tooltipText)
+            else
+                style.tooltip(tooltipText)
+            end
         end
 
         ImGui.SameLine()

@@ -2268,13 +2268,22 @@ function spawnUI.draw()
     groupLoadManager.drawProgress(style)
 
     if ImGui.BeginTabBar("##spawnUITabbar", ImGuiTabItemFlags.NoTooltip) then
-        if ImGui.BeginTabItem(string.format("%s All", IconGlyphs.TextBoxSearchOutline)) then
+        local allTabLabel, allTabHiddenText = style.resolveActionLabel(IconGlyphs.TextBoxSearchOutline, "All", "spawnUITabAll")
+        if ImGui.BeginTabItem(allTabLabel) then
+            style.tooltipActionLabel(allTabHiddenText)
             spawnUI.drawAll()
             ImGui.EndTabItem()
+        else
+            style.tooltipActionLabel(allTabHiddenText)
         end
-        if ImGui.BeginTabItem(string.format("%s Favorites", IconGlyphs.HeartBoxOutline)) then
+
+        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.HeartBoxOutline, "Favorites", "spawnUITabFavorites")
+        if ImGui.BeginTabItem(favoritesTabLabel) then
+            style.tooltipActionLabel(favoritesTabHiddenText)
             spawnUI.favoritesUI.draw()
             ImGui.EndTabItem()
+        else
+            style.tooltipActionLabel(favoritesTabHiddenText)
         end
         ImGui.EndTabBar()
     end

@@ -984,8 +984,9 @@ function savedUI.draw(spawner)
     local blockImport = ammImportPresetPopup.isBlocked()
     local framePaddingX = ImGui.GetStyle().FramePadding.x
     local itemSpacingX = ImGui.GetStyle().ItemSpacing.x
-    local importLabel = IconGlyphs.FileImportOutline .. (ammImportActive and " Importing AMM Presets..." or " Import AMM Presets")
-    local reportLabel = IconGlyphs.FileChartOutline .. " View report"
+    local importActionText = ammImportActive and "Importing AMM Presets..." or "Import AMM Presets"
+    local importLabel, importHiddenText = style.resolveActionLabel(IconGlyphs.FileImportOutline, importActionText)
+    local reportLabel, reportHiddenText = style.resolveActionLabel(IconGlyphs.FileChartOutline, "View report")
     local importLabelWidth, _ = ImGui.CalcTextSize(importLabel)
     local reportLabelWidth, _ = ImGui.CalcTextSize(reportLabel)
     local reloadLabelWidth, _ = ImGui.CalcTextSize(IconGlyphs.Reload)
@@ -1003,13 +1004,33 @@ function savedUI.draw(spawner)
     style.popGreyedOut(blockImport)
 
     if groupLoadManager.isActive() then
-        style.tooltip("Import is disabled while a group is loading.")
+        local tooltipText = "Import is disabled while a group is loading."
+        if importHiddenText then
+            style.tooltipActionLabel(importHiddenText, importHiddenText .. "\n" .. tooltipText)
+        else
+            style.tooltip(tooltipText)
+        end
     elseif ammImportActive then
-        style.tooltip("AMM preset import is already running.")
+        local tooltipText = "AMM preset import is already running."
+        if importHiddenText then
+            style.tooltipActionLabel(importHiddenText, importHiddenText .. "\n" .. tooltipText)
+        else
+            style.tooltip(tooltipText)
+        end
     elseif amm.importing then
-        style.tooltip("Another AMM operation is currently running.")
+        local tooltipText = "Another AMM operation is currently running."
+        if importHiddenText then
+            style.tooltipActionLabel(importHiddenText, importHiddenText .. "\n" .. tooltipText)
+        else
+            style.tooltip(tooltipText)
+        end
     else
-        style.tooltip("Choose which presets to import from data/AMMImport.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised.")
+        local tooltipText = "Choose which presets to import from data/AMMImport.\nImport might take a bit, depending on size.\nThe initial spawn will lag.\nMight leave behind unwanted objects, so reloading a save is advised."
+        if importHiddenText then
+            style.tooltipActionLabel(importHiddenText, importHiddenText .. "\n" .. tooltipText)
+        else
+            style.tooltip(tooltipText)
+        end
     end
 
     ImGui.SameLine()
@@ -1019,9 +1040,17 @@ function savedUI.draw(spawner)
     end
     style.popGreyedOut(not hasImportReport)
     if hasImportReport then
-        style.tooltip("Open the latest AMM import report.")
+        if reportHiddenText then
+            style.tooltipActionLabel(reportHiddenText, reportHiddenText .. "\nOpen the latest AMM import report.")
+        else
+            style.tooltip("Open the latest AMM import report.")
+        end
     else
-        style.tooltip("No AMM import report available yet.")
+        if reportHiddenText then
+            style.tooltipActionLabel(reportHiddenText, reportHiddenText .. "\nNo AMM import report available yet.")
+        else
+            style.tooltip("No AMM import report available yet.")
+        end
     end
 
     ImGui.SameLine()

@@ -1211,7 +1211,8 @@ function exportUI.draw()
 
     if #duplicateGroupNames > 0 then
         table.sort(duplicateGroupNames)
-        style.styledText(IconGlyphs.AlertOutline .. " Duplicate group names detected", 0xFF0088FF)
+        local duplicateGroupWarningLabel = style.resolveActionLabelNoIconOnly(IconGlyphs.AlertOutline, "Duplicate group names detected", nil)
+        style.styledText(duplicateGroupWarningLabel, 0xFF0088FF)
         style.tooltip("Duplicated group names:\n- " .. table.concat(duplicateGroupNames, "\n- "))
         ImGui.Spacing()
     end

@@ -1772,7 +1772,8 @@ function entity:drawLocalizationStringPreview(value, cursorPos)
         ImGui.SetCursorPosX(cursorPos)
     end
 
-    style.mutedText(IconGlyphs.Translate .. " " .. localized)
+    local localizedLabel = style.resolveActionLabelNoIconOnly(IconGlyphs.Translate, localized, nil)
+    style.mutedText(localizedLabel)
     style.tooltip(localized)
 end
 

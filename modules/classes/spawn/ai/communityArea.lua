@@ -482,7 +482,8 @@ function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
     phase.appearances = phase.appearances or {}
 
     local baseAppearanceOptions, loaded = requestCharacterAppearances(entry.characterRecordId)
-    drawSectionHeader(IconGlyphs.Hanger .. " Appearances", #phase.appearances)
+    local appearancesHeader = style.resolveActionLabelNoIconOnly(IconGlyphs.Hanger, "Appearances", nil)
+    drawSectionHeader(appearancesHeader, #phase.appearances)
     ImGui.SameLine()
     if ImGui.Button("+##addAppearance") then
         history.addAction(history.getElementChange(self.object))
@@ -681,13 +682,18 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         ImGui.Indent(hierarchyIndent())
         ImGui.Dummy(0, 4 * style.viewSize)
 
-        if style.switchTabButton(IconGlyphs.PoundBoxOutline .. "NodeRefs##periodLinkNodeRef", linkMode == "nodeRef", 120 * style.viewSize, 0) then
+        local nodeRefsLabel, nodeRefsHiddenText = style.resolveActionLabel(IconGlyphs.PoundBoxOutline, "NodeRefs", "periodLinkNodeRef")
+        if style.switchTabButton(nodeRefsLabel, linkMode == "nodeRef", 120 * style.viewSize, 0) then
             linkMode = "nodeRef"
         end
+        style.tooltipActionLabel(nodeRefsHiddenText)
         ImGui.SameLine()
-        if style.switchTabButton(IconGlyphs.TagMultiple .. "Markings##periodLinkMarking", linkMode == "marking", 120 * style.viewSize, 0) then
+
+        local markingsLabel, markingsHiddenText = style.resolveActionLabel(IconGlyphs.TagMultiple, "Markings", "periodLinkMarking")
+        if style.switchTabButton(markingsLabel, linkMode == "marking", 120 * style.viewSize, 0) then
             linkMode = "marking"
         end
+        style.tooltipActionLabel(markingsHiddenText)
         self.periodLinkMode[modeKey] = linkMode
 
         if linkMode == "nodeRef" then
@@ -703,7 +709,8 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
 end
 
 function community:drawPhasePeriods(phase, phaseHierarchyKey)
-    drawSectionHeader(IconGlyphs.ClockOutline .. " Time Periods", #phase.timePeriods)
+    local periodsHeader = style.resolveActionLabelNoIconOnly(IconGlyphs.ClockOutline, "Time Periods", nil)
+    drawSectionHeader(periodsHeader, #phase.timePeriods)
     ImGui.SameLine()
     if ImGui.Button("+##addPeriod") then
         history.addAction(history.getElementChange(self.object))

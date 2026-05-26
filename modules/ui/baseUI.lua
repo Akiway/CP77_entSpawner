@@ -118,12 +118,13 @@ local tabs = {
 }
 
 ---@param tab {name: string, icon: string?}
+---@param stableId string?
+---@param mode integer?
 ---@return string
-local function getTabLabel(tab)
-    if tab.icon and tab.icon ~= "" then
-        return tab.icon .. " " .. tab.name
-    end
-    return tab.name
+---@return string?
+local function getTabLabel(tab, stableId, mode)
+    local resolvedId = stableId or ("tabLabel:" .. tostring(tab.id or tab.name))
+    return style.resolveActionLabel(tab.icon, tab.name, resolvedId, mode)
 end
 
 local function isOnlyTab(id)
@@ -190,7 +191,9 @@ local function drawMenuButton()
         style.styledText("Separated Tabs:", style.mutedColor, 0.85)
 
         for _, tab in pairs(tabs) do
-            local _, clicked = ImGui.MenuItem(getTabLabel(tab), '', settings.windowStates[tab.id])
+            local menuLabel, hiddenMenuText = getTabLabel(tab, "windowMenuTab:" .. tostring(tab.id))
+            local _, clicked = ImGui.MenuItem(menuLabel, '', settings.windowStates[tab.id])
+            style.tooltipActionLabel(hiddenMenuText)
             if clicked and not isOnlyTab(tab.id) then
                 settings.windowStates[tab.id] = not settings.windowStates[tab.id]
                 settings.save()
@@ -327,7 +330,9 @@ function baseUI.draw(spawner)
                 end
 
                 if not settings.windowStates[tab.id] then
-                    if ImGui.BeginTabItem(getTabLabel(tab)) then
+                    local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id))
+                    if ImGui.BeginTabItem(tabLabel) then
+                        style.tooltipActionLabel(tabHiddenText)
                         if baseUI.activeTab ~= key then
                             baseUI.activeTab = key
                             baseUI.loadTabSize = true
@@ -335,9 +340,12 @@ function baseUI.draw(spawner)
                         ImGui.Spacing()
                         tab.draw(spawner)
                         ImGui.EndTabItem()
+                    else
+                        style.tooltipActionLabel(tabHiddenText)
                     end
                 else
-                    ImGui.SetTabItemClosed(getTabLabel(tab))
+                    local tabLabel = getTabLabel(tab, "mainTab:" .. tostring(tab.id))
+                    ImGui.SetTabItemClosed(tabLabel)
                 end
             end
             ImGui.EndTabBar()
@@ -359,7 +367,8 @@ function baseUI.draw(spawner)
                 baseUI.loadWindowSize = nil
             end
 
-            settings.windowStates[tab.id] = ImGui.Begin(getTabLabel(tab), true, tabs[key].flags)
+            local detachedTabLabel = getTabLabel(tab, "detachedTab:" .. tostring(tab.id))
+            settings.windowStates[tab.id] = ImGui.Begin(detachedTabLabel, true, tabs[key].flags)
             input.updateContext("main")
 
             local x, y = ImGui.GetWindowSize()

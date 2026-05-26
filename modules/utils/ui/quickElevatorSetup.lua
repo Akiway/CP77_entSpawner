@@ -472,11 +472,16 @@ function quickElevatorSetupUI.install(device, options)
             and self.updateLiftFloorDoorNodeRef ~= nil
             and self.removeLiftFloorDoor ~= nil
         ImGui.BeginDisabled(not canManageFloorDoors)
-        if ImGui.Button(IconGlyphs.Plus .. " Add door##liftFloorAddDoorButton") and canManageFloorDoors then
+        local addDoorLabel, addDoorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add door", "liftFloorAddDoorButton")
+        if ImGui.Button(addDoorLabel) and canManageFloorDoors then
             ImGui.OpenPopup(addDoorPopupId)
         end
         ImGui.EndDisabled()
-        style.tooltip("Add a door to this floor group and connect it to the floor terminal.")
+        if addDoorHiddenText then
+            style.tooltipActionLabel(addDoorHiddenText, addDoorHiddenText .. "\nAdd a door to this floor group and connect it to the floor terminal.")
+        else
+            style.tooltip("Add a door to this floor group and connect it to the floor terminal.")
+        end
 
         if canManageFloorDoors and ImGui.BeginPopup(addDoorPopupId) then
             local doorDefinitions = self:getLiftFloorDoorDefinitions()
@@ -727,10 +732,15 @@ function quickElevatorSetupUI.install(device, options)
         ImGui.Dummy(0, 8 * style.viewSize)
         style.drawIconLabelRow(IconGlyphs.FloorPlan, "Floor Manager")
         ImGui.SameLine()
-        if ImGui.Button(IconGlyphs.Plus .. " Add Floor##liftFloorManagerAdd") then
+        local addFloorLabel, addFloorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add Floor", "liftFloorManagerAdd")
+        if ImGui.Button(addFloorLabel) then
             self:addLiftFloor()
         end
-        style.tooltip("Create a floor folder with a terminal and marker, then connect it to this lift.")
+        if addFloorHiddenText then
+            style.tooltipActionLabel(addFloorHiddenText, addFloorHiddenText .. "\nCreate a floor folder with a terminal and marker, then connect it to this lift.")
+        else
+            style.tooltip("Create a floor folder with a terminal and marker, then connect it to this lift.")
+        end
 
         local _, popupContentAvailY = ImGui.GetContentRegionAvail()
         local footerReserveHeight = ImGui.GetFrameHeightWithSpacing() + 14 * style.viewSize

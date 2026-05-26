@@ -12,6 +12,11 @@ local windowNames = { "World Builder", "Object Spawner", "Entity Spawner", "Worl
 local groupLoadSpeedOptions = { "Fast - with FPS drops", "Slow - without FPS drops" }
 local wireframeColorStyles = { "Darker + white text", "Lighter + black text" }
 local colorPickerStyles = { "Hue Bar", "Hue Wheel" }
+local actionLabelDisplayModeOptions = {
+    { value = 1, label = "Preferred icon" },
+    { value = 2, label = "Icon + text" },
+    { value = 3, label = "Preferred text" }
+}
 local wireframeColorStyleTooltipText = "Global projected wireframe color style used by streaming distance and streaming box overlays."
 local materials = { "meatbag.physmat","linoleum.physmat","trash.physmat","plastic.physmat","character_armor.physmat","furniture_upholstery.physmat","metal_transparent.physmat","tire_car.physmat","meat.physmat","metal_car_pipe_steam.physmat","character_flesh.physmat","brick.physmat","character_flesh_head.physmat","leaves.physmat","flesh.physmat","water.physmat","plastic_road.physmat","metal_hollow.physmat","cyberware_flesh.physmat","plaster.physmat","plexiglass.physmat","character_vr.physmat","vehicle_chassis.physmat","sand.physmat","glass_electronics.physmat","leaves_stealth.physmat","tarmac.physmat","metal_car.physmat","tiles.physmat","glass_car.physmat","grass.physmat","concrete.physmat","carpet_techpiercable.physmat","wood_hedge.physmat","stone.physmat","leaves_semitransparent.physmat","metal_catwalk.physmat","upholstery_car.physmat","cyberware_metal.physmat","paper.physmat","leather.physmat","metal_pipe_steam.physmat","metal_pipe_water.physmat","metal_semitransparent.physmat","neon.physmat","glass_dst.physmat","plastic_car.physmat","mud.physmat","dirt.physmat","metal_car_pipe_water.physmat","furniture_leather.physmat","asphalt.physmat","wood_bamboo_poles.physmat","glass_opaque.physmat","carpet.physmat","food.physmat","cyberware_metal_head.physmat","metal_road.physmat","wood_tree.physmat","wood_player_npc_semitransparent.physmat","wood.physmat","metal_car_ricochet.physmat","cardboard.physmat","wood_crown.physmat","metal_ricochet.physmat","plastic_electronics.physmat","glass_semitransparent.physmat","metal_painted.physmat","rubber.physmat","ceramic.physmat","glass_bulletproof.physmat","metal_car_electronics.physmat","trash_bag.physmat","character_cyberflesh.physmat","metal_heavypiercable.physmat","metal.physmat","plastic_car_electronics.physmat","oil_spill.physmat","fabrics.physmat","glass.physmat","metal_techpiercable.physmat","concrete_water_puddles.physmat","character_metal.physmat" }
 table.sort(materials, function(a, b) return a < b end)
@@ -263,9 +268,11 @@ local function drawSpawnNewVisualizerDefaultSelector(spawner)
             end
             style.pushButtonNoBG(false)
             ImGui.SameLine()
-            if ImGui.Button(IconGlyphs.Restore .. " Reset to defaults##spawnNewVisualizerResetDefaults") then
+            local resetDefaultsLabel, resetDefaultsHiddenText = style.resolveActionLabel(IconGlyphs.Restore, "Reset to defaults", "spawnNewVisualizerResetDefaults")
+            if ImGui.Button(resetDefaultsLabel) then
                 resetSpawnNewVisualizerDefaultsToClassDefaults(groups)
             end
+            style.tooltipActionLabel(resetDefaultsHiddenText)
 
             ImGui.Separator()
             ImGui.Spacing()
@@ -400,13 +407,18 @@ function settingsUI.draw(spawner)
 
     if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)
-        if ImGui.Button(IconGlyphs.CameraRetakeOutline .. " Reset camera position") and spawner.editor.active then
+        local resetCameraLabel, resetCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraRetakeOutline, "Reset camera position", "resetCameraPosition")
+        if ImGui.Button(resetCameraLabel) and spawner.editor.active then
             if spawner.editor.camera and spawner.editor.camera.resetPosition and spawner.editor.camera.resetPosition() then
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Camera position reset"))
             end
         end
         style.popGreyedOut(not spawner.editor.active)
-        style.tooltip("Move the 3D-Editor camera back to your player position from before entering editor mode.")
+        if resetCameraHiddenText then
+            style.tooltipActionLabel(resetCameraHiddenText, resetCameraHiddenText .. "\nMove the 3D-Editor camera back to your player position from before entering editor mode.")
+        else
+            style.tooltip("Move the 3D-Editor camera back to your player position from before entering editor mode.")
+        end
 
         settings.cameraMovementSpeed, changed = ImGui.InputFloat("Camera Movement Speed", settings.cameraMovementSpeed, 0, 10, "%.2f")
         if changed then settings.save() end
@@ -520,6 +532,30 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         drawWireframeColorStyleTooltip()
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("Balance between icons and text")
+        local actionLabelDisplayMode = style.normalizeActionLabelMode(settings.actionLabelDisplayMode)
+        local actionLabelModeChanged = false
+        for index, option in ipairs(actionLabelDisplayModeOptions) do
+            if index > 1 then
+                ImGui.SameLine()
+            end
+
+            local buttonId = "##actionLabelDisplayMode" .. tostring(option.value)
+            if style.switchTabButton(option.label .. buttonId, actionLabelDisplayMode == option.value, nil, 0) then
+                if actionLabelDisplayMode ~= option.value then
+                    actionLabelDisplayMode = option.value
+                    actionLabelModeChanged = true
+                end
+            end
+        end
+
+        if actionLabelModeChanged then
+            settings.actionLabelDisplayMode = actionLabelDisplayMode
+            settings.save()
+        end
+        style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()

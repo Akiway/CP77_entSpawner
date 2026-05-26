@@ -338,6 +338,109 @@ function style.styledTextWrapped(text, color, size)
     ImGui.SetWindowFontScale(1)
 end
 
+style.actionLabelDisplayModes = {
+    PreferIcon = 1,
+    IconAndText = 2,
+    PreferText = 3
+}
+
+---@param mode number?
+---@return integer
+function style.normalizeActionLabelMode(mode)
+    local normalized = tonumber(mode) or style.actionLabelDisplayModes.IconAndText
+    if normalized < style.actionLabelDisplayModes.PreferIcon or normalized > style.actionLabelDisplayModes.PreferText then
+        return style.actionLabelDisplayModes.IconAndText
+    end
+
+    return math.floor(normalized)
+end
+
+---@return integer
+function style.getActionLabelMode()
+    return style.normalizeActionLabelMode(settings.actionLabelDisplayMode)
+end
+
+---@param mode integer?
+---@return integer
+function style.getActionLabelModeNoIconOnly(mode)
+    local resolvedMode = mode == nil and style.getActionLabelMode() or style.normalizeActionLabelMode(mode)
+    if resolvedMode == style.actionLabelDisplayModes.PreferIcon then
+        return style.actionLabelDisplayModes.IconAndText
+    end
+
+    return resolvedMode
+end
+
+---@param icon string?
+---@param text string?
+---@param id string?
+---@param mode integer?
+---@return string
+---@return string?
+function style.resolveActionLabel(icon, text, id, mode)
+    local hasIcon = type(icon) == "string" and icon ~= ""
+    local hasText = type(text) == "string" and text ~= ""
+    local resolvedMode = mode == nil and style.getActionLabelMode() or style.normalizeActionLabelMode(mode)
+    local hiddenText
+    local visible = ""
+
+    if resolvedMode == style.actionLabelDisplayModes.PreferIcon then
+        if hasIcon then
+            visible = icon
+            if hasText then
+                hiddenText = text
+            end
+        elseif hasText then
+            visible = text
+        end
+    elseif resolvedMode == style.actionLabelDisplayModes.PreferText then
+        if hasText then
+            visible = text
+        elseif hasIcon then
+            visible = icon
+        end
+    else
+        if hasIcon and hasText then
+            visible = icon .. " " .. text
+        elseif hasText then
+            visible = text
+        elseif hasIcon then
+            visible = icon
+        end
+    end
+
+    local stableId = type(id) == "string" and id or ""
+    if stableId ~= "" then
+        return visible .. "##" .. stableId, hiddenText
+    end
+
+    return visible, hiddenText
+end
+
+---@param icon string?
+---@param text string?
+---@param id string?
+---@param mode integer?
+---@return string
+---@return string?
+function style.resolveActionLabelNoIconOnly(icon, text, id, mode)
+    local resolvedMode = style.getActionLabelModeNoIconOnly(mode)
+    return style.resolveActionLabel(icon, text, id, resolvedMode)
+end
+
+---@param hiddenText string?
+---@param explicitTooltip string?
+function style.tooltipActionLabel(hiddenText, explicitTooltip)
+    if explicitTooltip ~= nil and explicitTooltip ~= "" then
+        style.tooltip(explicitTooltip)
+        return
+    end
+
+    if hiddenText ~= nil and hiddenText ~= "" then
+        style.tooltip(hiddenText)
+    end
+end
+
 ---Draw an icon + label row with optional offsets and aligned field position.
 ---@param icon string
 ---@param label string?

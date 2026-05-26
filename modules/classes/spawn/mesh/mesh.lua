@@ -22,12 +22,20 @@ local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
 
 -- Supported module targets for single-item and grouped conversion.
 local conversionTargets = {
-    { modulePath = "mesh/mesh", label = IconGlyphs.CubeOutline .. " Static Mesh", plural = "static meshes" },
-    { modulePath = "mesh/bendedMesh", label = IconGlyphs.SineWave .. " Bended Mesh", plural = "bended meshes" },
-    { modulePath = "mesh/rotatingMesh", label = IconGlyphs.FormatRotate90 .. " Rotating Mesh", plural = "rotating meshes" },
-    { modulePath = "mesh/clothMesh", label = IconGlyphs.ReceiptOutline .. " Cloth Mesh", plural = "cloth meshes" },
-    { modulePath = "physics/dynamicMesh", label = IconGlyphs.CubeSend .. " Dynamic Mesh", plural = "dynamic meshes" }
+    { modulePath = "mesh/mesh", icon = IconGlyphs.CubeOutline, text = "Static Mesh", plural = "static meshes" },
+    { modulePath = "mesh/bendedMesh", icon = IconGlyphs.SineWave, text = "Bended Mesh", plural = "bended meshes" },
+    { modulePath = "mesh/rotatingMesh", icon = IconGlyphs.FormatRotate90, text = "Rotating Mesh", plural = "rotating meshes" },
+    { modulePath = "mesh/clothMesh", icon = IconGlyphs.ReceiptOutline, text = "Cloth Mesh", plural = "cloth meshes" },
+    { modulePath = "physics/dynamicMesh", icon = IconGlyphs.CubeSend, text = "Dynamic Mesh", plural = "dynamic meshes" }
 }
+
+---@param target table
+---@param stableId string?
+---@return string
+local function getConversionTargetLabel(target, stableId)
+    local label = style.resolveActionLabelNoIconOnly(target.icon, target.text, stableId)
+    return label
+end
 
 -- Explicit conversion pairs that are known to drop subtype-specific properties.
 local lossyConversionPairs = {
@@ -728,7 +736,7 @@ function mesh:getConversionTargets()
 
     for _, target in ipairs(conversionTargets) do
         if self:isMeshConversionAllowed(target.modulePath) then
-            table.insert(options, target.label)
+            table.insert(options, getConversionTargetLabel(target, "meshConvertTarget:" .. tostring(target.modulePath)))
             table.insert(actions, target.modulePath)
         end
     end
@@ -870,7 +878,7 @@ function mesh:getGroupedProperties()
             converterData.fromIndex = math.max(0, math.min(converterData.fromIndex, #availableFromTypes - 1))
             local fromOptions = {}
             for _, modulePath in ipairs(availableFromTypes) do
-                table.insert(fromOptions, targetDefsByPath[modulePath].label)
+                table.insert(fromOptions, getConversionTargetLabel(targetDefsByPath[modulePath], "groupMeshFrom:" .. tostring(modulePath)))
             end
 
             local lineStartX = ImGui.GetCursorPosX()
@@ -910,7 +918,7 @@ function mesh:getGroupedProperties()
                     end
 
                     if hasConvertibleEntry then
-                        table.insert(toOptions, target.label)
+                        table.insert(toOptions, getConversionTargetLabel(target, "groupMeshTo:" .. tostring(target.modulePath)))
                         table.insert(toModulePaths, target.modulePath)
                     end
                 end

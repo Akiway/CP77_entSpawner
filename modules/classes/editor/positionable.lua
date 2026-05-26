@@ -490,33 +490,38 @@ function positionable:drawCopyPaste(name, axis)
             return true
         end
 
+        local positionIconLabel = style.resolveActionLabelNoIconOnly(IconGlyphs.AxisArrow, "position", nil)
+        local rotationIconLabel = style.resolveActionLabelNoIconOnly(IconGlyphs.RotateOrbit, "rotation", nil)
+        local scaleIconLabel = style.resolveActionLabelNoIconOnly(IconGlyphs.RulerSquare, "scale", nil)
+
         if beginSection(showPosition or showRotation) then
+
             if showPosition and drawColoredPopupMenuItem(name .. "CopyPosition", {
                 { text = "Copy " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR }
+                { text = positionIconLabel, color = POSITION_COLOR }
             }) then
                 local pos = self:getPosition()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
             end
             if showRotation and drawColoredPopupMenuItem(name .. "CopyRotation", {
                 { text = "Copy " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+                { text = rotationIconLabel, color = ROTATION_COLOR }
             }) then
                 local rot = self:getRotation()
                 utils.insertClipboardValue("rotation", { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw })
             end
             if showScaleInputs and drawColoredPopupMenuItem(name .. "CopyScale", {
                 { text = "Copy " },
-                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+                { text = scaleIconLabel, color = SCALE_COLOR }
             }) then
                 local scale = self:getScale()
                 utils.insertClipboardValue("scale", { x = scale.x, y = scale.y, z = scale.z })
             end
             if showPosition and showRotation and drawColoredPopupMenuItem(name .. "CopyPositionRotation", {
                 { text = "Copy " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = positionIconLabel, color = POSITION_COLOR },
                 { text = " & " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+                { text = rotationIconLabel, color = ROTATION_COLOR }
             }) then
                 local pos = self:getPosition()
                 local rot = self:getRotation()
@@ -525,11 +530,11 @@ function positionable:drawCopyPaste(name, axis)
             end
             if showPosition and showRotation and showScaleInputs and drawColoredPopupMenuItem(name .. "CopyPositionRotationScale", {
                 { text = "Copy " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = positionIconLabel, color = POSITION_COLOR },
                 { text = ", " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR },
+                { text = rotationIconLabel, color = ROTATION_COLOR },
                 { text = " & " },
-                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+                { text = scaleIconLabel, color = SCALE_COLOR }
             }) then
                 local pos = self:getPosition()
                 local rot = self:getRotation()
@@ -547,7 +552,7 @@ function positionable:drawCopyPaste(name, axis)
 
             if showPosition and drawColoredPopupMenuItem(name .. "PastePosition", {
                 { text = "Paste " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR }
+                { text = positionIconLabel, color = POSITION_COLOR }
             }, copiedPosition ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
@@ -555,14 +560,14 @@ function positionable:drawCopyPaste(name, axis)
 
             if showRotation and drawColoredPopupMenuItem(name .. "PasteRotation", {
                 { text = "Paste " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+                { text = rotationIconLabel, color = ROTATION_COLOR }
             }, copiedRotation ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setRotation(EulerAngles.new(copiedRotation.roll, copiedRotation.pitch, copiedRotation.yaw))
             end
             if showScaleInputs and drawColoredPopupMenuItem(name .. "PasteScale", {
                 { text = "Paste " },
-                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+                { text = scaleIconLabel, color = SCALE_COLOR }
             }, copiedScale ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setScale({ x = copiedScale.x, y = copiedScale.y, z = copiedScale.z }, true)
@@ -570,9 +575,9 @@ function positionable:drawCopyPaste(name, axis)
 
             if showPosition and showRotation and drawColoredPopupMenuItem(name .. "PastePositionRotation", {
                 { text = "Paste " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = positionIconLabel, color = POSITION_COLOR },
                 { text = " & " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR }
+                { text = rotationIconLabel, color = ROTATION_COLOR }
             }, copiedPosition ~= nil and copiedRotation ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
@@ -581,11 +586,11 @@ function positionable:drawCopyPaste(name, axis)
 
             if showPosition and showRotation and showScaleInputs and drawColoredPopupMenuItem(name .. "PastePositionRotationScale", {
                 { text = "Paste " },
-                { text = IconGlyphs.AxisArrow .. " position", color = POSITION_COLOR },
+                { text = positionIconLabel, color = POSITION_COLOR },
                 { text = ", " },
-                { text = IconGlyphs.RotateOrbit .. " rotation", color = ROTATION_COLOR },
+                { text = rotationIconLabel, color = ROTATION_COLOR },
                 { text = " & " },
-                { text = IconGlyphs.RulerSquare .. " scale", color = SCALE_COLOR }
+                { text = scaleIconLabel, color = SCALE_COLOR }
             }, copiedPosition ~= nil and copiedRotation ~= nil and copiedScale ~= nil) then
                 history.addAction(history.getElementChange(self))
                 self:setPosition(Vector4.new(copiedPosition.x, copiedPosition.y, copiedPosition.z, 0))
