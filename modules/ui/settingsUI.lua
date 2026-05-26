@@ -365,14 +365,6 @@ function settingsUI.draw(spawner)
         settings.defaultColliderMaterial, changed = ImGui.Combo("Default Collider Material", settings.defaultColliderMaterial, materials, #materials)
         if changed then settings.save() end
 
-        local colorPickerStyle = math.max(1, math.min(#colorPickerStyles, tonumber(settings.colorPickerStyle) or 2))
-        local colorPickerStyleIndex, colorPickerStyleChanged = ImGui.Combo("Color Picker style", colorPickerStyle - 1, colorPickerStyles, #colorPickerStyles)
-        if colorPickerStyleChanged then
-            settings.colorPickerStyle = colorPickerStyleIndex + 1
-            settings.save()
-        end
-        style.tooltip("Global style used by all color editors.")
-
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("TRANSFORM")
         settings.posSteps, changed = ImGui.InputFloat("Position controls step size", settings.posSteps, -9999, 9999, "%.4f")
@@ -500,8 +492,27 @@ function settingsUI.draw(spawner)
         if changed then settings.save() end
         style.sectionHeaderEnd()
 
-        ImGui.Dummy(0, 8 * style.viewSize)
-        style.sectionHeaderStart("Wireframe")
+        ImGui.Dummy(0, 4 * style.viewSize)
+        ImGui.TreePop()
+    end
+
+    if ImGui.TreeNodeEx("Appearance", ImGuiTreeNodeFlags.SpanFullWidth) then
+        local index, indexChanged = ImGui.Combo("Main Window Name", math.max(0, utils.indexValue(windowNames, settings.mainWindowName) - 1), windowNames, #windowNames)
+        if indexChanged then
+            settings.mainWindowName = windowNames[index + 1]
+            spawner.baseUI.restoreWindowPosition = true
+            spawner.baseUI.loadTabSize = true
+            settings.save()
+        end
+
+        local colorPickerStyle = math.max(1, math.min(#colorPickerStyles, tonumber(settings.colorPickerStyle) or 2))
+        local colorPickerStyleIndex, colorPickerStyleChanged = ImGui.Combo("Color Picker style", colorPickerStyle - 1, colorPickerStyles, #colorPickerStyles)
+        if colorPickerStyleChanged then
+            settings.colorPickerStyle = colorPickerStyleIndex + 1
+            settings.save()
+        end
+        style.tooltip("Global style used by all color editors.")
+
         local wireframeColorStyle = math.max(1, math.min(#wireframeColorStyles, settings.wireframeColorStyle or 1))
         local wireframeColorStyleIndex, wireframeColorStyleChanged = ImGui.Combo("Wireframe color style", wireframeColorStyle - 1, wireframeColorStyles, #wireframeColorStyles)
         if wireframeColorStyleChanged then
@@ -509,8 +520,7 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         drawWireframeColorStyleTooltip()
-        style.sectionHeaderEnd()
-    
+
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
@@ -541,14 +551,6 @@ function settingsUI.draw(spawner)
 
         settings.ignoreHiddenDuringExport, changed = ImGui.Checkbox("Ignore hidden elements during export", settings.ignoreHiddenDuringExport)
         if changed then settings.save() end
-
-        local index, indexChanged = ImGui.Combo("Main Window Name", math.max(0, utils.indexValue(windowNames, settings.mainWindowName) - 1), windowNames, #windowNames)
-        if indexChanged then
-            settings.mainWindowName = windowNames[index + 1]
-            spawner.baseUI.restoreWindowPosition = true
-            spawner.baseUI.loadTabSize = true
-            settings.save()
-        end
 
         ImGui.TreePop()
     end
