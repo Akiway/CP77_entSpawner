@@ -472,7 +472,7 @@ function quickElevatorSetupUI.install(device, options)
             and self.updateLiftFloorDoorNodeRef ~= nil
             and self.removeLiftFloorDoor ~= nil
         ImGui.BeginDisabled(not canManageFloorDoors)
-        local addDoorLabel, addDoorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add door", "liftFloorAddDoorButton")
+        local addDoorLabel, addDoorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add door", "liftFloorAddDoorButton", nil, true)
         if ImGui.Button(addDoorLabel) and canManageFloorDoors then
             ImGui.OpenPopup(addDoorPopupId)
         end
@@ -732,7 +732,7 @@ function quickElevatorSetupUI.install(device, options)
         ImGui.Dummy(0, 8 * style.viewSize)
         style.drawIconLabelRow(IconGlyphs.FloorPlan, "Floor Manager")
         ImGui.SameLine()
-        local addFloorLabel, addFloorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add Floor", "liftFloorManagerAdd")
+        local addFloorLabel, addFloorHiddenText = style.resolveActionLabel(IconGlyphs.Plus, "Add Floor", "liftFloorManagerAdd", nil, true)
         if ImGui.Button(addFloorLabel) then
             self:addLiftFloor()
         end

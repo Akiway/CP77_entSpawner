@@ -574,7 +574,7 @@ function positionableGroup:drawGeneralProperties()
         style.tooltip("Restart synchronized effect/particle preview timing for this group's effective domain.")
 
         ImGui.SameLine()
-        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "previewSyncOpenTimeline")
+        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "previewSyncOpenTimeline", nil, true)
         if ImGui.Button(openTimelineLabel) then
             previewTimeline.openForGroup(self)
         end

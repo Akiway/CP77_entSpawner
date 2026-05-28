@@ -375,9 +375,10 @@ end
 ---@param text string?
 ---@param id string?
 ---@param mode integer?
+---@param includeHiddenText boolean?
 ---@return string
 ---@return string?
-function style.resolveActionLabel(icon, text, id, mode)
+function style.resolveActionLabel(icon, text, id, mode, includeHiddenText)
     local hasIcon = type(icon) == "string" and icon ~= ""
     local hasText = type(text) == "string" and text ~= ""
     local resolvedMode = mode == nil and style.getActionLabelMode() or style.normalizeActionLabelMode(mode)
@@ -409,23 +410,35 @@ function style.resolveActionLabel(icon, text, id, mode)
         end
     end
 
-    local stableId = type(id) == "string" and id or ""
-    if stableId ~= "" then
-        return visible .. "##" .. stableId, hiddenText
+    if includeHiddenText ~= true then
+        hiddenText = nil
     end
 
-    return visible, hiddenText
+    local resolvedLabel
+    local stableId = type(id) == "string" and id or ""
+    if stableId ~= "" then
+        resolvedLabel = visible .. "##" .. stableId
+    else
+        resolvedLabel = visible
+    end
+
+    if includeHiddenText == true then
+        return resolvedLabel, hiddenText
+    end
+
+    return resolvedLabel
 end
 
 ---@param icon string?
 ---@param text string?
 ---@param id string?
 ---@param mode integer?
+---@param includeHiddenText boolean?
 ---@return string
 ---@return string?
-function style.resolveActionLabelNoIconOnly(icon, text, id, mode)
+function style.resolveActionLabelNoIconOnly(icon, text, id, mode, includeHiddenText)
     local resolvedMode = style.getActionLabelModeNoIconOnly(mode)
-    return style.resolveActionLabel(icon, text, id, resolvedMode)
+    return style.resolveActionLabel(icon, text, id, resolvedMode, includeHiddenText)
 end
 
 ---@param hiddenText string?

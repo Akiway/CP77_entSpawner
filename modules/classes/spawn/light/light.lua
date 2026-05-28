@@ -926,7 +926,9 @@ function light:draw()
         local typeLabel, hiddenTypeText = style.resolveActionLabel(
             self:getLightTypeIcon(typeIndex),
             self:getLightTypeLabel(typeIndex),
-            "lightTypeTab" .. tostring(typeIndex)
+            "lightTypeTab" .. tostring(typeIndex),
+            nil,
+            true
         )
         local clicked = style.switchTabButton(
             typeLabel,
@@ -1176,7 +1178,7 @@ function light:draw()
             local hierarchyPickDisabled = not hasHierarchyPicker or directTargetingDisabled
 
             ImGui.BeginDisabled(directTargetingDisabled)
-            local aimAtPlayerLabel, aimAtPlayerHiddenText = style.resolveActionLabel(IconGlyphs.TargetAccount, "Aim at Player", "lightAimAtPlayer")
+            local aimAtPlayerLabel, aimAtPlayerHiddenText = style.resolveActionLabel(IconGlyphs.TargetAccount, "Aim at Player", "lightAimAtPlayer", nil, true)
             if ImGui.Button(aimAtPlayerLabel) then
                 local player = GetPlayer()
                 if player then
@@ -1211,7 +1213,7 @@ function light:draw()
 
             ImGui.BeginDisabled(hierarchyPickDisabled)
             local hierarchyButtonText = hierarchyPickActive and "Cancel Target Pick" or "Aim at Element"
-            local hierarchyLabel, hierarchyHiddenText = style.resolveActionLabel(IconGlyphs.Target, hierarchyButtonText, "lightHierarchyTargetPick")
+            local hierarchyLabel, hierarchyHiddenText = style.resolveActionLabel(IconGlyphs.Target, hierarchyButtonText, "lightHierarchyTargetPick", nil, true)
             local hierarchyButtonClicked = false
             if hierarchyPickActive then
                 hierarchyButtonClicked = style.successButton(hierarchyLabel)
@@ -1276,7 +1278,7 @@ function light:draw()
     style.sectionHeaderStart("Be the light")
         local cameraFollowToggleDisabled = rotationTargetingDisabled and not self.cameraFollowEnabled
         ImGui.BeginDisabled(cameraFollowToggleDisabled)
-        local followCameraLabel, followCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraLockOutline, "Follow Camera", "lightCameraFollow")
+        local followCameraLabel, followCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraLockOutline, "Follow Camera", "lightCameraFollow", nil, true)
         local newCameraFollowEnabled, cameraFollowChanged = style.toggleButton(
             followCameraLabel,
             self.cameraFollowEnabled

@@ -682,14 +682,14 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         ImGui.Indent(hierarchyIndent())
         ImGui.Dummy(0, 4 * style.viewSize)
 
-        local nodeRefsLabel, nodeRefsHiddenText = style.resolveActionLabel(IconGlyphs.PoundBoxOutline, "NodeRefs", "periodLinkNodeRef")
+        local nodeRefsLabel, nodeRefsHiddenText = style.resolveActionLabel(IconGlyphs.PoundBoxOutline, "NodeRefs", "periodLinkNodeRef", nil, true)
         if style.switchTabButton(nodeRefsLabel, linkMode == "nodeRef", 120 * style.viewSize, 0) then
             linkMode = "nodeRef"
         end
         style.tooltipActionLabel(nodeRefsHiddenText)
         ImGui.SameLine()
 
-        local markingsLabel, markingsHiddenText = style.resolveActionLabel(IconGlyphs.TagMultiple, "Markings", "periodLinkMarking")
+        local markingsLabel, markingsHiddenText = style.resolveActionLabel(IconGlyphs.TagMultiple, "Markings", "periodLinkMarking", nil, true)
         if style.switchTabButton(markingsLabel, linkMode == "marking", 120 * style.viewSize, 0) then
             linkMode = "marking"
         end

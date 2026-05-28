@@ -203,7 +203,7 @@ function effect:draw()
             previewSyncManager.refreshSpawnable(self)
         end
 
-        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "effectPreviewTimelineOpen")
+        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "effectPreviewTimelineOpen", nil, true)
         if ImGui.Button(openTimelineLabel) then
             previewTimeline.openForSpawnable(self)
         end

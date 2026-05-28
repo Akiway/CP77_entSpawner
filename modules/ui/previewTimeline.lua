@@ -721,7 +721,7 @@ local function drawTimelineCanvas(section, entries)
     ImGui.SameLine()
     style.mutedText(string.format("Duration: %s", formatTimelineTime(timelineDuration)))
     ImGui.SameLine()
-    local syncLabel, syncHiddenText = style.resolveActionLabel(IconGlyphs.Restart, "Sync Now", "previewTimelineSyncNow")
+    local syncLabel, syncHiddenText = style.resolveActionLabel(IconGlyphs.Restart, "Sync Now", "previewTimelineSyncNow", nil, true)
     if ImGui.Button(syncLabel) then
         previewSyncManager.syncDomain(section.domainId)
     end

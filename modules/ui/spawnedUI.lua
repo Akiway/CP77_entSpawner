@@ -1506,11 +1506,6 @@ function spawnedUI.drawContextMenu(element, path)
         local isMulti = #spawnedUI.selectedPaths > 1 and element.selected
         local isLocked = element:isLocked()
         local canPaste = hasValidClipboardElements(spawnedUI.clipboard)
-        local function menuItemIconText(icon, text, shortcut, idSuffix)
-            local itemId = idSuffix and ("spawnedContext:" .. tostring(idSuffix)) or nil
-            local label = style.resolveActionLabelNoIconOnly(icon, text, itemId)
-            return ImGui.MenuItem(label, shortcut)
-        end
 
         style.mutedText(isMulti and #spawnedUI.selectedPaths .. " elements" or element.name)
         if isLocked then
@@ -1520,7 +1515,7 @@ function spawnedUI.drawContextMenu(element, path)
         ImGui.Separator()
 
         ImGui.BeginDisabled(isLocked)
-        if not element.lockedRemove and menuItemIconText(IconGlyphs.DeleteOutline, "Delete", "DEL", "delete") then
+        if not element.lockedRemove and ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DeleteOutline, "Delete"), "DEL") then
             if isMulti then
                 local roots = spawnedUI.getRoots(spawnedUI.selectedPaths)
                 history.addAction(history.getRemove(roots))
@@ -1534,36 +1529,36 @@ function spawnedUI.drawContextMenu(element, path)
         end
         ImGui.EndDisabled()
 
-        if menuItemIconText(IconGlyphs.ContentCopy, "Copy", "CTRL-C", "copy") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentCopy, "Copy"), "CTRL-C") then
             spawnedUI.clipboard = spawnedUI.copy(isMulti, element)
         end
 
         ImGui.BeginDisabled(isLocked)
         ImGui.BeginDisabled(not canPaste)
-        if menuItemIconText(IconGlyphs.ContentPaste, "Paste", "CTRL-V", "paste") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentPaste, "Paste"), "CTRL-V") then
             history.addAction(history.getInsert(spawnedUI.paste(spawnedUI.clipboard, element)))
         end
         ImGui.EndDisabled()
-        if not element.lockedRemove and menuItemIconText(IconGlyphs.ContentCut, "Cut", "CTRL-X", "cut") then
+        if not element.lockedRemove and ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentCut, "Cut"), "CTRL-X") then
             spawnedUI.cut(isMulti, element)
         end
-        if menuItemIconText(IconGlyphs.ContentDuplicate, "Duplicate", "CTRL-D", "duplicate") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentDuplicate, "Duplicate"), "CTRL-D") then
             local data = spawnedUI.copy(isMulti, element)
             history.addAction(history.getInsert(spawnedUI.paste(data, element)))
         end
 
         ImGui.Separator()
-        if menuItemIconText(IconGlyphs.ArrowUpLeftBold, "Move to parent level", "BACKSPACE", "moveParent") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ArrowUpLeftBold, "Move to parent level"), "BACKSPACE") then
             spawnedUI.moveToParent(isMulti, element)
         end
-        if menuItemIconText(IconGlyphs.ArrowTopLeftBoldBoxOutline, "Move to Root", "CTRL-BACKSPACE", "moveRoot") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ArrowTopLeftBoldBoxOutline, "Move to Root"), "CTRL-BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
         end
-        if menuItemIconText(IconGlyphs.FolderMultiplePlusOutline, "Move to new group", "CTRL-G", "moveNewGroup") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.FolderMultiplePlusOutline, "Move to new group"), "CTRL-G") then
             spawnedUI.moveToNewGroup(isMulti, element)
         end
         if utils.isA(element, "positionableGroup") then
-            if menuItemIconText(IconGlyphs.PlusBoxOutline, "Set as \"Spawn New\" group", "CTRL-N", "setSpawnGroup") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.PlusBoxOutline, "Set as \"Spawn New\" group"), "CTRL-N") then
                 local idx = 1
                 local elementPath = element:getPath()
                 for _, entry in pairs(spawnedUI.containerPaths) do
@@ -1574,14 +1569,14 @@ function spawnedUI.drawContextMenu(element, path)
                 end
                 spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
             end
-            if menuItemIconText(IconGlyphs.PinOutline, "Open in new window", nil, "openNewWindow") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.PinOutline, "Open in new window")) then
                 spawnedUI.openPinnedHierarchy(element)
             end
         end
 
 		ImGui.Separator()
         if utils.isA(element, "spawnableElement") then
-            if menuItemIconText(IconGlyphs.Download, "Drop to floor", "CTRL-E", "dropToFloor") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Download, "Drop to floor"), "CTRL-E") then
                 if isMulti then
                     spawnedUI.multiSelectGroup:dropToSurface(true, Vector4.new(0, 0, -1, 0))
                 else
@@ -1591,17 +1586,17 @@ function spawnedUI.drawContextMenu(element, path)
         end
         if utils.isA(element, "positionableGroup") then
             ImGui.EndDisabled()
-            if menuItemIconText(IconGlyphs.EyeOutline, "Show all children", nil, "showChildren") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.EyeOutline, "Show all children")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:showDescendants(true)
                 end)
             end
-            if menuItemIconText(IconGlyphs.LockOpenVariantOutline, "Unlock all children", nil, "unlockChildren") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.LockOpenVariantOutline, "Unlock all children")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:unlockDescendants(true)
                 end)
             end
-            if menuItemIconText(IconGlyphs.HospitalMarker, "Show all children visualization helpers", nil, "showChildrenHelpers") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.HospitalMarker, "Show all children visualization helpers")) then
                 local targets = {}
                 collectVisualizationTargetsRecursive(element, targets)
                 applyElementChangesBatched(targets, function(entry)
@@ -1612,22 +1607,22 @@ function spawnedUI.drawContextMenu(element, path)
             end
             ImGui.BeginDisabled(isLocked)
             
-            if menuItemIconText(IconGlyphs.DownloadMultiple, "Drop Children to Floor", nil, "dropChildrenToFloor") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DownloadMultiple, "Drop Children to Floor")) then
                 element:dropChildrenToSurface(false, Vector4.new(0, 0, -1, 0))
             end
 
 		    ImGui.Separator()
-            if menuItemIconText(IconGlyphs.ImageFilterCenterFocus, "Set Origin to Center", nil, "setOriginCenter") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ImageFilterCenterFocus, "Set Origin to Center")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOriginToCenter()
                 end)
             end
-            if menuItemIconText(IconGlyphs.AccountBadgeOutline, "Set Origin to Player Position", nil, "setOriginPlayer") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.AccountBadgeOutline, "Set Origin to Player Position")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOrigin(GetPlayer():GetWorldPosition())
                 end)
             end
-            if menuItemIconText(IconGlyphs.ContentCopy, "Copy Origin and Identity", nil, "copyOriginIdentityGroup") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentCopy, "Copy Origin and Identity")) then
                 local pos = element:getPosition()
                 local rot = element:getRotation()
                 utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
@@ -1636,7 +1631,7 @@ function spawnedUI.drawContextMenu(element, path)
             local copiedOrigin = utils.getClipboardValue("position")
             local copiedIdentity = utils.getClipboardValue("rotation")
             ImGui.BeginDisabled(copiedOrigin == nil or copiedIdentity == nil)
-            if menuItemIconText(IconGlyphs.ContentPaste, "Paste Origin and Identity", nil, "pasteOriginIdentityGroup") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentPaste, "Paste Origin and Identity")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:setOrigin(Vector4.new(copiedOrigin.x, copiedOrigin.y, copiedOrigin.z, 0))
                     entry:setIdentity(copiedIdentity)
@@ -1646,7 +1641,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
         if element.parent ~= nil and utils.isA(element.parent, "positionableGroup") and not element.parent:isRoot(true) then
             ImGui.EndDisabled()
-            if menuItemIconText(IconGlyphs.SquareRoundedBadgeOutline, "Set Parent Origin to Element", nil, "setParentOrigin") then
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.SquareRoundedBadgeOutline, "Set Parent Origin to Element")) then
                 local selectedPos = element:getPosition()
                 applyElementChangesBatched({ element.parent }, function(entry)
                     entry:setOrigin(selectedPos)
@@ -1656,7 +1651,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
         ImGui.EndDisabled()
 
-        if utils.isA(element, "positionable") and not utils.isA(element, "positionableGroup") and menuItemIconText(IconGlyphs.ContentCopy, "Copy Origin and Identity", nil, "copyOriginIdentitySingle") then
+        if utils.isA(element, "positionable") and not utils.isA(element, "positionableGroup") and ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentCopy, "Copy Origin and Identity")) then
             local pos = element:getPosition()
             local rot = element:getRotation()
             utils.insertClipboardValue("position", { x = pos.x, y = pos.y, z = pos.z })
@@ -1665,7 +1660,7 @@ function spawnedUI.drawContextMenu(element, path)
 
 		ImGui.Separator()
         local makeLabelText = not utils.isA(element, "positionableGroup") and "Make Favorite" or "Make Prefab"
-        if menuItemIconText(IconGlyphs.Group, makeLabelText, "CTRL-F", "makeFavoritePrefab") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, makeLabelText), "CTRL-F") then
             local icon = element.icon
             if icon == "" then
                 icon = IconGlyphs.Group
@@ -3447,7 +3442,7 @@ function spawnedUI.drawTop()
 
         sameLineDummy(8)
         local paintHidden = editor.getBrushPaintHidden and editor.getBrushPaintHidden() or false
-        local hiddenPaintLabel, hiddenPaintHiddenText = style.resolveActionLabel(IconGlyphs.DotsHexagon, "Dot painting", "brushPaintHidden")
+        local hiddenPaintLabel, hiddenPaintHiddenText = style.resolveActionLabel(IconGlyphs.DotsHexagon, "Dot painting", "brushPaintHidden", nil, true)
         local nextHiddenPaint, hiddenPaintChanged = style.toggleButton(hiddenPaintLabel, paintHidden)
         if hiddenPaintChanged and editor.setBrushPaintHidden then
             editor.setBrushPaintHidden(nextHiddenPaint)

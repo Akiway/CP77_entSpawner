@@ -268,7 +268,7 @@ local function drawSpawnNewVisualizerDefaultSelector(spawner)
             end
             style.pushButtonNoBG(false)
             ImGui.SameLine()
-            local resetDefaultsLabel, resetDefaultsHiddenText = style.resolveActionLabel(IconGlyphs.Restore, "Reset to defaults", "spawnNewVisualizerResetDefaults")
+            local resetDefaultsLabel, resetDefaultsHiddenText = style.resolveActionLabel(IconGlyphs.Restore, "Reset to defaults", "spawnNewVisualizerResetDefaults", nil, true)
             if ImGui.Button(resetDefaultsLabel) then
                 resetSpawnNewVisualizerDefaultsToClassDefaults(groups)
             end
@@ -407,7 +407,7 @@ function settingsUI.draw(spawner)
 
     if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)
-        local resetCameraLabel, resetCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraRetakeOutline, "Reset camera position", "resetCameraPosition")
+        local resetCameraLabel, resetCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraRetakeOutline, "Reset camera position", "resetCameraPosition", nil, true)
         if ImGui.Button(resetCameraLabel) and spawner.editor.active then
             if spawner.editor.camera and spawner.editor.camera.resetPosition and spawner.editor.camera.resetPosition() then
                 ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Camera position reset"))

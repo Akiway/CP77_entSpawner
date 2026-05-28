@@ -239,7 +239,7 @@ function particle:draw()
             previewSyncManager.refreshSpawnable(self)
         end
 
-        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "particlePreviewTimelineOpen")
+        local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Preview Timeline", "particlePreviewTimelineOpen", nil, true)
         if ImGui.Button(openTimelineLabel) then
             previewTimeline.openForSpawnable(self)
         end

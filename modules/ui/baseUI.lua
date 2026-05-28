@@ -120,11 +120,12 @@ local tabs = {
 ---@param tab {name: string, icon: string?}
 ---@param stableId string?
 ---@param mode integer?
+---@param includeHiddenText boolean?
 ---@return string
 ---@return string?
-local function getTabLabel(tab, stableId, mode)
+local function getTabLabel(tab, stableId, mode, includeHiddenText)
     local resolvedId = stableId or ("tabLabel:" .. tostring(tab.id or tab.name))
-    return style.resolveActionLabel(tab.icon, tab.name, resolvedId, mode)
+    return style.resolveActionLabel(tab.icon, tab.name, resolvedId, mode, includeHiddenText)
 end
 
 local function isOnlyTab(id)
@@ -191,7 +192,7 @@ local function drawMenuButton()
         style.styledText("Separated Tabs:", style.mutedColor, 0.85)
 
         for _, tab in pairs(tabs) do
-            local menuLabel, hiddenMenuText = getTabLabel(tab, "windowMenuTab:" .. tostring(tab.id))
+            local menuLabel, hiddenMenuText = getTabLabel(tab, "windowMenuTab:" .. tostring(tab.id), nil, true)
             local _, clicked = ImGui.MenuItem(menuLabel, '', settings.windowStates[tab.id])
             style.tooltipActionLabel(hiddenMenuText)
             if clicked and not isOnlyTab(tab.id) then
@@ -330,7 +331,7 @@ function baseUI.draw(spawner)
                 end
 
                 if not settings.windowStates[tab.id] then
-                    local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id))
+                    local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id), nil, true)
                     if ImGui.BeginTabItem(tabLabel) then
                         style.tooltipActionLabel(tabHiddenText)
                         if baseUI.activeTab ~= key then

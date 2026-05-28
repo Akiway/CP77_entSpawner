@@ -985,8 +985,8 @@ function savedUI.draw(spawner)
     local framePaddingX = ImGui.GetStyle().FramePadding.x
     local itemSpacingX = ImGui.GetStyle().ItemSpacing.x
     local importActionText = ammImportActive and "Importing AMM Presets..." or "Import AMM Presets"
-    local importLabel, importHiddenText = style.resolveActionLabel(IconGlyphs.FileImportOutline, importActionText)
-    local reportLabel, reportHiddenText = style.resolveActionLabel(IconGlyphs.FileChartOutline, "View report")
+    local importLabel, importHiddenText = style.resolveActionLabel(IconGlyphs.FileImportOutline, importActionText, nil, nil, true)
+    local reportLabel, reportHiddenText = style.resolveActionLabel(IconGlyphs.FileChartOutline, "View report", nil, nil, true)
     local importLabelWidth, _ = ImGui.CalcTextSize(importLabel)
     local reportLabelWidth, _ = ImGui.CalcTextSize(reportLabel)
     local reloadLabelWidth, _ = ImGui.CalcTextSize(IconGlyphs.Reload)
@@ -998,7 +998,7 @@ function savedUI.draw(spawner)
     ImGui.SameLine()
     ImGui.SetCursorPosX(ImGui.GetWindowWidth() - topActionsWidth)
     style.pushGreyedOut(blockImport)
-    if ImGui.Button(importLabel) and not blockImport then
+    if ImGui.Button(importLabel .. "##savedUIImportAMMPresets") and not blockImport then
         ammImportPresetPopup.requestOpen()
     end
     style.popGreyedOut(blockImport)
@@ -1035,7 +1035,7 @@ function savedUI.draw(spawner)
 
     ImGui.SameLine()
     style.pushGreyedOut(not hasImportReport)
-    if ImGui.Button(reportLabel) and hasImportReport then
+    if ImGui.Button(reportLabel .. "##savedUIImportReport") and hasImportReport then
         ammImportReportPopup.requestOpen()
     end
     style.popGreyedOut(not hasImportReport)
