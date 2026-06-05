@@ -1110,8 +1110,16 @@ local function spawnClone(node, definition)
     -- Some node types finish internal component setup after attach; this refresh makes
     -- the visualized rotation match the already-correct stored rotation.
     local didRefreshForRotation = false
+    local didInitializeCloneTransform = false
     if clone.spawnable and clone.spawnable.registerSpawnedAndAttachedCallback then
         local function onAttached()
+            -- Hide/unhide respawns should preserve user edits instead of replaying
+            -- the original World Inspector clone transform every time.
+            if didInitializeCloneTransform then
+                return
+            end
+            didInitializeCloneTransform = true
+
             applyCloneTransform()
             Cron.After(0.05, applyCloneTransform)
 
