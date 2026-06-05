@@ -27,11 +27,12 @@ local config = require("modules/utils/config")
 ---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
 ---@field public editorWidth integer
+---@field public mainWindowWidth integer
+---@field public mainWindowHeight integer
 ---@field public resetSpawnPopupSearch boolean
 ---@field public spawnAtCursor boolean
 ---@field public defaultAISpotNPC string
 ---@field public defaultAISpotAppearance string
----@field public tabSizes table
 ---@field public defaultAISpotSpeed number
 ---@field public defaultSplineCurveQuality number
 ---@field public nodeRefPrefix string
@@ -95,6 +96,8 @@ local settingsData = {
     selectedVisualizersEnabled = true,
     outlineColor = 0,
     editorWidth = 0,
+    mainWindowWidth = 0,
+    mainWindowHeight = 0,
     resetSpawnPopupSearch = true,
     spawnAtCursor = true,
     defaultAISpotNPC = "Character.Judy",
@@ -137,8 +140,6 @@ local settingsData = {
     favoritesTagsAND = false,
     favoritesGroupingState = {},
     defaultColliderMaterial = 12,
-
-    tabSizes = {}
 }
 
 local settingsFNs = {}
@@ -163,9 +164,13 @@ function settingsFNs.load()
         config.saveFile("data/config.json", data)
     end
 
+    data.tabSizes = nil
+    settingsData.tabSizes = nil
+
     config.backwardComp("data/config.json", settingsData)
 
     data = config.loadFile("data/config.json")
+    data.tabSizes = nil
     for k, v in pairs(data) do
         settingsData[k] = v
     end

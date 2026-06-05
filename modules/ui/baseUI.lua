@@ -117,6 +117,45 @@ local tabs = {
     }
 }
 
+local MAX_WINDOW_WIDTH = 5000
+local MAX_WINDOW_HEIGHT = 3500
+
+local function clampWindowDimension(value, maxValue)
+    value = tonumber(value)
+    if value == nil or value <= 0 then
+        return nil
+    end
+
+    return math.min(value, maxValue)
+end
+
+local function getMainWindowSize()
+    local width = clampWindowDimension(settings.mainWindowWidth, MAX_WINDOW_WIDTH) or tabs[1].defaultSize[1]
+    local height = clampWindowDimension(settings.mainWindowHeight, MAX_WINDOW_HEIGHT) or tabs[1].defaultSize[2]
+
+    return width, height
+end
+
+local function saveMainWindowSize(width, height)
+    local newWidth = clampWindowDimension(width, MAX_WINDOW_WIDTH) or tabs[1].defaultSize[1]
+    local newHeight = clampWindowDimension(height, MAX_WINDOW_HEIGHT) or tabs[1].defaultSize[2]
+    local changed = false
+
+    if settings.mainWindowWidth ~= newWidth then
+        settings.mainWindowWidth = newWidth
+        changed = true
+    end
+
+    if settings.mainWindowHeight ~= newHeight then
+        settings.mainWindowHeight = newHeight
+        changed = true
+    end
+
+    if changed then
+        settings.save()
+    end
+end
+
 ---@param tab {name: string, icon: string?}
 ---@param stableId string?
 ---@param mode integer?
@@ -210,13 +249,6 @@ local function drawMenuButton()
 end
 
 function baseUI.init()
-    for _, tab in pairs(tabs) do
-        if settings.tabSizes[tab.id] == nil then
-            settings.tabSizes[tab.id] = tab.defaultSize
-            settings.save()
-        end
-    end
-
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
@@ -265,7 +297,8 @@ function baseUI.draw(spawner)
     local editorActive = editor.active
 
     if baseUI.loadTabSize and not editorActive then
-        ImGui.SetNextWindowSize(settings.tabSizes[tabs[baseUI.activeTab].id][1], settings.tabSizes[tabs[baseUI.activeTab].id][2])
+        local width, height = getMainWindowSize()
+        ImGui.SetNextWindowSize(width, height)
         baseUI.loadTabSize = false
     end
     if editorActive then
@@ -277,7 +310,8 @@ function baseUI.draw(spawner)
         end
         if baseUI.loadTabSize then
             if settings.editorWidth == 0 then
-                settings.editorWidth = settings.tabSizes.spawned[1]
+                local width = getMainWindowSize()
+                settings.editorWidth = width
             end
             ImGui.SetNextWindowSize(settings.editorWidth, screenHeight)
         end
@@ -311,9 +345,11 @@ function baseUI.draw(spawner)
         end
 
         local x, y = ImGui.GetWindowSize()
-        if not editorActive and (x ~= settings.tabSizes[tabs[baseUI.activeTab].id][1] or y ~= settings.tabSizes[tabs[baseUI.activeTab].id][2]) then
-            settings.tabSizes[tabs[baseUI.activeTab].id] = { math.min(x, 5000), math.min(y, 3500) }
-            settings.save()
+        if not editorActive then
+            local savedWidth, savedHeight = getMainWindowSize()
+            if x ~= savedWidth or y ~= savedHeight then
+                saveMainWindowSize(x, y)
+            end
         end
         if editorActive and x ~= settings.editorWidth then
             settings.editorWidth = x
@@ -364,19 +400,14 @@ function baseUI.draw(spawner)
     for key, tab in pairs(tabs) do
         if settings.windowStates[tab.id] then
             if baseUI.loadWindowSize == tab.id then
-                ImGui.SetNextWindowSize(settings.tabSizes[tab.id][1], settings.tabSizes[tab.id][2])
+                local width, height = getMainWindowSize()
+                ImGui.SetNextWindowSize(width, height)
                 baseUI.loadWindowSize = nil
             end
 
             local detachedTabLabel = getTabLabel(tab, "detachedTab:" .. tostring(tab.id))
             settings.windowStates[tab.id] = ImGui.Begin(detachedTabLabel, true, tabs[key].flags)
             input.updateContext("main")
-
-            local x, y = ImGui.GetWindowSize()
-            if x ~= settings.tabSizes[tab.id][1] or y ~= settings.tabSizes[tab.id][2] then
-                settings.tabSizes[tab.id] = { x, y }
-                settings.save()
-            end
 
             if not settings.windowStates[tab.id] then
                 settings.save()
