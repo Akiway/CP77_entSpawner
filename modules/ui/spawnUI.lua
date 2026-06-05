@@ -1710,7 +1710,10 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
             end
 
             local pos, _ = spawnUI.getSpawnNewPosition()
-            local rot = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation()
+            local cameraRotation = editor.getCameraRotation()
+            if not cameraRotation then return end
+
+            local rot = EulerAngles.new(cameraRotation)
             rot.yaw = rot.yaw - 180
             rot.pitch = -rot.pitch
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
@@ -1743,7 +1746,7 @@ function spawnUI.drawSpawnPosition()
     settings.spawnPos = pos + 1
     if changed then settings.save() end
     if settings.spawnPos == 1 then
-        style.tooltip("Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the player")
+        style.tooltip("Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the camera.")
     else
         style.tooltip("Spawn position is relative to the camera position and orientation.")
     end
@@ -2301,20 +2304,17 @@ end
 ---@return Vector4
 ---@return EulerAngles
 function spawnUI.getSpawnNewPosition()
-    if not GetPlayer() then
+    local pos = editor.getCameraPosition()
+    local cameraRotation = editor.getCameraRotation()
+    local forward = editor.getCameraForward()
+
+    if not pos or not cameraRotation or not forward then
         return Vector4.new(0, 0, 0, 0), EulerAngles.new(0, 0, 0)
     end
 
-    local rot = EulerAngles.new(0, 0, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation().yaw + 180)
-    local pos = GetPlayer():GetWorldPosition()
-    local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetAxisY()
+    local rot = EulerAngles.new(0, 0, cameraRotation.yaw + 180)
 
-    if editor.active then
-        pos = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
-        pos.z = pos.z + forward.z * settings.spawnDist
-    end
-    pos.x = pos.x + forward.x * settings.spawnDist
-    pos.y = pos.y + forward.y * settings.spawnDist
+    pos = utils.addVector(pos, utils.multVector(forward, settings.spawnDist))
 
     if settings.spawnPos == 1 then
         if #spawnUI.spawnedUI.selectedPaths == 1 and utils.isA(spawnUI.spawnedUI.selectedPaths[1].ref, "spawnableElement") then
@@ -2421,7 +2421,8 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         local angle = Vector4.GetAngleBetween(current, target)
 
         if math.abs(angle) < 0.1 then
-            rot = EulerAngles.new(0, 0, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation().yaw + 180)
+            local cameraRotation = editor.getCameraRotation()
+            rot = EulerAngles.new(0, 0, cameraRotation and cameraRotation.yaw + 180 or 0)
         else
             rot = Quaternion.SetAxisAngle(axis:Normalize(), math.rad(angle)):ToEulerAngles()
         end

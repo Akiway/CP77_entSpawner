@@ -146,6 +146,169 @@ function viewportHovered()
     return editor.active and input.context.viewport.hovered and not isSpawnedNameEditActive()
 end
 
+local function getActiveCameraSystem()
+    local ok, cameraSystem = pcall(function ()
+        return Game.GetCameraSystem()
+    end)
+
+    return ok and cameraSystem or nil
+end
+
+local function getActiveCameraWorldTransform()
+    local cameraSystem = getActiveCameraSystem()
+    if not cameraSystem or not Transform or not Transform.new then
+        return nil
+    end
+
+    local transform = Transform.new()
+    local ok, hasTransform = pcall(function ()
+        return cameraSystem:GetActiveCameraWorldTransform(transform)
+    end)
+
+    if ok and hasTransform then
+        return transform
+    end
+
+    return nil
+end
+
+local function getFPPCameraLocalToWorld()
+    local player = GetPlayer()
+    if not player then return nil end
+
+    local camera = player:GetFPPCameraComponent()
+    if not camera then return nil end
+
+    return camera:GetLocalToWorld()
+end
+
+local function getTransformPosition(transform)
+    if not transform then return nil end
+
+    if transform.GetTranslation then
+        local ok, position = pcall(function () return transform:GetTranslation() end)
+        if ok and position then return position end
+    end
+
+    if transform.GetPosition then
+        local ok, position = pcall(function () return transform:GetPosition() end)
+        if ok and position then return position end
+    end
+
+    return transform.position or transform.Position
+end
+
+local function getTransformRotation(transform)
+    if not transform then return nil end
+
+    if transform.GetRotation then
+        local ok, rotation = pcall(function () return transform:GetRotation() end)
+        if ok and rotation then return rotation end
+    end
+
+    local orientation = transform.orientation or transform.Orientation
+    if orientation and orientation.ToEulerAngles then
+        local ok, rotation = pcall(function () return orientation:ToEulerAngles() end)
+        if ok and rotation then return rotation end
+    end
+
+    if transform.GetOrientation then
+        local ok, rotation = pcall(function ()
+            local orientationValue = transform:GetOrientation()
+            return orientationValue and orientationValue:ToEulerAngles() or nil
+        end)
+        if ok and rotation then return rotation end
+    end
+
+    return nil
+end
+
+local function getTransformForward(transform)
+    if not transform then return nil end
+
+    if transform.GetAxisY then
+        local ok, forward = pcall(function () return transform:GetAxisY() end)
+        if ok and forward then return forward end
+    end
+
+    local orientation = transform.orientation or transform.Orientation
+    if orientation and orientation.GetForward then
+        local ok, forward = pcall(function () return orientation:GetForward() end)
+        if ok and forward then return forward end
+    end
+
+    if Transform and Transform.GetForward then
+        local ok, forward = pcall(function () return Transform.GetForward(transform) end)
+        if ok and forward then return forward end
+    end
+
+    local rotation = getTransformRotation(transform)
+    if rotation and rotation.GetForward then
+        local ok, forward = pcall(function () return rotation:GetForward() end)
+        if ok and forward then return forward end
+    end
+
+    return nil
+end
+
+---Returns the current FPPCamera local-to-world transform.
+---@return any? transform Camera transform, or nil when the player/camera is unavailable.
+function editor.getCameraLocalToWorld()
+    return getFPPCameraLocalToWorld()
+end
+
+---Returns the current active camera world position.
+---@return Vector4? position Camera world position, or nil when unavailable.
+function editor.getCameraPosition()
+    return getTransformPosition(getActiveCameraWorldTransform())
+        or getTransformPosition(getFPPCameraLocalToWorld())
+end
+
+---Returns the current active camera world rotation.
+---@return EulerAngles? rotation Camera world rotation, or nil when unavailable.
+function editor.getCameraRotation()
+    local rotation = getTransformRotation(getActiveCameraWorldTransform())
+        or getTransformRotation(getFPPCameraLocalToWorld())
+
+    if rotation then
+        return rotation
+    end
+
+    local forward = editor.getCameraForward()
+    return forward and forward:ToRotation() or nil
+end
+
+---Returns the current active camera world forward vector.
+---@return Vector4? forward Camera forward vector, or nil when unavailable.
+function editor.getCameraForward()
+    local cameraSystem = getActiveCameraSystem()
+    if cameraSystem and cameraSystem.GetActiveCameraForward then
+        local ok, forward = pcall(function ()
+            return cameraSystem:GetActiveCameraForward()
+        end)
+        if ok and forward then return forward end
+    end
+
+    return getTransformForward(getActiveCameraWorldTransform())
+        or getTransformForward(getFPPCameraLocalToWorld())
+end
+
+---Returns the current active camera FOV.
+---@return number? fov Active camera FOV, or nil when unavailable.
+function editor.getCameraFOV()
+    local cameraSystem = getActiveCameraSystem()
+    if cameraSystem and cameraSystem.GetActiveCameraFOV then
+        local ok, fov = pcall(function ()
+            return cameraSystem:GetActiveCameraFOV()
+        end)
+        if ok and fov then return fov end
+    end
+
+    local player = GetPlayer()
+    local camera = player and player:GetFPPCameraComponent() or nil
+    return camera and camera:GetFOV() or nil
+end
+
 ---Ends active group-rotation drag state when the current selection is a group.
 local function clearGroupRotationDragState()
     local selected = editor.getSelected()
@@ -863,21 +1026,25 @@ end
 ---@return Vector4 worldPosition Target point in world space.
 ---@return Vector4 relativeForward Unadjusted camera-space forward vector returned by `camera.screenToWorld`.
 function editor.getForward(distance)
-    local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
     local relativeForward = Vector4.new(0, 1, 0, 0)
+    local position = editor.getCameraPosition()
+    local forward = editor.getCameraForward()
+
+    if not position or not forward then
+        return Vector4.new(0, 0, 0, 0), relativeForward
+    end
 
     if editor.active then
         local screenWidth, _ = GetDisplayResolution()
         local viewportStart = settings.editorDockLeft and settings.editorWidth or 0
         local x = viewportStart + ((screenWidth - settings.editorWidth) / 2)
 
+        local adjusted
         relativeForward, adjusted = editor.camera.screenToWorld((x / screenWidth * 2) - 1, 0)
         adjusted = adjusted:Normalize()
         distance = distance / math.cos(math.rad(Vector4.GetAngleBetween(forward, adjusted)))
         forward = adjusted
     end
-
-    local position = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
 
     return utils.addVector(position, utils.multVector(forward, distance)), relativeForward
 end

@@ -672,7 +672,7 @@ end
 ---@param distance number?
 function spawnable:getAssetPreviewPosition(distance)
     if self.assetPreviewType == "backdrop" then
-        return editor.getForward((distance or 1) * (68 / GetPlayer():GetFPPCameraComponent():GetFOV()))
+        return editor.getForward((distance or 1) * (68 / (editor.getCameraFOV() or 68)))
     end
     return self.position
 end
@@ -700,7 +700,7 @@ function spawnable:assetPreview(state)
             GameSettings.Set("/accessibility/interface/LensDistortionOverride", true)
         end
         if self.assetPreviewType == "backdrop" then
-            self.position = utils.addVector(GetPlayer():GetWorldPosition(), Vector4.new(0, 0, -50, 0))
+            self.position = utils.addVector(editor.getCameraPosition() or self.position, Vector4.new(0, 0, -50, 0))
         end
         -- Only move into position once bbox is loaded, see first assetPreviewSetPosition call
         self:spawn()

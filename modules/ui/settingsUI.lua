@@ -313,7 +313,7 @@ function settingsUI.draw(spawner)
         settings.spawnPos = pos + 1
         if changed then settings.save() end
         if settings.spawnPos == 1 then
-            style.tooltip("Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the player")
+            style.tooltip("Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the camera.")
         else
             style.tooltip("Spawn position is relative to the camera position and orientation.")
         end
