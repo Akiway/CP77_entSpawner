@@ -28,6 +28,52 @@ local element = require("modules/classes/editor/element")
 ---@field applyRotationWhenDropped boolean
 local positionable = setmetatable({}, { __index = element })
 
+---@return boolean
+local function isCameraAttachedToPlayer()
+    if editor.active then
+        return false
+    end
+
+    local xUtilsMod = GetMod("XUtils")
+    if xUtilsMod and xUtilsMod.CameraController and xUtilsMod.CameraController.isActive() then
+        return false
+    end
+
+    local player = Game.GetPlayer()
+    if not player then
+        return true
+    end
+
+    local fpp = player:GetFPPCameraComponent()
+    if not fpp or not fpp.IsActive then
+        return true
+    end
+
+    local ok, active = pcall(function ()
+        return fpp:IsActive()
+    end)
+
+    if ok and active ~= nil then
+        return active == true
+    end
+
+    return true
+end
+
+---@return Vector4?
+local function getPlayerOrDetachedCameraPosition()
+    local player = Game.GetPlayer()
+    if not player then
+        return nil
+    end
+
+    if isCameraAttachedToPlayer() then
+        return player:GetWorldPosition()
+    end
+
+    return editor.getCameraPosition() or player:GetWorldPosition()
+end
+
 ---@param instance positionable
 ---@return positionable[]
 local function getSelectedPositionables(instance)
@@ -748,12 +794,14 @@ function positionable:drawPosition(position, axes)
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.AccountArrowLeftOutline) then
 		history.addAction(history.getElementChange(self))
-		local pos = gameUtils.getPlayerPosition(editor.active)
+		local pos = getPlayerOrDetachedCameraPosition()
 
-        self:setPositionDelta(Vector4.new(pos.x - position.x, pos.y - position.y, pos.z - position.z, 0))
+        if pos then
+            self:setPositionDelta(Vector4.new(pos.x - position.x, pos.y - position.y, pos.z - position.z, 0))
+        end
     end
 	if ImGui.IsItemHovered() then style.setCursorRelative(5, 5) end
-	style.tooltip("Set to player position")
+	style.tooltip("Set to player position, or camera position when detached.")
 
 	ImGui.SameLine()
     local teleportDisabledByEditor = editor.active == true
