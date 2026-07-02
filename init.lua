@@ -26,6 +26,7 @@ local input = require("modules/utils/input")
 local registry = require("modules/utils/nodeRefRegistry")
 local rht = require("modules/utils/rhtPlugin")
 local preview = require("modules/utils/previewUtils")
+local previewSyncManager = require("modules/utils/previewSyncManager")
 
 ---@class spawner
 ---@field runtimeData {cetOpen: boolean, inGame: boolean, inMenu: boolean}
@@ -60,6 +61,7 @@ function spawner:new()
     registerForEvent("onInit", function()
         self.player = Game.GetPlayer()
         settings.load()
+        previewSyncManager.reset()
         cache.load()
         cache.generateRecordsList()
 
@@ -96,6 +98,7 @@ function spawner:new()
 
         self.GameUI.OnSessionStart(function()
             self.runtimeData.inGame = true
+            previewSyncManager.reset()
             self.baseUI.spawnedUI.root:setVisible(true, false)
             preview.addHUD()
         end)
@@ -104,6 +107,7 @@ function spawner:new()
             self.runtimeData.inGame = false
             self.baseUI.spawnedUI.root:setVisible(false, false)
             preview.elements = {}
+            previewSyncManager.reset()
         end)
 
         self.runtimeData.inGame = not self.GameUI.IsDetached()
@@ -119,6 +123,7 @@ function spawner:new()
         -- Keep Cron alive while a queued group pipeline is active, even if menu state is reported as open.
         if self.runtimeData.inGame and (not self.runtimeData.inMenu or groupLoadManager.isActive() or groupExportManager.isActive()) then
             Cron.Update(dt)
+            previewSyncManager.update(dt)
         end
 
         if self.editor.camera then
