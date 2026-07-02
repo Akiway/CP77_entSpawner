@@ -469,20 +469,6 @@ local function isWorldNode(node)
     return def ~= nil
 end
 
----@param fallback any
----@return any
-local function getLiveInspectorNode(fallback)
-    local mod = rht.redHotTools or GetMod("RedHotTools")
-    if mod and type(mod.GetWorldInspectorTarget) == "function" then
-        local inspectorNode = mod.GetWorldInspectorTarget()
-        if isWorldNode(inspectorNode) then
-            return inspectorNode
-        end
-    end
-
-    return fallback
-end
-
 local function resolveData(node, definition)
     if not definition then
         return nil
@@ -1148,19 +1134,18 @@ local function spawnClone(node, definition)
 end
 
 function rht.executeReplacer(node)
-    local actionNode = getLiveInspectorNode(node)
-    if not actionNode then
+    if not node then
         return
     end
 
-    local definition = getDefinition(actionNode)
+    local definition = getDefinition(node)
     if not definition or not definition.replacer then
         return
     end
 
     local mode = select(1, rht.getEffectiveReplacerMode())
 
-    local clone = spawnClone(actionNode, definition)
+    local clone = spawnClone(node, definition)
     if not clone then
         return
     end
@@ -1169,7 +1154,7 @@ function rht.executeReplacer(node)
         local removalEditor = rht.getRemovalEditor()
         if removalEditor and removalEditor.addRemoval then
             if rht.hasActiveRemovalPreset() then
-                local added = bridgeAddRemoval(removalEditor, actionNode)
+                local added = bridgeAddRemoval(removalEditor, node)
                 if not added then
                     log("Replacement addRemoval did not complete.")
                 end
@@ -1183,13 +1168,8 @@ function rht.executeReplacer(node)
 
     if mode == "replace_hide" then
         local inspector = Game.GetWorldInspector()
-        local hideNode = actionNode
-        if (not hideNode.nodeInstance) and node and node.nodeInstance then
-            hideNode = node
-        end
-
-        if inspector and hideNode and hideNode.nodeInstance then
-            inspector:ToggleNodeVisibility(hideNode.nodeInstance)
+        if inspector and node.nodeInstance then
+            inspector:ToggleNodeVisibility(node.nodeInstance)
         else
             log("Replace-hide warning: nodeInstance not available on inspector target.")
         end
