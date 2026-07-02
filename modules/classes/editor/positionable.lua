@@ -5,6 +5,7 @@ local history = require("modules/utils/history")
 local style = require("modules/ui/style")
 local field = require("modules/utils/field")
 local editor = require("modules/utils/editor/editor")
+local axl = require("modules/utils/axl")
 
 local scatteredConfig = require("modules/classes/editor/scatteredConfig")
 
@@ -657,10 +658,16 @@ function positionable:drawCopyPaste(name, axis)
             end
         end
 
-        if beginSection(showRotation) then
-            if ImGui.MenuItem("Copy rotation as Quaternion to clipboard") then
+        if beginSection(true) then
+            if showRotation and ImGui.MenuItem("Copy rotation as Quaternion to clipboard") then
                 local quat = self:getRotation():ToQuat()
                 ImGui.SetClipboardText(string.format("i = %.6f, j = %.6f, k = %.6f, r = %.6f", quat.i, quat.j, quat.k, quat.r))
+            end
+            if ImGui.MenuItem("Copy Transform for AXL node mutation") then
+                local position = self:getPosition()
+                local orientation = self:getRotation():ToQuat()
+                local scale = self:getScale()
+                ImGui.SetClipboardText(axl.formatTransform(position, orientation, scale))
             end
         end
         ImGui.EndPopup()

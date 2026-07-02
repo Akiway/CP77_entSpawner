@@ -5,6 +5,7 @@ local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
 local gameUtils = require("modules/utils/gameUtils")
 local logger = require("modules/utils/logger")
+local axl = require("modules/utils/axl")
 
 ---@class rht
 ---@field public spawnUI spawnUI?
@@ -1027,6 +1028,42 @@ function rht.sendToSearch(node)
     rht.spawnUI.updateFilter()
 end
 
+---@param node any
+function rht.copyAXLNodeMutation(node)
+    if not node then
+        return
+    end
+
+    local definition = getDefinition(node)
+    local resolvedResource = resolveData(node, definition)
+    local resource = type(resolvedResource) == "string" and resolvedResource or nil
+    resource = resource
+        or node.meshPath
+        or node.templatePath
+        or node.materialPath
+        or node.effectPath
+        or node.recordID
+        or ""
+
+    local position = node.nodePosition or node.entityPosition or node.position
+    local orientation = node.nodeOrientation or node.entityOrientation or node.orientation
+    local scale = node.nodeScale or node.scale or { x = 1, y = 1, z = 1 }
+    local appearance = node.meshAppearance or node.appearanceName or ""
+
+    ImGui.SetClipboardText(axl.formatNodeMutation({
+        sectorPath = node.sectorPath,
+        expectedNodes = node.instanceCount,
+        index = node.instanceIndex,
+        debugName = node.debugName,
+        nodeType = node.nodeType,
+        resource = resource,
+        appearance = appearance,
+        position = position,
+        orientation = orientation,
+        scale = scale
+    }))
+end
+
 local function getCloneDefinition(definition)
     local targetType = sanitizeMeshTargetType(settings.rhtAddonMeshTargetType)
     if targetType == "Static" and definition and definition.category == "Mesh" then
@@ -1202,6 +1239,14 @@ function rht.getTargetActions(node)
             end
         })
     end
+
+    table.insert(actions, {
+        type = "button",
+        label = "[WB] Copy AXL node mutation",
+        callback = function()
+            rht.copyAXLNodeMutation(node)
+        end
+    })
 
     return actions
 end
