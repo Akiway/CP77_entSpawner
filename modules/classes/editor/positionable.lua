@@ -966,14 +966,14 @@ function positionable:drawScale(scale, axes)
         drawScaleAxis(scale.z, "Z", "scaleZ")
     end
 
-    if showX and showY and showZ then
+    if drawnAxes >= 2 then
         ImGui.SameLine()
         local nextScaleLocked, scaleLockChanged = style.toggleButton(IconGlyphs.LinkVariant, self.scaleLocked)
         if scaleLockChanged then
             history.addAction(history.getElementChange(self))
         end
         self.scaleLocked = nextScaleLocked
-        style.tooltip("Locks the X, Y, and Z axis scales together")
+        style.tooltip("Locks the scale axes together")
     end
 
 	ImGui.PopItemWidth()
