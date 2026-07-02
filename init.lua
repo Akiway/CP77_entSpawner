@@ -18,6 +18,7 @@ local settings = require("modules/utils/settings")
 local builder = require("modules/utils/entityBuilder")
 local Cron = require("modules/utils/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
+local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 local cache = require("modules/utils/cache")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
@@ -115,8 +116,8 @@ function spawner:new()
     registerForEvent("onUpdate", function (dt)
         if not self.editor then return end
 
-        -- Keep Cron alive while a queued group load is active, even if menu state is reported as open.
-        if self.runtimeData.inGame and (not self.runtimeData.inMenu or groupLoadManager.isActive()) then
+        -- Keep Cron alive while a queued group pipeline is active, even if menu state is reported as open.
+        if self.runtimeData.inGame and (not self.runtimeData.inMenu or groupLoadManager.isActive() or groupExportManager.isActive()) then
             Cron.Update(dt)
         end
 
