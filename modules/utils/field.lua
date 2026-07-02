@@ -6,6 +6,7 @@ local style = require("modules/ui/style")
 
 local field = {}
 local dragBeingEdited = false
+local advancedFloatEditStates = {}
 local iconPickerInitialized = false
 local iconKeys = {}
 local iconSearchMeta = {}
@@ -612,6 +613,8 @@ end
 ---`max` (`number`, default `99999`), `format` (`string`, default `"%.2f"`),
 ---`shiftFormat` (`string`, default `"%.3f"`), `width` (`number`, default `74`),
 ---`prefix` (`string`, default `""`), `suffix` (`string`, default `""`),
+---`manualEditFormat` (`string`, optional) to use while typing a value manually,
+---`flags` (`number`, default `0`) forwarded to `ImGui.DragFloat`,
 ---`loop` (`boolean`, default `false`) to wrap values between min/max,
 ---`shiftStep` (`number`, optional, effective final step while Shift is held) and
 ---`ctrlStep` (`number`, optional) to override modifier drag steps.
@@ -631,6 +634,8 @@ function field.advancedTrackedFloat(element, text, value, options)
     local width = options.width or 74
     local prefix = options.prefix or ""
     local suffix = options.suffix or ""
+    local manualEditFormat = options.manualEditFormat
+    local flags = options.flags or 0
     local loop = options.loop == true
 
     local dragStep = step
@@ -655,6 +660,32 @@ function field.advancedTrackedFloat(element, text, value, options)
 
     ImGui.SetNextItemWidth(width * (style.viewSize or 1))
     local activeFormat = shiftDown and shiftFormat or format
+
+    local editState
+    if manualEditFormat ~= nil then
+        local id = ImGui.GetID(text)
+        editState = advancedFloatEditStates[id] or { manual = false, focused = false }
+        advancedFloatEditStates[id] = editState
+
+        local cursorX, cursorY = ImGui.GetCursorScreenPos()
+        local mouseX, mouseY = ImGui.GetMousePos()
+        local itemWidth = ImGui.CalcItemWidth()
+        local itemHeight = ImGui.GetFrameHeight()
+        local mouseOverItem = mouseX >= cursorX and mouseX <= cursorX + itemWidth
+            and mouseY >= cursorY and mouseY <= cursorY + itemHeight
+        local mouseRequestedInput = mouseOverItem
+            and (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)
+                or (ctrlDown and ImGui.IsMouseClicked(ImGuiMouseButton.Left)))
+        local keyboardRequestedInput = editState.focused and ImGui.IsKeyPressed(ImGuiKey.Enter)
+
+        if mouseRequestedInput or keyboardRequestedInput then
+            editState.manual = true
+        end
+        if editState.manual then
+            activeFormat = manualEditFormat
+        end
+    end
+
     local displayFormat = prefix .. activeFormat .. suffix
     if wasPositiveInfinity then
         displayFormat = getInfinityDisplayFormat(prefix, suffix, "+")
@@ -670,7 +701,15 @@ function field.advancedTrackedFloat(element, text, value, options)
         dragMax = 999999999
     end
 
-    local newValue, changed = ImGui.DragFloat(text, dragValue, dragStep, dragMin, dragMax, displayFormat)
+    local newValue, changed = ImGui.DragFloat(text, dragValue, dragStep, dragMin, dragMax, displayFormat, flags)
+
+    if editState ~= nil then
+        local active = ImGui.IsItemActive()
+        editState.focused = ImGui.IsItemFocused()
+        if editState.manual and not active then
+            editState.manual = false
+        end
+    end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
     if finished then

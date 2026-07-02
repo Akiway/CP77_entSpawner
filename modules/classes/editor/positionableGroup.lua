@@ -720,16 +720,6 @@ function positionableGroup:drawRotation(rotation)
 	local unstableZoneThreshold = 3.6
 	local function drawLiveAngleFromStart(value, name, axis)
 		local steps = settings.rotSteps
-		local formatText = "%.2f"
-		local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
-		local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
-
-		if shiftDown then
-			steps = steps * 0.1 * settings.precisionMultiplier
-			formatText = "%.3f"
-		elseif ctrlDown then
-			steps = steps * settings.coarsePrecisionMultiplier
-		end
 
 		local displayValue = self.rotationUIDragValue[axis] or value
 		local inUnstableZone = math.abs(displayValue) <= unstableZoneThreshold
@@ -738,7 +728,17 @@ function positionableGroup:drawRotation(rotation)
 			ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, 1.0, 0.55, 0.0, 0.45)
 			ImGui.PushStyleColor(ImGuiCol.FrameBgActive, 1.0, 0.55, 0.0, 0.55)
 		end
-		local newValue, changed = ImGui.DragFloat("##" .. name, displayValue, steps, -99999, 99999, formatText .. " " .. name, ImGuiSliderFlags.NoRoundToFormat)
+		local newValue, changed, finishedAxis = field.advancedTrackedFloat(nil, "##" .. name, displayValue, {
+			step = steps,
+			min = -99999,
+			max = 99999,
+			format = "%.2f",
+			shiftFormat = "%.3f",
+			manualEditFormat = "%.3f",
+			suffix = " " .. name,
+			width = 80,
+			flags = ImGuiSliderFlags.NoRoundToFormat
+		})
 		if inUnstableZone then
 			ImGui.PopStyleColor(3)
 		end
@@ -747,8 +747,6 @@ function positionableGroup:drawRotation(rotation)
 		if (ImGui.IsItemHovered() or ImGui.IsItemActive()) and axis ~= self.visualizerDirection then
 			self:setVisualizerDirection(axis)
 		end
-
-		local finishedAxis = ImGui.IsItemDeactivatedAfterEdit()
 
 		if changed and not history.propBeingEdited then
 			history.addAction(history.getElementChange(self))

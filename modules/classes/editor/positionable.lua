@@ -670,23 +670,23 @@ end
 ---@protected
 function positionable:drawProp(prop, name, axis, disableInput)
 	local steps = (axis == "roll" or axis == "pitch" or axis == "yaw") and settings.rotSteps or settings.posSteps
-	local formatText = "%.2f"
-	local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
-	local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
-
-	if shiftDown then
-		steps = steps * 0.1 * settings.precisionMultiplier -- Shift usually is a x10 multiplier, so get rid of that first
-		formatText = "%.3f"
-	elseif ctrlDown then
-		steps = steps * settings.coarsePrecisionMultiplier
-	end
 
 	local flags = ImGuiSliderFlags.NoRoundToFormat
 	if disableInput then
 		flags = flags + ImGuiSliderFlags.NoInput
 	end
 
-    local newValue, changed = ImGui.DragFloat("##" .. axis, prop, steps, -99999, 99999, formatText .. " " .. name, flags)
+	local newValue, changed, finished = field.advancedTrackedFloat(nil, "##" .. axis, prop, {
+		step = steps,
+		min = -99999,
+		max = 99999,
+		format = "%.2f",
+		shiftFormat = "%.3f",
+		manualEditFormat = "%.3f",
+		suffix = " " .. name,
+		width = 80,
+		flags = flags
+	})
 	self.controlsHovered = (ImGui.IsItemHovered() or ImGui.IsItemActive()) or self.controlsHovered
 	if (ImGui.IsItemHovered() or ImGui.IsItemActive()) then
 		-- Active item should have priority over hovered
@@ -696,8 +696,6 @@ function positionable:drawProp(prop, name, axis, disableInput)
 
 		self.visualizerChanged = true
 	end
-
-	local finished = ImGui.IsItemDeactivatedAfterEdit()
 
 	if finished then
 		history.propBeingEdited = false
