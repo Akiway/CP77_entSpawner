@@ -3,6 +3,7 @@ local input = {
     mouse = {},
     context = {
         main = { hovered = false, focused = false },
+        spawned = { hovered = false, focused = false },
         hierarchy = { hovered = false, focused = false },
         viewport = { hovered = false, focused = false }
     },
@@ -22,7 +23,16 @@ function input.registerMouseAction(mouseKey, callback, runCondition)
     table.insert(input.mouse, {mouseKey = mouseKey, active = false, callback = callback, runCondition = runCondition})
 end
 
+---Returns whether an ImGui control currently owns user input.
+---InputText remains active while focused, even if the pointer moves over another window.
+---@return boolean
+function input.isUIInputActive()
+    return ImGui.IsAnyItemActive and ImGui.IsAnyItemActive() or false
+end
+
 function input.update()
+    local uiInputActive = input.isUIInputActive()
+
     for _, hotkey in ipairs(input.hotkeys) do
         local pressed = true
 
@@ -35,7 +45,7 @@ function input.update()
         end
 
         if pressed and not hotkey.active then
-            if (hotkey.runCondition and hotkey.runCondition()) or hotkey.runCondition == nil then
+            if not uiInputActive and ((hotkey.runCondition and hotkey.runCondition()) or hotkey.runCondition == nil) then
                 hotkey.callback()
             end
             hotkey.active = true
@@ -45,7 +55,7 @@ function input.update()
     for _, mouse in ipairs(input.mouse) do
         if ImGui.IsMouseDown(mouse.mouseKey) then
             if not mouse.active then
-                if (mouse.runCondition and mouse.runCondition()) or mouse.runCondition == nil then
+                if not uiInputActive and ((mouse.runCondition and mouse.runCondition()) or mouse.runCondition == nil) then
                     mouse.callback()
                 end
                 mouse.active = true
