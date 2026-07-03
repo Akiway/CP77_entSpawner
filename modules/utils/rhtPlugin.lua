@@ -1114,8 +1114,17 @@ local function spawnClone(node, definition)
         return nil
     end
 
-    local position = node and (node.nodePosition or node.entityPosition) or nil
-    local rotation = node and (node.nodeOrientation or node.entityOrientation) or nil
+    local actorIndex = node and tonumber(node.actorIndex) or nil
+    local actorCount = node and tonumber(node.actorCount) or nil
+    local hasResolvedActor = actorIndex ~= nil and actorIndex >= 0
+        and actorCount ~= nil and actorCount > 0
+
+    -- Instanced nodes expose the resolved actor transform through position/orientation.
+    -- nodePosition/nodeOrientation describe the parent streaming node instead.
+    local position = node and ((hasResolvedActor and node.position)
+        or node.nodePosition or node.entityPosition or node.position) or nil
+    local rotation = node and ((hasResolvedActor and node.orientation)
+        or node.nodeOrientation or node.entityOrientation or node.orientation) or nil
     local scale = node and (node.nodeScale or Vector4.new(1, 1, 1, 1)) or nil
 
     local function applyCloneTransform()
