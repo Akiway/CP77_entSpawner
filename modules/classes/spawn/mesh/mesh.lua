@@ -1163,6 +1163,7 @@ function mesh:generateCollider(skipHistory)
 
         data = {
             spawnData = shapeSectorHash .. " " .. shapeHash .. " " .. shapeType,
+            scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z },
         }
     end
 
