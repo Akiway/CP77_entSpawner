@@ -29,6 +29,10 @@ local element = require("modules/classes/editor/element")
 ---@field applyRotationWhenDropped boolean
 local positionable = setmetatable({}, { __index = element })
 
+local TRANSFORM_FAST_COLOR = 0xFF0099FF
+local TRANSFORM_SLOW_COLOR = 0xFFB8B800
+local TRANSFORM_PRECISION_COLOR = 0xFFFF66B3
+
 ---@return boolean
 local function isCameraAttachedToPlayer()
     if editor.active then
@@ -262,6 +266,31 @@ function positionable:drawTransform()
 	end
 end
 
+---Draw the active Transform drag multiplier beside the property header.
+function positionable:drawTransformModeIndicator()
+	local altDown = ImGui.IsKeyDown(ImGuiKey.LeftAlt) or ImGui.IsKeyDown(ImGuiKey.RightAlt)
+	local shiftDown = ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)
+	local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
+	local label
+	local color
+
+	if altDown then
+		label = "Precision mode"
+		color = TRANSFORM_PRECISION_COLOR
+	elseif shiftDown then
+		label = "Slow mode"
+		color = TRANSFORM_SLOW_COLOR
+	elseif ctrlDown then
+		label = "Fast mode"
+		color = TRANSFORM_FAST_COLOR
+	else
+		return
+	end
+
+	ImGui.SameLine()
+	style.styledText(label, color)
+end
+
 function positionable:getProperties()
 	local properties = element.getProperties(self)
 
@@ -269,6 +298,9 @@ function positionable:getProperties()
 		id = "transform",
 		name = "Transform",
 		defaultHeader = true,
+		drawHeader = function ()
+			self:drawTransformModeIndicator()
+		end,
 		draw = function ()
 			self:drawTransform()
 		end

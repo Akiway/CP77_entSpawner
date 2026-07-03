@@ -309,6 +309,9 @@ function element:drawProperties()
 
 		ImGui.SetNextItemOpen(self.propertyHeaderStates[prop.id])
 		self.propertyHeaderStates[prop.id] = ImGui.TreeNodeEx(prop.name, ImGuiTreeNodeFlags.SpanFullWidth)
+		if prop.drawHeader then
+			prop.drawHeader()
+		end
 
 		if self.propertyHeaderStates[prop.id] then
 			prop.draw()

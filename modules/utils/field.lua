@@ -14,6 +14,26 @@ local iconPickerStates = {}
 local infinitySentinel = 3.4028235e+38
 local infinityThreshold = 99999
 
+---Combine ImGui flags without adding a flag twice.
+---@param flags number
+---@param flag number
+---@return number combinedFlags
+local function addImGuiFlag(flags, flag)
+    if bit32 and bit32.bor then
+        return bit32.bor(flags, flag)
+    end
+
+    if bit and bit.bor then
+        return bit.bor(flags, flag)
+    end
+
+    if math.floor(flags / flag) % 2 == 0 then
+        return flags + flag
+    end
+
+    return flags
+end
+
 ---Wrap a numeric value into the half-open interval `[min, max)`.
 ---@param value number Value to wrap.
 ---@param min number Lower bound of wrapping range.
@@ -661,21 +681,28 @@ function field.advancedTrackedFloat(element, text, value, options)
     ImGui.SetNextItemWidth(width * (style.viewSize or 1))
     local activeFormat = shiftDown and shiftFormat or format
 
+    local cursorX, cursorY = ImGui.GetCursorScreenPos()
+    local mouseX, mouseY = ImGui.GetMousePos()
+    local itemWidth = ImGui.CalcItemWidth()
+    local itemHeight = ImGui.GetFrameHeight()
+    local mouseOverItem = mouseX >= cursorX and mouseX <= cursorX + itemWidth
+        and mouseY >= cursorY and mouseY <= cursorY + itemHeight
+    local leftClicked = ImGui.IsMouseClicked(ImGuiMouseButton.Left)
+    local leftDoubleClicked = ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)
+
+    -- Dear ImGui normally turns Ctrl+click on a DragFloat into text input.
+    -- Disable input for that activation frame so Ctrl can instead modify drag speed.
+    if mouseOverItem and ctrlDown and leftClicked and not leftDoubleClicked then
+        flags = addImGuiFlag(flags, ImGuiSliderFlags.NoInput)
+    end
+
     local editState
     if manualEditFormat ~= nil then
         local id = ImGui.GetID(text)
         editState = advancedFloatEditStates[id] or { manual = false, focused = false }
         advancedFloatEditStates[id] = editState
 
-        local cursorX, cursorY = ImGui.GetCursorScreenPos()
-        local mouseX, mouseY = ImGui.GetMousePos()
-        local itemWidth = ImGui.CalcItemWidth()
-        local itemHeight = ImGui.GetFrameHeight()
-        local mouseOverItem = mouseX >= cursorX and mouseX <= cursorX + itemWidth
-            and mouseY >= cursorY and mouseY <= cursorY + itemHeight
-        local mouseRequestedInput = mouseOverItem
-            and (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)
-                or (ctrlDown and ImGui.IsMouseClicked(ImGuiMouseButton.Left)))
+        local mouseRequestedInput = mouseOverItem and leftDoubleClicked
         local keyboardRequestedInput = editState.focused and ImGui.IsKeyPressed(ImGuiKey.Enter)
 
         if mouseRequestedInput or keyboardRequestedInput then
