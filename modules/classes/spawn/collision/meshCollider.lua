@@ -173,14 +173,19 @@ function meshCollider:onAssemble(entity)
             return
         end
 
+        -- Apply the collider scale before the entity is attached so its physical
+        -- body is created with the same transform as the visual preview/export.
+        component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
         component.filterData.preset = self.preset
         component.colliders[1].material = materials[self.material + 1]
     end
 
     visualizer.addMesh(entity,
-        {x = 1, y = 1, z = 1},
+        self.scale,
         "scc\\generated\\geometry_cache\\visual\\" .. self.shapeHash .. ".mesh",
         colors[settings.colliderColor + 1])
+
+    visualizer.updateScale(entity, self:getArrowSize(), "arrows")
 
     if self.isAssetPreview then
         visualizer.toggleAll(entity, true)
@@ -205,11 +210,40 @@ function meshCollider:save()
 end
 
 function meshCollider:getSize()
-    return { x = 1, y = 1, z = 1 }
+    return utils.getBoxSize(self.bBox, self.scale)
 end
 
 function meshCollider:getArrowSize()
-    return { x = 1, y = 1, z = 1 }
+    local size = self:getSize()
+    local max = math.min(math.max(size.x, size.y, size.z, 0.75) * 0.4, 1)
+
+    return { x = max, y = max, z = max }
+end
+
+---@protected
+---@param finished boolean
+---@param delta Vector4
+function meshCollider:updateScale(finished, delta)
+    self.scale.x = math.max(self.scale.x, 0)
+    self.scale.y = math.max(self.scale.y, 0)
+    self.scale.z = math.max(self.scale.z, 0)
+
+    -- Reassembly is required to rebuild the physical body at its final scale.
+    if finished then
+        self:respawn()
+        return
+    end
+
+    local entity = self:getEntity()
+    if not entity then return end
+
+    local component = entity:FindComponentByName("collision_mesh_0")
+    if component then
+        component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
+    end
+
+    visualizer.updateScale(entity, self.scale, "mesh")
+    visualizer.updateScale(entity, self:getArrowSize(), "arrows")
 end
 
 function meshCollider:calculateIntersection(origin, ray)
@@ -219,10 +253,7 @@ function meshCollider:calculateIntersection(origin, ray)
 
     local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
 
-    local scaledBBox = {
-        min = {  x = self.bBox.min.x * scaleFactor.x, y = self.bBox.min.y * scaleFactor.y, z = self.bBox.min.z * scaleFactor.z },
-        max = {  x = self.bBox.max.x * scaleFactor.x, y = self.bBox.max.y * scaleFactor.y, z = self.bBox.max.z * scaleFactor.z }
-    }
+    local scaledBBox = utils.getScaledBBoxWithFactor(self.bBox, self.scale, scaleFactor)
     local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
 
     local unscaledHit
