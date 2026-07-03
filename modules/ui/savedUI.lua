@@ -808,15 +808,16 @@ local function getSectionProjectEditorState(section)
 end
 
 ---@param section table
+---@param spawner spawner
 ---@param projectMap table<string, table>
 ---@param buttonTextColor number[]
----@return boolean settingsButtonClicked
-local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
+---@return boolean actionButtonClicked
+local function drawProjectSectionActions(section, spawner, projectMap, buttonTextColor)
     if section.isNeutral then
         return false
     end
 
-    local settingsButtonClicked = false
+    local actionButtonClicked = false
     local popupId = "##savedProjectEditPopup" .. section.key
     local editor = getSectionProjectEditorState(section)
 
@@ -827,17 +828,38 @@ local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
     end
 
     ImGui.SameLine()
+    local exportIcon = IconGlyphs.Export
     local editIcon = IconGlyphs.CogOutline
+    local exportWidth, _ = ImGui.CalcTextSize(exportIcon)
     local editWidth, _ = ImGui.CalcTextSize(editIcon)
-    local buttonWidth = editWidth + ImGui.GetStyle().FramePadding.x * 2
+    local exportButtonWidth = exportWidth + ImGui.GetStyle().FramePadding.x * 2
+    local editButtonWidth = editWidth + ImGui.GetStyle().FramePadding.x * 2
+    local buttonsWidth = exportButtonWidth + ImGui.GetStyle().ItemSpacing.x + editButtonWidth
     local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - buttonWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+    local cursorX = ImGui.GetWindowWidth() - buttonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
     ImGui.SetCursorPosX(cursorX)
     ImGui.SetNextItemAllowOverlap()
     style.pushButtonNoBG(true)
     ImGui.PushStyleColor(ImGuiCol.Text, buttonTextColor[1], buttonTextColor[2], buttonTextColor[3], buttonTextColor[4] or 1)
+
+    if ImGui.Button(exportIcon .. "##savedProjectExportButton" .. section.key) then
+        actionButtonClicked = true
+        local exportUI = spawner.baseUI.exportUI
+        local projectGroups = (projectMap[section.key] and projectMap[section.key].groups) or section.groups
+
+        exportUI.projectName = section.project.name
+        for _, entry in ipairs(projectGroups) do
+            exportUI.addGroup(entry.data.name)
+        end
+
+        spawner.baseUI.selectTab("export")
+    end
+    style.tooltip("Add all project groups to the export list")
+
+    ImGui.SameLine()
+    ImGui.SetNextItemAllowOverlap()
     if ImGui.Button(editIcon .. "##savedProjectEditButton" .. section.key) then
-        settingsButtonClicked = true
+        actionButtonClicked = true
         ImGui.OpenPopup(popupId)
     end
     ImGui.PopStyleColor()
@@ -885,7 +907,7 @@ local function drawProjectSectionEditor(section, projectMap, buttonTextColor)
         ImGui.EndPopup()
     end
 
-    return settingsButtonClicked
+    return actionButtonClicked
 end
 
 ---@param section table
@@ -935,9 +957,9 @@ local function drawProjectSection(section, spawner, projectMap, projectOptions)
     ImGui.SetItemAllowOverlap()
     ImGui.PopStyleColor(4)
 
-    local settingsButtonClicked = drawProjectSectionEditor(section, projectMap, textColor)
+    local actionButtonClicked = drawProjectSectionActions(section, spawner, projectMap, textColor)
 
-    if settingsButtonClicked and previousOpen ~= nil and open ~= previousOpen then
+    if actionButtonClicked and previousOpen ~= nil and open ~= previousOpen then
         open = previousOpen
         savedUI.projectSectionRestoreOpenState[section.key] = previousOpen
     end

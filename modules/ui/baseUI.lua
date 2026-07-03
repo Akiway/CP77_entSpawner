@@ -21,6 +21,7 @@ baseUI = {
     previewTimeline = require("modules/ui/previewTimeline"),
     settingsUI = require("modules/ui/settingsUI"),
     activeTab = 1,
+    requestedTab = nil,
     loadTabSize = true,
     loadWindowSize = nil,
     mainWindowPosition = { 0, 0 },
@@ -116,6 +117,19 @@ local tabs = {
         draw = baseUI.settingsUI.draw
     }
 }
+
+---@param id string
+---@return boolean
+function baseUI.selectTab(id)
+    for key, tab in ipairs(tabs) do
+        if tab.id == id then
+            baseUI.requestedTab = key
+            return true
+        end
+    end
+
+    return false
+end
 
 local MAX_WINDOW_WIDTH = 5000
 local MAX_WINDOW_HEIGHT = 3500
@@ -368,7 +382,13 @@ function baseUI.draw(spawner)
 
                 if not settings.windowStates[tab.id] then
                     local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id), nil, true)
-                    if ImGui.BeginTabItem(tabLabel) then
+                    local tabItemFlags = ImGuiTabItemFlags.None or 0
+                    if baseUI.requestedTab == key then
+                        tabItemFlags = tabItemFlags + (ImGuiTabItemFlags.SetSelected or 0)
+                        baseUI.requestedTab = nil
+                    end
+
+                    if ImGui.BeginTabItem(tabLabel, tabItemFlags) then
                         style.tooltipActionLabel(tabHiddenText)
                         if baseUI.activeTab ~= key then
                             baseUI.activeTab = key
@@ -399,6 +419,11 @@ function baseUI.draw(spawner)
 
     for key, tab in pairs(tabs) do
         if settings.windowStates[tab.id] then
+            if baseUI.requestedTab == key then
+                ImGui.SetNextWindowFocus()
+                baseUI.requestedTab = nil
+            end
+
             if baseUI.loadWindowSize == tab.id then
                 local width, height = getMainWindowSize()
                 ImGui.SetNextWindowSize(width, height)
