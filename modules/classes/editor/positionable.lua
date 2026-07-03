@@ -551,7 +551,13 @@ function positionable:drawCopyPaste(name, axis)
         local transformUI = getTransformUIConfig(self)
         local showPosition = transformUI.showPosition
         local showRotation = transformUI.showRotation
+        local positionAxes = transformUI.axes and transformUI.axes.position or nil
+        local rotationAxes = transformUI.axes and transformUI.axes.rotation or nil
         local scaleAxes = transformUI.axes and transformUI.axes.scale or nil
+        local showPositionInputs = showPosition
+            and (isAxisVisible(positionAxes, "x") or isAxisVisible(positionAxes, "y") or isAxisVisible(positionAxes, "z"))
+        local showRotationInputs = showRotation
+            and (isAxisVisible(rotationAxes, "roll") or isAxisVisible(rotationAxes, "pitch") or isAxisVisible(rotationAxes, "yaw"))
         local showScaleInputs = transformUI.showScale
             and (isAxisVisible(scaleAxes, "x") or isAxisVisible(scaleAxes, "y") or isAxisVisible(scaleAxes, "z"))
         local renderedSection = false
@@ -699,7 +705,11 @@ function positionable:drawCopyPaste(name, axis)
                 local position = self:getPosition()
                 local orientation = self:getRotation():ToQuat()
                 local scale = self:getScale()
-                ImGui.SetClipboardText(axl.formatTransform(position, orientation, scale))
+                ImGui.SetClipboardText(axl.formatTransform(position, orientation, scale, nil, {
+                    position = showPositionInputs,
+                    orientation = showRotationInputs,
+                    scale = showScaleInputs
+                }))
             end
         end
         ImGui.EndPopup()

@@ -40,6 +40,46 @@ local VALID_MESH_TARGET_TYPES = {
     Static = true
 }
 
+local function getEnumIndex(enumName, targetValue)
+    local targetName = tostring(targetValue or "")
+
+    if type(targetValue) == "number" or type(targetValue) == "userdata" then
+        local text = tostring(targetValue)
+        local _, extractedValue = text:match(" : (.*) %((%d+)%)")
+        if extractedValue then
+            return tonumber(extractedValue) or 0
+        end
+
+        local clean = text:gsub("ULL", ""):gsub("LL", "")
+        local numericValue = tonumber(clean)
+        if numericValue ~= nil then
+            local ok, resolved = pcall(EnumValueToString, enumName, numericValue)
+            if ok and resolved and resolved ~= "" then
+                targetName = resolved
+            end
+        end
+    end
+
+    if not EnumGetMax(enumName) then
+        return 0
+    end
+
+    local maxValue = tonumber(EnumGetMax(enumName)) or 100
+    local index = 0
+
+    for i = -25, maxValue do
+        local name = EnumValueToString(enumName, i)
+        if name ~= "" then
+            if name == targetName then
+                return index
+            end
+            index = index + 1
+        end
+    end
+
+    return 0
+end
+
 local TYPE_MAP = {
     ["worldPopulationSpawnerNode"] = {
         data = "recordID",
@@ -75,6 +115,31 @@ local TYPE_MAP = {
         data = "meshPath",
         category = "Mesh",
         sub = "Mesh",
+        replacer = true
+    },
+    ["worldStaticOccluderMeshNode"] = {
+        dataRetrieval = function(node)
+            local meshPath = node and node.meshPath or ""
+            if type(meshPath) ~= "string" or meshPath == "" then
+                return nil
+            end
+
+            local normalizedPath = meshPath:lower():gsub("/", "\\")
+            local occluderMesh = 1
+            if normalizedPath:find("plane_occluder_onesided_xz.mesh", 1, true) then
+                occluderMesh = 2
+            elseif normalizedPath:find("plane_occluder_twosided_xz.mesh", 1, true) then
+                occluderMesh = 3
+            end
+
+            return {
+                spawnData = "",
+                occluderMesh = occluderMesh,
+                occluderType = getEnumIndex("visWorldOccluderType", node.occluderType)
+            }
+        end,
+        category = "Meta",
+        sub = "Occluder",
         replacer = true
     },
     ["worldFoliageNode"] = {
@@ -155,46 +220,6 @@ local TYPE_MAP = {
 
                 local normalized = tonumber((tostring(value or ""):gsub("ULL", ""):gsub("LL", "")))
                 return normalized == 1
-            end
-
-            local function getEnumIndex(enumName, targetValue)
-                local targetName = tostring(targetValue or "")
-
-                if type(targetValue) == "number" or type(targetValue) == "userdata" then
-                    local text = tostring(targetValue)
-                    local _, extractedValue = text:match(" : (.*) %((%d+)%)")
-                    if extractedValue then
-                        return tonumber(extractedValue) or 0
-                    end
-
-                    local clean = text:gsub("ULL", ""):gsub("LL", "")
-                    local numericValue = tonumber(clean)
-                    if numericValue ~= nil then
-                        local ok, resolved = pcall(EnumValueToString, enumName, numericValue)
-                        if ok and resolved and resolved ~= "" then
-                            targetName = resolved
-                        end
-                    end
-                end
-
-                if not EnumGetMax(enumName) then
-                    return 0
-                end
-
-                local maxValue = tonumber(EnumGetMax(enumName)) or 100
-                local index = 0
-
-                for i = -25, maxValue do
-                    local name = EnumValueToString(enumName, i)
-                    if name ~= "" then
-                        if name == targetName then
-                            return index
-                        end
-                        index = index + 1
-                    end
-                end
-
-                return 0
             end
 
             local function getLightChannels(nativeChannel)
@@ -302,29 +327,54 @@ local TYPE_MAP = {
     },
     ["worldStaticSoundEmitterNode"] = {
         dataRetrieval = function(node)
+            local function getCNameValue(value)
+                if type(value) == "string" then
+                    return value
+                end
+
+                if not value then
+                    return ""
+                end
+
+                local ok, name = pcall(function()
+                    return value.value
+                end)
+
+                return ok and name and tostring(name) or ""
+            end
+
             if not node or not node.nodeInstance or type(node.nodeInstance.GetNode) ~= "function" then
-                return ""
+                return nil
             end
 
             local nativeNode = node.nodeInstance:GetNode()
             if not nativeNode then
-                return ""
+                return nil
             end
 
             local nodeSettings = nativeNode.Settings
             if not nodeSettings then
-                return ""
+                return nil
             end
 
-            if #nodeSettings.EventsOnActive < 1 then
-                return ""
+            local activeEvents = nodeSettings.EventsOnActive
+            if not activeEvents or #activeEvents < 1 then
+                return nil
             end
 
-            return nodeSettings.EventsOnActive[1].event.value
+            local soundEvent = getCNameValue(activeEvents[1] and activeEvents[1].event)
+            if soundEvent == "" then
+                return nil
+            end
+
+            return {
+                spawnData = soundEvent,
+                emitterMetadataName = getCNameValue(nativeNode.emitterMetadataName)
+            }
         end,
         category = "Deco",
         sub = "Static Audio Emitter",
-        replacer = false
+        replacer = true
     },
     ["worldAISpotNode"] = {
         dataRetrieval = function(node)
@@ -363,7 +413,7 @@ local TYPE_MAP = {
         end,
         category = "Lighting",
         sub = "Reflection Probe",
-        replacer = false
+        replacer = true
     }
 }
 
@@ -374,6 +424,7 @@ local TYPE_PRIORITY = {
     "worldPhysicalDestructionNode",
     "worldInstancedDestructibleMeshNode",
     "worldBendedMeshNode",
+    "worldStaticOccluderMeshNode",
     "worldFoliageNode",
     "worldStaticMeshNode",
     "worldInstancedMeshNode",
@@ -428,6 +479,10 @@ end
 local function getTypeIndex(node)
     if not node or not node.nodeType then
         return nil
+    end
+
+    if TYPE_MAP[node.nodeType] then
+        return node.nodeType
     end
 
     local okClass, nodeClass = pcall(function()
@@ -1028,6 +1083,25 @@ function rht.sendToSearch(node)
     rht.spawnUI.updateFilter()
 end
 
+---@param position Vector4|table?
+---@return boolean
+local function isRHTNodePositionVisible(position)
+    return position ~= nil and (position.x ~= 0 or position.y ~= 0 or position.z ~= 0)
+end
+
+---@param orientation Quaternion|table?
+---@return boolean
+local function isRHTNodeOrientationVisible(orientation)
+    return orientation ~= nil
+        and (orientation.i ~= 0 or orientation.j ~= 0 or orientation.k ~= 0 or orientation.r ~= 1)
+end
+
+---@param scale Vector4|table?
+---@return boolean
+local function isRHTNodeScaleVisible(scale)
+    return scale ~= nil and (scale.x ~= 1 or scale.y ~= 1 or scale.z ~= 1)
+end
+
 ---@param node any
 function rht.copyAXLNodeMutation(node)
     if not node then
@@ -1045,9 +1119,9 @@ function rht.copyAXLNodeMutation(node)
         or node.recordID
         or ""
 
-    local position = node.nodePosition or node.entityPosition or node.position
-    local orientation = node.nodeOrientation or node.entityOrientation or node.orientation
-    local scale = node.nodeScale or node.scale or { x = 1, y = 1, z = 1 }
+    local position = isRHTNodePositionVisible(node.nodePosition) and node.nodePosition or node.entityPosition
+    local orientation = isRHTNodeOrientationVisible(node.nodeOrientation) and node.nodeOrientation or node.entityOrientation
+    local scale = isRHTNodeScaleVisible(node.nodeScale) and node.nodeScale or nil
     local appearance = node.meshAppearance or node.appearanceName or ""
 
     ImGui.SetClipboardText(axl.formatNodeMutation({
@@ -1061,6 +1135,10 @@ function rht.copyAXLNodeMutation(node)
         position = position,
         orientation = orientation,
         scale = scale
+    }, {
+        position = position ~= nil,
+        orientation = orientation ~= nil,
+        scale = scale ~= nil
     }))
 end
 
@@ -1107,6 +1185,11 @@ local function spawnClone(node, definition)
     else
         entry.data = { spawnData = resolvedData }
         entry.name = tostring(resolvedData)
+    end
+
+    local debugName = node and node.debugName and tostring(node.debugName) or ""
+    if debugName ~= "" then
+        entry.name = debugName
     end
 
     local clone = rht.spawnUI.spawnNew(entry, activeList.class, false)
@@ -1369,7 +1452,18 @@ function rht.init(spawner)
 
     rht.redHotTools.RegisterExtension({
         getTargetActions = function(node)
-            return rht.getTargetActions(node)
+            local ok, actions = pcall(rht.getTargetActions, node)
+            if not ok then
+                local message = tostring(actions)
+                if rht.targetActionsError ~= message then
+                    rht.targetActionsError = message
+                    log("Failed to build World Inspector actions: " .. message)
+                end
+                return nil
+            end
+
+            rht.targetActionsError = nil
+            return actions
         end
     })
 end

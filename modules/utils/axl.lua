@@ -29,33 +29,46 @@ end
 ---@param orientation Quaternion|table?
 ---@param scale Vector4|table?
 ---@param indent string?
+---@param include table?
 ---@return string
-function axl.formatTransform(position, orientation, scale, indent)
+function axl.formatTransform(position, orientation, scale, indent, include)
     position = position or {}
     orientation = orientation or {}
     scale = scale or {}
     indent = indent or "          "
+    include = include or {}
 
-    return table.concat({
-        string.format("%sposition: [%s, %s, %s, 0.0]", indent,
+    local lines = {}
+
+    if include.position ~= false then
+        table.insert(lines, string.format("%sposition: [%s, %s, %s, 0.0]", indent,
             axl.formatNumber(position.x),
             axl.formatNumber(position.y),
-            axl.formatNumber(position.z)),
-        string.format("%sorientation: [%s, %s, %s, %s]", indent,
+            axl.formatNumber(position.z)))
+    end
+
+    if include.orientation ~= false then
+        table.insert(lines, string.format("%sorientation: [%s, %s, %s, %s]", indent,
             axl.formatNumber(orientation.i),
             axl.formatNumber(orientation.j),
             axl.formatNumber(orientation.k),
-            axl.formatNumber(orientation.r == nil and 1 or orientation.r)),
-        string.format("%sscale: [%s, %s, %s]", indent,
+            axl.formatNumber(orientation.r == nil and 1 or orientation.r)))
+    end
+
+    if include.scale ~= false then
+        table.insert(lines, string.format("%sscale: [%s, %s, %s]", indent,
             axl.formatNumber(scale.x == nil and 1 or scale.x),
             axl.formatNumber(scale.y == nil and 1 or scale.y),
-            axl.formatNumber(scale.z == nil and 1 or scale.z))
-    }, "\n")
+            axl.formatNumber(scale.z == nil and 1 or scale.z)))
+    end
+
+    return table.concat(lines, "\n")
 end
 
 ---@param mutation table
+---@param include table?
 ---@return string
-function axl.formatNodeMutation(mutation)
+function axl.formatNodeMutation(mutation, include)
     mutation = mutation or {}
 
     local sectorPath = normalizeInlineValue(mutation.sectorPath)
@@ -90,7 +103,8 @@ function axl.formatNodeMutation(mutation)
         mutation.position,
         mutation.orientation,
         mutation.scale,
-        "          "
+        "          ",
+        include
     ))
 
     return table.concat(lines, "\n")
