@@ -1991,6 +1991,15 @@ function bendedMesh:drawAppearanceSelector()
         end
     end
 
+    ImGui.SameLine()
+    ImGui.BeginDisabled(#self.apps <= 1)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.SkipNext .. "##cycleBendedAppearance") then
+        self:cycleAppearance()
+    end
+    style.pushButtonNoBG(false)
+    ImGui.EndDisabled()
+    style.tooltip("Select the next mesh appearance. Wraps to the first appearance at the end of the list.")
     style.popGreyedOut(#self.apps <= 1)
     ImGui.SameLine()
     style.pushButtonNoBG(true)

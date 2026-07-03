@@ -233,6 +233,45 @@ function mesh:reloadAppearances()
     self:loadMeshResourceData(true)
 end
 
+---Selects the next appearance in the loaded list, wrapping at the end.
+---@return boolean changed
+function mesh:cycleAppearance()
+    local appCount = #(self.apps or {})
+    if appCount <= 1 then
+        return false
+    end
+
+    local currentIndex = utils.indexValue(self.apps, self.app)
+    if type(currentIndex) ~= "number" or currentIndex < 1 or currentIndex > appCount then
+        currentIndex = 0
+    end
+
+    local nextIndex = (currentIndex % appCount) + 1
+    local nextApp = self.apps[nextIndex]
+    if not nextApp or nextApp == self.app then
+        return false
+    end
+
+    if self.object then
+        history.addAction(history.getElementChange(self.object))
+    end
+
+    self.app = nextApp
+    self.appIndex = nextIndex - 1
+
+    local entity = self:getEntity()
+    if entity then
+        local component = entity:FindComponentByName("mesh")
+        if component then
+            component.meshAppearance = CName.new(self.app)
+            component:LoadAppearance()
+            self:setOutline(self.outline)
+        end
+    end
+
+    return true
+end
+
 ---Loads serialized spawnable data and immediately warms mesh metadata.
 ---@param data table
 ---@param position Vector4
@@ -537,6 +576,15 @@ function mesh:draw()
             self:setOutline(self.outline)
         end
     end
+    ImGui.SameLine()
+    ImGui.BeginDisabled(#self.apps <= 1)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.SkipNext .. "##cycleMeshAppearance") then
+        self:cycleAppearance()
+    end
+    style.pushButtonNoBG(false)
+    ImGui.EndDisabled()
+    style.tooltip("Select the next mesh appearance. Wraps to the first appearance at the end of the list.")
     style.popGreyedOut(#self.apps <= 1)
     ImGui.SameLine()
     style.pushButtonNoBG(true)

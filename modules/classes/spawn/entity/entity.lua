@@ -291,6 +291,40 @@ function entity:reloadAppearances()
     self:loadAppearanceData(true)
 end
 
+---Selects the next appearance in the loaded list, wrapping at the end.
+---@return boolean changed
+function entity:cycleAppearance()
+    local appCount = #(self.apps or {})
+    if appCount <= 1 or not self:isSpawned() then
+        return false
+    end
+
+    local currentIndex = utils.indexValue(self.apps, self.app)
+    if type(currentIndex) ~= "number" or currentIndex < 1 or currentIndex > appCount then
+        currentIndex = 0
+    end
+
+    local nextIndex = (currentIndex % appCount) + 1
+    local nextApp = self.apps[nextIndex]
+    if not nextApp or nextApp == self.app then
+        return false
+    end
+
+    if self.object then
+        history.addAction(history.getElementChange(self.object))
+    end
+
+    self.app = nextApp
+    self.appIndex = nextIndex - 1
+    self.defaultComponentData = {}
+
+    if self:getEntity() then
+        self:respawn()
+    end
+
+    return true
+end
+
 function entity:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.appSearch = self.appSearch or ""
@@ -1397,6 +1431,15 @@ function entity:drawEntityBaseProperties()
             self:respawn()
         end
     end
+    ImGui.SameLine()
+    ImGui.BeginDisabled(greyOut)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.SkipNext .. "##cycleEntityAppearance") then
+        self:cycleAppearance()
+    end
+    style.pushButtonNoBG(false)
+    ImGui.EndDisabled()
+    style.tooltip("Select the next entity appearance. Wraps to the first appearance at the end of the list.")
     style.popGreyedOut(greyOut)
     ImGui.SameLine()
     style.pushButtonNoBG(true)
