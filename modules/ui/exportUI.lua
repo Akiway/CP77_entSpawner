@@ -1521,6 +1521,9 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                     local markings = {}
                     local spotRefs = {}
                     if #period.markings > 0 then
+                        local exportedPeriod = community.node.data.area.Data.entriesData[entryKey].phasesData[phaseKey].timePeriodsData[periodKey]
+                        exportedPeriod.spotNodeIds = {}
+
                         for _, marking in pairs(period.markings) do
                             table.insert(markings, {
                                 ["$type"] = "CName",
@@ -1536,7 +1539,7 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                                     ["$storage"] = "string",
                                     ["$value"] = refValue
                                 })
-                                table.insert(community.node.data.area.Data.entriesData[entryKey].phasesData[phaseKey].timePeriodsData[periodKey].spotNodeIds, {
+                                table.insert(exportedPeriod.spotNodeIds, {
                                     ["$type"] = "worldGlobalNodeID",
                                     ["hash"] = utils.nodeRefStringToHashString(refValue)
                                 })

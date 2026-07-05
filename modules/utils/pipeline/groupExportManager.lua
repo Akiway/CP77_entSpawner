@@ -185,6 +185,52 @@ local function registerGroupContribution(runtime, group, contribution)
     }
 end
 
+local function appendCommunityState(target, communities, sector)
+    local sectorCommunities = {}
+    local sectorCommunitiesByRef = {}
+
+    for _, node in ipairs(sector and sector.nodes or {}) do
+        if node and node.type == "worldCompiledCommunityAreaNode_Streamable" then
+            table.insert(sectorCommunities, node)
+
+            local nodeRef = tostring(node.nodeRef or "")
+            if nodeRef ~= "" then
+                sectorCommunitiesByRef[nodeRef] = node
+            end
+        end
+    end
+
+    for index, community in ipairs(communities or {}) do
+        local stateCommunity = utils.deepcopy(community)
+        local sourceNode = community and community.node
+        local canonicalNode = nil
+
+        -- Fresh exports still share this exact table with the sector. Incremental
+        -- exports restore the sector and sidecar independently, so fall back to
+        -- the stable NodeRef (or relative community order for invalid empty refs).
+        for _, node in ipairs(sectorCommunities) do
+            if node == sourceNode then
+                canonicalNode = node
+                break
+            end
+        end
+
+        if not canonicalNode and sourceNode then
+            local nodeRef = tostring(sourceNode.nodeRef or "")
+            if nodeRef ~= "" then
+                canonicalNode = sectorCommunitiesByRef[nodeRef]
+            end
+        end
+
+        canonicalNode = canonicalNode or sectorCommunities[index]
+        if canonicalNode then
+            stateCommunity.node = canonicalNode
+        end
+
+        table.insert(target, stateCommunity)
+    end
+end
+
 local function mergeGroupExportData(runtime, group, data, devices, psEntries, subChilds, communities, spots, duplicateNodes)
     local project = runtime.project
     local state = runtime.state
@@ -199,7 +245,7 @@ local function mergeGroupExportData(runtime, group, data, devices, psEntries, su
         project.psEntries[psid] = entry
     end
 
-    utils.combine(state.communities, utils.deepcopy(communities or {}))
+    appendCommunityState(state.communities, communities, data)
     utils.combine(state.spotNodes, utils.deepcopy(spots or {}))
     utils.combine(state.childs, utils.deepcopy(subChilds or {}))
 
