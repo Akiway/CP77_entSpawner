@@ -3013,7 +3013,7 @@ function spawnedUI.drawTop()
         end
 
         group.name = spawnedUI.newGroupName
-        spawnedUI.addRootElement(group)
+        group:setParent(spawnedUI.spawner.baseUI.spawnUI.getSpawnTargetParent())
         history.addAction(history.getInsert({ group }))
     end
 

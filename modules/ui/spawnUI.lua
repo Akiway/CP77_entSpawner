@@ -2159,6 +2159,17 @@ function spawnUI.drawTargetGroupSelector()
 	ImGui.PopItemWidth()
 end
 
+---Returns the parent selected for new spawns, falling back to root.
+---@return element
+function spawnUI.getSpawnTargetParent()
+    local parent = spawnUI.spawnedUI.root
+    if spawnUI.selectedGroup ~= 0 and spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup] then
+        parent = spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup].ref
+    end
+
+    return parent
+end
+
 ---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
     spawnUI.drawTargetGroupSelector()
@@ -2404,10 +2415,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
     -- Cleanup preview
     spawnUI.stopActiveAssetPreview()
 
-    local parent = spawnUI.spawnedUI.root
-    if spawnUI.selectedGroup ~= 0 and spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup] then
-        parent = spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup].ref
-    end
+    local parent = spawnUI.getSpawnTargetParent()
 
     local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
     local pos, rot = spawnUI.getSpawnNewPosition()
