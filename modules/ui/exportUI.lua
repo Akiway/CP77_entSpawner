@@ -18,6 +18,7 @@ local issueOrder = {
     "missingElevatorFloorSetup",
     "noOutlineMarkers",
     "noSplineMarker",
+    "splineEmptyRef",
     "spotEmptyRef",
     "spotReferencingEmpty",
     "markingUnresolved",
@@ -50,6 +51,7 @@ exportUI = {
         missingElevatorFloorSetup = {},
         noOutlineMarkers = {},
         noSplineMarker = {},
+        splineEmptyRef = {},
         spotEmptyRef = {},
         spotReferencingEmpty = {},
         markingUnresolved = {},
@@ -995,6 +997,25 @@ function exportUI.drawIssues()
             ImGui.EndPopup()
         end
     end
+    if exportUI.getCurrentIssue() == "splineEmptyRef" then
+        ImGui.OpenPopup("Empty Spline NodeRef")
+        if ImGui.BeginPopupModal("Empty Spline NodeRef", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.Text("The following Spline nodes do not have a NodeRef assigned to them, making them unusable!")
+
+            ImGui.Separator()
+
+            for _, name in pairs(exportUI.exportIssues.splineEmptyRef) do
+                style.mutedText("Node Name:")
+                ImGui.SameLine()
+                ImGui.Text(name)
+            end
+
+            ImGui.Separator()
+
+            drawIssueButtons("splineEmptyRef")
+            ImGui.EndPopup()
+        end
+    end
     if exportUI.getCurrentIssue() == "spotEmptyRef" then
         ImGui.OpenPopup("Empty AISpot NodeRef")
         if ImGui.BeginPopupModal("Empty AISpot NodeRef", true, ImGuiWindowFlags.AlwaysAutoResize) then
@@ -1802,14 +1823,26 @@ function exportUI.exportGroup(group)
     return exported, devices, psEntries, childs, communities, spotNodes
 end
 
+local function collectMissingSplineNodeRefs(nodes)
+    for _, node in ipairs(nodes or {}) do
+        local nodeRef = node.nodeRef or ""
+
+        if node.type == "worldSplineNode" and nodeRef == "" then
+            local name = tostring(node.name or "Unnamed Spline"):gsub("^%[Spline%]%s*", "")
+            table.insert(exportUI.exportIssues.splineEmptyRef, name)
+        end
+    end
+end
+
 local function collectDuplicateNodeRefs(nodeRefs, nodes)
     for _, node in ipairs(nodes or {}) do
-        if not nodeRefs[node.nodeRef] then
-            nodeRefs[node.nodeRef] = node.name
-        elseif node.nodeRef ~= "" then
+        local nodeRef = node.nodeRef or ""
+        if not nodeRefs[nodeRef] then
+            nodeRefs[nodeRef] = node.name
+        elseif nodeRef ~= "" then
             table.insert(exportUI.exportIssues.nodeRefDuplicated, {
-                nodeRef = node.nodeRef,
-                name1 = nodeRefs[node.nodeRef],
+                nodeRef = nodeRef,
+                name1 = nodeRefs[nodeRef],
                 name2 = node.name
             })
             break
@@ -1840,6 +1873,7 @@ function exportUI.export(mode)
         shouldExportNode = shouldExportNode,
         handleDevice = exportUI.handleDevice,
         handleCommunities = exportUI.handleCommunities,
+        collectMissingSplineNodeRefs = collectMissingSplineNodeRefs,
         collectDuplicateNodeRefs = collectDuplicateNodeRefs,
         hasBlockingIssues = exportUI.hasBlockingIssues,
         mode = exportMode,

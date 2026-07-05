@@ -670,6 +670,12 @@ local function finalizeExportRuntime(runtime)
         if not runtime.finalizePrepared then
             finalizeDeviceParents(runtime.project, runtime.state.childs)
 
+            if runtime.request and runtime.request.collectMissingSplineNodeRefs then
+                for _, sector in ipairs(runtime.project.sectors or {}) do
+                    runtime.request.collectMissingSplineNodeRefs(sector.nodes or {})
+                end
+            end
+
             local alwaysLoaded = nil
             if runtime.request and runtime.request.handleCommunities then
                 alwaysLoaded = runtime.request.handleCommunities(runtime.project.name, runtime.state.communities, runtime.state.spotNodes, runtime.state.nodeRefs)
@@ -1013,6 +1019,7 @@ function groupExportManager.start(request)
         shouldExportNode = request.shouldExportNode,
         handleDevice = request.handleDevice,
         handleCommunities = request.handleCommunities,
+        collectMissingSplineNodeRefs = request.collectMissingSplineNodeRefs,
         collectDuplicateNodeRefs = request.collectDuplicateNodeRefs,
         hasBlockingIssues = request.hasBlockingIssues,
         ignoreHiddenDuringExport = request.ignoreHiddenDuringExport == true
