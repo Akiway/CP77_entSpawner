@@ -1709,7 +1709,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
                 data.modulePath = spawnUI.previewInstance.modulePath
             end
 
-            local pos, _ = spawnUI.getSpawnNewPosition()
+            local pos, _ = spawnUI.getSpawnNewPosition(spawnUI.previewInstance)
             local cameraRotation = editor.getCameraRotation()
             if not cameraRotation then return end
 
@@ -2312,12 +2312,15 @@ function spawnUI.hidden()
 end
 
 ---Computes default spawn transform using current settings and selection.
+---Spawn classes may opt into adjusting camera-derived placement only.
+---@param spawnClass table?
 ---@return Vector4
 ---@return EulerAngles
-function spawnUI.getSpawnNewPosition()
+function spawnUI.getSpawnNewPosition(spawnClass)
     local pos = editor.getCameraPosition()
     local cameraRotation = editor.getCameraRotation()
     local forward = editor.getCameraForward()
+    local usesSelectedTransform = false
 
     if not pos or not cameraRotation or not forward then
         return Vector4.new(0, 0, 0, 0), EulerAngles.new(0, 0, 0)
@@ -2331,10 +2334,16 @@ function spawnUI.getSpawnNewPosition()
         if #spawnUI.spawnedUI.selectedPaths == 1 and utils.isA(spawnUI.spawnedUI.selectedPaths[1].ref, "spawnableElement") then
             pos = spawnUI.spawnedUI.selectedPaths[1].ref:getPosition()
             rot = spawnUI.spawnedUI.selectedPaths[1].ref:getRotation()
+            usesSelectedTransform = true
         elseif #spawnUI.spawnedUI.selectedPaths > 1 then
             pos = spawnUI.spawnedUI.multiSelectGroup:getPosition()
             rot = spawnUI.spawnedUI.multiSelectGroup:getDirection("forward"):ToRotation()
+            usesSelectedTransform = true
         end
+    end
+
+    if not usesSelectedTransform and spawnClass and spawnClass.adjustSpawnNewPosition then
+        pos = spawnClass:adjustSpawnNewPosition(pos) or pos
     end
 
     return pos, rot
@@ -2367,6 +2376,24 @@ local function isFavoriteGroupData(data)
     end
 
     return false
+end
+
+---Resolves the underlying spawn class for a single saved favorite.
+---Groups deliberately keep the editor class so one child cannot alter group placement.
+---@param entry table|favorite
+---@param class table
+---@param isFavorite boolean
+---@param favoriteIsGroup boolean
+---@return table
+local function getSpawnPlacementClass(entry, class, isFavorite, favoriteIsGroup)
+    if not isFavorite or favoriteIsGroup then
+        return class
+    end
+
+    local favoriteData = entry.data
+    local spawnableData = favoriteData and favoriteData.spawnable
+    local spawnList = spawnableData and modulePathToSpawnList[spawnableData.modulePath]
+    return spawnList and spawnList.class or class
 end
 
 ---@param data table?
@@ -2417,8 +2444,12 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
     local parent = spawnUI.getSpawnTargetParent()
 
+    local favoriteIsGroup = isFavorite and isFavoriteGroupData(entry.data)
+    local data = favoriteIsGroup and entry.data or utils.deepcopy(entry.data)
+    local placementClass = getSpawnPlacementClass(entry, class, isFavorite, favoriteIsGroup)
+
     local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
-    local pos, rot = spawnUI.getSpawnNewPosition()
+    local pos, rot = spawnUI.getSpawnNewPosition(placementClass)
 
     local snap = spawnUI.popupSpawnHit and spawnUI.popupSpawnHit.hit
     if snap then
@@ -2435,9 +2466,6 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
             rot = Quaternion.SetAxisAngle(axis:Normalize(), math.rad(angle)):ToEulerAngles()
         end
     end
-
-    local favoriteIsGroup = isFavorite and isFavoriteGroupData(entry.data)
-    local data = favoriteIsGroup and entry.data or utils.deepcopy(entry.data)
 
     if favoriteIsGroup then
         groupLoadManager.start({
