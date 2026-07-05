@@ -8,6 +8,12 @@ local logger = require("modules/utils/logger")
 
 local sanitizeSpawnData = false
 local data = {}
+local cacheDirty = false
+local cacheDirtyAge = 0
+local cacheQuietAge = 0
+
+local CACHE_SAVE_QUIET_DELAY = 0.25
+local CACHE_SAVE_MAX_DELAY = 2.0
 
 ---@class CacheStaticData
 ---@field ambientData table
@@ -146,9 +152,70 @@ local function isExcludedCacheKey(name)
     return false
 end
 
+---Marks the in-memory cache for deferred persistence.
+---The first mutation starts the maximum-delay window; every mutation restarts
+---the short quiet window so bursts collapse into one disk write.
+local function markCacheDirty()
+    if not cacheDirty then
+        cacheDirtyAge = 0
+    end
+
+    cacheDirty = true
+    cacheQuietAge = 0
+end
+
+---Immediately persists pending in-memory cache changes.
+---@return boolean success
+---@return string? err
+function cache.flush()
+    if not cacheDirty then
+        return true
+    end
+
+    -- Dirty cache data is known to differ from the last successful flush, so
+    -- skip the generic read/decode/re-encode equality pass for this large file.
+    local success, err = config.saveFile("data/cache.json", data, { skipExistingComparison = true })
+    if success then
+        cacheDirty = false
+        cacheDirtyAge = 0
+        cacheQuietAge = 0
+    else
+        -- Retain dirty state and retry after another quiet interval.
+        cacheQuietAge = 0
+    end
+
+    return success, err
+end
+
+---Advances deferred cache persistence without delaying immediate in-memory reads.
+---Callers may temporarily disallow a flush during latency-sensitive work; time
+---spent in that state does not consume the persistence delay.
+---@param dt number Frame delta time in seconds.
+---@param allowFlush boolean? Defaults to true.
+function cache.update(dt, allowFlush)
+    if not cacheDirty then
+        return
+    end
+
+    if allowFlush == false then
+        return
+    end
+
+    local delta = math.max(tonumber(dt) or 0, 0)
+    cacheDirtyAge = cacheDirtyAge + delta
+    cacheQuietAge = cacheQuietAge + delta
+
+    if cacheQuietAge >= CACHE_SAVE_QUIET_DELAY or cacheDirtyAge >= CACHE_SAVE_MAX_DELAY then
+        cache.flush()
+    end
+end
+
 ---Loads dynamic cache data from disk and refreshes static cache datasets.
 ---If cache schema version is outdated, resets `data/cache.json` to current version.
 function cache.load()
+    cacheDirty = false
+    cacheDirtyAge = 0
+    cacheQuietAge = 0
     config.tryCreateConfig("data/cache.json", { version = version })
     data = config.loadFile("data/cache.json")
 
@@ -423,15 +490,15 @@ function cache.getCollisionShapeSectorsHashes(collisionShapeHash)
     return collisionShapeData.sectorsHashes or {}
 end
 
----Stores one cache value and persists cache data to disk.
+---Stores one cache value immediately in memory and schedules batched persistence.
 ---@param key string Cache key.
 ---@param value any Value to store.
 function cache.addValue(key, value)
     data[key] = value
-    config.saveFile("data/cache.json", data)
+    markCacheDirty()
 end
 
----Removes one cache value (if present) and persists cache data to disk.
+---Removes one cache value in memory and schedules batched persistence.
 ---@param key string|nil Cache key to remove.
 function cache.removeValue(key)
     if not key then
@@ -440,7 +507,7 @@ function cache.removeValue(key)
 
     if data[key] ~= nil then
         data[key] = nil
-        config.saveFile("data/cache.json", data)
+        markCacheDirty()
     end
 end
 
@@ -458,7 +525,11 @@ end
 
 ---Resets persisted cache file to version-only structure.
 function cache.reset()
-    config.saveFile("data/cache.json", { version = version })
+    data = { version = version }
+    cacheDirty = true
+    cacheDirtyAge = 0
+    cacheQuietAge = 0
+    cache.flush()
 end
 
 ---Deduplicates a text-list file in-place.

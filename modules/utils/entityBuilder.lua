@@ -4,6 +4,8 @@ local task = require("modules/utils/pipeline/tasks")
 local intersection = require("modules/utils/editor/intersection")
 local logger = require("modules/utils/logger")
 
+local ENTITY_BBOX_RESOURCE_CONCURRENCY = 4
+
 local builder = {
     assembleCallbacks = {},
     attachCallbacks = {},
@@ -267,8 +269,10 @@ function builder.getEntityBBox(entity, callback)
         callback({ bBox = { min = bboxMin, max = bboxMax }, meshes = meshes }) -- Keep mesh for more accurate bbox check for entity
     end)
 
-    meshesTask.taskDelay = 0.015
-    meshesTask:run(true)
+    -- A fully serial queue made cold previews wait for every component resource in
+    -- sequence. Keep resource pressure bounded while allowing independent meshes
+    -- to warm concurrently.
+    meshesTask:runConcurrent(ENTITY_BBOX_RESOURCE_CONCURRENCY)
 end
 
 return builder

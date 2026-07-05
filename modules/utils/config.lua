@@ -342,9 +342,10 @@ end
 ---This method is resilient to partial writes by using `.tmp` and `.swap` files.
 ---@param path string Destination JSON path.
 ---@param data table<string, any> Lua table to serialize as JSON.
+---@param options {skipExistingComparison: boolean?}? Optional save behavior.
 ---@return boolean success `true` when save completes.
 ---@return string? err Error text/code when encoding, writing, or replacement fails.
-function config.saveFile(path, data)
+function config.saveFile(path, data, options)
     recoverSwapFile(path)
 
     local encoded, encodeErr = encodeJSONForSave(data)
@@ -353,21 +354,23 @@ function config.saveFile(path, data)
         return false, tostring(encodeErr)
     end
 
-    local existingRaw = readAll(path)
-    if existingRaw ~= nil then
-        if existingRaw == encoded then
-            return true
-        end
-
-        local existingDecoded
-        local existingDecodeOk = pcall(function ()
-            existingDecoded = json.decode(existingRaw)
-        end)
-
-        if existingDecodeOk then
-            local existingCanonical = encodeJSONForSave(existingDecoded)
-            if existingCanonical and existingCanonical == encoded then
+    if not (options and options.skipExistingComparison) then
+        local existingRaw = readAll(path)
+        if existingRaw ~= nil then
+            if existingRaw == encoded then
                 return true
+            end
+
+            local existingDecoded
+            local existingDecodeOk = pcall(function ()
+                existingDecoded = json.decode(existingRaw)
+            end)
+
+            if existingDecodeOk then
+                local existingCanonical = encodeJSONForSave(existingDecoded)
+                if existingCanonical and existingCanonical == encoded then
+                    return true
+                end
             end
         end
     end
