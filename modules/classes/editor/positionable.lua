@@ -33,38 +33,6 @@ local TRANSFORM_FAST_COLOR = 0xFF0099FF
 local TRANSFORM_SLOW_COLOR = 0xFFB8B800
 local TRANSFORM_PRECISION_COLOR = 0xFFFF66B3
 
----@return boolean
-local function isCameraAttachedToPlayer()
-    if editor.active then
-        return false
-    end
-
-    local xUtilsMod = GetMod("XUtils")
-    if xUtilsMod and xUtilsMod.CameraController and xUtilsMod.CameraController.isActive() then
-        return false
-    end
-
-    local player = Game.GetPlayer()
-    if not player then
-        return true
-    end
-
-    local fpp = player:GetFPPCameraComponent()
-    if not fpp or not fpp.IsActive then
-        return true
-    end
-
-    local ok, active = pcall(function ()
-        return fpp:IsActive()
-    end)
-
-    if ok and active ~= nil then
-        return active == true
-    end
-
-    return true
-end
-
 ---@return Vector4?
 local function getPlayerOrDetachedCameraPosition()
     local player = Game.GetPlayer()
@@ -72,7 +40,7 @@ local function getPlayerOrDetachedCameraPosition()
         return nil
     end
 
-    if isCameraAttachedToPlayer() then
+    if editor.isCameraAttachedToPlayer() then
         return player:GetWorldPosition()
     end
 

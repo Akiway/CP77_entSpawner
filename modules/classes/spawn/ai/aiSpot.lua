@@ -655,22 +655,6 @@ function aiSpot:new()
 	return o
 end
 
----Keeps camera-derived Spawn New placement at the player's foot level.
----Explicit selected-object and cursor/surface placement bypass this override.
----@param position Vector4
----@return Vector4
-function aiSpot:adjustSpawnNewPosition(position)
-    local player = Game.GetPlayer()
-    if not player then return position end
-
-    local playerPosition = player:GetWorldPosition()
-    if not playerPosition then return position end
-
-    local adjustedPosition = Vector4.new(position)
-    adjustedPosition.z = playerPosition.z
-    return adjustedPosition
-end
-
 function aiSpot:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 

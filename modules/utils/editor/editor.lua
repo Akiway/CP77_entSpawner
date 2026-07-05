@@ -182,6 +182,45 @@ local function getFPPCameraLocalToWorld()
     return camera:GetLocalToWorld()
 end
 
+---Returns whether the active camera is still attached to the player.
+---Accounts for the built-in editor camera, XUtils free camera, and the FPP camera state.
+---@return boolean
+function editor.isCameraAttachedToPlayer()
+    if editor.active then
+        return false
+    end
+
+    local xUtilsMod = GetMod("XUtils")
+    if xUtilsMod and xUtilsMod.CameraController and xUtilsMod.CameraController.isActive() then
+        return false
+    end
+
+    local freefly = GetMod("freefly")
+    if freefly and freefly.runtimeData.active then
+        return false
+    end
+
+    local player = Game.GetPlayer()
+    if not player then
+        return true
+    end
+
+    local fpp = player:GetFPPCameraComponent()
+    if not fpp or not fpp.IsActive then
+        return true
+    end
+
+    local ok, active = pcall(function ()
+        return fpp:IsActive()
+    end)
+
+    if ok and active ~= nil then
+        return active == true
+    end
+
+    return true
+end
+
 local function getTransformPosition(transform)
     if not transform then return nil end
 
