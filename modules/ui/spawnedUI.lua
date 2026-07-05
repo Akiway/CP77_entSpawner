@@ -1506,6 +1506,10 @@ function spawnedUI.drawContextMenu(element, path)
         local isMulti = #spawnedUI.selectedPaths > 1 and element.selected
         local isLocked = element:isLocked()
         local canPaste = hasValidClipboardElements(spawnedUI.clipboard)
+        local isDirectRootChild = element.parent ~= nil and element.parent:isRoot(true)
+        local activeSpawnUI = spawnedUI.spawner.baseUI.spawnUI
+        local isSpawnTarget = activeSpawnUI.getSpawnTargetParent() == element
+        local isEmptyGroup = utils.isA(element, "positionableGroup") and #element.childs == 0
 
         style.mutedText(isMulti and #spawnedUI.selectedPaths .. " elements" or element.name)
         if isLocked then
@@ -1548,27 +1552,23 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
         ImGui.Separator()
+        ImGui.BeginDisabled(isDirectRootChild)
         if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ArrowUpLeftBold, "Move to parent level"), "BACKSPACE") then
             spawnedUI.moveToParent(isMulti, element)
         end
         if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ArrowTopLeftBoldBoxOutline, "Move to Root"), "CTRL-BACKSPACE") then
             spawnedUI.moveToRoot(isMulti, element)
         end
+        ImGui.EndDisabled()
         if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.FolderMultiplePlusOutline, "Move to new group"), "CTRL-G") then
             spawnedUI.moveToNewGroup(isMulti, element)
         end
         if utils.isA(element, "positionableGroup") then
+            ImGui.BeginDisabled(isSpawnTarget)
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.PlusBoxOutline, "Set as \"Spawn New\" group"), "CTRL-N") then
-                local idx = 1
-                local elementPath = element:getPath()
-                for _, entry in pairs(spawnedUI.containerPaths) do
-                    if entry.path == elementPath then
-                        break
-                    end
-                    idx = idx + 1
-                end
-                spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
+                spawnedUI.setElementSpawnNewTarget(element)
             end
+            ImGui.EndDisabled()
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.PinOutline, "Open in new window")) then
                 spawnedUI.openPinnedHierarchy(element)
             end
@@ -1586,6 +1586,7 @@ function spawnedUI.drawContextMenu(element, path)
         end
         if utils.isA(element, "positionableGroup") then
             ImGui.EndDisabled()
+            ImGui.BeginDisabled(isEmptyGroup)
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.EyeOutline, "Show all children")) then
                 applyElementChangesBatched({ element }, function(entry)
                     entry:showDescendants(true)
@@ -1605,11 +1606,14 @@ function spawnedUI.drawContextMenu(element, path)
                     end
                 end)
             end
+            ImGui.EndDisabled()
             ImGui.BeginDisabled(isLocked)
-            
+
+            ImGui.BeginDisabled(isEmptyGroup)
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DownloadMultiple, "Drop Children to Floor")) then
                 element:dropChildrenToSurface(false, Vector4.new(0, 0, -1, 0))
             end
+            ImGui.EndDisabled()
 
 		    ImGui.Separator()
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ImageFilterCenterFocus, "Set Origin to Center")) then
