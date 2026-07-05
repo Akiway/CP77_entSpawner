@@ -36,6 +36,7 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 ---@field nameBeingEdited boolean
 ---@field clipper any
 ---@field visiblePathIndexById table<number, number>
+---@field hierarchyFirstVisibleIndexById table<string, number>
 ---@field hoveredEntries element[]
 ---@field pinnedHierarchy {open: boolean, groupId: number?}
 ---@field reorderPreview {x1: number, x2: number, y: number}?
@@ -78,6 +79,7 @@ spawnedUI = {
 
     clipper = nil,
     visiblePathIndexById = {},
+    hierarchyFirstVisibleIndexById = {},
     hoveredEntries = {},
     reorderPreview = nil,
 
@@ -112,6 +114,7 @@ local HIERARCHY_PICK_ELIGIBLE_BG = 0x5F007F00
 local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
 local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
 local HIERARCHY_REORDER_PREVIEW_SHADOW = 0x88000000
+local MAX_STICKY_PARENT_ROWS = 5
 
 ---@param index number
 ---@param stableId string?
@@ -2482,7 +2485,8 @@ end
 ---@param entry {path : string, ref : element, depth : number}?
 ---@param dummy boolean
 ---@param rowIndex number?
-function spawnedUI.drawElement(entry, dummy, rowIndex)
+---@param sticky boolean?
+function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
     spawnedUI.elementCount = spawnedUI.elementCount + 1
     local element = entry and entry.ref or nil
     local elementPath = entry and entry.path or ""
@@ -2494,7 +2498,12 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     ImGui.PushID(spawnedUI.elementCount)
 
     ImGui.TableNextRow(ImGuiTableRowFlags.None, spawnedUI.getRowHeight())
-    if (rowIndex or spawnedUI.elementCount) % 2 == 0 then
+    local isEvenRow = (rowIndex or spawnedUI.elementCount) % 2 == 0
+    if sticky and isEvenRow then
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.08, 0.08, 0.08, 0.9)
+    elseif sticky then
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.13, 0.13, 0.13, 0.9)
+    elseif isEvenRow then
         ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.2, 0.2, 0.2, 0.3)
     else
         ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.3, 0.3, 0.3, 0.3)
@@ -2548,7 +2557,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     end
 
     if element.selected then
-        if spawnedUI.scrollToSelected then
+        if spawnedUI.scrollToSelected and not sticky then
             ImGui.SetScrollHereY(0.5)
             spawnedUI.scrollToSelected = false
         elseif element.selected ~= previous and spawnedUI.rangeSelectActive() then
@@ -2711,6 +2720,45 @@ function spawnedUI.drawElement(entry, dummy, rowIndex)
     ImGui.PopID()
 end
 
+---Collects the open parent chain for the first visible hierarchy entry.
+---Depth is used as the boundary so focused hierarchy windows never pin groups
+---from outside their own root.
+---@param entries {path: string, ref: element, depth: number}[]
+---@param firstVisibleIndex number
+---@param maxRows number
+---@return {path: string, ref: element, depth: number}[]
+local function collectStickyParentEntries(entries, firstVisibleIndex, maxRows)
+    local firstVisible = entries[firstVisibleIndex]
+    local depth = firstVisible and (firstVisible.depth or 0) or 0
+    if depth <= 0 or maxRows <= 0 then
+        return {}
+    end
+
+    local parents = {}
+    local parent = firstVisible.ref and firstVisible.ref.parent or nil
+    while parent and depth > 0 do
+        table.insert(parents, 1, {
+            path = parent:getPath(),
+            ref = parent,
+            depth = depth - 1
+        })
+        parent = parent.parent
+        depth = depth - 1
+    end
+
+    -- Extremely deep trees should still leave room for at least one regular row.
+    -- Keep the nearest parents when the full chain cannot fit in the viewport.
+    if #parents > maxRows then
+        local nearestParents = {}
+        for index = #parents - maxRows + 1, #parents do
+            table.insert(nearestParents, parents[index])
+        end
+        return nearestParents
+    end
+
+    return parents
+end
+
 ---@protected
 function spawnedUI.drawReorderPreview()
     local preview = spawnedUI.reorderPreview
@@ -2751,8 +2799,25 @@ function spawnedUI.drawHierarchy(options)
     local entries = options.entries or (spawnedUI.filter == "" and spawnedUI.visiblePaths or spawnedUI.filteredPaths)
     spawnedUI.prepareStateIconFrame()
 
-    ImGui.BeginChild(options.childId or "##hierarchy", 0, childHeight, false, ImGuiWindowFlags.NoMove)
+    local childId = options.childId or "##hierarchy"
+    local tableId = options.tableId or "##hierarchyTable"
+    local firstVisibleIndex = math.min(#entries, spawnedUI.hierarchyFirstVisibleIndexById[childId] or 1)
+
+    ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
+    ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
+
+    local containerFlags = ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoScrollbar + ImGuiWindowFlags.NoScrollWithMouse
+    ImGui.BeginChild(childId .. "StickyContainer", 0, childHeight, false, containerFlags)
+    ImGui.BeginChild(childId, 0, childHeight, false, ImGuiWindowFlags.NoMove)
     input.updateContext("hierarchy")
+    local hierarchyScrollY = math.max(0, ImGui.GetScrollY())
+
+    local windowX, windowY = ImGui.GetWindowPos()
+    local contentMinX, contentMinY = ImGui.GetWindowContentRegionMin()
+    local contentMaxX, _ = ImGui.GetWindowContentRegionMax()
+    local viewportX = windowX + contentMinX
+    local viewportY = windowY + contentMinY
+    local viewportWidth = math.max(0, contentMaxX - contentMinX)
 
     local forceFullPass = false
     if spawnedUI.scrollToSelected and #spawnedUI.selectedPaths > 0 then
@@ -2772,9 +2837,12 @@ function spawnedUI.drawHierarchy(options)
     end
 
     -- Start the table
-    ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
-    ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
-    if ImGui.BeginTable(options.tableId or "##hierarchyTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
+    local hasVerticalScrollbar = false
+    if ImGui.BeginTable(tableId, 1, ImGuiTableFlags.ScrollX) then
+        local effectiveScrollY = math.max(hierarchyScrollY, math.max(0, ImGui.GetScrollY()))
+        firstVisibleIndex = math.min(#entries, math.floor(effectiveScrollY / rowHeight) + 1)
+        spawnedUI.hierarchyFirstVisibleIndexById[childId] = firstVisibleIndex
+
         local lastRenderedRowIndex = 0
         if forceFullPass then
             for idx, entry in ipairs(entries) do
@@ -2784,10 +2852,17 @@ function spawnedUI.drawHierarchy(options)
         else
             spawnedUI.clipper = ImGuiListClipper.new()
             spawnedUI.clipper:Begin(#entries, rowHeight)
+            local capturedFirstVisibleIndex = false
 
             while spawnedUI.clipper:Step() do
                 local startIndex = spawnedUI.clipper.DisplayStart + 1
                 local endIndex = spawnedUI.clipper.DisplayEnd
+
+                if not capturedFirstVisibleIndex then
+                    firstVisibleIndex = math.max(firstVisibleIndex, startIndex)
+                    spawnedUI.hierarchyFirstVisibleIndexById[childId] = firstVisibleIndex
+                    capturedFirstVisibleIndex = true
+                end
 
                 for idx = startIndex, endIndex do
                     local entry = entries[idx]
@@ -2799,19 +2874,73 @@ function spawnedUI.drawHierarchy(options)
             end
         end
 
-        if spawnedUI.elementCount < nRows then
-            for fillerOffset = 1, nRows - spawnedUI.elementCount do
+        local fillerRows = math.max(0, nRows - #entries)
+        if fillerRows > 0 then
+            for fillerOffset = 1, fillerRows do
                 spawnedUI.drawElement(nil, true, lastRenderedRowIndex + fillerOffset)
             end
         end
         spawnedUI.drawReorderPreview()
         spawnedUI.reorderPreview = nil
 
+        hasVerticalScrollbar = ImGui.GetScrollMaxY() > 0
         ImGui.EndTable()
     end
-    ImGui.PopStyleVar(2)
+
+    hasVerticalScrollbar = hasVerticalScrollbar or ImGui.GetScrollMaxY() > 0
+    ImGui.EndChild()
+
+    if hasVerticalScrollbar then
+        viewportWidth = math.max(0, viewportWidth - ImGui.GetStyle().ScrollbarSize)
+    end
+
+    local stickyEntries = collectStickyParentEntries(
+        entries,
+        firstVisibleIndex,
+        math.min(MAX_STICKY_PARENT_ROWS, math.max(0, nRows - 1))
+    )
+    if #stickyEntries > 0 and viewportWidth > 0 then
+        local containerCursorX, containerCursorY = ImGui.GetCursorScreenPos()
+        local overlayHeight = #stickyEntries * rowHeight
+        local backgroundR, backgroundG, backgroundB, _ = ImGui.GetStyleColorVec4(ImGuiCol.WindowBg)
+
+        ImGui.SetCursorScreenPos(viewportX, viewportY)
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, backgroundR, backgroundG, backgroundB, 1)
+        local overlayFlags = ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoScrollbar + ImGuiWindowFlags.NoScrollWithMouse
+        ImGui.BeginChild(tableId .. "StickyOverlay", viewportWidth, overlayHeight, false, overlayFlags)
+        input.updateContext("hierarchy")
+
+        if ImGui.BeginTable(tableId .. "StickyParents", 1, ImGuiTableFlags.NoHostExtendX) then
+            spawnedUI.elementCount = 0
+            ImGui.PushID("stickyHierarchyParents")
+            for _, entry in ipairs(stickyEntries) do
+                spawnedUI.drawElement(entry, false, nil, true)
+            end
+            ImGui.PopID()
+            ImGui.EndTable()
+        end
+
+        local stickyBorderThickness = math.max(1, 2 * style.viewSize)
+        local stickyBorderX = viewportX + stickyBorderThickness * 0.5
+        ImGui.ImDrawListAddLine(
+            ImGui.GetWindowDrawList(),
+            stickyBorderX,
+            viewportY,
+            stickyBorderX,
+            viewportY + overlayHeight,
+            0xFFFFFFFF,
+            stickyBorderThickness
+        )
+
+        spawnedUI.drawReorderPreview()
+        spawnedUI.reorderPreview = nil
+        ImGui.EndChild()
+        ImGui.PopStyleColor()
+        ImGui.SetCursorScreenPos(containerCursorX, containerCursorY)
+    end
 
     ImGui.EndChild()
+    ImGui.PopStyleVar(2)
 end
 
 function spawnedUI.drawPinnedHierarchyWindow()
