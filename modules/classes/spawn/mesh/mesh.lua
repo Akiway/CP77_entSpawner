@@ -559,10 +559,10 @@ function mesh:draw()
         {
             element = self.object,
             width = 160,
-            matchContentWidth = true
+            matchContentWidth = true,
+            tooltip = "Select the mesh appearance"
         }
     )
-    style.tooltip("Select the mesh appearance")
     if changed and #self.apps > 0 then
         self.app = selectedApp
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
@@ -657,6 +657,7 @@ function mesh:drawColliderSelector()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     ImGui.SetNextItemWidth(160 * style.viewSize)
     local nextColliderShapeTypeIndex, colliderShapeTypeIndexChanged = ImGui.Combo("##colliderShapeType", self.colliderShapeTypeIndex, colliderShapeTypes, #colliderShapeTypes)
+    style.comboValueTooltip(nextColliderShapeTypeIndex, colliderShapeTypes)
     if colliderShapeTypeIndexChanged then
         self.colliderShapeTypeIndex = nextColliderShapeTypeIndex
         self.colliderShapeHashIndex = 0
@@ -700,6 +701,7 @@ function mesh:drawColliderSelector()
             meshCollisionShapeHashes,
             #meshCollisionShapeHashes
         )
+        style.comboValueTooltip(nextColliderShapeHashIndex, meshCollisionShapeHashes)
         if colliderShapeHashIndexChanged then
             self.colliderShapeHashIndex = nextColliderShapeHashIndex
             self.colliderShapeSectorHashIndex = 0
@@ -723,6 +725,7 @@ function mesh:drawColliderSelector()
                 meshCollisionShapeSectorHashes,
                 #meshCollisionShapeSectorHashes
             )
+            style.comboValueTooltip(nextColliderShapeSectorHashIndex, meshCollisionShapeSectorHashes)
             if colliderShapeSectorHashIndexChanged then
                 self.colliderShapeSectorHashIndex = nextColliderShapeSectorHashIndex
             end
@@ -834,8 +837,9 @@ function mesh:drawConversionSelector(comboId, popupId)
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.convertTarget = math.max(0, math.min(self.convertTarget, #options - 1))
-    self.convertTarget, _ = style.trackedCombo(self.object, comboId, self.convertTarget, options, 150)
-    style.tooltip("Select the mesh type to convert into")
+    self.convertTarget, _ = style.trackedCombo(self.object, comboId, self.convertTarget, options, 150, {
+        tooltip = "Select the mesh type to convert into"
+    })
 
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth + 150 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
@@ -945,6 +949,7 @@ function mesh:getGroupedProperties()
             ImGui.SetCursorPosX(selectorX)
             ImGui.SetNextItemWidth(selectorWidth)
             local fromIndex, fromChanged = ImGui.Combo("##groupMeshConvertFrom", converterData.fromIndex, fromOptions, #fromOptions)
+            style.comboValueTooltip(fromIndex, fromOptions)
             if fromChanged then
                 converterData.fromIndex = fromIndex
                 converterData.toIndex = 0
@@ -983,6 +988,7 @@ function mesh:getGroupedProperties()
             ImGui.SetNextItemWidth(selectorWidth)
             converterData.toIndex = math.max(0, math.min(converterData.toIndex, #toOptions - 1))
             converterData.toIndex, _ = ImGui.Combo("##groupMeshConvertTo", converterData.toIndex, toOptions, #toOptions)
+            style.comboValueTooltip(converterData.toIndex, toOptions)
             local targetModulePath = toModulePaths[converterData.toIndex + 1]
 
             local function applyGroupConversion(sourceModulePath, targetPath)
@@ -1077,6 +1083,7 @@ function mesh:getGroupedProperties()
             ImGui.SameLine()
             ImGui.SetNextItemWidth(110 * style.viewSize)
             element.groupOperationData["mesh"].shape, _ = ImGui.Combo("##colliderShape", element.groupOperationData["mesh"].shape, colliderShapeTypes, 3)
+            style.comboValueTooltip(element.groupOperationData["mesh"].shape, colliderShapeTypes)
 
             ImGui.SameLine()
 

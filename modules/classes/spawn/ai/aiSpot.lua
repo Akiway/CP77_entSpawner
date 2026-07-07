@@ -1478,10 +1478,10 @@ function aiSpot:draw()
                 element = self.object,
                 width = 250,
                 matchContentWidth = false,
-                allowCustom = true
+                allowCustom = true,
+                tooltip = "Select a compatible character record, or type one and choose 'Use custom: ...'."
             }
         )
-        style.tooltip("Select a compatible character record, or type one and choose 'Use custom: ...'.")
         if finished then
             self.previewNPCAppearance = "default"
             self.previewNPCAppearanceSearch = ""
@@ -1526,12 +1526,12 @@ function aiSpot:draw()
                 element = self.object,
                 width = 250,
                 matchContentWidth = true,
-                allowCustom = true
+                allowCustom = true,
+                tooltip = #self.apps > 0
+                    and "Appearance used when spawning the preview NPC in this workspot. You can also type one and choose 'Use custom: ...'."
+                    or "No cached appearances yet for this character record. 'default' will be used until loaded, but you can still use a custom value."
             }
         )
-        style.tooltip(#self.apps > 0
-            and "Appearance used when spawning the preview NPC in this workspot. You can also type one and choose 'Use custom: ...'."
-            or "No cached appearances yet for this character record. 'default' will be used until loaded, but you can still use a custom value.")
         if changed then
             self:respawn()
         end

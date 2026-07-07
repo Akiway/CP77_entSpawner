@@ -1572,12 +1572,12 @@ function device:draw()
                     element = self.object,
                     width = style.getMaxWidth(250) - 30,
                     matchContentWidth = true,
-                    allowCustom = true
+                    allowCustom = true,
+                    tooltip = "NodeRef of the connected device. Select one from this root group, or type and choose 'Use custom: ...'."
                 }
             )
             connection.nodeRef = sanitizeConnectionValue(connection.nodeRef)
             self.connectionNodeRefSearch[searchKey] = searchValue
-            style.tooltip("NodeRef of the connected device. Select one from this root group, or type and choose 'Use custom: ...'.")
             if nodeRefChanged then
                 local resolvedClassName = self:resolveConnectionClassName(connection.nodeRef)
                 if resolvedClassName and resolvedClassName ~= connection.deviceClassName then

@@ -137,14 +137,14 @@ function colliderBase:draw()
         {
             element = self.object,
             width = 200,
-            matchContentWidth = true
+            matchContentWidth = true,
+            tooltip = colliderGenerics.hints[self.preset + 1]
         }
     )
     if presetChanged then
         self.preset = presetToIndex[selectedPreset] or self.preset
     end
     self:updateFull(presetChanged)
-    style.tooltip(colliderGenerics.hints[self.preset + 1])
 
     style.mutedText("Collision Material")
     ImGui.SameLine()
@@ -160,14 +160,14 @@ function colliderBase:draw()
         {
             element = self.object,
             width = 200,
-            matchContentWidth = true
+            matchContentWidth = true,
+            tooltip = colliderGenerics.materials[self.material + 1] or ""
         }
     )
     if materialChanged then
         self.material = materialDisplayToIndex[selectedMaterial] or self.material
     end
     self:updateFull(materialChanged)
-    style.tooltip(colliderGenerics.materials[self.material + 1] or "")
 end
 
 function colliderBase:getProperties()
@@ -257,13 +257,13 @@ function colliderBase:getGroupedProperties()
                 materialDisplayOptions,
                 {
                     width = 150,
-                    matchContentWidth = true
+                    matchContentWidth = true,
+                    tooltip = colliderGenerics.materials[groupData.material + 1] or ""
                 }
             )
             if materialChanged then
                 groupData.material = materialDisplayToIndex[selectedMaterial] or groupData.material
             end
-            style.tooltip(colliderGenerics.materials[groupData.material + 1] or "")
 
             ImGui.SameLine()
 
@@ -287,6 +287,7 @@ function colliderBase:getGroupedProperties()
             ImGui.SameLine()
             ImGui.SetNextItemWidth(70 * style.viewSize)
             groupData.scaleAxis, _ = ImGui.Combo("##groupColliderScaleAxis", groupData.scaleAxis, groupScaleAxes, #groupScaleAxes)
+            style.comboValueTooltip(groupData.scaleAxis, groupScaleAxes)
 
             ImGui.SameLine()
             ImGui.SetNextItemWidth(80 * style.viewSize)

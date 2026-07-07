@@ -2170,6 +2170,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
 
         local info = self:getPropTypeInfo(componentID, path, key)
         local locKeyPreviewValue = nil
+        local propertyTooltipHandled = false
 
         if info.typeName == "rendLightChannel" then
             local sectionName = info.typeName .. " | " .. tostring(key)
@@ -2248,6 +2249,8 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
 
             ImGui.SetNextItemWidth(100 * style.viewSize)
             local value, changed = ImGui.Combo("##" .. componentID .. table.concat(path), utils.indexValue(values, data) - 1, values, #values)
+            style.comboValueTooltip(value, values, info.typeName)
+            propertyTooltipHandled = true
             if changed then
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, values[value + 1])
@@ -2256,7 +2259,9 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
             ImGui.Text(key .. " " .. info.typeName)
         end
 
-        style.tooltip(info.typeName)
+        if not propertyTooltipHandled then
+            style.tooltip(info.typeName)
+        end
         self:drawResetProp(componentID, path)
 
         if locKeyPreviewValue ~= nil then

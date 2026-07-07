@@ -264,7 +264,8 @@ function reflection:draw()
             optionFilterFn = function(optionText, query)
                 local optionLower = (envProbeLowerCache and envProbeLowerCache[optionText]) or string.lower(optionText)
                 return string.find(optionLower, query, 1, true) ~= nil
-            end
+            end,
+            tooltip = "Select the envprobe resource used by this reflection probe."
         }
     )
 
@@ -272,7 +273,6 @@ function reflection:draw()
         self.spawnData = selectedProbe
         self:respawn()
     end
-    style.tooltip(selectedProbe .. "\n\nSelect the envprobe resource used by this reflection probe.")
 
     self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
 

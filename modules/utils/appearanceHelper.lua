@@ -392,13 +392,13 @@ function appearanceHelper.getGroupedProperties(spawnable)
                         apps,
                         {
                             width = comboWidth / style.viewSize,
-                            matchContentWidth = true
+                            matchContentWidth = true,
+                            tooltip = "Select an appearance to apply to all matching selected entries."
                         }
                     )
                     style.popGreyedOut(appCount == 1)
                     groupedData.selectors[group.key] = selectedApp
                     groupedData.selectorSearches[group.key] = searchValue
-                    style.tooltip("Select an appearance to apply to all matching selected entries.")
 
                     ImGui.SameLine()
                     if ImGui.Button("Apply") then

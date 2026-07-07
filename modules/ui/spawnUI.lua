@@ -1742,13 +1742,14 @@ function spawnUI.drawSpawnPosition()
     ImGui.SameLine()
     local x = ImGui.GetCursorPosX()
     ImGui.PushItemWidth(100 * style.viewSize)
-    local pos, changed = ImGui.Combo("##spawnPos", settings.spawnPos - 1, { "At selected", "Screen center" }, 2)
+    local spawnPositionOptions = { "At selected", "Screen center" }
+    local pos, changed = ImGui.Combo("##spawnPos", settings.spawnPos - 1, spawnPositionOptions, #spawnPositionOptions)
     settings.spawnPos = pos + 1
     if changed then settings.save() end
     if settings.spawnPos == 1 then
-        style.tooltip("Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the camera.")
+        style.comboValueTooltip(pos, spawnPositionOptions, "Spawn the new object at the position of the selected object(s), if none are selected, it will spawn in front of the camera.")
     else
-        style.tooltip("Spawn position is relative to the camera position and orientation.")
+        style.comboValueTooltip(pos, spawnPositionOptions, "Spawn position is relative to the camera position and orientation.")
     end
 
     ImGui.SameLine()
@@ -2154,8 +2155,8 @@ function spawnUI.drawTargetGroupSelector()
     ImGui.SameLine()
 	ImGui.PushItemWidth(200 * style.viewSize)
 	spawnUI.selectedGroup = ImGui.Combo("##newSpawnGroup", spawnUI.selectedGroup, groups, #groups)
+    style.comboValueTooltip(spawnUI.selectedGroup, groups, "Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned\" tab to set this selector to the currently selected group.")
     ImGui.EndGroup()
-    style.tooltip("Automatically place any newly spawned object into the selected group.\nPress CTRL-N in \"Spawned\" tab to set this selector to the currently selected group.")
 	ImGui.PopItemWidth()
 end
 
@@ -2179,6 +2180,7 @@ function spawnUI.drawAll()
     ImGui.PushItemWidth(120 * style.viewSize)
 	local typeChanged
 	spawnUI.selectedType, typeChanged = ImGui.Combo("Object type", spawnUI.selectedType, typeNames, #typeNames)
+    style.comboValueTooltip(spawnUI.selectedType, typeNames)
     if typeChanged then
         spawnUI.updateCategory()
     end
@@ -2190,7 +2192,7 @@ function spawnUI.drawAll()
     if variantChanged then
         spawnUI.updateVariant()
     end
-    style.spawnableInfo(spawnUI.getActiveSpawnList().info)
+    style.spawnableInfo(spawnUI.getActiveSpawnList().info, variantNames[spawnUI.selectedVariant + 1])
 
 	ImGui.PopItemWidth()
 

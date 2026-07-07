@@ -511,13 +511,13 @@ function community:drawPhaseAppearances(entryKey, phaseKey, entry, phase)
                 element = self.object,
                 width = style.getMaxWidth(220) - 110,
                 matchContentWidth = true,
-                allowCustom = true
+                allowCustom = true,
+                tooltip = loaded
+                    and "Select an appearance from the selected character record, or type one and choose 'Use custom: ...'."
+                    or "Appearances are loading for the selected character record. 'default' is available until the list is cached. You can still use a custom value."
             }
         )
         self.phaseAppearanceSearch[searchKey] = search
-        style.tooltip(loaded
-            and "Select an appearance from the selected character record, or type one and choose 'Use custom: ...'."
-            or "Appearances are loading for the selected character record. 'default' is available until the list is cached. You can still use a custom value.")
 
         local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicateAppearance", "deleteAppearance")
         if duplicateClicked then
@@ -624,8 +624,9 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
     if periodOpen then
         style.drawIconLabelRow(nil, string.format("[%d]", periodKey))
         ImGui.SameLine()
-        period.hour, _ = style.trackedCombo(self.object, "##hour", period.hour, self.periodEnums, 150)
-        style.tooltip("Named hour mappings:\nMidnight = 0:00\nMorning = 6:00\nDay = 9:00\nEvening = 18:00\nNight = 22:00")
+        period.hour, _ = style.trackedCombo(self.object, "##hour", period.hour, self.periodEnums, 150, {
+            tooltip = "Named hour mappings:\nMidnight = 0:00\nMorning = 6:00\nDay = 9:00\nEvening = 18:00\nNight = 22:00"
+        })
 
         ImGui.SameLine()
         local nextSequence, sequenceChanged = style.toggleButton(IconGlyphs.Numeric .. "##isSequence", period.isSequence)
@@ -911,11 +912,11 @@ function community:drawEntries()
                     element = self.object,
                     width = 200,
                     matchContentWidth = true,
-                    allowCustom = true
+                    allowCustom = true,
+                    tooltip = "Select the character record (TweakDBID) for this community entry, or type one and choose 'Use custom: ...'."
                 }
             )
             self.entryRecordSearch[entryKey] = recordSearch
-            style.tooltip("Select the character record (TweakDBID) for this community entry, or type one and choose 'Use custom: ...'.")
 
             ImGui.SameLine()
             if drawIconActionButton(IconGlyphs.CogOutline, "entrySettings", nil) then

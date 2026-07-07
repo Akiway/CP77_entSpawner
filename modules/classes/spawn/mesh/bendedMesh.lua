@@ -1971,10 +1971,10 @@ function bendedMesh:drawAppearanceSelector()
         {
             element = self.object,
             width = 180,
-            matchContentWidth = true
+            matchContentWidth = true,
+            tooltip = "Select the mesh appearance"
         }
     )
-    style.tooltip("Select the mesh appearance")
 
     if changed and #self.apps > 0 then
         self.app = selectedApp
@@ -2115,9 +2115,10 @@ function bendedMesh:drawPathEditor()
     style.mutedText("Up Axis")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.pathUpAxis, changed = style.trackedCombo(self.object, "##pathUpAxis", self.pathUpAxis, pathUpAxisOptions, 160)
+    self.pathUpAxis, changed = style.trackedCombo(self.object, "##pathUpAxis", self.pathUpAxis, pathUpAxisOptions, 160, {
+        tooltip = "Reference axis for constructing local right/up basis from path direction"
+    })
     pathVisualizationNeedsUpdate = pathVisualizationNeedsUpdate or changed
-    style.tooltip("Reference axis for constructing local right/up basis from path direction")
 
     style.mutedText("Loop Path")
     ImGui.SameLine()
@@ -2140,13 +2141,14 @@ function bendedMesh:drawPathEditor()
         style.mutedText("Path Algorithm")
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxPropertyWidth)
-        self.pathInterpolation, changed = style.trackedCombo(self.object, "##pathInterpolation", self.pathInterpolation, pathInterpolationOptions, 180)
+        self.pathInterpolation, changed = style.trackedCombo(self.object, "##pathInterpolation", self.pathInterpolation, pathInterpolationOptions, 180, {
+            tooltip = "Linear interpolates non-anchored points between anchors.\nCatmull-Rom smooths with cubic interpolation.\nBezier builds smooth segments from neighboring anchors using auto handles."
+        })
         if changed then
             self.pathInterpolation = math.max(0, math.min(math.floor(self.pathInterpolation), #pathInterpolationOptions - 1))
             self:applyPathAlgorithmToNonAnchored()
         end
         pathVisualizationNeedsUpdate = pathVisualizationNeedsUpdate or changed
-        style.tooltip("Linear interpolates non-anchored points between anchors.\nCatmull-Rom smooths with cubic interpolation.\nBezier builds smooth segments from neighboring anchors using auto handles.")
     end
 
     ImGui.Dummy(0, 8 * style.viewSize)
@@ -2306,11 +2308,12 @@ function bendedMesh:drawColliderGeneration()
     style.mutedText("Collider Shape")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.bendedColliderShape, changed = style.trackedCombo(self.object, "##bendedColliderShape", self.bendedColliderShape, { "Box (Recommended)", "Capsule", "Sphere" }, 170)
+    self.bendedColliderShape, changed = style.trackedCombo(self.object, "##bendedColliderShape", self.bendedColliderShape, { "Box (Recommended)", "Capsule", "Sphere" }, 170, {
+        tooltip = "Default is Box. Capsule and Sphere are available but less precise for bend following."
+    })
     if changed then
         self.bendedColliderShape = math.max(0, math.min(2, math.floor(self.bendedColliderShape)))
     end
-    style.tooltip("Default is Box. Capsule and Sphere are available but less precise for bend following.")
 
     style.mutedText("Splits / Segment")
     ImGui.SameLine()

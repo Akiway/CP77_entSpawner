@@ -42,6 +42,31 @@ local function resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
     return optionText
 end
 
+---@param value any
+---@param helperText string?
+---@param showValue boolean?
+---@return string?
+local function buildSelectorTooltip(value, helperText, showValue)
+    local tooltipParts = {}
+
+    if showValue ~= false then
+        local valueText = tostring(value or "")
+        if valueText ~= "" then
+            table.insert(tooltipParts, valueText)
+        end
+    end
+
+    if helperText and helperText ~= "" then
+        table.insert(tooltipParts, tostring(helperText))
+    end
+
+    if #tooltipParts == 0 then
+        return nil
+    end
+
+    return table.concat(tooltipParts, "\n\n")
+end
+
 local initialized = false
 
 ---@param lhs number?
@@ -239,11 +264,18 @@ end
 
 ---Draw spawnable metadata in a tooltip for the hovered item.
 ---@param info table Table containing `node`, `description`, and `previewNote`.
-function style.spawnableInfo(info)
+---@param currentValue string? Optional selected value shown before metadata.
+function style.spawnableInfo(info, currentValue)
     if ImGui.IsItemHovered() then
 
         ImGui.BeginTooltip()
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 20)
+
+        if currentValue and currentValue ~= "" then
+            style.mutedText("Selected: ")
+            ImGui.Text(currentValue)
+            ImGui.Spacing()
+        end
 
         style.mutedText("Node: ")
         ImGui.Text(info.node)
@@ -865,23 +897,50 @@ function style.trackedIntInput(element, text, value, min, max, width, step, fast
 end
 
 ---Draw a combo box and record history when selection changes.
+---@class TrackedComboOpts
+---@field tooltip string? Optional helper text appended after the current value.
+---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip.
 ---@param element table Element used for undo history tracking.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
 ---@param options table Array-like table of option labels.
 ---@param width number? Field width in unscaled style units (default `100`).
+---@param opts TrackedComboOpts?
 ---@return number newValue Selected index returned by ImGui.
 ---@return boolean changed
-function style.trackedCombo(element, text, selected, options, width)
+function style.trackedCombo(element, text, selected, options, width, opts)
+    if type(width) == "table" then
+        opts = width
+        width = opts.width
+    end
+
     width = width or 100
+    opts = opts or {}
     ImGui.SetNextItemWidth(width * style.viewSize)
 
     local newValue, changed = ImGui.Combo(text, selected, options, #options)
+    local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
+    if tooltipText then
+        style.tooltip(tooltipText)
+    end
 
     if changed then
         history.addAction(history.getElementChange(element))
     end
     return newValue, changed
+end
+
+---Show a current-value tooltip for a direct zero-based ImGui.Combo call.
+---@param selected number Current zero-based selected index.
+---@param options table Array-like table of option labels.
+---@param helperText string? Optional helper text appended after the current value.
+---@param showValue boolean? When false, suppresses the current-value tooltip.
+function style.comboValueTooltip(selected, options, helperText, showValue)
+    local index = tonumber(selected) or 0
+    local tooltipText = buildSelectorTooltip(options and options[index + 1], helperText, showValue)
+    if tooltipText then
+        style.tooltip(tooltipText)
+    end
 end
 
 ---Draw an RGB color editor with history tracking.
@@ -1070,6 +1129,8 @@ end
 ---@field optionTooltipFn fun(optionText: string, optionLabel: string): string? Optional tooltip resolver for each option row.
 ---@field optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
 ---@field optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
+---@field tooltip string? Optional helper text appended after the current value.
+---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip.
 ---@param text string Combo label / ID.
 ---@param searchHint string Placeholder for the filter input.
 ---@param value string Current selected value.
@@ -1106,7 +1167,13 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     end
 
     ImGui.SetNextItemWidth(comboWidth)
-    if (ImGui.BeginCombo(text, previewValue)) then
+    local comboOpen = ImGui.BeginCombo(text, previewValue)
+    local tooltipText = buildSelectorTooltip(selectedValue, opts.tooltip, opts.currentValueTooltip)
+    if tooltipText then
+        style.tooltip(tooltipText)
+    end
+
+    if comboOpen then
         local effectiveWidth = matchContentWidth and (popupMaxWidth / style.viewSize) or width
         local interiorWidth = effectiveWidth - (2 * ImGui.GetStyle().FramePadding.x) - 30
         searchValue, _, _ = style.trackedTextField(nil, "##search", searchValue, searchHint, interiorWidth)
