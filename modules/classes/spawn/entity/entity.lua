@@ -295,7 +295,7 @@ end
 ---@return boolean changed
 function entity:cycleAppearance()
     local appCount = #(self.apps or {})
-    if appCount <= 1 or not self:isSpawned() then
+    if appCount <= 1 then
         return false
     end
 
@@ -1388,7 +1388,7 @@ function entity:drawEntityBaseProperties()
         }
     end
 
-    local greyOut = #self.apps <= 1 or not self:isSpawned()
+    local greyOut = #self.apps <= 1
     style.pushGreyedOut(greyOut)
 
     local list = self.apps
@@ -1419,7 +1419,7 @@ function entity:drawEntityBaseProperties()
             matchContentWidth = true
         }
     )
-    if changed and #self.apps > 0 and self:isSpawned() then
+    if changed and #self.apps > 0 then
         self.app = selectedApp
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
 
