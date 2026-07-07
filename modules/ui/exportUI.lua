@@ -5,6 +5,7 @@ local settings = require("modules/utils/settings")
 local field = require("modules/utils/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local groupExportManager = require("modules/utils/pipeline/groupExportManager")
+local pipelineCommon = require("modules/utils/pipeline/common")
 
 local minScriptVersion = "1.0.4"
 local sectorCategory
@@ -62,6 +63,7 @@ exportUI = {
     templateDeletePopup = false,
     templateDeleteTarget = nil,
     templateDeleteDontAskAgain = false,
+    templateSaveToasts = {},
     groupsDividerHovered = false,
     groupsDividerDragging = false,
     templatesDividerHovered = false,
@@ -857,6 +859,7 @@ end
 
 function exportUI.drawToasts()
     groupExportManager.drawToasts()
+    pipelineCommon.drawQueuedToasts(exportUI.templateSaveToasts)
 end
 
 function exportUI.cancelExport(reason, suppressToast)
@@ -1267,8 +1270,13 @@ function exportUI.draw()
             xlFormat = exportUI.xlFormat,
             groups = utils.deepcopy(exportUI.groups)
         }
-        exportUI.templates[exportUI.projectName] = data
-        config.saveFile("data/exportTemplates/" .. exportUI.projectName .. ".json", data)
+        local saved, saveErr = config.saveFile("data/exportTemplates/" .. exportUI.projectName .. ".json", data)
+        if saved then
+            exportUI.templates[exportUI.projectName] = data
+            pipelineCommon.queueToast(exportUI.templateSaveToasts, "success", 2500, string.format("Saved export template \"%s\"", exportUI.projectName))
+        else
+            pipelineCommon.queueToast(exportUI.templateSaveToasts, "error", 5000, string.format("Failed to save export template \"%s\": %s", exportUI.projectName, tostring(saveErr or "unknown_error")))
+        end
     end
     style.tooltip("Save the current export setup as a template for later (re)usage")
 
