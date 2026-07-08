@@ -661,8 +661,12 @@ function favoritesUI.drawSelectCategory(categoryName)
     return categoryName, changed
 end
 
+local function getFavoritesRowHeight(padding)
+    return ImGui.GetFrameHeight() + (padding - style.viewSize) * 2
+end
+
 function favoritesUI.pushRow(context)
-    ImGui.TableNextRow(ImGuiTableRowFlags.None, ImGui.GetFrameHeight() + context.padding * 2 - style.viewSize * 2)
+    ImGui.TableNextRow(ImGuiTableRowFlags.None, getFavoritesRowHeight(context.padding))
     if context.row % 2 == 0 then
         ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, 0.2, 0.2, 0.2, 0.3)
     else
@@ -676,13 +680,16 @@ function favoritesUI.drawMain()
     local cellPadding = 3 * style.viewSize
     local _, y = ImGui.GetContentRegionAvail()
     y = math.max(y, 300 * style.viewSize)
-    local nRows = math.floor(y / (ImGui.GetFrameHeight() + cellPadding * 2 - style.viewSize * 2))
+    local nRows = math.floor(y / getFavoritesRowHeight(cellPadding))
 
     local context = {
         row = 0,
         depth = 0,
         padding = cellPadding
     }
+
+    ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, cellPadding)
+    ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
 
     if ImGui.BeginChild("##favoritesList", -1, y, false) then
         if ImGui.BeginTable("##favoritesListTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
@@ -705,6 +712,8 @@ function favoritesUI.drawMain()
         end
         ImGui.EndChild()
     end
+
+    ImGui.PopStyleVar(2)
 end
 
 function favoritesUI.drawMergeTags()

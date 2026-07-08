@@ -246,8 +246,6 @@ end
 
 ---@param assetCount number?
 function favorite:drawSideButtons(assetCount)
-	ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
-
     -- Right side buttons
     local settingsX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
     local countCogSpacing = math.max(ImGui.GetStyle().ItemSpacing.x, 24 * style.viewSize)
@@ -269,11 +267,12 @@ function favorite:drawSideButtons(assetCount)
         ImGui.SetNextItemAllowOverlap()
         ImGui.AlignTextToFramePadding()
         style.mutedText(countText)
-        style.tooltip("Asset count")
+        style.tooltip("Quantity assets")
         ImGui.SameLine()
         ImGui.SetCursorPosX(cursorX + countX + countCogSpacing)
     end
-
+    
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(IconGlyphs.CogOutline) then
 		self.favoritesUI.openPopup = true
@@ -342,6 +341,7 @@ function favorite:draw(context)
 	ImGui.SameLine()
 	ImGui.AlignTextToFramePadding()
 	ImGui.SetNextItemAllowOverlap()
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
 	ImGui.Text(self.name)
 
 	ImGui.SameLine()

@@ -400,7 +400,7 @@ function category:drawSideButtons()
     local settingsX, _ = ImGui.CalcTextSize(IconGlyphs.FileTreeOutline)
     local groupX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
 	if self.isVirtualGroup then settingsX = 0 end
-	local totalX = settingsX + groupX + ImGui.GetStyle().ItemSpacing.x
+	local totalX = settingsX + groupX + ImGui.GetStyle().ItemSpacing.x * 2
     local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
     local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
     ImGui.SetCursorPosX(cursorX)
