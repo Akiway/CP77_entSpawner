@@ -1102,6 +1102,21 @@ function aiSpot:applyCommunityAttachment(communityTarget, entrySelection, phaseS
         end
     end
 
+    local workspotRecord = sanitizePreviewValue(self.previewNPC, "")
+    local workspotAppearance = sanitizePreviewValue(self.previewNPCAppearance, "default")
+    if not entrySelection.append and workspotRecord ~= "" then
+        local selectedEntryIndex = math.max(1, tonumber(entrySelection.entryIndex) or 1)
+        local selectedEntry = (communitySpawnable.entries or {})[selectedEntryIndex]
+        local selectedEntryRecord = sanitizePreviewValue(selectedEntry and selectedEntry.characterRecordId or "", "")
+        if selectedEntryRecord ~= "" and selectedEntryRecord ~= workspotRecord then
+            return false, string.format(
+                "Selected Community entry uses '%s', but this workspot previews '%s'. Choose a matching or empty entry.",
+                selectedEntryRecord,
+                workspotRecord
+            )
+        end
+    end
+
     local actions = { history.getElementChange(communityElement) }
     local requiresNodeRefUpdate = mode == "nodeRef" and nodeRefValue ~= currentNodeRef
     if requiresNodeRefUpdate then
@@ -1215,11 +1230,6 @@ function aiSpot:applyCommunityAttachment(communityTarget, entrySelection, phaseS
         end
     end
 
-    local workspotRecord = sanitizePreviewValue(self.previewNPC, "")
-    if not workspotRecord:match("^Character%.") then
-        workspotRecord = ""
-    end
-    local workspotAppearance = sanitizePreviewValue(self.previewNPCAppearance, "default")
     local addedAppearance = false
     local assignedRecord = false
 
