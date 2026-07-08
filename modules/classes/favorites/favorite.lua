@@ -9,10 +9,79 @@ local editor = require("modules/utils/editor/editor")
 ---@field data positionable
 ---@field category category?
 ---@field icon string
+---@field assetCount number?
 ---@field favoritesUI favoritesUI
 ---@field spawnUI spawnUI
 local favorite = {}
 local iconResolveCache = {}
+local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
+local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
+local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
+
+---@param data table?
+---@return boolean
+local function isSerializedSpawnable(data)
+    return type(data) == "table"
+        and (data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
+            or data.type == "object"
+            or data.type == "element"
+            or data.spawnable ~= nil)
+end
+
+---@param data table?
+---@return boolean
+local function isSerializedGroup(data)
+    if type(data) ~= "table" then
+        return false
+    end
+
+    if data.modulePath == POSITIONABLE_GROUP_MODULE_PATH
+        or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH
+        or data.type == "group" then
+        return true
+    end
+
+    return data.childs ~= nil and not isSerializedSpawnable(data)
+end
+
+---@param data table?
+---@return number?
+local function getSerializedAssetCount(data)
+    if isSerializedSpawnable(data) then
+        return 1
+    end
+
+    if not isSerializedGroup(data) then
+        return nil
+    end
+
+    local directCount = tonumber(data.elementCount)
+    if directCount then
+        return math.max(0, math.floor(directCount))
+    end
+
+    local count = 0
+    local stack = { data }
+
+    while #stack > 0 do
+        local current = table.remove(stack)
+
+        for _, child in pairs(current.childs or {}) do
+            if isSerializedSpawnable(child) then
+                count = count + 1
+            elseif isSerializedGroup(child) then
+                local childCount = tonumber(child.elementCount)
+                if childCount then
+                    count = count + math.max(0, math.floor(childCount))
+                else
+                    table.insert(stack, child)
+                end
+            end
+        end
+    end
+
+    return count
+end
 
 ---@param iconGlyph string?
 ---@return string
@@ -42,7 +111,7 @@ local function resolveIconKeyFromModulePath(data)
     end
 
     local cacheKey = modulePath
-    if modulePath == "modules/classes/editor/spawnableElement" then
+    if modulePath == SPAWNABLE_ELEMENT_MODULE_PATH then
         cacheKey = cacheKey .. "|" .. tostring(data.spawnable and data.spawnable.modulePath or "")
     end
 
@@ -50,7 +119,7 @@ local function resolveIconKeyFromModulePath(data)
         return iconResolveCache[cacheKey]
     end
 
-    if modulePath == "modules/classes/editor/spawnableElement" then
+    if modulePath == SPAWNABLE_ELEMENT_MODULE_PATH then
         local spawnablePath = data.spawnable and data.spawnable.modulePath
         if type(spawnablePath) == "string" and spawnablePath ~= "" then
             local okRequire, spawnableClass = pcall(require, "modules/classes/spawn/" .. spawnablePath)
@@ -73,7 +142,7 @@ local function resolveIconKeyFromModulePath(data)
         return fallback
     end
 
-    if modulePath == "modules/classes/editor/positionableGroup" then
+    if modulePath == POSITIONABLE_GROUP_MODULE_PATH then
         local groupIcon = iconKeyFromGlyph(IconGlyphs.Group)
         iconResolveCache[cacheKey] = groupIcon
         return groupIcon
@@ -107,6 +176,7 @@ function favorite:new(fUI)
     o.data = nil
     o.category = nil
     o.icon = ""
+    o.assetCount = nil
 
     o.favoritesUI = fUI
     o.spawnUI = fUI.spawnUI
@@ -121,6 +191,7 @@ function favorite:load(data)
     self.tags = data.tags
     self.data = data.data
     self.icon = data.icon or ""
+    self.assetCount = nil
 
     if self.icon == "" or not IconGlyphs[self.icon] then
         self.icon = resolveIconKeyFromModulePath(self.data)
@@ -164,15 +235,44 @@ function favorite:checkIsDuplicate()
     return false
 end
 
-function favorite:drawSideButtons()
+---@return number?
+function favorite:getAssetCount()
+    if self.assetCount == nil then
+        self.assetCount = getSerializedAssetCount(self.data)
+    end
+
+    return self.assetCount
+end
+
+---@param assetCount number?
+function favorite:drawSideButtons(assetCount)
 	ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
 
     -- Right side buttons
     local settingsX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
+    local countCogSpacing = math.max(ImGui.GetStyle().ItemSpacing.x, 24 * style.viewSize)
+    local countText = assetCount and tostring(assetCount) or nil
+    local countX = 0
+    if countText then
+        countX, _ = ImGui.CalcTextSize(countText)
+    end
+
 	local totalX = settingsX + ImGui.GetStyle().ItemSpacing.x
+    if countText then
+        totalX = totalX + countX + countCogSpacing
+    end
     local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
     local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
     ImGui.SetCursorPosX(cursorX)
+
+    if countText then
+        ImGui.SetNextItemAllowOverlap()
+        ImGui.AlignTextToFramePadding()
+        style.mutedText(countText)
+        style.tooltip("Asset count")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(cursorX + countX + countCogSpacing)
+    end
 
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(IconGlyphs.CogOutline) then
@@ -217,7 +317,7 @@ function favorite:draw(context)
     end
 
     -- Asset preview
-    if self.data.modulePath == "modules/classes/editor/spawnableElement" and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
+    if self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
     elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer) then
         self.spawnUI.hoveredEntry = nil
@@ -245,7 +345,7 @@ function favorite:draw(context)
 	ImGui.Text(self.name)
 
 	ImGui.SameLine()
-	self:drawSideButtons()
+	self:drawSideButtons(self:getAssetCount())
 
 	ImGui.PopStyleColor(2)
 	ImGui.PopStyleVar(3)
