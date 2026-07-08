@@ -67,6 +67,19 @@ local function buildSelectorTooltip(value, helperText, showValue)
     return table.concat(tooltipParts, "\n\n")
 end
 
+---@param value any
+---@param showValue boolean?
+local function copySelectorValueOnMiddleClick(value, showValue)
+    if showValue == false then return end
+
+    local valueText = tostring(value or "")
+    if valueText == "" then return end
+
+    if ImGui.IsItemHovered() and ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
+        ImGui.SetClipboardText(valueText)
+    end
+end
+
 local initialized = false
 
 ---@param lhs number?
@@ -244,6 +257,7 @@ function style.tooltip(text)
         ImGui.PopStyleColor()
         ImGui.EndTooltip()
     end
+    copySelectorValueOnMiddleClick(currentValue)
 end
 
 ---Position the next window relative to the mouse cursor.
@@ -262,10 +276,12 @@ function style.setCursorRelativeAppearing(x, y)
     setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Appearing)
 end
 
----Draw spawnable metadata in a tooltip for the hovered item.
+---Draw spawnable metadata in a tooltip for the hovered item and copy current value on middle-click.
 ---@param info table Table containing `node`, `description`, and `previewNote`.
 ---@param currentValue string? Optional selected value shown before metadata.
 function style.spawnableInfo(info, currentValue)
+    copySelectorValueOnMiddleClick(currentValue)
+
     if ImGui.IsItemHovered() then
 
         ImGui.BeginTooltip()
@@ -899,7 +915,7 @@ end
 ---Draw a combo box and record history when selection changes.
 ---@class TrackedComboOpts
 ---@field tooltip string? Optional helper text appended after the current value.
----@field currentValueTooltip boolean? When false, suppresses the current-value tooltip.
+---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
 ---@param element table Element used for undo history tracking.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
@@ -920,6 +936,7 @@ function style.trackedCombo(element, text, selected, options, width, opts)
 
     local newValue, changed = ImGui.Combo(text, selected, options, #options)
     local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
+    copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
     if tooltipText then
         style.tooltip(tooltipText)
     end
@@ -930,14 +947,15 @@ function style.trackedCombo(element, text, selected, options, width, opts)
     return newValue, changed
 end
 
----Show a current-value tooltip for a direct zero-based ImGui.Combo call.
+---Show a current-value tooltip for a direct zero-based ImGui.Combo call and copy it on middle-click.
 ---@param selected number Current zero-based selected index.
 ---@param options table Array-like table of option labels.
 ---@param helperText string? Optional helper text appended after the current value.
----@param showValue boolean? When false, suppresses the current-value tooltip.
+---@param showValue boolean? When false, suppresses the current-value tooltip and middle-click copy.
 function style.comboValueTooltip(selected, options, helperText, showValue)
     local index = tonumber(selected) or 0
     local tooltipText = buildSelectorTooltip(options and options[index + 1], helperText, showValue)
+    copySelectorValueOnMiddleClick(options and options[index + 1], showValue)
     if tooltipText then
         style.tooltip(tooltipText)
     end
@@ -1130,7 +1148,7 @@ end
 ---@field optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
 ---@field optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
 ---@field tooltip string? Optional helper text appended after the current value.
----@field currentValueTooltip boolean? When false, suppresses the current-value tooltip.
+---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
 ---@param text string Combo label / ID.
 ---@param searchHint string Placeholder for the filter input.
 ---@param value string Current selected value.
@@ -1169,6 +1187,7 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     ImGui.SetNextItemWidth(comboWidth)
     local comboOpen = ImGui.BeginCombo(text, previewValue)
     local tooltipText = buildSelectorTooltip(selectedValue, opts.tooltip, opts.currentValueTooltip)
+    copySelectorValueOnMiddleClick(selectedValue, opts.currentValueTooltip)
     if tooltipText then
         style.tooltip(tooltipText)
     end
