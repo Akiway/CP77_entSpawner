@@ -349,11 +349,15 @@ function exportUI.drawGroups()
                     group.variantRef = ImGui.InputTextWithHint('##variantRef', '$/#foobar', group.variantRef, 100)
 
                     style.mutedText("Variant name")
+                    local variantNameColumnWidth = 150 * style.viewSize
+                    local defaultStateColumnWidth = 85 * style.viewSize
+                    local defaultStateColumnX = baseCursorX + variantNameColumnWidth + ImGui.GetStyle().ItemSpacing.x
+                    local groupNameColumnX = defaultStateColumnX + defaultStateColumnWidth
                     ImGui.SameLine()
-                    ImGui.SetCursorPosX(baseCursorX + 100 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    ImGui.SetCursorPosX(defaultStateColumnX)
                     style.mutedText("Default state")
                     ImGui.SameLine()
-                    ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                    ImGui.SetCursorPosX(groupNameColumnX)
                     style.mutedText("Group name")
                     ImGui.Separator()
 
@@ -363,10 +367,12 @@ function exportUI.drawGroups()
 
                         if variantData ~= nil then
                             ImGui.PushID(name)
-                            ImGui.SetNextItemWidth(100 * style.viewSize)
+                            ImGui.SetNextItemWidth(variantNameColumnWidth)
                             local previousName = variantData.name or ""
                             local _, previousIsDefaultName = normalizeVariantName(previousName)
                             variantData.name = ImGui.InputTextWithHint('##variantName', 'default', variantData.name, 100)
+                            local variantNameTooltip = variantData.name or ""
+                            style.tooltip(variantNameTooltip ~= "" and variantNameTooltip or "default")
                             ImGui.SameLine()
                             local normalizedName, isDefaultName = normalizeVariantName(variantData.name)
                             local changed = false
@@ -392,8 +398,9 @@ function exportUI.drawGroups()
                                 end
                             end
                             ImGui.SameLine()
-                            ImGui.SetCursorPosX(baseCursorX + 185 * style.viewSize + ImGui.GetStyle().ItemSpacing.x)
+                            ImGui.SetCursorPosX(groupNameColumnX)
                             style.mutedText(name)
+                            style.tooltip(name)
 
                             ImGui.PopID()
                         end
