@@ -3,6 +3,8 @@ local utils = require("modules/utils/utils")
 
 local groupExportSidecar = {}
 groupExportSidecar.SCHEMA_VERSION = 1
+groupExportSidecar.SIDECAR_SUFFIX = ".metadata"
+groupExportSidecar.LEGACY_SIDECAR_SUFFIX = "_metadata.json"
 
 local function safeDir(path)
     local ok, listed = pcall(function ()
@@ -213,7 +215,31 @@ function groupExportSidecar.getExportPath(projectSlug)
 end
 
 function groupExportSidecar.getSidecarPath(projectSlug)
-    return "export/" .. tostring(projectSlug) .. "_metadata.json"
+    return "export/" .. tostring(projectSlug) .. groupExportSidecar.SIDECAR_SUFFIX
+end
+
+function groupExportSidecar.getLegacySidecarPath(projectSlug)
+    return "export/" .. tostring(projectSlug) .. groupExportSidecar.LEGACY_SIDECAR_SUFFIX
+end
+
+---@param projectSlug string
+---@return boolean success
+---@return boolean migrated
+---@return string legacyPath
+---@return string sidecarPath
+function groupExportSidecar.migrateLegacySidecar(projectSlug)
+    local legacyPath = groupExportSidecar.getLegacySidecarPath(projectSlug)
+    local sidecarPath = groupExportSidecar.getSidecarPath(projectSlug)
+
+    if not config.fileExists(legacyPath) or config.fileExists(sidecarPath) then
+        return true, false, legacyPath, sidecarPath
+    end
+
+    if os.rename(legacyPath, sidecarPath) then
+        return true, true, legacyPath, sidecarPath
+    end
+
+    return false, false, legacyPath, sidecarPath
 end
 
 ---@param group table

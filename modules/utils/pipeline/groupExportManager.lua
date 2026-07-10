@@ -1025,6 +1025,15 @@ function groupExportManager.start(request)
         ignoreHiddenDuringExport = request.ignoreHiddenDuringExport == true
     }
 
+    local legacyMigrated, legacyDidMigrate, legacySidecarPath, currentSidecarPath = groupExportSidecar.migrateLegacySidecar(runtime.project.name)
+    if not legacyMigrated then
+        local message = string.format("Failed to rename legacy metadata sidecar \"%s\" to \"%s\"", tostring(legacySidecarPath), tostring(currentSidecarPath))
+        logExportError(runtime, "prepare_sidecar", message)
+        queueToast("warning", 5000, "Legacy metadata sidecar could not be renamed")
+    elseif legacyDidMigrate then
+        logger:info(string.format("[Group Export Manager] Renamed legacy metadata sidecar \"%s\" to \"%s\"", tostring(legacySidecarPath), tostring(currentSidecarPath)))
+    end
+
     for _, group in ipairs(request.groups) do
         local mappedGroup = {
             name = group.name,
