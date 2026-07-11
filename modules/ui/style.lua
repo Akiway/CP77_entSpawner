@@ -26,6 +26,12 @@ local style = {
     targetedColor = 0xFF00007F,
     regularColor = 0xFFFFFFFF,
     greyedColor = 0xff777777,
+    lightColorHexBadgeBg = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95),
+    lightColorHexBadgeHover = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0),
+    lightColorHexBadgePressed = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0),
+    lightRadiusIconColor = 0xFF5D9645,
+    lightInnerAngleColor = 0xFF98CCE9,
+    lightOuterAngleColor = 0xFFAF7838,
 }
 
 ---@param optionText string
@@ -1550,6 +1556,14 @@ function style.drawNoBGConditionalButton(condition, text, greyed)
     return push
 end
 
+---Shared Point/Spot/Area light-type visual metadata, keyed both by numeric `ELightType` ordinal (`index`)
+---and by the `ELightType` string constant (`value`) used in raw component data.
+style.lightTypeOptions = {
+    { index = 0, value = "LT_Point", icon = IconGlyphs.LightbulbOn20, label = "Point" },
+    { index = 1, value = "LT_Spot", icon = IconGlyphs.TrackLight, label = "Spot" },
+    { index = 2, value = "LT_Area", icon = IconGlyphs.CarParkingLights, label = "Area" }
+}
+
 style.lightChannelEnum = {
     "LC_Channel1",
     "LC_Channel2",
@@ -1651,6 +1665,111 @@ function style.drawLightChannelsSelector(object, lightChannels)
     end
 
     return lightChannels
+end
+
+---Draws a fixed-size color swatch with an inline hex input, a hover tooltip, and a click-to-open popup
+---trigger. Positions the cursor after the widget as if it were a single item. The caller owns the actual
+---color-picker popup (matching `popupId`, opened via `ImGui.BeginPopup`) and all apply/commit logic for
+---the parsed hex text - this only draws the shared swatch/hex-input geometry used by lights and light
+---components alike.
+---@param object table? Element used for undo history tracking on the hex input.
+---@param popupId string Popup id to open when the swatch is clicked.
+---@param hexInputId string Widget id for the hex input field.
+---@param color number[] Unit RGB(A) color, 0-1 range. Alpha defaults to 1 for the swatch fill when absent.
+---@param hexText string? Cached hex input text returned by this function on a previous frame.
+---@param hexEditing boolean? Whether the hex input was active on a previous frame.
+---@param opts table? { modified: boolean?, afterHexInput: fun()? } `afterHexInput` runs right after the
+---hex input (e.g. to draw a reset-to-default button) while the hex badge frame colors are still pushed.
+---@return string hexText
+---@return boolean hexEditing
+---@return boolean changed True when the hex input text changed this frame.
+---@return boolean finished True when the hex input was deactivated after edit.
+function style.drawLightColorSwatch(object, popupId, hexInputId, color, hexText, hexEditing, opts)
+    opts = opts or {}
+
+    local swatchSize = 142 * style.viewSize
+    local swatchRoundness = 14 * style.viewSize
+    local hexInputWidth = 96
+    local hexInputBottomOffset = 10 * style.viewSize
+    local currentHex = colorUtil.formatHexRGB(color)
+
+    if not hexEditing and hexText ~= currentHex then
+        hexText = currentHex
+    end
+
+    ImGui.BeginGroup()
+    local swatchLocalX = ImGui.GetCursorPosX()
+    local swatchLocalY = ImGui.GetCursorPosY()
+    local swatchX, swatchY = ImGui.GetCursorScreenPos()
+    local swatchMaxX = swatchX + swatchSize
+    local swatchMaxY = swatchY + swatchSize
+    local hexInputScreenX = swatchX + 10 * style.viewSize
+    local hexInputScreenY = swatchY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
+    local hexInputScreenW = hexInputWidth * style.viewSize
+    local hexInputScreenH = ImGui.GetFrameHeight()
+
+    ImGui.Dummy(swatchSize, swatchSize)
+    local drawList = ImGui.GetWindowDrawList()
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        swatchX,
+        swatchY,
+        swatchMaxX,
+        swatchMaxY,
+        colorUtil.packAABBGGRR(color, color[4] or 1),
+        swatchRoundness
+    )
+    if opts.modified then
+        ImGui.ImDrawListAddRect(
+            drawList,
+            swatchX,
+            swatchY,
+            swatchMaxX,
+            swatchMaxY,
+            style.regularColor,
+            swatchRoundness,
+            0,
+            2 * style.viewSize
+        )
+    end
+
+    local afterSwatchY = swatchLocalY + swatchSize
+    local hexInputY = swatchLocalY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
+    ImGui.SetCursorPos(swatchLocalX + 10 * style.viewSize, hexInputY)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, style.lightColorHexBadgeBg)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, style.lightColorHexBadgeHover)
+    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, style.lightColorHexBadgePressed)
+    local changed, finished
+    hexText, changed, finished = style.trackedTextField(object, hexInputId, hexText or currentHex, "#RRGGBB", hexInputWidth)
+    hexEditing = ImGui.IsItemActive()
+    if opts.afterHexInput then
+        opts.afterHexInput()
+    end
+    ImGui.PopStyleColor(3)
+
+    local popupOpen = ImGui.IsPopupOpen(popupId)
+    local hoveringSwatch = ImGui.IsMouseHoveringRect(swatchX, swatchY, swatchMaxX, swatchMaxY)
+    local hoveringHexInput = ImGui.IsMouseHoveringRect(
+        hexInputScreenX,
+        hexInputScreenY,
+        hexInputScreenX + hexInputScreenW,
+        hexInputScreenY + hexInputScreenH
+    )
+    if not popupOpen and hoveringSwatch and not hoveringHexInput then
+        if ImGui.IsMouseClicked(0) then
+            ImGui.OpenPopup(popupId)
+        end
+        ImGui.BeginTooltip()
+        ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
+        ImGui.Text(colorUtil.formatPreviewTooltip(color))
+        ImGui.PopStyleColor()
+        ImGui.EndTooltip()
+    end
+
+    ImGui.SetCursorPos(swatchLocalX, afterSwatchY)
+    ImGui.EndGroup()
+
+    return hexText, hexEditing, changed, finished
 end
 
 ---Draw controls for selecting trigger-channel flags.

@@ -137,6 +137,19 @@ local function getBitFieldDefinition(propType)
     return definition
 end
 
+---Parses a numeric string, stripping a trailing 64-bit integer literal suffix (e.g. "511ULL", "42LL")
+---if a plain tonumber() fails, since CET's tostring() of bitfield/uint64 handles includes that suffix.
+---@param str string
+---@return number?
+local function parseUnsignedLiteralNumber(str)
+    local numeric = tonumber(str)
+    if numeric then
+        return numeric
+    end
+
+    return tonumber((str:gsub("[UuLl]+$", "")))
+end
+
 local function bitFieldMaskToString(propType, mask)
     if type(mask) ~= "number" then
         return nil
@@ -185,7 +198,7 @@ local function parseBitFieldMask(propType, value)
         return 0
     end
 
-    local numeric = tonumber(normalized)
+    local numeric = parseUnsignedLiteralNumber(normalized)
     if numeric then
         return math.floor(numeric)
     end
@@ -307,7 +320,7 @@ local function convertBitField(propValue, propType)
             return "0"
         end
 
-        local numeric = tonumber(normalized)
+        local numeric = parseUnsignedLiteralNumber(normalized)
         if numeric then
             return bitFieldMaskToString(propType, numeric)
         end
@@ -328,6 +341,11 @@ local function convertBitField(propValue, propType)
             local normalized = utils.trimString(directValue)
 
             if normalized ~= "" then
+                local numeric = parseUnsignedLiteralNumber(normalized)
+                if numeric then
+                    return bitFieldMaskToString(propType, numeric)
+                end
+
                 return normalized
             end
         end
@@ -338,7 +356,7 @@ local function convertBitField(propValue, propType)
     end)
 
     if okString and asString and asString ~= "" then
-        local numeric = tonumber(asString)
+        local numeric = parseUnsignedLiteralNumber(asString)
         if numeric then
             return bitFieldMaskToString(propType, numeric)
         end

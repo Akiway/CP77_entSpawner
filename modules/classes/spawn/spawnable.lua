@@ -419,9 +419,6 @@ function spawnable:getProperties()
             local nodeRefValue, nodeRefChanged, _ = style.trackedTextField(self.object, "##noderef", self.nodeRef, "$/#foobar", style.getMaxWidth(250) - 30 - (refDuplicate and 25 or 0))
             self.nodeRef = nodeRefValue
             if nodeRefChanged then
-                logger:info(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
-                logger:warn(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
-                logger:error(string.format("NodeRef for %s changed to \"%s\"", self.object:getPath(), self.nodeRef))
                 registry.invalidate()
             end
             style.pushButtonNoBG(true)

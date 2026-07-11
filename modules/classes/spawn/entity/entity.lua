@@ -1,4 +1,4 @@
-local intersection = require("modules/utils/editor/intersection")
+﻿local intersection = require("modules/utils/editor/intersection")
 local spawnable = require("modules/classes/spawn/spawnable")
 local builder = require("modules/utils/entityBuilder")
 local utils = require("modules/utils/utils")
@@ -13,6 +13,8 @@ local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
 local appearanceHelper = require("modules/utils/appearanceHelper")
 local logger = require("modules/utils/logger")
+local colorUtil = require("modules/utils/color")
+local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 
 local deviceClassSecondaryIconByName = {
     LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
@@ -448,82 +450,6 @@ local function clampCustomNumericProperty(key, value)
     end
 
     return clamped
-end
-
-local lightChannelBitMaskByName = {
-    LC_Channel1 = 1,
-    LC_Channel2 = 2,
-    LC_Channel3 = 4,
-    LC_Channel4 = 8,
-    LC_Channel5 = 16,
-    LC_Channel6 = 32,
-    LC_Channel7 = 64,
-    LC_Channel8 = 128,
-    LC_ChannelWorld = 256,
-    LC_Character = 512,
-    LC_Player = 1024,
-    LC_Automated = 32768
-}
-
-local lightChannelNameToIndex = {}
-for index, name in ipairs(style.lightChannelEnum or {}) do
-    lightChannelNameToIndex[name] = index
-end
-
-local function isMaskBitSet(mask, bit)
-    if type(mask) ~= "number" or bit <= 0 then
-        return false
-    end
-
-    local normalized = math.floor(mask)
-    return math.floor(normalized / bit) % 2 == 1
-end
-
-local function decodeLightChannelSelection(value)
-    local selection = {}
-    local names = style.lightChannelEnum or {}
-
-    for i = 1, #names do
-        selection[i] = false
-    end
-
-    if type(value) == "number" then
-        for index, name in ipairs(names) do
-            local bit = lightChannelBitMaskByName[name]
-            if bit then
-                selection[index] = isMaskBitSet(value, bit)
-            end
-        end
-        return selection
-    end
-
-    if type(value) ~= "string" then
-        return selection
-    end
-
-    local normalized = utils.trimString(value)
-    if normalized == "" or normalized == "0" then
-        return selection
-    end
-
-    local numeric = tonumber(normalized)
-    if numeric then
-        return decodeLightChannelSelection(numeric)
-    end
-
-    for token in normalized:gmatch("[^,]+") do
-        local key = utils.trimString(token)
-        local index = lightChannelNameToIndex[key]
-        if index then
-            selection[index] = true
-        end
-    end
-
-    return selection
-end
-
-local function encodeLightChannelSelection(selection)
-    return utils.buildBitfieldString(selection, style.lightChannelEnum or {})
 end
 
 function entity:loadInstanceData(entity, forceLoadDefault)
@@ -1948,8 +1874,6 @@ end
 ---@param max number Maximum width of a label text
 ---@param propertySearch string?
 ---@param showAllChildren boolean?
-local matchesPropertySearchEntry
-
 function entity:drawTableProp(componentID, key, data, path, max, modified, propertySearch, showAllChildren)
     -- Step one down, to avoid handle structure, gets really fucking ugly later
     if data.HandleId then
@@ -2148,7 +2072,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
 
     local propertyFilterActive = type(propertySearch) == "string" and propertySearch ~= ""
     if propertyFilterActive and not showAllChildren then
-        local matchesSearch, directMatch = matchesPropertySearchEntry(key, data, propertySearch, {})
+        local matchesSearch, directMatch = utils.matchesPropertySearchEntry(key, data, propertySearch, {})
         if not matchesSearch then
             return
         end
@@ -2180,10 +2104,10 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
                 open = true
                 self:drawResetProp(componentID, path, info.typeName)
 
-                local selection = decodeLightChannelSelection(data)
-                local previous = encodeLightChannelSelection(selection)
+                local selection = lightComponentUI.decodeLightChannelSelection(data)
+                local previous = lightComponentUI.encodeLightChannelSelection(selection)
                 selection = style.drawLightChannelsSelector(nil, selection)
-                local current = encodeLightChannelSelection(selection)
+                local current = lightComponentUI.encodeLightChannelSelection(selection)
 
                 if current ~= previous then
                     history.addAction(history.getElementChange(self.object))
@@ -2351,96 +2275,6 @@ function entity:getSortedComponents()
     return entries
 end
 
----@param value any
----@param search string
----@return boolean
-local function matchesInstanceDataSearch(value, search)
-    return string.find(string.lower(tostring(value or "")), search, 1, true) ~= nil
-end
-
----@param key any
----@return boolean
-local function shouldSkipInstanceDataPropertyKey(key)
-    return key == "$type" or key == "$storage" or key == "Flags"
-end
-
----@param key any
----@param value any
----@param search string
----@param visited table<table, boolean>
----@return boolean hasMatch
----@return boolean directMatch
-matchesPropertySearchEntry = function(key, value, search, visited)
-    if shouldSkipInstanceDataPropertyKey(key) then
-        return false, false
-    end
-
-    local directMatch = matchesInstanceDataSearch(key, search)
-    local valueType = type(value)
-
-    if valueType == "table" then
-        if visited[value] then
-            return directMatch, directMatch
-        end
-        visited[value] = true
-
-        local hasChildMatch = false
-        for childKey, childValue in pairs(value) do
-            local childHasMatch = matchesPropertySearchEntry(childKey, childValue, search, visited)
-            if childHasMatch then
-                hasChildMatch = true
-                break
-            end
-        end
-
-        return directMatch or hasChildMatch, directMatch
-    end
-
-    if valueType ~= "nil" and valueType ~= "function" and valueType ~= "thread" then
-        if matchesInstanceDataSearch(value, search) then
-            directMatch = true
-        end
-    end
-
-    return directMatch, directMatch
-end
-
----@param component table
----@param componentChanges table?
----@param search string
----@return boolean
-local function matchesComponentPropertiesSearch(component, componentChanges, search)
-    local topLevelKeys = {}
-
-    if type(component) == "table" then
-        for key, _ in pairs(component) do
-            topLevelKeys[key] = true
-        end
-    end
-
-    if type(componentChanges) == "table" then
-        for key, _ in pairs(componentChanges) do
-            topLevelKeys[key] = true
-        end
-    end
-
-    for key, _ in pairs(topLevelKeys) do
-        local value = nil
-        if type(componentChanges) == "table" and componentChanges[key] ~= nil then
-            value = componentChanges[key]
-        elseif type(component) == "table" then
-            value = component[key]
-        end
-
-        local hasMatch = matchesPropertySearchEntry(key, value, search, {})
-        if hasMatch then
-            return true
-        end
-    end
-
-    return false
-end
-
 function entity:drawInstanceData()
     local nDefaultData = utils.tableLength(self.defaultComponentData)
     if nDefaultData <= 1 then
@@ -2488,7 +2322,7 @@ function entity:drawInstanceData()
             or string.find(name:lower(), search, 1, true) ~= nil
 
         if not matchesSearch and self.instanceDataSearchInProperties and search ~= "" then
-            matchesSearch = matchesComponentPropertiesSearch(component, self.instanceDataChanges[key], search)
+            matchesSearch = utils.matchesComponentPropertiesSearch(component, self.instanceDataChanges[key], search)
         end
 
         if matchesSearch then
@@ -2500,16 +2334,20 @@ function entity:drawInstanceData()
                 self:drawResetComponent(key)
                 style.popStyleColor(not self.instanceDataChanges[key])
 
-                local keys, max = self:getSortedKeys(component)
-                for _, propKey in pairs(keys) do
-                    local entry = component[propKey]
-                    local modified = self.instanceDataChanges[key] and self.instanceDataChanges[key][propKey]
-                    if modified then entry = self.instanceDataChanges[key][propKey] end
+                if lightComponentUI.isLightComponentData(component) then
+                    self:drawLightComponentInstanceData(key, component, propertySearch)
+                else
+                    local keys, max = self:getSortedKeys(component)
+                    for _, propKey in pairs(keys) do
+                        local entry = component[propKey]
+                        local modified = self.instanceDataChanges[key] and self.instanceDataChanges[key][propKey]
+                        if modified then entry = self.instanceDataChanges[key][propKey] end
 
-                    style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
-                    self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max, propertySearch, false)
+                        style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
+                        self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max, propertySearch, false)
 
-                    style.popStyleColor(true)
+                        style.popStyleColor(true)
+                    end
                 end
                 ImGui.TreePop()
             end
@@ -2520,5 +2358,7 @@ function entity:drawInstanceData()
         end
     end
 end
+
+lightComponentUI.install(entity)
 
 return entity

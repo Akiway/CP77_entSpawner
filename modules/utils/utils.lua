@@ -1060,4 +1060,97 @@ function miscUtils.archiveInstalled(name)
     return miscUtils.archives[name]
 end
 
+---@param value any
+---@param search string
+---@return boolean
+function miscUtils.matchesInstanceDataSearch(value, search)
+    return string.find(string.lower(tostring(value or "")), search, 1, true) ~= nil
+end
+
+---Keys that should never be treated as user-facing instance data properties.
+---@param key any
+---@return boolean
+function miscUtils.shouldSkipInstanceDataPropertyKey(key)
+    return key == "$type" or key == "$storage" or key == "Flags"
+end
+
+---Recursively checks whether a key/value pair (or any of its nested children) matches a search string.
+---@param key any
+---@param value any
+---@param search string
+---@param visited table<table, boolean>
+---@return boolean hasMatch
+---@return boolean directMatch
+function miscUtils.matchesPropertySearchEntry(key, value, search, visited)
+    if miscUtils.shouldSkipInstanceDataPropertyKey(key) then
+        return false, false
+    end
+
+    local directMatch = miscUtils.matchesInstanceDataSearch(key, search)
+    local valueType = type(value)
+
+    if valueType == "table" then
+        if visited[value] then
+            return directMatch, directMatch
+        end
+        visited[value] = true
+
+        local hasChildMatch = false
+        for childKey, childValue in pairs(value) do
+            local childHasMatch = miscUtils.matchesPropertySearchEntry(childKey, childValue, search, visited)
+            if childHasMatch then
+                hasChildMatch = true
+                break
+            end
+        end
+
+        return directMatch or hasChildMatch, directMatch
+    end
+
+    if valueType ~= "nil" and valueType ~= "function" and valueType ~= "thread" then
+        if miscUtils.matchesInstanceDataSearch(value, search) then
+            directMatch = true
+        end
+    end
+
+    return directMatch, directMatch
+end
+
+---Checks whether any top-level property of a component (or its pending changes) matches a search string.
+---@param component table
+---@param componentChanges table?
+---@param search string
+---@return boolean
+function miscUtils.matchesComponentPropertiesSearch(component, componentChanges, search)
+    local topLevelKeys = {}
+
+    if type(component) == "table" then
+        for key, _ in pairs(component) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    if type(componentChanges) == "table" then
+        for key, _ in pairs(componentChanges) do
+            topLevelKeys[key] = true
+        end
+    end
+
+    for key, _ in pairs(topLevelKeys) do
+        local value = nil
+        if type(componentChanges) == "table" and componentChanges[key] ~= nil then
+            value = componentChanges[key]
+        elseif type(component) == "table" then
+            value = component[key]
+        end
+
+        local hasMatch = miscUtils.matchesPropertySearchEntry(key, value, search, {})
+        if hasMatch then
+            return true
+        end
+    end
+
+    return false
+end
+
 return miscUtils

@@ -15,10 +15,6 @@ local LIGHT_TYPE_POINT = 0
 local LIGHT_TYPE_SPOT = 1
 local LIGHT_TYPE_AREA = 2
 
-local INNER_ANGLE_BORDER_COLOR = 0xFF98CCE9 -- #e9cc98
-local OUTER_ANGLE_BORDER_COLOR = 0xFFAF7838 -- #3878af
-local RADIUS_ICON_COLOR = 0xFF5D9645 -- #45965d
-
 local PREVIEW_COLOR_SPOT = "blue"
 local PREVIEW_COLOR_SPOT_INNER = "yellow"
 local PREVIEW_COLOR_DEFAULT = "yellow"
@@ -39,10 +35,6 @@ local PREVIEW_SIZE_CONFIG = {
     minScale = PREVIEW_BASE_SCALE_MIN,
     maxScale = PREVIEW_BASE_SCALE_MAX
 }
-
-local COLOR_HEX_BADGE_BG = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95)
-local COLOR_HEX_BADGE_HOVER = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0)
-local COLOR_HEX_BADGE_PRESSED = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0)
 
 ---Class for worldStaticLightNode
 ---@class light : visualized
@@ -130,16 +122,12 @@ function light:new()
     o.localShadows = true
     o.localShadowsForceStaticsOnly = false
     o.lightTypeNames = utils.enumTable("ELightType")
-    o.lightTypeIcons = {
-        [LIGHT_TYPE_POINT] = IconGlyphs.LightbulbOn20,
-        [LIGHT_TYPE_SPOT] = IconGlyphs.TrackLight,
-        [LIGHT_TYPE_AREA] = IconGlyphs.CarParkingLights
-    }
-    o.lightTypeLabels = {
-        [LIGHT_TYPE_POINT] = "Point",
-        [LIGHT_TYPE_SPOT] = "Spot",
-        [LIGHT_TYPE_AREA] = "Area"
-    }
+    o.lightTypeIcons = {}
+    o.lightTypeLabels = {}
+    for _, typeOption in ipairs(style.lightTypeOptions) do
+        o.lightTypeIcons[typeOption.index] = typeOption.icon
+        o.lightTypeLabels[typeOption.index] = typeOption.label
+    end
     o.temperature = -1
     o.scaleVolFog = 0
     o.useInParticles = true
@@ -955,50 +943,17 @@ function light:draw()
     ImGui.Spacing()
 
     local colorPopupId = "##lightColorPickerMain" .. tostring(self.object and self.object.id or "")
-    local swatchSize = 142 * style.viewSize
-    local swatchRoundness = 14 * style.viewSize
-    local hexInputWidth = 96
-    local hexInputBottomOffset = 10 * style.viewSize
-    
+
     ImGui.Dummy(0, 2 * style.viewSize)
 
-    ImGui.BeginGroup()
-    local swatchLocalX = ImGui.GetCursorPosX()
-    local swatchLocalY = ImGui.GetCursorPosY()
-    local swatchX, swatchY = ImGui.GetCursorScreenPos()
-    local swatchMaxX = swatchX + swatchSize
-    local swatchMaxY = swatchY + swatchSize
-    local hexInputScreenX = swatchX + 10 * style.viewSize
-    local hexInputScreenY = swatchY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
-    local hexInputScreenW = hexInputWidth * style.viewSize
-    local hexInputScreenH = ImGui.GetFrameHeight()
-
-    ImGui.Dummy(swatchSize, swatchSize)
-    local drawList = ImGui.GetWindowDrawList()
-    ImGui.ImDrawListAddRectFilled(
-        drawList,
-        swatchX,
-        swatchY,
-        swatchX + swatchSize,
-        swatchY + swatchSize,
-        colorUtil.packAABBGGRR(self.color, 1.0),
-        swatchRoundness
+    self.colorHexText, self.colorHexEditing, changed, finished = style.drawLightColorSwatch(
+        self.object,
+        colorPopupId,
+        "##lightColorHexInput",
+        self.color,
+        self.colorHexText,
+        self.colorHexEditing
     )
-
-    local afterSwatchY = swatchLocalY + swatchSize
-    local hexText = colorUtil.formatHexRGB(self.color)
-    if not self.colorHexEditing and self.colorHexText ~= hexText then
-        self.colorHexText = hexText
-    end
-
-    local hexInputY = swatchLocalY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
-    ImGui.SetCursorPos(swatchLocalX + 10 * style.viewSize, hexInputY)
-    ImGui.PushStyleColor(ImGuiCol.FrameBg, COLOR_HEX_BADGE_BG)
-    ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, COLOR_HEX_BADGE_HOVER)
-    ImGui.PushStyleColor(ImGuiCol.FrameBgActive, COLOR_HEX_BADGE_PRESSED)
-    self.colorHexText, changed, finished = style.trackedTextField(self.object, "##lightColorHexInput", self.colorHexText or hexText, "#RRGGBB", hexInputWidth)
-    self.colorHexEditing = ImGui.IsItemActive()
-    ImGui.PopStyleColor(3)
     if changed then
         self.colorHexText = (self.colorHexText or ""):upper()
         local parsedColor = colorUtil.parseHexRGB(self.colorHexText)
@@ -1008,7 +963,6 @@ function light:draw()
         end
     end
     if finished then
-        self.colorHexEditing = false
         local parsedColor = colorUtil.parseHexRGB(self.colorHexText)
         if parsedColor then
             self.color = parsedColor
@@ -1018,28 +972,6 @@ function light:draw()
             self.colorHexText = colorUtil.formatHexRGB(self.color)
         end
     end
-
-    local colorPopupOpen = ImGui.IsPopupOpen(colorPopupId)
-    local hoveringSwatch = ImGui.IsMouseHoveringRect(swatchX, swatchY, swatchMaxX, swatchMaxY)
-    local hoveringHexInput = ImGui.IsMouseHoveringRect(
-        hexInputScreenX,
-        hexInputScreenY,
-        hexInputScreenX + hexInputScreenW,
-        hexInputScreenY + hexInputScreenH
-    )
-    if not colorPopupOpen and hoveringSwatch and not hoveringHexInput then
-        if ImGui.IsMouseClicked(0) then
-            ImGui.OpenPopup(colorPopupId)
-        end
-        ImGui.BeginTooltip()
-        ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
-        ImGui.Text(colorUtil.formatPreviewTooltip(self.color))
-        ImGui.PopStyleColor()
-        ImGui.EndTooltip()
-    end
-
-    ImGui.SetCursorPos(swatchLocalX, afterSwatchY)
-    ImGui.EndGroup()
 
     ImGui.SameLine()
     ImGui.Dummy(2 * style.viewSize, 0)
@@ -1071,7 +1003,7 @@ function light:draw()
 
     currentCursorY = ImGui.GetCursorPosY()
     ImGui.SetCursorPosY(currentCursorY + 2 * style.viewSize)
-    style.styledText(IconGlyphs.RadiusOutline, RADIUS_ICON_COLOR)
+    style.styledText(IconGlyphs.RadiusOutline, style.lightRadiusIconColor)
     ImGui.SameLine()
     ImGui.SetCursorPosY(currentCursorY)
     style.mutedText("Radius")
@@ -1128,7 +1060,7 @@ function light:draw()
     end
 
     if self.lightType == LIGHT_TYPE_SPOT or (self.lightType == LIGHT_TYPE_AREA and self.spotCapsule) then
-        style.drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = INNER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.Cone, "Inner Angle", { iconColor = style.lightInnerAngleColor, fieldX = self.maxBasePropertiesWidth })
         ImGui.SameLine()
         self.innerAngle, changed, finished = style.trackedDragFloat(self.object, "##inner", self.innerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Inner angle of the light, visualized by the yellow cone\nThe area between inner and outer angles is where the light intensity falls off")
@@ -1141,7 +1073,7 @@ function light:draw()
             self:updateFull(finished)
         end
 
-        style.drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = OUTER_ANGLE_BORDER_COLOR, fieldX = self.maxBasePropertiesWidth })
+        style.drawIconLabelRow(IconGlyphs.Cone, "Outer Angle", { iconColor = style.lightOuterAngleColor, fieldX = self.maxBasePropertiesWidth })
         ImGui.SameLine()
         self.outerAngle, changed, finished = style.trackedDragFloat(self.object, "##outer", self.outerAngle, 0.1, 0, 360, "%.1f°", 60)
         style.tooltip("Outer angle of the light, visualized by the blue cone\nThe area between inner and outer angles is where the light intensity falls off")
