@@ -2818,7 +2818,7 @@ function spawnedUI.drawHierarchy(options)
     -- scrollable child needs to be shrunk (and pushed down) by however many rows were pinned.
     -- The count for *this* frame is only known after we've scrolled the table below, so we seed
     -- the reserved space from last frame's result (one-frame lag, self-corrects immediately after).
-    local maxStickyRows = math.min(MAX_STICKY_PARENT_ROWS, math.max(0, totalRows - 1))
+    local maxStickyRows = settings.stickyRowsEnabled and math.min(MAX_STICKY_PARENT_ROWS, math.max(0, totalRows - 1)) or 0
     local reservedStickyRows = math.min(spawnedUI.stickyRowCountById[childId] or 0, maxStickyRows)
     local reservedHeight = reservedStickyRows * rowHeight
     local scrollableHeight = math.max(0, childHeight - reservedHeight)

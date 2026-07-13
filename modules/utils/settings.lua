@@ -69,6 +69,7 @@ local config = require("modules/utils/config")
 ---@field public previewTimelineSnapEnabled boolean
 ---@field public previewTimelineSnapSec number
 ---@field public actionLabelDisplayMode integer
+---@field public stickyRowsEnabled boolean
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -134,6 +135,7 @@ local settingsData = {
     previewTimelineSnapEnabled = true,
     previewTimelineSnapSec = 0.1,
     actionLabelDisplayMode = 2,
+    stickyRowsEnabled = true,
 
     filterTags = {},
     favoritesFilter = "",

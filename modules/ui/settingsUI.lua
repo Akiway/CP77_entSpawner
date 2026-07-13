@@ -533,6 +533,13 @@ function settingsUI.draw(spawner)
         end
         drawWireframeColorStyleTooltip()
 
+        local stickyRowsEnabled, stickyRowsChanged = ImGui.Checkbox("Sticky Hierarchy Rows", settings.stickyRowsEnabled)
+        if stickyRowsChanged then
+            settings.stickyRowsEnabled = stickyRowsEnabled
+            settings.save()
+        end
+        style.tooltip("Pin open parent groups to the top of the Spawned hierarchy while scrolling through their children.")
+
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Balance between icons and text")
         local actionLabelDisplayMode = style.normalizeActionLabelMode(settings.actionLabelDisplayMode)
