@@ -37,6 +37,8 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 ---@field clipper any
 ---@field visiblePathIndexById table<number, number>
 ---@field hierarchyFirstVisibleIndexById table<string, number>
+---@field stickyRowCountById table<string, number>
+---@field stickyRowPendingById table<string, {count: number, streak: number}>
 ---@field hoveredEntries element[]
 ---@field pinnedHierarchy {open: boolean, groupId: number?}
 ---@field reorderPreview {x1: number, x2: number, y: number}?
@@ -80,6 +82,8 @@ spawnedUI = {
     clipper = nil,
     visiblePathIndexById = {},
     hierarchyFirstVisibleIndexById = {},
+    stickyRowCountById = {},
+    stickyRowPendingById = {},
     hoveredEntries = {},
     reorderPreview = nil,
 
@@ -115,6 +119,13 @@ local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
 local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
 local HIERARCHY_REORDER_PREVIEW_SHADOW = 0x88000000
 local MAX_STICKY_PARENT_ROWS = 5
+-- How many consecutive frames a new sticky-row count must be observed before it's
+-- committed to spawnedUI.stickyRowCountById (which resizes the scrollable child next
+-- frame). Resizing that child changes its own scrollbar geometry, which can perturb
+-- ImGui's scroll offset while the user is actively dragging the scrollbar thumb; requiring
+-- a stable reading first (and never committing at all while a mouse button is held, see
+-- below) prevents that resize from feeding back into the very position that triggered it.
+local STICKY_RESERVE_CONFIRM_FRAMES = 2
 
 ---@param index number
 ---@param stableId string?
@@ -2795,7 +2806,7 @@ function spawnedUI.drawHierarchy(options)
     if childHeight < 0 then return end
 
     local rowHeight = spawnedUI.getRowHeight()
-    local nRows = math.max(0, math.floor(childHeight / rowHeight))
+    local totalRows = math.max(0, math.floor(childHeight / rowHeight))
     local entries = options.entries or (spawnedUI.filter == "" and spawnedUI.visiblePaths or spawnedUI.filteredPaths)
     spawnedUI.prepareStateIconFrame()
 
@@ -2803,12 +2814,26 @@ function spawnedUI.drawHierarchy(options)
     local tableId = options.tableId or "##hierarchyTable"
     local firstVisibleIndex = math.min(#entries, spawnedUI.hierarchyFirstVisibleIndexById[childId] or 1)
 
+    -- Sticky rows are pinned above the scrollable content rather than drawn over it, so the
+    -- scrollable child needs to be shrunk (and pushed down) by however many rows were pinned.
+    -- The count for *this* frame is only known after we've scrolled the table below, so we seed
+    -- the reserved space from last frame's result (one-frame lag, self-corrects immediately after).
+    local maxStickyRows = math.min(MAX_STICKY_PARENT_ROWS, math.max(0, totalRows - 1))
+    local reservedStickyRows = math.min(spawnedUI.stickyRowCountById[childId] or 0, maxStickyRows)
+    local reservedHeight = reservedStickyRows * rowHeight
+    local scrollableHeight = math.max(0, childHeight - reservedHeight)
+    local scrollRows = math.max(0, math.floor(scrollableHeight / rowHeight))
+
     ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, spawnedUI.cellPadding)
     ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
 
     local containerFlags = ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoScrollbar + ImGuiWindowFlags.NoScrollWithMouse
     ImGui.BeginChild(childId .. "StickyContainer", 0, childHeight, false, containerFlags)
-    ImGui.BeginChild(childId, 0, childHeight, false, ImGuiWindowFlags.NoMove)
+    local _, reservedTopY = ImGui.GetCursorScreenPos()
+    if reservedHeight > 0 then
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + reservedHeight)
+    end
+    ImGui.BeginChild(childId, 0, scrollableHeight, false, ImGuiWindowFlags.NoMove)
     input.updateContext("hierarchy")
     local hierarchyScrollY = math.max(0, ImGui.GetScrollY())
 
@@ -2816,7 +2841,7 @@ function spawnedUI.drawHierarchy(options)
     local contentMinX, contentMinY = ImGui.GetWindowContentRegionMin()
     local contentMaxX, _ = ImGui.GetWindowContentRegionMax()
     local viewportX = windowX + contentMinX
-    local viewportY = windowY + contentMinY
+    local viewportY = reservedTopY
     local viewportWidth = math.max(0, contentMaxX - contentMinX)
 
     local forceFullPass = false
@@ -2874,7 +2899,7 @@ function spawnedUI.drawHierarchy(options)
             end
         end
 
-        local fillerRows = math.max(0, nRows - #entries)
+        local fillerRows = math.max(0, scrollRows - #entries)
         if fillerRows > 0 then
             for fillerOffset = 1, fillerRows do
                 spawnedUI.drawElement(nil, true, lastRenderedRowIndex + fillerOffset)
@@ -2894,11 +2919,26 @@ function spawnedUI.drawHierarchy(options)
         viewportWidth = math.max(0, viewportWidth - ImGui.GetStyle().ScrollbarSize)
     end
 
-    local stickyEntries = collectStickyParentEntries(
-        entries,
-        firstVisibleIndex,
-        math.min(MAX_STICKY_PARENT_ROWS, math.max(0, nRows - 1))
-    )
+    local stickyEntries = collectStickyParentEntries(entries, firstVisibleIndex, maxStickyRows)
+
+    -- Commit the reservation used for *next* frame's layout, but only once it's settled.
+    -- While a mouse button is held (e.g. dragging the scrollbar thumb) we don't touch it at
+    -- all, since resizing mid-drag is exactly what can make the scroll offset (and thus this
+    -- very count) flip-flop from frame to frame.
+    if not ImGui.IsMouseDown(ImGuiMouseButton.Left) then
+        local rawStickyCount = #stickyEntries
+        local pending = spawnedUI.stickyRowPendingById[childId]
+        if pending and pending.count == rawStickyCount then
+            pending.streak = pending.streak + 1
+        else
+            pending = { count = rawStickyCount, streak = 1 }
+            spawnedUI.stickyRowPendingById[childId] = pending
+        end
+        if pending.streak >= STICKY_RESERVE_CONFIRM_FRAMES then
+            spawnedUI.stickyRowCountById[childId] = rawStickyCount
+        end
+    end
+
     if #stickyEntries > 0 and viewportWidth > 0 then
         local containerCursorX, containerCursorY = ImGui.GetCursorScreenPos()
         local overlayHeight = #stickyEntries * rowHeight
