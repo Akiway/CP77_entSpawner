@@ -1842,8 +1842,8 @@ local function collectMissingSplineNodeRefs(nodes)
     for _, node in ipairs(nodes or {}) do
         local nodeRef = node.nodeRef or ""
 
-        if node.type == "worldSplineNode" and nodeRef == "" then
-            local name = tostring(node.name or "Unnamed Spline"):gsub("^%[Spline%]%s*", "")
+        if (node.type == "worldSplineNode" or node.type == "worldSpeedSplineNode") and nodeRef == "" then
+            local name = tostring(node.name or "Unnamed Spline"):gsub("^%[[^%]]*%]%s*", "")
             table.insert(exportUI.exportIssues.splineEmptyRef, name)
         end
     end

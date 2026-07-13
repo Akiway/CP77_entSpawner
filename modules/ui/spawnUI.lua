@@ -63,7 +63,8 @@ local types = {
             ["Occluder"] = { class = require("modules/classes/spawn/meta/occluder"), index = 1 },
             ["Static Marker"] = { class = require("modules/classes/spawn/meta/staticMarker"), index = 3 },
             ["Spline Point"] = { class = require("modules/classes/spawn/meta/splineMarker"), index = 4 },
-            ["Spline"] = { class = require("modules/classes/spawn/meta/spline"), index = 5 }
+            ["Spline"] = { class = require("modules/classes/spawn/meta/spline"), index = 5 },
+            ["Speed Spline"] = { class = require("modules/classes/spawn/meta/speedSpline"), index = 6 }
         },
         index = 6
     },

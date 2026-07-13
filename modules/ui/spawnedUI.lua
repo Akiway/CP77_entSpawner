@@ -1953,7 +1953,7 @@ function spawnedUI.refreshStateIconCaches()
             local spawnable = ref.spawnable
             local path = nil
 
-            if spawnable.modulePath == "meta/spline" then
+            if spawnable.isSplineNode then
                 path = spawnable.splinePath
             elseif spawnable.outlinePath ~= nil and spawnable.loadOutlinePaths ~= nil then
                 path = spawnable.outlinePath
@@ -2089,7 +2089,7 @@ function spawnedUI.getStateIcons(element)
             )
         end
 
-        if spawnable.modulePath == "meta/spline" and spawnable.splineFollower then
+        if spawnable.isSplineNode and spawnable.splineFollower then
             local missingRecord = spawnable.previewCharacter == nil or tostring(spawnable.previewCharacter):match("^%s*$") ~= nil
             local tooltip = "Preview NPC is enabled"
             if missingRecord then
@@ -2162,7 +2162,7 @@ function spawnedUI.getStateIcons(element)
             )
         end
 
-        local isSpline = spawnable.modulePath == "meta/spline"
+        local isSpline = spawnable.isSplineNode == true
         local isAreaNode = spawnable.outlinePath ~= nil and spawnable.loadOutlinePaths ~= nil
         if isSpline or isAreaNode then
             local linked = false

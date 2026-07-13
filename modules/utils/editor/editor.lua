@@ -1550,6 +1550,40 @@ local function drawSpawnableStreamingRanges()
     projectedWireframe.endOverlay()
 end
 
+---Draws per-spawnable viewport overlays for spawnables implementing `drawViewportOverlay`.
+---A single shared overlay window is opened for all of them.
+local function drawSpawnableViewportOverlays()
+    if not editor.camera or not editor.spawnedUI or not GetPlayer() then return end
+
+    editor.spawnedUI.ensureCache()
+
+    local targets = {}
+    for _, entry in ipairs(editor.spawnedUI.paths) do
+        local element = entry.ref
+        if element
+            and element.visible
+            and not element.hiddenByParent
+            and utils.isA(element, "spawnableElement")
+            and element.spawnable
+            and type(element.spawnable.drawViewportOverlay) == "function"
+            and (type(element.spawnable.wantsViewportOverlay) ~= "function" or element.spawnable:wantsViewportOverlay())
+            and element.spawnable:isSpawned() then
+            table.insert(targets, element.spawnable)
+        end
+    end
+
+    if #targets == 0 then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##spawnableViewportOverlay")
+    if not screen then return end
+
+    for _, spawnable in ipairs(targets) do
+        spawnable:drawViewportOverlay(screen, drawList)
+    end
+
+    projectedWireframe.endOverlay()
+end
+
 ---Resolves the canonical door layout family from entity spawn path text.
 ---Returns both layout table and a stable family key used for post-layout rotation rules.
 ---@param spawnData string?
@@ -1829,6 +1863,7 @@ function editor.onDraw()
 
     drawHoveredGroupBounds()
     drawSpawnableStreamingRanges()
+    drawSpawnableViewportOverlays()
     drawElevatorDoorHelpers()
 
     if editor.active then

@@ -41,6 +41,10 @@ function spline:new()
     o.description = "Basic spline with auto-tangents, which can be referenced using its NodeRef."
     o.icon = IconGlyphs.VectorPolyline
 
+    -- Marks any worldSplineNode-derived spawnable (basic spline, speed spline, ...).
+    -- Consumed by hierarchy state icons and spline marker preview refresh.
+    o.isSplineNode = true
+
     o.previewed = true
     o.previewColor = "violet"
     o.splinePath = ""

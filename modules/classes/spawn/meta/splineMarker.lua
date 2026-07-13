@@ -71,7 +71,7 @@ function splineMarker:isLinkedSplineLooped()
         if utils.isA(entry.ref, "spawnableElement") then
             local spawnableRef = entry.ref.spawnable
             if spawnableRef
-                and spawnableRef.modulePath == "meta/spline"
+                and spawnableRef.isSplineNode
                 and entry.ref:getRootParent() == ownRoot
                 and spawnableRef.splinePath == parentPath
                 and spawnableRef.looped then
@@ -107,7 +107,7 @@ function splineMarker:refreshLinkedSplinesPreview(parent, forceRespawn)
         if utils.isA(entry.ref, "spawnableElement") then
             local spawnableRef = entry.ref.spawnable
             if spawnableRef
-                and spawnableRef.modulePath == "meta/spline"
+                and spawnableRef.isSplineNode
                 and entry.ref:getRootParent() == ownRoot
                 and spawnableRef.splinePath == parentPath then
                 spawnableRef:loadSplinePoints()

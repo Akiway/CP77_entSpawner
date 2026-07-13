@@ -12,6 +12,7 @@ local windowNames = { "World Builder", "Object Spawner", "Entity Spawner", "Worl
 local groupLoadSpeedOptions = { "Fast - with FPS drops", "Slow - without FPS drops" }
 local wireframeColorStyles = { "Darker + white text", "Lighter + black text" }
 local colorPickerStyles = { "Hue Bar", "Hue Wheel" }
+local speedUnits = { "km/h", "mph" }
 local actionLabelDisplayModeOptions = {
     { value = 1, label = "Preferred icon" },
     { value = 2, label = "Icon + text" },
@@ -532,6 +533,14 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         drawWireframeColorStyleTooltip()
+
+        local speedUnit = math.max(1, math.min(#speedUnits, tonumber(settings.speedUnit) or 1))
+        local speedUnitIndex, speedUnitChanged = ImGui.Combo("Speed unit", speedUnit - 1, speedUnits, #speedUnits)
+        if speedUnitChanged then
+            settings.speedUnit = speedUnitIndex + 1
+            settings.save()
+        end
+        style.tooltip("Unit used to display speeds (for example on Speed Spline nodes).")
 
         local stickyRowsEnabled, stickyRowsChanged = ImGui.Checkbox("Sticky Hierarchy Rows", settings.stickyRowsEnabled)
         if stickyRowsChanged then
