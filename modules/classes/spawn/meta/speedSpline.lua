@@ -5,6 +5,7 @@ local history = require("modules/utils/history")
 local field = require("modules/utils/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local settings = require("modules/utils/settings")
+local speedSplineTimeline = require("modules/ui/speedSplineTimeline")
 
 -- worldSpeedSplineOrientationMarkerType, ordered by enum value.
 -- The `value` is the exact RED enum name used on export, the rest drives the UI.
@@ -146,6 +147,8 @@ end
 ---@field roadAdjustmentFactorChangeSections table
 ---@field ignoreTerrain boolean
 ---@field protected speedPropertyWidth number
+---@field protected _timelineHoverDistance number? Distance (m) of the timeline scrubber, or nil when not hovering.
+---@field protected _maxPositionCache number? Cached spline length used to cap event positions.
 local speedSpline = setmetatable({}, { __index = spline })
 
 function speedSpline:new()
@@ -250,6 +253,86 @@ function speedSpline:recordStructuralChange()
     end
 end
 
+---Recomputes and caches the max in-bounds position. `getTotalLength` does bezier arc-length
+---integration, so this is called once per draw pass (see `draw` / the timeline) rather than per
+---field, and `getMaxPosition` reads the cache.
+---@return number
+function speedSpline:refreshMaxPosition()
+    local length = self:getTotalLength()
+    self._maxPositionCache = (length and length > 0.01) and length or maxSectionPosition
+    return self._maxPositionCache
+end
+
+---Maximum in-bounds position (m) for any event: the spline length, so positions can't run past
+---the end of the spline. Falls back to a large value only for a degenerate spline (< 2 points).
+---@return number
+function speedSpline:getMaxPosition()
+    if self._maxPositionCache == nil then
+        return self:refreshMaxPosition()
+    end
+    return self._maxPositionCache
+end
+
+---Adds a speed range and returns its new index. Shared by the section list and the timeline.
+---@param startPos number
+---@param endPos number
+---@param speed number
+---@return integer index
+function speedSpline:addSpeedSection(startPos, endPos, speed)
+    self:recordStructuralChange()
+    table.insert(self.speedChangeSections, { start = startPos, endPos = endPos, speed = speed })
+    return #self.speedChangeSections
+end
+
+---Adds a rotation point and returns its new index. Respawns the node so the fresh entity assembly
+---creates the new prism gizmo component: adding a component to an already-assembled entity does
+---not render until it is reassembled (same reason hiding then unhiding the node works).
+---@param pos number
+---@return integer index
+function speedSpline:addOrientationPoint(pos)
+    self:recordStructuralChange()
+    table.insert(self.orientationChangeSections, {
+        pos = pos,
+        mode = orientationModes[1].value,
+        pitch = 0,
+        yaw = 0,
+        roll = 0
+    })
+    if self:isSpawned() then
+        self:respawn()
+    end
+    return #self.orientationChangeSections
+end
+
+---Adds a ground-snap point and returns its new index.
+---@param pos number
+---@param factor number
+---@return integer index
+function speedSpline:addRoadPoint(pos, factor)
+    self:recordStructuralChange()
+    table.insert(self.roadAdjustmentFactorChangeSections, { pos = pos, factor = factor })
+    return #self.roadAdjustmentFactorChangeSections
+end
+
+---Removes a timeline event from the given track. Rotation removals refresh the gizmos (the freed
+---one is hidden by updateRotationGizmos); no respawn is needed on removal.
+---@param track string "speed" | "rotation" | "groundSnap"
+---@param index number
+---@return boolean removed
+function speedSpline:removeTimelineEvent(track, index)
+    local sections = (track == "speed" and self.speedChangeSections)
+        or (track == "rotation" and self.orientationChangeSections)
+        or (track == "groundSnap" and self.roadAdjustmentFactorChangeSections)
+    if not sections or not sections[index] then return false end
+
+    self:recordStructuralChange()
+    table.remove(sections, index)
+    if track == "rotation" then
+        self:updateCurvePreview()
+    end
+    return true
+end
+
 ---Ordered curve polyline (first marker -> last marker), independent of the reverse
 ---preview flag, so a point's "position along the spline" is always measured from the
 ---first spline point.
@@ -264,6 +347,50 @@ function speedSpline:getMarkerOrderedPathPoints()
         return ordered
     end
     return points
+end
+
+---Formats a speed (m/s) using the unit chosen in the appearance settings (km/h or mph).
+---@param speedMetersPerSecond number
+---@return string
+function speedSpline:formatDisplaySpeed(speedMetersPerSecond)
+    return formatDisplaySpeed(speedMetersPerSecond)
+end
+
+---Target speed (m/s) that the performer holds at a given distance along the spline, derived
+---from the speed change sections. Each section ramps linearly from the previously held speed to
+---its target across [start, end]; between sections the speed holds at the last target. The
+---performer enters at rest, so the speed before the first section's start is 0 and the first
+---section ramps up from 0.
+---@param distance number Distance in meters from the spline start.
+---@return number|nil speed Speed in m/s, or nil when there are no speed sections.
+function speedSpline:getSpeedAtDistance(distance)
+    if #self.speedChangeSections == 0 then return nil end
+
+    local sorted = {}
+    for _, section in ipairs(self.speedChangeSections) do
+        table.insert(sorted, section)
+    end
+    table.sort(sorted, function(a, b)
+        return math.min(a.start, a.endPos) < math.min(b.start, b.endPos)
+    end)
+
+    local held = 0 -- initial speed before the first section (performer starts at rest)
+    for _, section in ipairs(sorted) do
+        local rampStart = math.min(section.start, section.endPos)
+        local rampEnd = math.max(section.start, section.endPos)
+        if distance < rampStart then
+            return held
+        elseif distance <= rampEnd then
+            if rampEnd - rampStart < 1e-6 then
+                return section.speed
+            end
+            local t = (distance - rampStart) / (rampEnd - rampStart)
+            return held + (section.speed - held) * t
+        end
+        held = section.speed
+    end
+
+    return held
 end
 
 ---Creates (or fetches) the mesh component used as the in-world gizmo for rotation point `index`.
@@ -364,6 +491,7 @@ end
 ---or its preview is enabled. Used by the editor to skip opening an empty overlay.
 ---@return boolean
 function speedSpline:wantsViewportOverlay()
+    if self._timelineHoverDistance ~= nil then return true end
     return self.object ~= nil and (self.object.selected == true or self.previewed == true)
 end
 
@@ -401,14 +529,34 @@ function speedSpline:drawViewportOverlay(screen, drawList)
     end
 
     for index, section in ipairs(self.speedChangeSections) do
-        drawLabel(section.start, colors.speed, string.format("S%d  %s", index, formatDisplaySpeed(section.speed)))
-        drawLabel(section.endPos, colors.speed, string.format("S%d end", index))
+        drawLabel(section.start, colors.speed, string.format("S%d start", index))
+        drawLabel(section.endPos, colors.speed, string.format("S%d  %s", index, formatDisplaySpeed(section.speed)))
     end
 
     -- Rotation points are previewed with in-world prism gizmos (see updateRotationGizmos), not labels.
 
     for index, section in ipairs(self.roadAdjustmentFactorChangeSections) do
         drawLabel(section.pos, colors.groundSnap, string.format("G%d  %.2f", index, section.factor), true)
+    end
+
+    -- Timeline scrubber: a movable indicator synced to the cursor in the Speed Spline Timeline,
+    -- reading out the speed interpolated at that exact distance.
+    if self._timelineHoverDistance ~= nil then
+        local world = positionAlongPolyline(points, self._timelineHoverDistance)
+        if world then
+            local speed = self:getSpeedAtDistance(self._timelineHoverDistance)
+            local text = speed and formatDisplaySpeed(speed) or "no speed"
+            projectedWireframe.drawWorldMarker(drawList, screen, Vector4.new(world.x, world.y, world.z, 0), {
+                color = rgba(0, 214, 255),
+                labelColor = textColor,
+                text = text,
+                radius = 7 * style.viewSize,
+                innerRadius = 3 * style.viewSize,
+                badgeOffsetY = -15 * style.viewSize,
+                fontRatio = 0.9,
+                clampToScreen = false
+            })
+        end
     end
 end
 
@@ -443,9 +591,8 @@ local function getRowFieldStartX()
     return rowIndexColumnWidth * (style.viewSize or 1)
 end
 
----Editable "position along the spline" cell.
----A fixed generous max is used (never the live spline length) so stored positions
----are never silently clamped/mutated when the spline geometry changes.
+---Editable "position along the spline" cell. Capped at the spline length so a position can't be
+---edited out of bounds (existing out-of-range values are only pulled in when the field is touched).
 ---@param self speedSpline
 ---@param id string
 ---@param value number
@@ -454,7 +601,7 @@ end
 local function positionCell(self, id, value, suffix)
     local newValue = field.advancedTrackedFloat(self.object, id, value, {
         min = 0,
-        max = maxSectionPosition,
+        max = self:getMaxPosition(),
         step = 0.1,
         format = "%.2f",
         suffix = suffix,
@@ -467,8 +614,23 @@ function speedSpline:draw()
     -- Reuse the entire basic spline UI (path, length, reverse, looped, previewing options).
     spline.draw(self)
 
+    -- Refresh the cached max position once per frame; the section position fields read the cache.
+    self:refreshMaxPosition()
+
     if not self.speedPropertyWidth then
         self.speedPropertyWidth = utils.getTextMaxWidth({ "Ignore Terrain" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+    end
+
+    ImGui.Spacing()
+
+    local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Timeline Editor", "speedSplineTimelineOpen", nil, true)
+    if ImGui.Button(openTimelineLabel) then
+        speedSplineTimeline.openForSpline(self)
+    end
+    if openTimelineHiddenText then
+        style.tooltipActionLabel(openTimelineHiddenText, openTimelineHiddenText .. "\nDrag, resize and reorder every speed / rotation / ground-snap point on a spatial timeline.")
+    else
+        style.tooltip("Drag, resize and reorder every speed / rotation / ground-snap point on a spatial timeline.")
     end
 
     ImGui.Spacing()
@@ -492,11 +654,11 @@ function speedSpline:drawSpeedControlSection()
         beginTableRow("speedSection", index, fieldStartX)
 
         section.start = positionCell(self, "##start", section.start, " start")
-        style.tooltip("Start position of this speed range (m along the spline).")
+        style.tooltip("Distance where the speed change begins (m along the spline).")
 
         ImGui.SameLine()
         section.endPos = positionCell(self, "##end", section.endPos, " end")
-        style.tooltip("End position of this speed range (m along the spline).")
+        style.tooltip("Distance where the target speed is fully reached. A shorter range means a quicker change.")
 
         ImGui.SameLine()
         section.speed = field.advancedTrackedFloat(self.object, "##speed", section.speed, { min = 0, max = 1000, step = 0.1, format = "%.2f", suffix = " m/s", width = 80 })
@@ -518,13 +680,8 @@ function speedSpline:drawSpeedControlSection()
     end
 
     if ImGui.Button(IconGlyphs.Plus .. " Add speed range") then
-        self:recordStructuralChange()
         local length = self:getTotalLength()
-        table.insert(self.speedChangeSections, {
-            start = 0,
-            endPos = length > 0.01 and length or 10,
-            speed = 10
-        })
+        self:addSpeedSection(0, length > 0.01 and length or 10, 10)
     end
 
     ImGui.TreePop()
@@ -595,15 +752,7 @@ function speedSpline:drawRotationSection()
     end
 
     if ImGui.Button(IconGlyphs.Plus .. " Add rotation point") then
-        self:recordStructuralChange()
-        table.insert(self.orientationChangeSections, {
-            pos = 0,
-            mode = orientationModes[1].value,
-            pitch = 0,
-            yaw = 0,
-            roll = 0
-        })
-        dirty = true
+        self:addOrientationPoint(0)
     end
 
     if dirty then
@@ -654,14 +803,146 @@ function speedSpline:drawGroundSnapSection()
     end
 
     if ImGui.Button(IconGlyphs.Plus .. " Add ground-snap point") then
-        self:recordStructuralChange()
-        table.insert(self.roadAdjustmentFactorChangeSections, {
-            pos = 0,
-            factor = 1
-        })
+        self:addRoadPoint(0, 1)
     end
 
     ImGui.TreePop()
+end
+
+---Whether the speed range at `index` overlaps any other speed range (ranges must be disjoint).
+---@param index number
+---@return boolean
+function speedSpline:speedRangeOverlaps(index)
+    local section = self.speedChangeSections[index]
+    if not section then return false end
+
+    local aStart = math.min(section.start, section.endPos)
+    local aEnd = math.max(section.start, section.endPos)
+    for otherIndex, other in ipairs(self.speedChangeSections) do
+        if otherIndex ~= index then
+            local bStart = math.min(other.start, other.endPos)
+            local bEnd = math.max(other.start, other.endPos)
+            if aStart < bEnd and bStart < aEnd then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+---Draws the editable inputs for the timeline-selected event of a given track on a single inline
+---row (to save vertical space). Reuses the same tracked fields as the sections, so edits share
+---undo history. Deletion is handled by the timeline's right-click context menu, not here.
+---@param track string "speed" | "rotation" | "groundSnap"
+---@param index number Index within that track's section array.
+---@return boolean stillSelected False when the event no longer exists (out of range).
+function speedSpline:drawTimelineEventEditor(track, index)
+    if track == "speed" then
+        local section = self.speedChangeSections[index]
+        if not section then return false end
+
+        ImGui.AlignTextToFramePadding()
+        style.mutedText(string.format("S%d", index))
+
+        ImGui.SameLine()
+        local maxPos = self:getMaxPosition()
+        section.start = field.advancedTrackedFloat(self.object, "##evSpeedStart", section.start, { min = 0, max = maxPos, step = 0.1, format = "%.2f", suffix = " start", width = 86 })
+        style.tooltip("Distance where the speed change begins (m along the spline).")
+
+        ImGui.SameLine()
+        section.endPos = field.advancedTrackedFloat(self.object, "##evSpeedEnd", section.endPos, { min = 0, max = maxPos, step = 0.1, format = "%.2f", suffix = " end", width = 86 })
+        style.tooltip("Distance where the target speed is fully reached. A shorter range means a quicker change.")
+
+        ImGui.SameLine()
+        section.speed = field.advancedTrackedFloat(self.object, "##evSpeedValue", section.speed, { min = 0, max = 1000, step = 0.1, format = "%.2f", suffix = " m/s", width = 90 })
+        style.tooltip("Target speed reached at the end of this range, in meters per second.")
+
+        ImGui.SameLine()
+        style.mutedText(string.format("(%s)", formatDisplaySpeed(section.speed)))
+
+        if self:speedRangeOverlaps(index) then
+            ImGui.SameLine()
+            style.pushStyleColor(true, ImGuiCol.Text, style.warnColor)
+            ImGui.Text(IconGlyphs.Alert .. " overlaps")
+            style.popStyleColor(true)
+            style.tooltip("This range overlaps another one. Speed ranges must not overlap.")
+        end
+
+    elseif track == "rotation" then
+        local section = self.orientationChangeSections[index]
+        if not section then return false end
+        local dirty = false
+
+        ImGui.AlignTextToFramePadding()
+        style.mutedText(string.format("R%d", index))
+
+        ImGui.SameLine()
+        local previousPos = section.pos
+        section.pos = positionCell(self, "##evRotPos", section.pos, " m")
+        style.tooltip("Position where this orientation is applied (m along the spline).")
+        if section.pos ~= previousPos then dirty = true end
+
+        ImGui.SameLine()
+        local modeIndex = orientationModeIndexByValue[section.mode] or 1
+        local newModeIndex, modeChanged = style.trackedCombo(self.object, "##evRotMode", modeIndex - 1, orientationModeLabels, 168, {
+            tooltip = getOrientationMode(section.mode).tooltip
+        })
+        if modeChanged then
+            section.mode = orientationModes[newModeIndex + 1].value
+            dirty = true
+        end
+
+        local axes = getOrientationMode(section.mode).axes
+        local changedP, changedY, changedR
+        if axes.pitch then
+            ImGui.SameLine()
+            section.pitch, changedP = field.advancedTrackedFloat(self.object, "##evRotPitch", section.pitch, { min = -360, max = 360, step = 0.5, format = "%.1f", suffix = " P", width = 60 })
+            style.tooltip("Overridden pitch, in degrees.")
+        end
+        if axes.yaw then
+            ImGui.SameLine()
+            section.yaw, changedY = field.advancedTrackedFloat(self.object, "##evRotYaw", section.yaw, { min = -360, max = 360, step = 0.5, format = "%.1f", suffix = " Y", width = 60 })
+            style.tooltip("Overridden yaw, in degrees.")
+        end
+        if axes.roll then
+            ImGui.SameLine()
+            section.roll, changedR = field.advancedTrackedFloat(self.object, "##evRotRoll", section.roll, { min = -360, max = 360, step = 0.5, format = "%.1f", suffix = " R", width = 60 })
+            style.tooltip("Overridden roll, in degrees.")
+        end
+        if changedP or changedY or changedR then dirty = true end
+
+        if dirty then
+            self:updateCurvePreview()
+        end
+
+    elseif track == "groundSnap" then
+        local section = self.roadAdjustmentFactorChangeSections[index]
+        if not section then return false end
+
+        ImGui.AlignTextToFramePadding()
+        style.mutedText(string.format("G%d", index))
+
+        ImGui.SameLine()
+        section.pos = positionCell(self, "##evGroundPos", section.pos, " m")
+        style.tooltip("Position where this ground-snap strength is applied (m along the spline).")
+
+        ImGui.SameLine()
+        section.factor = field.advancedTrackedFloat(self.object, "##evGroundFactor", section.factor, { min = 0, max = 1, step = 0.01, format = "%.2f", suffix = " snap", width = 90 })
+        style.tooltip("Ground snap blend factor. 1 = fully snapped to the ground, 0 = keep the spline's own height.")
+    else
+        return false
+    end
+
+    -- Inline delete button (a second path alongside the timeline's right-click delete). Safe to
+    -- mutate here: the editor panel is drawn after the canvas, so no section list is being iterated.
+    ImGui.SameLine()
+    if style.dangerButton(IconGlyphs.DeleteOutline) then
+        self:removeTimelineEvent(track, index)
+        return false
+    end
+    style.tooltip("Delete this point")
+
+    return true
 end
 
 function speedSpline:save()

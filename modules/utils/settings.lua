@@ -71,6 +71,11 @@ local config = require("modules/utils/config")
 ---@field public actionLabelDisplayMode integer
 ---@field public stickyRowsEnabled boolean
 ---@field public speedUnit integer
+---@field public speedTimelineDockBottom boolean
+---@field public speedTimelineDockHeight number
+---@field public speedTimelineZoom number
+---@field public speedTimelineSnapEnabled boolean
+---@field public speedTimelineSnapMeters number
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -138,6 +143,11 @@ local settingsData = {
     actionLabelDisplayMode = 2,
     stickyRowsEnabled = true,
     speedUnit = 1,
+    speedTimelineDockBottom = false,
+    speedTimelineDockHeight = 300,
+    speedTimelineZoom = 12, -- pixels per meter
+    speedTimelineSnapEnabled = true,
+    speedTimelineSnapMeters = 0.5,
 
     filterTags = {},
     favoritesFilter = "",

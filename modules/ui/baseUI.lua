@@ -19,6 +19,7 @@ baseUI = {
     savedUI = require("modules/ui/savedUI"),
     exportUI = require("modules/ui/exportUI"),
     previewTimeline = require("modules/ui/previewTimeline"),
+    speedSplineTimeline = require("modules/ui/speedSplineTimeline"),
     settingsUI = require("modules/ui/settingsUI"),
     activeTab = 1,
     requestedTab = nil,
@@ -267,6 +268,10 @@ function baseUI.init()
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
 
+    if baseUI.speedSplineTimeline and baseUI.speedSplineTimeline.bindSpawnedUI then
+        baseUI.speedSplineTimeline.bindSpawnedUI(baseUI.spawnedUI)
+    end
+
     if ignoreRequirements then return end
 
     if not ArchiveXL then
@@ -448,6 +453,9 @@ function baseUI.draw(spawner)
     baseUI.spawnUI.drawPopup()
     if baseUI.previewTimeline and baseUI.previewTimeline.drawWindow then
         baseUI.previewTimeline.drawWindow()
+    end
+    if baseUI.speedSplineTimeline and baseUI.speedSplineTimeline.drawWindow then
+        baseUI.speedSplineTimeline.drawWindow()
     end
     if baseUI.spawnedUI and baseUI.spawnedUI.drawPinnedHierarchyWindow then
         baseUI.spawnedUI.drawPinnedHierarchyWindow()
