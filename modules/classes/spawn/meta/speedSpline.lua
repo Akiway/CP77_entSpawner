@@ -623,12 +623,19 @@ function speedSpline:draw()
 
     ImGui.Spacing()
 
-    local openTimelineLabel, openTimelineHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, "Open Timeline Editor", "speedSplineTimelineOpen", nil, true)
-    if ImGui.Button(openTimelineLabel) then
-        speedSplineTimeline.openForSpline(self)
+    -- The timeline always tracks the selected speed spline, so an open window is showing this one.
+    local timelineOpen = speedSplineTimeline.isOpen()
+    local toggleText = timelineOpen and "Close Timeline Editor" or "Open Timeline Editor"
+    local toggleLabel, toggleHiddenText = style.resolveActionLabel(IconGlyphs.ChartTimeline, toggleText, "speedSplineTimelineToggle", nil, true)
+    if ImGui.Button(toggleLabel) then
+        if timelineOpen then
+            speedSplineTimeline.close()
+        else
+            speedSplineTimeline.openForSpline(self)
+        end
     end
-    if openTimelineHiddenText then
-        style.tooltipActionLabel(openTimelineHiddenText, openTimelineHiddenText .. "\nDrag, resize and reorder every speed / rotation / ground-snap point on a spatial timeline.")
+    if toggleHiddenText then
+        style.tooltipActionLabel(toggleHiddenText, toggleHiddenText .. "\nDrag, resize and reorder every speed / rotation / ground-snap point on a spatial timeline.")
     else
         style.tooltip("Drag, resize and reorder every speed / rotation / ground-snap point on a spatial timeline.")
     end

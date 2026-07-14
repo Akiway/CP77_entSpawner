@@ -245,6 +245,64 @@ local function computeSpeedBounds(spline, index)
     return left, right
 end
 
+---Left-edge position closest to `desiredLo` where a width-`width` range fits without overlapping
+---any OTHER range, so a moved range can slot into any big-enough gap (reordering past others).
+---Returns nil when no gap is wide enough (the range should then stay put).
+---@param spline table
+---@param index number
+---@param desiredLo number
+---@param width number
+---@return number?
+local function computeSpeedSlot(spline, index, desiredLo, width)
+    local maxPos = spline:getMaxPosition()
+
+    -- Occupied intervals from the other ranges, clamped to [0, maxPos] and sorted.
+    local occupied = {}
+    for i, other in ipairs(spline.speedChangeSections) do
+        if i ~= index then
+            local lo = clamp(math.min(other.start, other.endPos), 0, maxPos)
+            local hi = clamp(math.max(other.start, other.endPos), 0, maxPos)
+            if hi > lo then
+                table.insert(occupied, { lo = lo, hi = hi })
+            end
+        end
+    end
+    table.sort(occupied, function(a, b) return a.lo < b.lo end)
+
+    -- Merge overlapping/adjacent occupied intervals (tolerates pre-existing overlaps in the data).
+    local merged = {}
+    for _, iv in ipairs(occupied) do
+        local last = merged[#merged]
+        if last and iv.lo <= last.hi + 1e-6 then
+            last.hi = math.max(last.hi, iv.hi)
+        else
+            table.insert(merged, { lo = iv.lo, hi = iv.hi })
+        end
+    end
+
+    -- Walk the free gaps between occupied intervals; pick the valid x closest to desiredLo.
+    local bestX, bestDist = nil, math.huge
+    local function consider(gapLo, gapHi)
+        if gapHi - gapLo >= width - 1e-6 then
+            local x = clamp(desiredLo, gapLo, gapHi - width)
+            local dist = math.abs(x - desiredLo)
+            if dist < bestDist then
+                bestDist = dist
+                bestX = x
+            end
+        end
+    end
+
+    local cursor = 0
+    for _, iv in ipairs(merged) do
+        consider(cursor, iv.lo)
+        cursor = math.max(cursor, iv.hi)
+    end
+    consider(cursor, maxPos)
+
+    return bestX
+end
+
 ---@param track string
 ---@param index number
 ---@param mode string
@@ -317,7 +375,10 @@ local function updateDrag()
             newLo = drag.baseStart
             newHi = clamp(snapValue(drag.baseEnd + deltaMeters), drag.baseStart, drag.rightBound)
         else
-            newLo = clamp(snapValue(drag.baseStart + deltaMeters), drag.leftBound, drag.rightBound - width)
+            -- Move: slot into whichever free gap is closest, allowing the range to reorder past
+            -- others. Keeps its current spot if nothing else fits.
+            local desiredLo = snapValue(drag.baseStart + deltaMeters)
+            newLo = computeSpeedSlot(spline, drag.index, desiredLo, width) or math.min(section.start, section.endPos)
             newHi = newLo + width
         end
 
@@ -819,7 +880,44 @@ function speedSplineTimeline.openForSpline(spline)
     speedSplineTimeline.selected.index = 0
 end
 
+function speedSplineTimeline.close()
+    speedSplineTimeline.open = false
+    endDrag()
+end
+
+---True while the timeline window is open (it always tracks the selected speed spline).
+---@return boolean
+function speedSplineTimeline.isOpen()
+    return speedSplineTimeline.open == true
+end
+
+---Follows the single-selected speed spline in the Spawned hierarchy, and closes the window when
+---the bound spline is removed from the hierarchy (`element:remove` nils the element's parent).
+local function syncToSelection()
+    local spawnedUI = speedSplineTimeline.spawnedUI
+    if spawnedUI then
+        spawnedUI.ensureCache()
+        if #spawnedUI.selectedPaths == 1 then
+            local ref = spawnedUI.selectedPaths[1].ref
+            if ref and ref.spawnable and ref.spawnable.node == "worldSpeedSplineNode"
+                and speedSplineTimeline.spline ~= ref.spawnable then
+                speedSplineTimeline.spline = ref.spawnable
+                speedSplineTimeline.selected.track = nil
+                speedSplineTimeline.selected.index = 0
+            end
+        end
+    end
+
+    local sp = speedSplineTimeline.spline
+    if speedSplineTimeline.open and sp and (sp.object == nil or sp.object.parent == nil) then
+        speedSplineTimeline.close()
+        speedSplineTimeline.spline = nil
+    end
+end
+
 function speedSplineTimeline.drawWindow()
+    syncToSelection()
+
     -- Always clear the scrubber first; it is re-set below only while hovering the speed lane.
     local spline = getSpline()
     if spline then
