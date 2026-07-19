@@ -353,7 +353,8 @@ local customNumericPropertyRanges = {
     _patterns = {
         {
             contains = "angle",
-            wrap = 360,
+            min = -360,
+            max = 360,
             exclude = { highBeamPitchAngle = true }
         }
     }
@@ -2138,8 +2139,8 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
             end
         elseif info.typeName == "Float" then
             ImGui.SetNextItemWidth(100 * style.viewSize)
-            local value, changed = ImGui.InputFloat("##" .. componentID .. table.concat(path), data, 0, 0, "%.2f")
-            if changed then
+            local value = ImGui.InputFloat("##" .. componentID .. table.concat(path), data, 0, 0, "%.2f")
+            if ImGui.IsItemDeactivatedAfterEdit() then
                 value = clampCustomNumericProperty(key, value)
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, value)
@@ -2159,8 +2160,8 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
         elseif string.match(info.typeName, "int") or string.match(info.typeName, "Int") then
             ImGui.SetNextItemWidth(100 * style.viewSize)
 
-            local value, changed = ImGui.InputInt("##" .. componentID .. table.concat(path), data, 0)
-            if changed then
+            local value = ImGui.InputInt("##" .. componentID .. table.concat(path), data, 0)
+            if ImGui.IsItemDeactivatedAfterEdit() then
                 value = clampCustomNumericProperty(key, value)
                 history.addAction(history.getElementChange(self.object))
                 self:updatePropValue(componentID, path, value)

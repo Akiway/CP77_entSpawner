@@ -270,6 +270,16 @@ function spawnable:despawn()
 end
 
 function spawnable:respawn()
+    -- If a spawn is still in flight, the in-flight entity has no live ID to despawn
+    -- yet and spawn() would no-op (returns false while spawning). Doing despawn()+spawn()
+    -- here would only set the despawning flag, so onAttached despawns the entity and,
+    -- with no queued respawn, nothing ever brings it back. Queue the respawn so it runs
+    -- from onAttached once the current spawn finishes.
+    if self.spawning then
+        self.queueRespawn = true
+        return
+    end
+
     self:despawn()
     self:spawn()
 end
