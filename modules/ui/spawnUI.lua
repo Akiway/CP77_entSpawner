@@ -2014,15 +2014,23 @@ local function drawHierarchySpawnResultNode(node, activeSpawnList, xSpace)
     ImGui.TreePop()
 end
 
----Draws hierarchy-based path results from the cached `filteredHierarchyTree`.
----@param activeSpawnList table
----@param xSpace number
-local function drawHierarchySpawnResults(activeSpawnList, xSpace)
+---Resolves the cached hierarchy tree root, rebuilding it when stale.
+---@return table?
+local function resolveHierarchyRoot()
     if not spawnUI.filteredHierarchyTree then
         spawnUI.rebuildHierarchyTree()
     end
 
-    local hierarchyRoot = spawnUI.filteredHierarchyTree
+    return spawnUI.filteredHierarchyTree
+end
+
+---Draws hierarchy-based path result nodes from the cached `filteredHierarchyTree`.
+---The expand/collapse controls bar is drawn separately, outside the scroll region
+---(see `drawAll`), so it stays visible while the tree is scrolled.
+---@param activeSpawnList table
+---@param xSpace number
+---@param hierarchyRoot table?
+local function drawHierarchySpawnResults(activeSpawnList, xSpace, hierarchyRoot)
     if not hierarchyRoot then
         drawFlatSpawnResults(activeSpawnList, xSpace)
         return
@@ -2032,7 +2040,6 @@ local function drawHierarchySpawnResults(activeSpawnList, xSpace)
         return
     end
 
-    drawHierarchyResultControls(hierarchyRoot)
     drawHierarchySpawnResultNode(hierarchyRoot, activeSpawnList, xSpace)
 end
 
@@ -2258,15 +2265,22 @@ function spawnUI.drawAll()
 
     style.spacedSeparator()
 
+    local useHierarchyTree = settings.spawnUIHierarchyTree and activeSpawnList.isPaths
+    local hierarchyRoot = useHierarchyTree and resolveHierarchyRoot() or nil
+
+    -- Draw the expand/collapse bar before the scroll region so it stays visible while scrolling the tree.
+    if useHierarchyTree and hierarchyRoot and #spawnUI.filteredList > 0 then
+        drawHierarchyResultControls(hierarchyRoot)
+    end
+
     ImGui.BeginChild("list")
 
     local xSpace, _ = ImGui.GetItemRectSize() - 2 * ImGui.GetStyle().WindowPadding.x - (ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0)
 
     spawnUI.drawNoMatch()
 
-    local useHierarchyTree = settings.spawnUIHierarchyTree and activeSpawnList.isPaths
     if useHierarchyTree then
-        drawHierarchySpawnResults(activeSpawnList, xSpace)
+        drawHierarchySpawnResults(activeSpawnList, xSpace, hierarchyRoot)
     else
         drawFlatSpawnResults(activeSpawnList, xSpace)
     end
