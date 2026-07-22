@@ -166,6 +166,36 @@ local TYPE_MAP = {
         sub = "Mesh",
         replacer = true
     },
+    -- Abstract base for every proxy mesh node (worldGenericProxyMeshNode, worldBuildingProxyMeshNode, ...).
+    -- Matched via IsA before worldMeshNode so proxies clone as a Proxy Mesh instead of a plain Static Mesh.
+    ["worldPrefabProxyMeshNode"] = {
+        dataRetrieval = function(node)
+            local meshPath = node and node.meshPath or ""
+            if type(meshPath) ~= "string" or meshPath == "" then
+                return nil
+            end
+
+            local data = { spawnData = meshPath }
+
+            local native = node.nodeDefinition
+            if native then
+                local ok, value = pcall(function()
+                    return native.nearAutoHideDistance
+                end)
+                if ok and value ~= nil then
+                    local numeric = type(value) == "number" and value or tonumber(tostring(value))
+                    if numeric then
+                        data.nearAutoHideDistance = numeric
+                    end
+                end
+            end
+
+            return data
+        end,
+        category = "Mesh",
+        sub = "Proxy Mesh",
+        replacer = true
+    },
     ["worldStaticDecalNode"] = {
         data = "materialPath",
         category = "Deco",
@@ -428,6 +458,7 @@ local TYPE_PRIORITY = {
     "worldFoliageNode",
     "worldStaticMeshNode",
     "worldInstancedMeshNode",
+    "worldPrefabProxyMeshNode",
     "worldMeshNode",
     "worldStaticDecalNode",
     "worldStaticParticleNode",
@@ -1069,6 +1100,11 @@ function rht.sendToSearch(node)
 
     local resolved = resolveData(node, definition)
     local searchText = type(resolved) == "string" and resolved or ""
+
+    -- Table-returning resolvers (e.g. Proxy Mesh) still expose a usable mesh path for filtering.
+    if searchText == "" and type(node.meshPath) == "string" then
+        searchText = node.meshPath
+    end
 
     if searchText ~= "" then
         rht.spawnUI.filter = searchText
