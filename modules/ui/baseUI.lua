@@ -418,17 +418,12 @@ function baseUI.draw(spawner)
         end
 
         drawMenuButton()
-
-        if windowUtils and not editorActive then
-            windowUtils.Update(settings.mainWindowName)
-        end
-        ImGui.End()
-    else
-        if windowUtils and not editorActive then
-            windowUtils.Update(settings.mainWindowName)
-        end
-        ImGui.End()
     end
+
+    if windowUtils and not editorActive then
+        windowUtils.Update(settings.mainWindowName)
+    end
+    ImGui.End()
 
     style.popStyleVar(not editorActive)
     style.popStyleColor(editorActive)
