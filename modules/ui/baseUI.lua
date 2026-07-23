@@ -12,6 +12,8 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local history = require("modules/utils/history")
 
+local windowUtils
+
 ---@class baseUI
 baseUI = {
     spawnUI = require("modules/ui/spawnUI"),
@@ -264,6 +266,8 @@ local function drawMenuButton()
 end
 
 function baseUI.init()
+    windowUtils = GetMod("WindowUtils") -- Optional mod dependency for window management and grid snapping
+
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
@@ -415,6 +419,14 @@ function baseUI.draw(spawner)
 
         drawMenuButton()
 
+        if windowUtils and not editorActive then
+            windowUtils.Update(settings.mainWindowName)
+        end
+        ImGui.End()
+    else
+        if windowUtils and not editorActive then
+            windowUtils.Update(settings.mainWindowName)
+        end
         ImGui.End()
     end
 
@@ -445,6 +457,7 @@ function baseUI.draw(spawner)
             tab.draw(spawner)
 
             if settings.windowStates[tab.id] then
+                if windowUtils then windowUtils.Update(detachedTabLabel) end
                 ImGui.End()
             end
         end
