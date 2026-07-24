@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
+local prefabPreview = require("modules/utils/prefabPreview")
 
 ---@class favorite
 ---@field name string
@@ -316,9 +317,12 @@ function favorite:draw(context)
     end
 
     -- Asset preview
-    if self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
+    local isSingleAsset = self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
+    if isSingleAsset and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
-    elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer) then
+    elseif not isSingleAsset and ImGui.IsItemHovered() and prefabPreview.isPreviewable(self.data, self:getAssetCount()) then
+        self.spawnUI.handlePrefabPreviewHovered(self)
+    elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer or prefabPreview.isActive()) then
         self.spawnUI.hoveredEntry = nil
         self.spawnUI.stopActiveAssetPreview()
     end

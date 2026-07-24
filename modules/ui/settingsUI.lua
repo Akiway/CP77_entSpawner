@@ -337,6 +337,13 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("Mostly noticeable on heavy groups with thousands of elements")
 
+        settings.prefabPreviewMaxAssets, changed = ImGui.InputInt("Prefab preview max assets", math.floor(settings.prefabPreviewMaxAssets or 300), 10)
+        if changed then
+            settings.prefabPreviewMaxAssets = math.max(0, math.min(settings.prefabPreviewMaxAssets, 300))
+            settings.save()
+        end
+        style.tooltip("When hovering a prefab favorite, spawn a rotating preview of it if it contains at most this many assets.\nSet to 0 to disable prefab previews. (max 300)")
+
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end

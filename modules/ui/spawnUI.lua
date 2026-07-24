@@ -10,6 +10,7 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
+local prefabPreview = require("modules/utils/prefabPreview")
 
 local types = {
     ["Entity"] = {
@@ -1670,7 +1671,25 @@ function spawnUI.stopActiveAssetPreview()
         spawnUI.previewInstance = nil
     end
 
+    prefabPreview.stop()
+
     spawnUI.setAssetPreviewActive(false)
+end
+
+---@param favorite favorite
+function spawnUI.handlePrefabPreviewHovered(favorite)
+    if spawnUI.hoveredEntry == favorite then return end
+
+    spawnUI.stopActiveAssetPreview()
+    spawnUI.hoveredEntry = favorite
+
+    spawnUI.previewTimer = Cron.After(DEFAULT_HOVER_PREVIEW_DEBOUNCE_SECONDS, function ()
+        spawnUI.previewTimer = nil
+        if spawnUI.hoveredEntry ~= favorite then return end
+        if not editor.getCameraRotation() then return end
+
+        prefabPreview.start(favorite.data)
+    end)
 end
 
 ---@param entry table|favorite
@@ -1734,6 +1753,8 @@ function spawnUI.updateAssetPreview()
     if spawnUI.previewInstance and spawnUI.previewInstance:isSpawned() then
         spawnUI.previewInstance:assetPreviewSetPosition()
     end
+
+    prefabPreview.update()
 end
 
 ---Draws spawn-position controls and returns the alignment X coordinate.
@@ -2322,7 +2343,7 @@ end
 
 ---Handles Spawn UI being hidden by clearing active preview state.
 function spawnUI.hidden()
-    if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive then return end
+    if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive and not prefabPreview.isActive() then return end
 
     spawnUI.hoveredEntry = nil
     spawnUI.stopActiveAssetPreview()
