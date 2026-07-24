@@ -1914,6 +1914,11 @@ function editor.toggle(state)
     editor.camera.toggle(editorEnabled)
     editor.baseUI.loadTabSize = true
 
+    local ws = GetMod("WindowSwitcher")
+    if ws and ws.SetTaskbarVisible then
+        ws.SetTaskbarVisible("entSpawner", not editorEnabled)
+    end
+
     if editorEnabled ~= wasEditorEnabled and GameOptions and GameOptions.SetFloat then
         GameOptions.SetFloat("World", "StreamingTeleportMagSq", editorEnabled and 2147483648.00 or 4096.000000)
     end
