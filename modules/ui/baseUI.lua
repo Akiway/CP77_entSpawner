@@ -12,6 +12,8 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local history = require("modules/utils/history")
 
+local wu
+
 ---@class baseUI
 baseUI = {
     spawnUI = require("modules/ui/spawnUI"),
@@ -264,6 +266,17 @@ local function drawMenuButton()
 end
 
 function baseUI.init()
+    local windowUtils = GetMod("WindowUtils")
+    wu = windowUtils or ImGui
+
+    if windowUtils then
+        local lock = windowUtils.API.LockWindow
+        lock("##drag")
+        lock("WB##shortcuts-popup")
+        lock("##boxSelect")
+        lock("##projectedWireframeOverlay")
+    end
+
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
@@ -350,7 +363,7 @@ function baseUI.draw(spawner)
         flags = flags + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar
     end
 
-    if ImGui.Begin(settings.mainWindowName, flags) then
+    if wu.Begin(settings.mainWindowName, flags) then
         if not editorActive then
             drawRightAlignedTitleBarVersion(settings.mainWindowName, ModVersion)
         end
@@ -415,7 +428,7 @@ function baseUI.draw(spawner)
 
         drawMenuButton()
 
-        ImGui.End()
+        wu.End()
     end
 
     style.popStyleVar(not editorActive)
@@ -436,7 +449,7 @@ function baseUI.draw(spawner)
             end
 
             local detachedTabLabel = getTabLabel(tab, "detachedTab:" .. tostring(tab.id))
-            settings.windowStates[tab.id] = ImGui.Begin(detachedTabLabel, true, tabs[key].flags)
+            settings.windowStates[tab.id] = wu.Begin(detachedTabLabel, true, tabs[key].flags)
             input.updateContext("main")
 
             if not settings.windowStates[tab.id] then
@@ -445,7 +458,7 @@ function baseUI.draw(spawner)
             tab.draw(spawner)
 
             if settings.windowStates[tab.id] then
-                ImGui.End()
+                wu.End()
             end
         end
     end

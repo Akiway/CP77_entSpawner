@@ -4,6 +4,8 @@ local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local previewSyncManager = require("modules/utils/previewSyncManager")
 
+local wu
+
 ---@class previewTimelineDragState
 ---@field active boolean
 ---@field id number
@@ -994,6 +996,8 @@ function previewTimeline.openForSpawnable(spawnable)
 end
 
 function previewTimeline.drawWindow()
+    wu = wu or GetMod("WindowUtils") or ImGui
+
     if not previewTimeline.open then
         endTimelineDrag()
         return
@@ -1025,7 +1029,7 @@ function previewTimeline.drawWindow()
         dockStyleApplied = true
     end
 
-    previewTimeline.open = ImGui.Begin("Preview Timeline", true, timelineFlags)
+    previewTimeline.open = wu.Begin("Preview Timeline", true, timelineFlags, { skip = settings.previewTimelineDockBottom })
     if not previewTimeline.open then
         endTimelineDrag()
         previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
@@ -1083,7 +1087,7 @@ function previewTimeline.drawWindow()
         previewTimeline.open = false
         endTimelineDrag()
         previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
-        ImGui.End()
+        wu.End()
         style.popStyleVar(dockStyleApplied)
         style.popStyleColor(dockStyleApplied)
         return
@@ -1097,7 +1101,7 @@ function previewTimeline.drawWindow()
         style.mutedText("No effect or particle entries found for preview synchronization.")
         style.mutedText("Spawn Effect / Particle entries to use the Preview Timeline.")
         previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
-        ImGui.End()
+        wu.End()
         style.popStyleVar(dockStyleApplied)
         style.popStyleColor(dockStyleApplied)
         return
@@ -1123,7 +1127,7 @@ function previewTimeline.drawWindow()
 
     if not activeSection then
         previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
-        ImGui.End()
+        wu.End()
         style.popStyleVar(dockStyleApplied)
         style.popStyleColor(dockStyleApplied)
         return
@@ -1133,7 +1137,7 @@ function previewTimeline.drawWindow()
     if #sectionEntries == 0 then
         style.mutedText("Selected domain currently has no preview-capable entries.")
         previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
-        ImGui.End()
+        wu.End()
         style.popStyleVar(dockStyleApplied)
         style.popStyleColor(dockStyleApplied)
         return
@@ -1153,7 +1157,7 @@ function previewTimeline.drawWindow()
     end
 
     previewTimeline.dockWasBottom = settings.previewTimelineDockBottom
-    ImGui.End()
+    wu.End()
     style.popStyleVar(dockStyleApplied)
     style.popStyleColor(dockStyleApplied)
 end
