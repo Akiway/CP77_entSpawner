@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local colorUtil = require("modules/utils/color")
+local iesProfiles = require("modules/utils/iesProfiles")
 
 ---UI for drawing gameLightComponent/entLightComponent instance data on the entity spawnable class.
 ---Installed onto the entity class via lightComponentUI.install(entity).
@@ -112,6 +113,7 @@ local lightComponentNewUIKeys = {
     shadowFadeRange = true,
     flicker = true,
     lightChannel = true,
+    iesProfile = true,
     useInParticles = true,
     useInTransparents = true,
     scaleVolFog = true,
@@ -903,6 +905,89 @@ function lightComponentUI.install(entity)
     ---@param component table
     ---@param componentChanges table?
     ---@param propertySearch string?
+    function entity:drawLightComponentIESProfile(componentID, component, componentChanges, propertySearch)
+        local path = { "iesProfile" }
+        if not shouldDrawLightComponentPath(component, componentChanges, path, "IES Profile", propertySearch) then
+            return
+        end
+
+        self.lightComponentIESSearch = self.lightComponentIESSearch or {}
+        local stateKey = getLightComponentPendingKey(componentID, path)
+        self.lightComponentIESSearch[stateKey] = self.lightComponentIESSearch[stateKey] or ""
+
+        local defaultValue = getNestedLightComponentValue(component, path)
+        local defaultPath = iesProfiles.extractPath(defaultValue)
+        local currentValue = getLightComponentValue(component, componentChanges, path)
+        local currentPath = iesProfiles.extractPath(currentValue)
+        local modified = isLightComponentPathModified(component, componentChanges, path)
+
+        ---Applies a new IES profile path, reverting to the component default when they match
+        ---so no spurious change is stored.
+        ---@param newPath string
+        local function commitProfile(newPath)
+            if newPath == defaultPath then
+                self:updatePropValue(componentID, path, utils.deepcopy(defaultValue))
+            else
+                self:updatePropValue(componentID, path, iesProfiles.buildRef(defaultValue, newPath))
+            end
+        end
+
+        local max = utils.getTextMaxWidth({ "IES Profile" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        drawLightComponentLabelRow("IES Profile", max, modified)
+
+        local list = iesProfiles.getSelectable()
+        style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
+        local newPath, newSearch, changed = style.trackedSearchDropdown(
+            getLightComponentWidgetID(componentID, path),
+            "Search IES profile...",
+            currentPath,
+            self.lightComponentIESSearch[stateKey],
+            list,
+            {
+                element = self.object,
+                width = 200,
+                matchContentWidth = true,
+                optionDisplayFn = function(optionText)
+                    return iesProfiles.displayName(optionText)
+                end,
+                tooltip = "IES light projection profile (raRef:CIESDataResource)"
+            }
+        )
+        self.lightComponentIESSearch[stateKey] = newSearch
+        self:drawLightComponentReset(componentID, path, "raRef:CIESDataResource")
+        style.popStyleColor(modified)
+
+        if changed and newPath ~= currentPath then
+            commitProfile(newPath)
+        end
+
+        ImGui.SameLine()
+        ImGui.BeginDisabled(#iesProfiles.get() == 0)
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.SkipNext .. getLightComponentWidgetID(componentID, path, "Cycle")) then
+            local nextProfile, cycled = iesProfiles.getNext(currentPath)
+            if cycled then
+                history.addAction(history.getElementChange(self.object))
+                commitProfile(nextProfile)
+            end
+        end
+        style.pushButtonNoBG(false)
+        ImGui.EndDisabled()
+        style.tooltip("Select the next IES profile. Wraps around, including 'None'.")
+
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.Reload .. getLightComponentWidgetID(componentID, path, "Reload")) then
+            iesProfiles.reload()
+        end
+        style.pushButtonNoBG(false)
+        style.tooltip("Reload the IES profile list from disk.")
+    end
+
+    ---@param componentID string|number
+    ---@param component table
+    ---@param componentChanges table?
+    ---@param propertySearch string?
     function entity:drawLightComponentShadowSection(componentID, component, componentChanges, propertySearch)
         local fields = {
             { path = { "contactShadows" }, label = "Contact Shadows" },
@@ -1265,6 +1350,7 @@ function lightComponentUI.install(entity)
 
         self:drawLightComponentPrimary(componentID, component, componentChanges, propertySearch)
         ImGui.Dummy(0, 4 * style.viewSize)
+        self:drawLightComponentIESProfile(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentShadowSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentFlickerSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentChannelsSection(componentID, component, componentChanges, propertySearch)

@@ -20,6 +20,7 @@ function proxyMesh:new()
     o.nearAutoHideDistance = 15
 
     o.hideGenerate = true
+    o.convertTarget = 0
 
     setmetatable(o, { __index = self })
    	return o
@@ -38,6 +39,8 @@ function proxyMesh:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.nearAutoHideDistance = style.trackedDragFloat(self.object, "##nearAutoHideDistance", self.nearAutoHideDistance, 0.5, 0.01, 9999, "%.2f", 95)
+
+    self:drawConversionSelector("##proxyMeshConverterType", "Lossy Conversion##proxyMeshSingle")
 end
 
 function proxyMesh:save()

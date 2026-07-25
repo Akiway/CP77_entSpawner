@@ -10,6 +10,7 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
+local prefabPreview = require("modules/utils/prefabPreview")
 
 local types = {
     ["Entity"] = {
@@ -1670,7 +1671,25 @@ function spawnUI.stopActiveAssetPreview()
         spawnUI.previewInstance = nil
     end
 
+    prefabPreview.stop()
+
     spawnUI.setAssetPreviewActive(false)
+end
+
+---@param favorite favorite
+function spawnUI.handlePrefabPreviewHovered(favorite)
+    if spawnUI.hoveredEntry == favorite then return end
+
+    spawnUI.stopActiveAssetPreview()
+    spawnUI.hoveredEntry = favorite
+
+    spawnUI.previewTimer = Cron.After(DEFAULT_HOVER_PREVIEW_DEBOUNCE_SECONDS, function ()
+        spawnUI.previewTimer = nil
+        if spawnUI.hoveredEntry ~= favorite then return end
+        if not editor.getCameraRotation() then return end
+
+        prefabPreview.start(favorite.data)
+    end)
 end
 
 ---@param entry table|favorite
@@ -1711,12 +1730,9 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
             end
 
             local pos, _ = spawnUI.getSpawnNewPosition()
-            local cameraRotation = editor.getCameraRotation()
-            if not cameraRotation then return end
+            local rot = editor.getCameraFacingRotation()
+            if not rot then return end
 
-            local rot = EulerAngles.new(cameraRotation)
-            rot.yaw = rot.yaw - 180
-            rot.pitch = -rot.pitch
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
 
             spawnUI.previewInstance:assetPreview(true)
@@ -1734,6 +1750,8 @@ function spawnUI.updateAssetPreview()
     if spawnUI.previewInstance and spawnUI.previewInstance:isSpawned() then
         spawnUI.previewInstance:assetPreviewSetPosition()
     end
+
+    prefabPreview.update()
 end
 
 ---Draws spawn-position controls and returns the alignment X coordinate.
@@ -2308,7 +2326,7 @@ function spawnUI.draw()
             style.tooltipActionLabel(allTabHiddenText)
         end
 
-        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.HeartBoxOutline, "Favorites", "spawnUITabFavorites", nil, true)
+        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.Group, "Prefabs / Favorites", "spawnUITabFavorites", nil, true)
         if ImGui.BeginTabItem(favoritesTabLabel) then
             style.tooltipActionLabel(favoritesTabHiddenText)
             spawnUI.favoritesUI.draw()
@@ -2322,7 +2340,7 @@ end
 
 ---Handles Spawn UI being hidden by clearing active preview state.
 function spawnUI.hidden()
-    if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive then return end
+    if not spawnUI.previewInstance and not spawnUI.previewTimer and not spawnUI.assetPreviewActive and not prefabPreview.isActive() then return end
 
     spawnUI.hoveredEntry = nil
     spawnUI.stopActiveAssetPreview()
@@ -2363,35 +2381,6 @@ function spawnUI.getSpawnNewPosition()
     end
 
     return pos, rot
-end
-
----@param data table?
----@return boolean
-local function isFavoriteGroupData(data)
-    if not data then return false end
-
-    if data.modulePath == "modules/classes/editor/positionableGroup" then
-        return true
-    end
-
-    if data.modulePath == "modules/classes/editor/randomizedGroup" then
-        return true
-    end
-
-    if data.type == "group" then
-        return true
-    end
-
-    if data.childs ~= nil then
-        local isSpawnableElement = data.modulePath == "modules/classes/editor/spawnableElement"
-            or data.type == "object"
-            or data.type == "element"
-            or data.spawnable ~= nil
-
-        return not isSpawnableElement
-    end
-
-    return false
 end
 
 ---@param data table?
@@ -2461,7 +2450,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         end
     end
 
-    local favoriteIsGroup = isFavorite and isFavoriteGroupData(entry.data)
+    local favoriteIsGroup = isFavorite and utils.isSerializedGroup(entry.data)
     local data = favoriteIsGroup and entry.data or utils.deepcopy(entry.data)
 
     if favoriteIsGroup then
@@ -2740,6 +2729,7 @@ function spawnUI.drawPopup()
     end
 
     spawnUI.favoritesUI.drawEditFavoritePopup()
+    spawnUI.favoritesUI.drawCreatePrefabPopup()
 end
 
 return spawnUI

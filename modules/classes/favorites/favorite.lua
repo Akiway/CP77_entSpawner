@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
+local prefabPreview = require("modules/utils/prefabPreview")
 
 ---@class favorite
 ---@field name string
@@ -16,33 +17,9 @@ local favorite = {}
 local iconResolveCache = {}
 local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
-local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
 
----@param data table?
----@return boolean
-local function isSerializedSpawnable(data)
-    return type(data) == "table"
-        and (data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
-            or data.type == "object"
-            or data.type == "element"
-            or data.spawnable ~= nil)
-end
-
----@param data table?
----@return boolean
-local function isSerializedGroup(data)
-    if type(data) ~= "table" then
-        return false
-    end
-
-    if data.modulePath == POSITIONABLE_GROUP_MODULE_PATH
-        or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH
-        or data.type == "group" then
-        return true
-    end
-
-    return data.childs ~= nil and not isSerializedSpawnable(data)
-end
+local isSerializedSpawnable = utils.isSerializedSpawnable
+local isSerializedGroup = utils.isSerializedGroup
 
 ---@param data table?
 ---@return number?
@@ -312,13 +289,28 @@ function favorite:draw(context)
             self.spawnUI.spawnNew({ data = self.data }, require(self.data.modulePath), true, { loadHidden = true })
         end
 
+        ImGui.Separator()
+
+        -- Nested confirm so a single misclick can't delete a prefab (removal is not undoable).
+        if ImGui.BeginMenu(IconGlyphs.Delete .. " Delete") then
+            if ImGui.MenuItem("Confirm delete") then
+                if self.category then
+                    self.category:removeFavorite(self)
+                end
+            end
+            ImGui.EndMenu()
+        end
+
         ImGui.EndPopup()
     end
 
     -- Asset preview
-    if self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
+    local isSingleAsset = self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
+    if isSingleAsset and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
-    elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer) then
+    elseif not isSingleAsset and ImGui.IsItemHovered() and prefabPreview.isPreviewable(self.data, self:getAssetCount()) then
+        self.spawnUI.handlePrefabPreviewHovered(self)
+    elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer or prefabPreview.isActive()) then
         self.spawnUI.hoveredEntry = nil
         self.spawnUI.stopActiveAssetPreview()
     end

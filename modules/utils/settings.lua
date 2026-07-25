@@ -38,6 +38,7 @@ local config = require("modules/utils/config")
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
+---@field public prefabPreviewMaxAssets number
 ---@field public spawnNewVisualizerEnabledByModule table<string, boolean>
 ---@field public filterTags table
 ---@field public favoritesFilter string
@@ -114,6 +115,7 @@ local settingsData = {
     nodeRefPrefix = "mod",
     cacheExclusions = {},
     assetPreviewEnabled = {},
+    prefabPreviewMaxAssets = 300,
     spawnNewVisualizerEnabledByModule = {},
     mainWindowName = "World Builder",
     draggingThreshold = 5,

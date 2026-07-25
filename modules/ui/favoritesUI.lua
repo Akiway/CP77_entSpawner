@@ -15,12 +15,14 @@ local logger = require("modules/utils/logger")
 ---@field tagMergeTags table
 ---@field newTag string
 ---@field newMergeTag string
----@field tagAddSize table | {x: number, y: number}
 ---@field tagFilterSize table | {x: number, y: number}
 ---@field tagMergeSize table | {x: number, y: number}
 ---@field openPopup boolean
 ---@field popupItem favorite?
 ---@field popupItemConflict boolean
+---@field openCreatePopup boolean
+---@field createItem favorite?
+---@field createTargetCategoryName string
 ---@field categories category[]
 local favoritesUI = {
     spawnUI = nil,
@@ -36,7 +38,6 @@ local favoritesUI = {
     tagMergeTags = {},
     newTag = "",
     newMergeTag = "",
-    tagAddSize = { x = 0, y = 0 },
     tagFilterSize = { x = 0, y = 0 },
     tagMergeSize = { x = 0, y = 0 },
 
@@ -45,6 +46,11 @@ local favoritesUI = {
     openPopup = false,
     popupItem = nil,
     popupItemConflict = false,
+
+    openCreatePopup = false,
+    createItem = nil,
+    createTargetCategoryName = "",
+
     favoritesFilterSaveTimer = nil
 }
 
@@ -165,6 +171,14 @@ function favoritesUI.getAllTags(filter)
         end
     end
 
+    if favoritesUI.createItem then
+        for tag, _ in pairs(favoritesUI.createItem.tags) do
+            if (filter == "" or utils.safePatternMatch(tag:lower(), filter:lower())) and not tags[tag] then
+                tags[tag] = true
+            end
+        end
+    end
+
     tags = utils.getKeys(tags)
     table.sort(tags)
 
@@ -279,108 +293,71 @@ local function drawTagClearButton(selections, buttonId, tooltip, sameLine)
     return changed, true
 end
 
----Draws the label prefix for a tag multi-select filter row.
+---Draws an inline muted field label, aligned to the following widget, then SameLine.
 ---@param label string
-local function drawTagMultiSelectLabel(label)
+local function drawFieldLabel(label)
     ImGui.AlignTextToFramePadding()
     style.mutedText(label)
     ImGui.SameLine()
 end
 
----@param selected table Hashtable of selected tags
----@param canAdd boolean Whether new tags can be added
----@param filter string Filter for tags
----@return table selected
+---Draws the modern searchable multi-select tag combo (with tag creation) used by the
+---create/edit popups. Selection state in `tags` is mutated in place.
+---@param tags table<string, boolean>
+---@param idScope string Unique id scope, e.g. "editTags" or "createTags"
+---@param searchValue string
+---@param createValue string
 ---@return boolean changed
----@return table size
----@return string filter
-function favoritesUI.drawTagSelect(selected, canAdd, filter)
-    local x, y = 0, 0
+---@return string searchValue
+---@return string createValue
+function favoritesUI.drawTagSelectorCombo(tags, idScope, searchValue, createValue)
+    local options = favoritesUI.getAllTags("")
+    local preview = getTagSelectionPreviewLabel(tags, "No tags", "%d tags selected")
 
-    -- Search in existing tags
-    ImGui.SetNextItemWidth(175 * style.viewSize)
-    filter, _ = ImGui.InputTextWithHint("##tagFilter", "Search for tag...", filter, 100)
+    local _, screenHeight = GetDisplayResolution()
+    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
 
-    if style.drawNoBGConditionalButton(filter ~= "", IconGlyphs.Close) then
-        filter = ""
-    end
-
-    local tags = favoritesUI.getAllTags(filter)
-    local edited = false
-
-    -- Add new tag
-    if canAdd then
-        ImGui.SetNextItemWidth(175 * style.viewSize)
-        favoritesUI.newTag, _ = ImGui.InputTextWithHint("##newTag", "New tag...", favoritesUI.newTag, 15)
-
-        if style.drawNoBGConditionalButton(favoritesUI.newTag ~= "", IconGlyphs.TagPlusOutline) then
-            if not selected[favoritesUI.newTag] then
-                selected[favoritesUI.newTag] = true
-                if not settings.favoritesTagsAND then
-                    settings.filterTags[favoritesUI.newTag] = true
-                    settings.save()
-                end
-            end
-            favoritesUI.newTag = ""
-            edited = true
+    return style.drawSearchableMultiSelectCombo({
+        comboId = "##" .. idScope .. "Combo",
+        previewLabel = preview,
+        searchHint = "Search tag...",
+        searchValue = searchValue,
+        options = options,
+        selections = tags,
+        comboWidth = 200 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        maxPopupHeight = maxPopupHeight,
+        emptyText = "No tags available",
+        noMatchText = "No matching tags",
+        searchInputId = "##" .. idScope .. "Search",
+        searchClearButtonId = "##" .. idScope .. "SearchClear",
+        selectAllButtonId = "##" .. idScope .. "SelectAll",
+        unselectAllButtonId = "##" .. idScope .. "UnselectAll",
+        optionIdPrefix = "##" .. idScope .. "Option",
+        selectAllTooltip = "Select all tags",
+        unselectAllTooltip = "Unselect all tags",
+        showClearSelectionButton = true,
+        clearSelectionButtonId = "##" .. idScope .. "ClearSelection",
+        clearSelectionTooltip = "Clear selected tags",
+        allowCreate = true,
+        createHint = "New tag...",
+        createValue = createValue,
+        createInputId = "##" .. idScope .. "Create",
+        createButtonId = "##" .. idScope .. "CreateAdd",
+        matchesOption = function (option, sv)
+            return matchesTagSelectorOption(option, sv)
         end
-    end
+    })
+end
 
-    -- Select/Unselect all
-    style.pushButtonNoBG(true)
-    if ImGui.Button(IconGlyphs.CollapseAllOutline) then
-        selected = {}
-        edited = true
-    end
-    ImGui.SameLine()
-    if ImGui.Button(IconGlyphs.ExpandAllOutline) then
-        for _, tag in pairs(tags) do
-            selected[tag] = true
-        end
-        edited = true
-    end
-    style.pushButtonNoBG(false)
-
-    -- Draw table of tags
-    local nColumns = 3
-    local nRows = math.ceil(#tags / nColumns)
-    if ImGui.BeginTable("##tagSelect", nColumns, ImGuiTableFlags.SizingFixedSame) then
-        for row = 1, math.ceil(#tags / nColumns) do
-            ImGui.TableNextRow()
-            for col = 1, nColumns do
-                ImGui.TableSetColumnIndex(col - 1)
-
-                local tagName = tags[(col - 1) * nRows + row]
-                if tagName then
-                    local state, changed = ImGui.Checkbox(tagName, selected[tagName] ~= nil)
-                    if changed then
-                        if not state then
-                            selected[tagName] = nil
-                        else
-                            selected[tagName] = true
-                        end
-                        edited = true
-                    end
-                    y = ImGui.GetCursorPosY()
-                end
-            end
-        end
-
-        x = math.max(ImGui.GetColumnWidth() * math.min(#tags, nColumns), 175 * style.viewSize)
-        ImGui.EndTable()
-        x = x + ImGui.GetCursorPosX() + 30 * style.viewSize + (ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0) -- Account for add button, scrollbar and tree node indent
-
-        if #tags == 0 then
-            style.mutedText("No tags.")
-            y = ImGui.GetCursorPosY()
-        end
-    end
-
-    return selected, edited, { x = x, y = y }, filter
+---Draws the label prefix for a tag multi-select filter row.
+---@param label string
+local function drawTagMultiSelectLabel(label)
+    drawFieldLabel(label)
 end
 
 function favoritesUI.addNewItem(serialized, name, icon)
-    favoritesUI.openPopup = true
+    favoritesUI.openCreatePopup = true
 
     -- Null transforms, to make deep comparing for merging possible
     if serialized.modulePath == "modules/classes/editor/spawnableElement" then
@@ -402,16 +379,15 @@ function favoritesUI.addNewItem(serialized, name, icon)
     local favorite = require("modules/classes/favorites/favorite"):new(favoritesUI)
     favorite.data = serialized
     favorite.name = name
-    favorite.category = favoritesUI.categories[favoritesUI.newItemCategory]
-    if favorite.category then
-        favorite.category:addFavorite(favorite)
-    end
 
     local iconKey = utils.indexValue(IconGlyphs, icon)
     if iconKey == -1 then iconKey = "" end
     favorite.icon = iconKey
-    favoritesUI.popupItem = favorite
-    favoritesUI.popupItemConflict = favorite:checkIsDuplicate()
+
+    -- Stage the item for creation only. Nothing is written to disk until the user
+    -- validates the creation popup; cancelling discards it (see drawCreatePrefabPopup).
+    favoritesUI.createItem = favorite
+    favoritesUI.createTargetCategoryName = favoritesUI.categories[favoritesUI.newItemCategory] and favoritesUI.newItemCategory or ""
 end
 
 function favoritesUI.drawEditFavoritePopup()
@@ -434,6 +410,7 @@ function favoritesUI.drawEditFavoritePopup()
         local noCategory = favoritesUI.popupItem.category == nil
 
         -- Edit name
+        drawFieldLabel("Name")
         style.setNextItemWidth(200)
         if favoritesUI.openPopup then
             favoritesUI.openPopup = false
@@ -447,30 +424,22 @@ function favoritesUI.drawEditFavoritePopup()
             end
         end
         if not noCategory and favoritesUI.popupItem.category:isNameDuplicate(favoritesUI.popupItem.name) then
-            ImGui.SameLine()
-            style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
-            style.tooltip("Name already exists in this category.")
+            style.styledTextWrapped(IconGlyphs.AlertOutline .. " Another prefab with this name already exists in this category. Both will coexist.", style.warnColor)
         end
 
-        -- Select tag
-        if ImGui.TreeNodeEx("Tags", ImGuiTreeNodeFlags.SpanFullWidth) then
-            local _, screenHeight = GetDisplayResolution()
-            local tagsMaxHeight = math.min(400 * style.viewSize, (screenHeight - 16) * 0.55)
-            if ImGui.BeginChild("##tags", favoritesUI.tagAddSize.x, math.min(favoritesUI.tagAddSize.y, tagsMaxHeight), false) then
-                favoritesUI.popupItem.tags, changed, favoritesUI.tagAddSize, favoritesUI.tagAddFilter = favoritesUI.drawTagSelect(favoritesUI.popupItem.tags, true, favoritesUI.tagAddFilter)
-                if changed and not noCategory then
-                    if favoritesUI.popupItem.category.grouped then
-                        favoritesUI.popupItem.category:loadVirtualGroups()
-                    end
-                    favoritesUI.popupItem.category:save()
-                end
-
-                ImGui.EndChild()
+        -- Select tags
+        drawFieldLabel("Tags")
+        local tagsChanged
+        tagsChanged, favoritesUI.tagAddFilter, favoritesUI.newTag = favoritesUI.drawTagSelectorCombo(favoritesUI.popupItem.tags, "editTags", favoritesUI.tagAddFilter, favoritesUI.newTag)
+        if tagsChanged and not noCategory then
+            if favoritesUI.popupItem.category.grouped then
+                favoritesUI.popupItem.category:loadVirtualGroups()
             end
-            ImGui.TreePop()
+            favoritesUI.popupItem.category:save()
         end
 
         -- Select category
+        drawFieldLabel("Category")
         local categoryName, changed = favoritesUI.drawSelectCategory(favoritesUI.popupItem.category and favoritesUI.popupItem.category.name or "No Category")
         if changed then
             favoritesUI.newItemCategory = categoryName -- Just use the last selected category
@@ -489,29 +458,20 @@ function favoritesUI.drawEditFavoritePopup()
 
         ImGui.Separator()
 
-        -- Confirm / delete
-        style.pushButtonNoBG(true)
-        style.pushGreyedOut(noCategory)
-        if ImGui.Button(IconGlyphs.CheckCircleOutline) and not noCategory then
+        -- Close dismisses the popup; edits are saved live so nothing extra is needed here.
+        if ImGui.Button(IconGlyphs.Close .. " Close") then
             favoritesUI.popupItem = nil
             ImGui.CloseCurrentPopup()
         end
-        if noCategory then
-            style.tooltip("Please assign a category to this favorite before saving.")
-        end
-        style.popGreyedOut(noCategory)
-        style.pushButtonNoBG(false)
 
-        style.pushButtonNoBG(true)
         ImGui.SameLine()
-        if ImGui.Button(IconGlyphs.Delete) then
+        if style.dangerButton(IconGlyphs.Delete .. " Delete") then
             if favoritesUI.popupItem.category then
                 favoritesUI.popupItem.category:removeFavorite(favoritesUI.popupItem)
             end
             favoritesUI.popupItem = nil
             ImGui.CloseCurrentPopup()
         end
-        style.pushButtonNoBG(false)
         ImGui.EndPopup()
     elseif not favoritesUI.openPopup then
         favoritesUI.popupItem = nil
@@ -519,6 +479,140 @@ function favoritesUI.drawEditFavoritePopup()
 
     if favoritesUI.openPopup then
         ImGui.OpenPopup("##addFavorite")
+    end
+end
+
+---Finds an existing favorite in a category by exact name.
+---@param category category
+---@param name string
+---@return favorite?
+local function findFavoriteByName(category, name)
+    for _, favorite in pairs(category.favorites) do
+        if favorite.name == name then
+            return favorite
+        end
+    end
+
+    return nil
+end
+
+---Draws the deferred prefab/favorite creation popup opened from addNewItem.
+---Unlike the edit popup, nothing is written to disk until the user validates.
+---Cancelling (button or click-away) discards the staged item, so nothing happens.
+---When the entered name already matches a prefab in the target category, the user
+---can either overwrite that prefab or create a separate copy.
+function favoritesUI.drawCreatePrefabPopup()
+    -- Keep popup within the viewport, including after expanding the Tags section.
+    if ImGui.IsPopupOpen("##createPrefab") then
+        style.setCursorRelativeAppearing(-5, -5)
+
+        local screenWidth, screenHeight = GetDisplayResolution()
+        local margin = 8
+        local maxWidth = math.max(200, screenWidth - margin * 2)
+        local maxHeight = math.max(200, screenHeight - margin * 2)
+        local minWidth = math.min(320 * style.viewSize, maxWidth)
+        local minHeight = math.min(160 * style.viewSize, maxHeight)
+        ImGui.SetNextWindowSizeConstraints(minWidth, minHeight, maxWidth, maxHeight)
+    end
+
+    if ImGui.BeginPopup("##createPrefab") then
+        local item = favoritesUI.createItem
+
+        if item then
+            input.updateContext("main")
+
+            local targetCategory = favoritesUI.categories[favoritesUI.createTargetCategoryName]
+            local noCategory = targetCategory == nil
+
+            -- Edit name
+            drawFieldLabel("Name")
+            style.setNextItemWidth(200)
+            if favoritesUI.openCreatePopup then
+                favoritesUI.openCreatePopup = false
+                ImGui.SetKeyboardFocusHere()
+            end
+            item.name, _ = ImGui.InputTextWithHint("##name", "Name...", item.name, 100)
+
+            -- Select tags (staged only, no save)
+            drawFieldLabel("Tags")
+            _, favoritesUI.tagAddFilter, favoritesUI.newTag = favoritesUI.drawTagSelectorCombo(item.tags, "createTags", favoritesUI.tagAddFilter, favoritesUI.newTag)
+
+            -- Select category
+            drawFieldLabel("Category")
+            local categoryName, changed = favoritesUI.drawSelectCategory(not noCategory and favoritesUI.createTargetCategoryName or "No Category")
+            if changed then
+                favoritesUI.createTargetCategoryName = categoryName
+                favoritesUI.newItemCategory = categoryName -- Remember for next time
+                targetCategory = favoritesUI.categories[categoryName]
+                noCategory = targetCategory == nil
+            end
+
+            -- Detect a name collision within the target category (overwrite candidate)
+            local existing = nil
+            if not noCategory then
+                existing = findFavoriteByName(targetCategory, item.name)
+            end
+
+            if existing then
+                style.styledTextWrapped(IconGlyphs.AlertOutline .. " A prefab named '" .. item.name .. "' already exists in this category.", style.warnColor)
+            end
+
+            ImGui.Separator()
+
+            if existing then
+                -- Overwrite the existing prefab in place, keeping its category slot
+                if style.warnButton(IconGlyphs.ContentSaveOutline .. " Overwrite", { tooltip = "Overwrite the existing prefab in this category" }) then
+                    existing.data = item.data
+                    existing.tags = item.tags
+                    existing.icon = item.icon
+                    existing.assetCount = nil
+                    existing.category:save()
+                    if existing.category.grouped then
+                        existing.category:loadVirtualGroups()
+                    end
+                    favoritesUI.createItem = nil
+                    ImGui.CloseCurrentPopup()
+                end
+
+                -- Create a separate copy instead, letting both coexist
+                ImGui.SameLine()
+                if ImGui.Button(IconGlyphs.ContentDuplicate .. " Create Copy") then
+                    targetCategory:addFavorite(item)
+                    favoritesUI.createItem = nil
+                    ImGui.CloseCurrentPopup()
+                end
+                style.tooltip("Create a separate prefab anyway (both will coexist)")
+            elseif noCategory then
+                -- No category selected yet: greyed-out create with a hint on hover
+                style.pushGreyedOut(true)
+                ImGui.Button(IconGlyphs.CheckCircleOutline .. " Create")
+                style.popGreyedOut(true)
+                style.tooltip("Please assign a category before creating this prefab.")
+            else
+                if style.successButton(IconGlyphs.CheckCircleOutline .. " Create") then
+                    targetCategory:addFavorite(item)
+                    favoritesUI.createItem = nil
+                    ImGui.CloseCurrentPopup()
+                end
+                style.tooltip("Create prefab")
+            end
+
+            -- Cancel: discard the staged item, nothing is written to disk
+            ImGui.SameLine()
+            if ImGui.Button(IconGlyphs.Cancel .. " Cancel") then
+                favoritesUI.createItem = nil
+                ImGui.CloseCurrentPopup()
+            end
+            style.tooltip("Cancel")
+        end
+
+        ImGui.EndPopup()
+    elseif not favoritesUI.openCreatePopup then
+        favoritesUI.createItem = nil
+    end
+
+    if favoritesUI.openCreatePopup then
+        ImGui.OpenPopup("##createPrefab")
     end
 end
 
@@ -765,7 +859,7 @@ function favoritesUI.drawMergeTags()
 
     local selectedTagCount = utils.tableLength(favoritesUI.tagMergeTags)
     local affectedCount = favoritesUI.getTagMergeAffectedCount(favoritesUI.tagMergeTags, favoritesUI.newMergeTag)
-    style.mutedText("Selected tags: " .. selectedTagCount .. " | Affected favorites: " .. affectedCount)
+    style.mutedText("Selected tags: " .. selectedTagCount .. " | Affected prefabs: " .. affectedCount)
 
     local canApply = favoritesUI.newMergeTag ~= "" and selectedTagCount > 0 and affectedCount > 0
 

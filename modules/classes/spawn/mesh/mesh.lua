@@ -26,7 +26,8 @@ local conversionTargets = {
     { modulePath = "mesh/bendedMesh", icon = IconGlyphs.SineWave, text = "Bended Mesh", plural = "bended meshes" },
     { modulePath = "mesh/rotatingMesh", icon = IconGlyphs.FormatRotate90, text = "Rotating Mesh", plural = "rotating meshes" },
     { modulePath = "mesh/clothMesh", icon = IconGlyphs.ReceiptOutline, text = "Cloth Mesh", plural = "cloth meshes" },
-    { modulePath = "physics/dynamicMesh", icon = IconGlyphs.CubeSend, text = "Dynamic Mesh", plural = "dynamic meshes" }
+    { modulePath = "physics/dynamicMesh", icon = IconGlyphs.CubeSend, text = "Dynamic Mesh", plural = "dynamic meshes" },
+    { modulePath = "mesh/proxyMesh", icon = IconGlyphs.BoxShadow, text = "Proxy Mesh", plural = "proxy meshes" }
 }
 
 ---@param target table
@@ -43,18 +44,27 @@ local lossyConversionPairs = {
     ["mesh/bendedMesh>mesh/rotatingMesh"] = true,
     ["mesh/bendedMesh>mesh/clothMesh"] = true,
     ["mesh/bendedMesh>physics/dynamicMesh"] = true,
+    ["mesh/bendedMesh>mesh/proxyMesh"] = true,
     ["mesh/rotatingMesh>mesh/bendedMesh"] = true,
     ["mesh/rotatingMesh>mesh/mesh"] = true,
     ["mesh/rotatingMesh>mesh/clothMesh"] = true,
     ["mesh/rotatingMesh>physics/dynamicMesh"] = true,
+    ["mesh/rotatingMesh>mesh/proxyMesh"] = true,
     ["mesh/clothMesh>mesh/bendedMesh"] = true,
     ["mesh/clothMesh>mesh/mesh"] = true,
     ["mesh/clothMesh>mesh/rotatingMesh"] = true,
     ["mesh/clothMesh>physics/dynamicMesh"] = true,
+    ["mesh/clothMesh>mesh/proxyMesh"] = true,
     ["physics/dynamicMesh>mesh/bendedMesh"] = true,
     ["physics/dynamicMesh>mesh/mesh"] = true,
     ["physics/dynamicMesh>mesh/rotatingMesh"] = true,
-    ["physics/dynamicMesh>mesh/clothMesh"] = true
+    ["physics/dynamicMesh>mesh/clothMesh"] = true,
+    ["physics/dynamicMesh>mesh/proxyMesh"] = true,
+    ["mesh/proxyMesh>mesh/mesh"] = true,
+    ["mesh/proxyMesh>mesh/bendedMesh"] = true,
+    ["mesh/proxyMesh>mesh/rotatingMesh"] = true,
+    ["mesh/proxyMesh>mesh/clothMesh"] = true,
+    ["mesh/proxyMesh>physics/dynamicMesh"] = true
 }
 
 ---Class for worldMeshNode

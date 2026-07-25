@@ -9,6 +9,7 @@ local colorUtil = require("modules/utils/color")
 local lcHelper = require("modules/utils/lightChannelHelper")
 local lightPreview = require("modules/utils/previewUtils")
 local targeting = require("modules/utils/editor/targeting")
+local iesProfiles = require("modules/utils/iesProfiles")
 local Cron = require("modules/utils/Cron")
 
 local LIGHT_TYPE_POINT = 0
@@ -86,6 +87,8 @@ local PREVIEW_SIZE_CONFIG = {
 ---@field private pathTracingLightUsage integer
 ---@field private pathTracingOverrideScaleGI boolean
 ---@field private rtxdiShadowStartingDistance number
+---@field private iesProfile string
+---@field private iesProfileSearch string
 ---@field private rayTracedShadowsPlatforms table
 ---@field private pathTracingLightUsageTypes table
 ---@field private maxRayPathTracingPropertiesWidth number
@@ -156,6 +159,8 @@ function light:new()
     o.pathTracingLightUsage = 0
     o.pathTracingOverrideScaleGI = false
     o.rtxdiShadowStartingDistance = 0
+    o.iesProfile = ""
+    o.iesProfileSearch = ""
     o.rayTracedShadowsPlatforms = utils.enumTable("rendRayTracedShadowsPlatform")
     o.pathTracingLightUsageTypes = utils.enumTable("rendEPathTracingLightUsage")
 
@@ -773,6 +778,9 @@ function light:onAssemble(entity)
     component.pathTracingLightUsage = Enum.new("rendEPathTracingLightUsage", self.pathTracingLightUsage)
     component.pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI
     component.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
+    if self.iesProfile and self.iesProfile ~= "" then
+        component.iesProfile = ResRef.FromString(self.iesProfile)
+    end
 
     entity:AddComponent(component)
     self:updateArrowVisibilityForCameraFollow(entity)
@@ -830,6 +838,7 @@ function light:save()
     data.pathTracingLightUsage = self.pathTracingLightUsage
     data.pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI
     data.rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
+    data.iesProfile = self.iesProfile
     data.lightChannels = utils.deepcopy(self.lightChannels)
     data.radiusPreviewed = self.radiusPreviewed
     data.cameraFollowEnabled = self.cameraFollowEnabled
@@ -1092,9 +1101,62 @@ function light:draw()
         style.tooltip("Softens the transition between both angles")
         self:updateFull(finished)
     end
-    
+
     ImGui.Dummy(0, 4 * style.viewSize)
-    
+
+    style.mutedText("IES Profile")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxBasePropertiesWidth)
+    local iesProfileList = iesProfiles.getSelectable()
+    local iesProfilePrevious = self.iesProfile
+    local iesProfileChanged
+    self.iesProfile, self.iesProfileSearch, iesProfileChanged = style.trackedSearchDropdown(
+        "##iesProfile",
+        "Search IES profile...",
+        self.iesProfile,
+        self.iesProfileSearch,
+        iesProfileList,
+        {
+            element = self.object,
+            width = 200,
+            matchContentWidth = true,
+            optionDisplayFn = function(optionText)
+                return iesProfiles.displayName(optionText)
+            end,
+            tooltip = "IES light projection profile applied to this light"
+        }
+    )
+    if iesProfileChanged and self.iesProfile ~= iesProfilePrevious then
+        self:updateFull(true)
+    end
+
+    ImGui.SameLine()
+    ImGui.BeginDisabled(#iesProfiles.get() == 0)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.SkipNext .. "##cycleIESProfile") then
+        local nextProfile, cycled = iesProfiles.getNext(self.iesProfile)
+        if cycled then
+            if self.object then
+                history.addAction(history.getElementChange(self.object))
+            end
+            self.iesProfile = nextProfile
+            self:updateFull(true)
+        end
+    end
+    style.pushButtonNoBG(false)
+    ImGui.EndDisabled()
+    style.tooltip("Select the next IES profile. Wraps around, including 'None'.")
+
+    ImGui.SameLine()
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Reload .. "##reloadIESProfiles") then
+        iesProfiles.reload()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Reload the IES profile list from disk.")
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
     local rotationTargetingDisabled = self.object == nil or self.object:isLocked() or self.object.rotationLocked
     local targetingDisabledByCameraFollow = self.cameraFollowEnabled == true
 
@@ -1619,6 +1681,10 @@ function light:export()
         pathTracingOverrideScaleGI = self.pathTracingOverrideScaleGI and 1 or 0,
         rtxdiShadowStartingDistance = self.rtxdiShadowStartingDistance
     }
+
+    if self.iesProfile and self.iesProfile ~= "" then
+        data.data.iesProfile = iesProfiles.exportRef(self.iesProfile)
+    end
 
     return data
 end

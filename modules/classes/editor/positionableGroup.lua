@@ -355,12 +355,16 @@ function positionableGroup:new(sUI)
 	o.autoCenterCacheMax = nil
 	o.autoCenterCacheCenter = nil
 	o.class = utils.combine(o.class, { "positionableGroup" })
+	local function isRootGroup(instance)
+		return instance.parent ~= nil and instance.parent:isRoot(true)
+	end
 	o.quickOperations = {
 		[IconGlyphs.ContentSaveOutline] = {
 			operation = positionableGroup.save,
-			condition = function (instance)
-				return instance.parent ~= nil and instance.parent:isRoot(true)
-			end
+			condition = isRootGroup,
+			tooltip = "Save root group",
+			allowWhenLocked = true,
+			disableWhenEmpty = true
 		}
 	}
 	o.supportsSaving = true

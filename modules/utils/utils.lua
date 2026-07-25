@@ -212,6 +212,46 @@ function miscUtils.addEuler(e1, e2)
     return EulerAngles.new(e1.roll + e2.roll, e1.pitch + e2.pitch, e1.yaw + e2.yaw)
 end
 
+---Multiplies two quaternions (`a * b`), wrapping the verbose native operator call.
+---@param a Quaternion
+---@param b Quaternion
+---@return Quaternion
+function miscUtils.multQuat(a, b)
+    return Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](a, b)
+end
+
+local SERIALIZED_SPAWNABLE_ELEMENT_PATH = "modules/classes/editor/spawnableElement"
+local SERIALIZED_POSITIONABLE_GROUP_PATH = "modules/classes/editor/positionableGroup"
+local SERIALIZED_RANDOMIZED_GROUP_PATH = "modules/classes/editor/randomizedGroup"
+
+---Whether a serialized node (favorite/exported data) represents a single spawnable element.
+---@param data table?
+---@return boolean
+function miscUtils.isSerializedSpawnable(data)
+    return type(data) == "table"
+        and (data.modulePath == SERIALIZED_SPAWNABLE_ELEMENT_PATH
+            or data.type == "object"
+            or data.type == "element"
+            or data.spawnable ~= nil)
+end
+
+---Whether a serialized node (favorite/exported data) represents a group of elements.
+---@param data table?
+---@return boolean
+function miscUtils.isSerializedGroup(data)
+    if type(data) ~= "table" then
+        return false
+    end
+
+    if data.modulePath == SERIALIZED_POSITIONABLE_GROUP_PATH
+        or data.modulePath == SERIALIZED_RANDOMIZED_GROUP_PATH
+        or data.type == "group" then
+        return true
+    end
+
+    return data.childs ~= nil and not miscUtils.isSerializedSpawnable(data)
+end
+
 ---Subtracts `e2` from `e1` component-wise.
 ---@param e1 eulerLike|EulerAngles
 ---@param e2 eulerLike|EulerAngles

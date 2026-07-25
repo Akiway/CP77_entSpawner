@@ -28,7 +28,7 @@ local logger = require("modules/utils/logger")
 ---@field hovered boolean
 ---@field editName boolean
 ---@field focusNameEdit number
----@field quickOperations {[string]: {condition : fun(PARAM: element) : boolean, operation : fun(PARAM: element)}}
+---@field quickOperations {[string]: {condition : fun(PARAM: element) : boolean, operation : fun(PARAM: element), tooltip : string?, allowWhenLocked : boolean?, disableWhenEmpty : boolean?}}
 ---@field groupOperationData table
 ---@field selected boolean
 ---@field lockedRename boolean
