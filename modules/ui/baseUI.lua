@@ -95,7 +95,7 @@ local tabs = {
     },
     {
         id = "saved",
-        name = "Saved",
+        name = "Projects",
         icon = IconGlyphs.ContentSaveCogOutline,
         flags = ImGuiWindowFlags.None,
         defaultSize = { 600, 700 },

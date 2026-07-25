@@ -2326,7 +2326,7 @@ function spawnUI.draw()
             style.tooltipActionLabel(allTabHiddenText)
         end
 
-        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.HeartBoxOutline, "Favorites", "spawnUITabFavorites", nil, true)
+        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.Group, "Prefabs / Favorites", "spawnUITabFavorites", nil, true)
         if ImGui.BeginTabItem(favoritesTabLabel) then
             style.tooltipActionLabel(favoritesTabHiddenText)
             spawnUI.favoritesUI.draw()

@@ -447,9 +447,7 @@ function favoritesUI.drawEditFavoritePopup()
             end
         end
         if not noCategory and favoritesUI.popupItem.category:isNameDuplicate(favoritesUI.popupItem.name) then
-            ImGui.SameLine()
-            style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
-            style.tooltip("Name already exists in this category.")
+            style.styledTextWrapped(IconGlyphs.AlertOutline .. " A prefab with this name already exists in this category and will be overwritten.", style.warnColor)
         end
 
         -- Select tag
