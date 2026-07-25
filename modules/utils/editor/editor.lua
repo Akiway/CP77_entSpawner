@@ -317,6 +317,21 @@ function editor.getCameraRotation()
     return forward and forward:ToRotation() or nil
 end
 
+---Returns the rotation that makes a spawned asset face the camera, used by hover previews.
+---This is the camera rotation flipped 180° in yaw with inverted pitch.
+---@return EulerAngles? facing Camera-facing rotation, or nil when the camera is unavailable.
+function editor.getCameraFacingRotation()
+    local cameraRotation = editor.getCameraRotation()
+    if not cameraRotation then
+        return nil
+    end
+
+    local facing = EulerAngles.new(cameraRotation)
+    facing.yaw = facing.yaw - 180
+    facing.pitch = -facing.pitch
+    return facing
+end
+
 ---Returns the current active camera world forward vector.
 ---@return Vector4? forward Camera forward vector, or nil when unavailable.
 function editor.getCameraForward()

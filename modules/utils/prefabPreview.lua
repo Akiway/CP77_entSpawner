@@ -47,36 +47,10 @@ local BACKDROP_BEHIND_FACTOR = 1.15  -- push the grid this many radii behind the
 local BACKDROP_SCALE_FACTOR = 0.32   -- base_grid visual scale per radius
 local MIN_BACKDROP_SCALE = 0.15
 local BACKDROP_MESH = "base\\spawner\\base_grid.w2mesh"
+local BACKDROP_TILT = { roll = 0, pitch = -90, yaw = 0 } -- stands the flat grid up to face the camera
 
-local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
-local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
-local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
-
----@param data table?
----@return boolean
-local function isSerializedSpawnable(data)
-    return type(data) == "table"
-        and (data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
-            or data.type == "object"
-            or data.type == "element"
-            or data.spawnable ~= nil)
-end
-
----@param data table?
----@return boolean
-local function isSerializedGroup(data)
-    if type(data) ~= "table" then
-        return false
-    end
-
-    if data.modulePath == POSITIONABLE_GROUP_MODULE_PATH
-        or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH
-        or data.type == "group" then
-        return true
-    end
-
-    return data.childs ~= nil and not isSerializedSpawnable(data)
-end
+local isSerializedSpawnable = utils.isSerializedSpawnable
+local isSerializedGroup = utils.isSerializedGroup
 
 ---Returns the configured maximum number of assets a prefab may contain to still be previewable.
 ---A value of 0 disables prefab previews entirely.
@@ -210,18 +184,15 @@ function prefabPreview.isActive()
     return prefabPreview.active or prefabPreview.timer ~= nil
 end
 
----Returns the camera-facing "billboard" rotation used to orient the backdrop toward the viewer.
+---Returns the backdrop grid rotation for the given camera-facing rotation, or nil when unavailable.
+---@param facing EulerAngles?
 ---@return EulerAngles?
-local function getCameraFacingRotation()
-    local cameraRotation = editor.getCameraRotation()
-    if not cameraRotation then
+local function getBackdropRotation(facing)
+    if not facing then
         return nil
     end
 
-    local facing = EulerAngles.new(cameraRotation)
-    facing.yaw = facing.yaw - 180
-    facing.pitch = -facing.pitch
-    return facing
+    return utils.addEulerRelative(facing, BACKDROP_TILT)
 end
 
 ---Computes the current camera-aligned turntable orientation for the whole prefab.
@@ -239,7 +210,7 @@ local function computeBaseQuat()
     local spinAngle = ((Cron.time - prefabPreview.startTime) * SPIN_SPEED_DEG) % 360
     local spinQuat = Quaternion.SetAxisAngle(camUp, math.rad(spinAngle))
 
-    return Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](spinQuat, camQuat)
+    return utils.multQuat(spinQuat, camQuat)
 end
 
 ---Computes the screen-centered world anchor whose distance adapts to the prefab size.
@@ -315,7 +286,7 @@ local function spawnPreviewEntry(spawnableData, anchor, baseQuat, records)
     local relPos = utils.subVector(elementPos, prefabPreview.center)
     local relRot = elementRot:ToQuat()
     local worldPos = utils.addVector(anchor, baseQuat:Transform(relPos))
-    local worldRot = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](baseQuat, relRot):ToEulerAngles()
+    local worldRot = utils.multQuat(baseQuat, relRot):ToEulerAngles()
 
     local ok, instance = pcall(function ()
         local spawnable = class:new()
@@ -339,8 +310,7 @@ end
 ---@param anchor Vector4
 local function spawnBackdrop(anchor)
     local scale = math.max(MIN_BACKDROP_SCALE, prefabPreview.extent * BACKDROP_SCALE_FACTOR)
-    local facing = getCameraFacingRotation() or EulerAngles.new(0, 0, 0)
-    local rotation = utils.addEulerRelative(facing, EulerAngles.new(0, -90, 0))
+    local rotation = getBackdropRotation(editor.getCameraFacingRotation()) or EulerAngles.new(0, 0, 0)
 
     local ok, backdrop = pcall(function ()
         local mesh = require("modules/classes/spawn/mesh/mesh"):new()
@@ -436,17 +406,17 @@ function prefabPreview.update()
         local spawnable = record.spawnable
         if spawnable:isSpawned() then
             spawnable.position = utils.addVector(anchor, baseQuat:Transform(record.relPos))
-            spawnable.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](baseQuat, record.relRot):ToEulerAngles()
+            spawnable.rotation = utils.multQuat(baseQuat, record.relRot):ToEulerAngles()
             spawnable:update()
         end
     end
 
     if prefabPreview.backdrop and prefabPreview.backdrop:isSpawned() then
-        local facing = getCameraFacingRotation()
+        local rotation = getBackdropRotation(editor.getCameraFacingRotation())
         local forward = editor.getCameraForward()
-        if facing and forward then
+        if rotation and forward then
             prefabPreview.backdrop.position = utils.addVector(anchor, utils.multVector(forward:Normalize(), prefabPreview.extent * BACKDROP_BEHIND_FACTOR))
-            prefabPreview.backdrop.rotation = utils.addEulerRelative(facing, EulerAngles.new(0, -90, 0))
+            prefabPreview.backdrop.rotation = rotation
             prefabPreview.backdrop:update()
         end
     end

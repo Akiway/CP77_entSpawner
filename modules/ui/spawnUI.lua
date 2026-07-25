@@ -1730,12 +1730,9 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
             end
 
             local pos, _ = spawnUI.getSpawnNewPosition()
-            local cameraRotation = editor.getCameraRotation()
-            if not cameraRotation then return end
+            local rot = editor.getCameraFacingRotation()
+            if not rot then return end
 
-            local rot = EulerAngles.new(cameraRotation)
-            rot.yaw = rot.yaw - 180
-            rot.pitch = -rot.pitch
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
 
             spawnUI.previewInstance:assetPreview(true)
@@ -2387,35 +2384,6 @@ function spawnUI.getSpawnNewPosition()
 end
 
 ---@param data table?
----@return boolean
-local function isFavoriteGroupData(data)
-    if not data then return false end
-
-    if data.modulePath == "modules/classes/editor/positionableGroup" then
-        return true
-    end
-
-    if data.modulePath == "modules/classes/editor/randomizedGroup" then
-        return true
-    end
-
-    if data.type == "group" then
-        return true
-    end
-
-    if data.childs ~= nil then
-        local isSpawnableElement = data.modulePath == "modules/classes/editor/spawnableElement"
-            or data.type == "object"
-            or data.type == "element"
-            or data.spawnable ~= nil
-
-        return not isSpawnableElement
-    end
-
-    return false
-end
-
----@param data table?
 local function applySpawnNewVisualizerDefault(data)
     if type(data) ~= "table" then
         return
@@ -2482,7 +2450,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         end
     end
 
-    local favoriteIsGroup = isFavorite and isFavoriteGroupData(entry.data)
+    local favoriteIsGroup = isFavorite and utils.isSerializedGroup(entry.data)
     local data = favoriteIsGroup and entry.data or utils.deepcopy(entry.data)
 
     if favoriteIsGroup then

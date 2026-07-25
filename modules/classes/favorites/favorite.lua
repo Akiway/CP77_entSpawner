@@ -17,33 +17,9 @@ local favorite = {}
 local iconResolveCache = {}
 local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
-local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
 
----@param data table?
----@return boolean
-local function isSerializedSpawnable(data)
-    return type(data) == "table"
-        and (data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
-            or data.type == "object"
-            or data.type == "element"
-            or data.spawnable ~= nil)
-end
-
----@param data table?
----@return boolean
-local function isSerializedGroup(data)
-    if type(data) ~= "table" then
-        return false
-    end
-
-    if data.modulePath == POSITIONABLE_GROUP_MODULE_PATH
-        or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH
-        or data.type == "group" then
-        return true
-    end
-
-    return data.childs ~= nil and not isSerializedSpawnable(data)
-end
+local isSerializedSpawnable = utils.isSerializedSpawnable
+local isSerializedGroup = utils.isSerializedGroup
 
 ---@param data table?
 ---@return number?
