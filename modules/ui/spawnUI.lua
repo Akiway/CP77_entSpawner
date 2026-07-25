@@ -2729,6 +2729,7 @@ function spawnUI.drawPopup()
     end
 
     spawnUI.favoritesUI.drawEditFavoritePopup()
+    spawnUI.favoritesUI.drawCreatePrefabPopup()
 end
 
 return spawnUI

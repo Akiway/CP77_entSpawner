@@ -2367,12 +2367,8 @@ function spawnedUI.drawSideButtons(element, rowHovered)
     for icon, data in pairs(element.quickOperations) do
         if data.condition(element) then
             ImGui.SetNextItemAllowOverlap()
-            local disableQuickOp = elementLocked and icon ~= IconGlyphs.ContentSaveOutline
-            local isRootGroupSave = icon == IconGlyphs.ContentSaveOutline
-                and utils.isA(element, "positionableGroup")
-                and element.parent ~= nil
-                and element.parent:isRoot(true)
-            if isRootGroupSave and next(element.childs) == nil then
+            local disableQuickOp = elementLocked and not data.allowWhenLocked
+            if data.disableWhenEmpty and utils.isA(element, "positionableGroup") and next(element.childs) == nil then
                 disableQuickOp = true
             end
             ImGui.BeginDisabled(disableQuickOp)
@@ -2382,6 +2378,9 @@ function spawnedUI.drawSideButtons(element, rowHovered)
             end
             ImGui.PopStyleVar()
             ImGui.EndDisabled()
+            if data.tooltip then
+                style.tooltip(data.tooltip)
+            end
             ImGui.SameLine()
         end
     end

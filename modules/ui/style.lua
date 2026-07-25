@@ -1350,6 +1350,12 @@ end
 ---@field getOptionKey fun(option: table, idx: integer): string?
 ---@field getOptionLabel fun(option: table, idx: integer): string?
 ---@field matchesOption fun(option: table, searchValue: string, idx: integer): boolean?
+---@field allowCreate boolean? Show an input + add button inside the popup to create a new option.
+---@field createHint string? Hint text for the create input.
+---@field createValue string? Current text of the create input (externalized state, returned as 3rd value).
+---@field createInputId string? Unique ID for the create input.
+---@field createButtonId string? Unique ID suffix for the create add button.
+---@field onCreate fun(name: string)? Called when the user confirms a new option; defaults to selecting the name.
 
 ---Draw a searchable multi-select combo with select-all / unselect-all controls.
 ---Selection state is externalized through `selections` where keys map to booleans.
@@ -1357,6 +1363,7 @@ end
 ---@param opts SearchableMultiSelectComboOpts
 ---@return boolean changed
 ---@return string searchValue
+---@return string createValue Current text of the create input (empty unless `allowCreate` is set).
 function style.drawSearchableMultiSelectCombo(opts)
     opts = opts or {}
 
@@ -1398,6 +1405,12 @@ function style.drawSearchableMultiSelectCombo(opts)
     local matchesOption = opts.matchesOption or function ()
         return true
     end
+    local allowCreate = opts.allowCreate == true
+    local createHint = tostring(opts.createHint or "New option...")
+    local createValue = tostring(opts.createValue or "")
+    local createInputId = tostring(opts.createInputId or "##multiSelectCreate")
+    local createButtonId = tostring(opts.createButtonId or "##multiSelectCreateAdd")
+    local onCreate = opts.onCreate
 
     local changed = false
 
@@ -1467,6 +1480,21 @@ function style.drawSearchableMultiSelectCombo(opts)
 
         style.pushButtonNoBG(false)
 
+        if allowCreate then
+            ImGui.SetNextItemWidth(searchWidth)
+            createValue, _ = ImGui.InputTextWithHint(createInputId, createHint, createValue, 100)
+
+            if style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId) then
+                if type(onCreate) == "function" then
+                    onCreate(createValue)
+                else
+                    selections[createValue] = true
+                end
+                createValue = ""
+                changed = true
+            end
+        end
+
         ImGui.Separator()
 
         if #options == 0 then
@@ -1530,7 +1558,7 @@ function style.drawSearchableMultiSelectCombo(opts)
     end
     ImGui.PopItemWidth()
 
-    return changed, searchValue
+    return changed, searchValue, createValue
 end
 
 ---Draw a no-background button only when the condition is true.
