@@ -12,7 +12,7 @@ local logger = require("modules/utils/logger")
 ---@field headerOpen boolean
 ---@field favorites favorite[]
 ---@field grouped boolean
----@field favoritesUI favoritesUI
+---@field prefabsUI prefabsUI
 ---@field fileName string
 ---@field openPopup boolean
 ---@field editName string
@@ -124,7 +124,7 @@ local function clearGroupedState(fileName)
 	end
 end
 
----@param fUI favoritesUI
+---@param fUI prefabsUI
 ---@return category
 function category:new(fUI)
 	local o = {}
@@ -135,7 +135,7 @@ function category:new(fUI)
 	o.favorites = {}
 	o.grouped = false
 
-    o.favoritesUI = fUI
+    o.prefabsUI = fUI
 	o.fileName = ""
 	o.openPopup = false
 	o.editName = ""
@@ -173,7 +173,7 @@ function category:load(data, fileName)
 	else
 		self.grouped = getGroupedState(self.fileName, nil)
 		for _, favoriteData in pairs(data.favorites) do
-			local favorite = require("modules/classes/favorites/favorite"):new(self.favoritesUI)
+			local favorite = require("modules/classes/favorites/favorite"):new(self.prefabsUI)
 			favorite:load(favoriteData)
 			-- Loading from disk should not trigger a save of unchanged data.
 			self:addFavorite(favorite, false)
@@ -332,15 +332,15 @@ function category:drawEditPopup()
         end
         self.editName, changed = ImGui.InputTextWithHint("##name", "Name...", self.editName, 100)
         if ImGui.IsItemDeactivatedAfterEdit() then
-			if not self.favoritesUI.categories[self.editName] then
-				self.favoritesUI.updateCategoryName(self.name, self.editName)
+			if not self.prefabsUI.categories[self.editName] then
+				self.prefabsUI.updateCategoryName(self.name, self.editName)
 				self.name = self.editName
 				self:save()
 			else
 				self.editName = self.name
 			end
 		end
-		if self.name ~= self.editName and self.favoritesUI.categories[self.editName] then
+		if self.name ~= self.editName and self.prefabsUI.categories[self.editName] then
 			ImGui.SameLine()
             style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
             style.tooltip("Category with this name already exists.")
@@ -348,16 +348,16 @@ function category:drawEditPopup()
 
 		style.mutedText("Merge into:")
 		ImGui.SameLine()
-		self.mergeCategorySearch, _ = self.favoritesUI.drawSelectCategory(self.mergeCategorySearch)
+		self.mergeCategorySearch, _ = self.prefabsUI.drawSelectCategory(self.mergeCategorySearch)
 		ImGui.SameLine()
 
-		local invalidTarget = self.mergeCategorySearch == self.name or not self.favoritesUI.categories[self.mergeCategorySearch]
+		local invalidTarget = self.mergeCategorySearch == self.name or not self.prefabsUI.categories[self.mergeCategorySearch]
 		if invalidTarget then
 			style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
 			style.tooltip("Invalid merge target category name.")
 		else
 			if style.warnButton(IconGlyphs.CallMerge .. " Merge", { tooltip = "Merge this category into the selected one. This category will be deleted." }) then
-				self.favoritesUI.categories[self.mergeCategorySearch]:merge(self)
+				self.prefabsUI.categories[self.mergeCategorySearch]:merge(self)
 			end
 		end
 
@@ -484,7 +484,7 @@ function category:loadVirtualGroups()
 	end
 
 	for tag, group in pairs(tags) do
-		local cat = require("modules/classes/favorites/category"):new(self.favoritesUI)
+		local cat = require("modules/classes/favorites/category"):new(self.prefabsUI)
 		local virtualGroupTags = utils.deepcopy(self.virtualGroupTags)
 		virtualGroupTags[tag] = true
 
@@ -550,7 +550,7 @@ function category:draw(context)
 		return
 	end
 
-	self.favoritesUI.pushRow(context)
+	self.prefabsUI.pushRow(context)
 
 	ImGui.PushID(context.row)
 
@@ -637,7 +637,7 @@ function category:delete()
 
 	os.remove("data/favorite/" .. self.fileName)
 	clearGroupedState(self.fileName)
-	self.favoritesUI.categories[self.name] = nil
+	self.prefabsUI.categories[self.name] = nil
 end
 
 return category

@@ -11,7 +11,7 @@ local prefabPreview = require("modules/utils/prefabPreview")
 ---@field category category?
 ---@field icon string
 ---@field assetCount number?
----@field favoritesUI favoritesUI
+---@field prefabsUI prefabsUI
 ---@field spawnUI spawnUI
 local favorite = {}
 local iconResolveCache = {}
@@ -143,7 +143,7 @@ local function resolveIconKeyFromModulePath(data)
     return ""
 end
 
----@param fUI favoritesUI
+---@param fUI prefabsUI
 ---@return favorite
 function favorite:new(fUI)
 	local o = {}
@@ -155,7 +155,7 @@ function favorite:new(fUI)
     o.icon = ""
     o.assetCount = nil
 
-    o.favoritesUI = fUI
+    o.prefabsUI = fUI
     o.spawnUI = fUI.spawnUI
 
 	self.__index = self
@@ -252,14 +252,14 @@ function favorite:drawSideButtons(assetCount)
     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(IconGlyphs.CogOutline) then
-		self.favoritesUI.openPopup = true
-        self.favoritesUI.popupItem = self
-        self.favoritesUI.popupItemConflict = self:checkIsDuplicate()
+		self.prefabsUI.openPopup = true
+        self.prefabsUI.popupItem = self
+        self.prefabsUI.popupItemConflict = self:checkIsDuplicate()
 	end
 end
 
 function favorite:draw(context)
-    self.favoritesUI.pushRow(context)
+    self.prefabsUI.pushRow(context)
 
 	ImGui.PushID(context.row)
 
@@ -306,9 +306,10 @@ function favorite:draw(context)
 
     -- Asset preview
     local isSingleAsset = self.data.modulePath == SPAWNABLE_ELEMENT_MODULE_PATH
-    if isSingleAsset and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
+    local previewEnabled = settings.prefabsAssetPreviewEnabled ~= false
+    if previewEnabled and isSingleAsset and ImGui.IsItemHovered() and settings.assetPreviewEnabled[self.data.spawnable.modulePath] then
         self.spawnUI.handleAssetPreviewHovered(self, true)
-    elseif not isSingleAsset and ImGui.IsItemHovered() and prefabPreview.isPreviewable(self.data, self:getAssetCount()) then
+    elseif previewEnabled and not isSingleAsset and ImGui.IsItemHovered() and prefabPreview.isPreviewable(self.data, self:getAssetCount()) then
         self.spawnUI.handlePrefabPreviewHovered(self)
     elseif self.spawnUI.hoveredEntry == self and (self.spawnUI.previewInstance or self.spawnUI.previewTimer or prefabPreview.isActive()) then
         self.spawnUI.hoveredEntry = nil

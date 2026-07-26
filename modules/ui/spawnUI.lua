@@ -11,6 +11,7 @@ local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
 local prefabPreview = require("modules/utils/prefabPreview")
+local assetFavorites = require("modules/utils/assetFavorites")
 
 local types = {
     ["Entity"] = {
@@ -97,6 +98,7 @@ local spawnData = {}
 local typeNames = {}
 local variantNames = {}
 local modulePathToSpawnList = {}
+local modulePathToVariantLabel = {}
 local spawnNewVisualizerClassGroups = {}
 local spawnNewVisualizerModuleSet = {}
 local reflectionProbeModulePath = "meta/reflectionProbe"
@@ -140,6 +142,7 @@ local AMM = nil
 ---@field pathOriginFilterSelectionsByModule table<string, table<string, boolean>>
 ---@field filteredHierarchyTree table?
 ---@field hierarchyOpenStateByKey table<string, boolean>
+---@field prefabsUI prefabsUI
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -177,6 +180,7 @@ spawnUI = {
     pathOriginFilterSelectionsByModule = {},
     filteredHierarchyTree = nil,
     hierarchyOpenStateByKey = {},
+    prefabsUI = require("modules/ui/prefabsUI"),
     favoritesUI = require("modules/ui/favoritesUI")
 }
 
@@ -305,6 +309,7 @@ function spawnUI.loadSpawnData(spawner)
     variantNames = {}
     spawnData = {}
     modulePathToSpawnList = {}
+    modulePathToVariantLabel = {}
     spawnUI.deviceClassFilterSelectionsByModule = {}
     spawnUI.deviceClassFilterSearchByModule = {}
     spawnUI.recordTypeFilterSelectionsByModule = {}
@@ -338,6 +343,7 @@ function spawnUI.loadSpawnData(spawner)
             collapseReflectionProbeSpawnList(spawnList)
             spawnData[dataName][variantName] = spawnList
             modulePathToSpawnList[variantInstance.modulePath] = spawnList
+            modulePathToVariantLabel[variantInstance.modulePath] = dataName .. " > " .. variantName
 
             if settings.assetPreviewEnabled[variantInstance.modulePath] == nil then
                 settings.assetPreviewEnabled[variantInstance.modulePath] = true
@@ -363,6 +369,28 @@ end
 ---@return table
 function spawnUI.getActiveSpawnList()
     return spawnData[typeNames[spawnUI.selectedType + 1]][variantNames[spawnUI.selectedVariant + 1]]
+end
+
+---Returns the spawn list owning a given spawnable module path, if any.
+---@param modulePath string?
+---@return table?
+function spawnUI.getSpawnListByModulePath(modulePath)
+    if type(modulePath) ~= "string" then
+        return nil
+    end
+
+    return modulePathToSpawnList[modulePath]
+end
+
+---Returns the "Type > Variant" label of a given spawnable module path.
+---@param modulePath string?
+---@return string?
+function spawnUI.getVariantLabelByModulePath(modulePath)
+    if type(modulePath) ~= "string" then
+        return nil
+    end
+
+    return modulePathToVariantLabel[modulePath]
 end
 
 local deviceClassFilterListByModulePath = {
@@ -931,6 +959,8 @@ local function formatSearchResultButtonText(text, width, secondaryIcon)
 end
 
 local PATH_ORIGIN_TAG_TEXT_COLOR = style.regularColor
+-- Same tone as the "Base" asset origin tag
+local FAVORITE_STAR_COLOR = pathOriginTagInfoByKey.base.color
 
 ---Draws a non-clickable rounded tag chip styled like a compact button.
 ---@param tagInfo table?
@@ -1694,13 +1724,14 @@ end
 
 ---@param entry table|favorite
 ---@param isFavorite boolean
-function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
+---@param spawnListOverride table? Spawn list to preview with, when the entry does not belong to the active one
+function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
     if spawnUI.hoveredEntry ~= entry then
         spawnUI.stopActiveAssetPreview()
 
         spawnUI.hoveredEntry = entry
 
-        local activeSpawnList = spawnUI.getActiveSpawnList()
+        local activeSpawnList = spawnListOverride or spawnUI.getActiveSpawnList()
         local assetPreviewType = activeSpawnList.assetPreviewType
         local assetPreviewDelay = activeSpawnList.assetPreviewDelay
         if isFavorite then
@@ -1793,6 +1824,42 @@ function spawnUI.drawDragWindow()
     end
 end
 
+---Stages the "Save as prefab" creation popup for one spawn list entry.
+---The entry is turned into a transform-less spawnable element first, so the
+---created prefab only carries the asset itself.
+---@param entry table
+---@param class table
+function spawnUI.savePrefabFromEntry(entry, class)
+    local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
+    local data = utils.deepcopy(entry.data)
+    data.modulePath = class:new().modulePath
+    data.position = { x = 0, y = 0, z = 0, w = 0 }
+    data.rotation = { roll = 0, pitch = 0, yaw = 0 }
+
+    new:load({
+        name = utils.getFileName(entry.name),
+        modulePath = new.modulePath,
+        spawnable = data
+    })
+
+    spawnUI.prefabsUI.addNewItem(new:serialize(), new.name, new.icon)
+end
+
+---Draws the favorite marker shown at the end of a search-result row.
+---@param modulePath string?
+---@param path string?
+local function drawFavoriteRowMarker(modulePath, path)
+    local favorite = assetFavorites.get(modulePath, path)
+    if not favorite then
+        return
+    end
+
+    ImGui.SameLine()
+    ImGui.AlignTextToFramePadding()
+    style.styledText(IconGlyphs.StarBoxOutline, FAVORITE_STAR_COLOR)
+    style.tooltip("Marked as favorite\n" .. spawnUI.favoritesUI.getTagsText(favorite))
+end
+
 ---Draws one interactive search-result row.
 ---Used by both the classic flat list and the hierarchy tree leaves.
 ---@param entry table
@@ -1834,8 +1901,15 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
         ImGui.SameLine()
     end
 
+    local isFavorite = assetFavorites.isFavorite(activeSpawnList.modulePath, entry.name)
+    local favoriteMarkerWidth = 0
+    if isFavorite then
+        local starWidth, _ = ImGui.CalcTextSize(IconGlyphs.StarBoxOutline)
+        favoriteMarkerWidth = starWidth + ImGui.GetStyle().ItemSpacing.x
+    end
+
     local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
-    local buttonWidth = xSpace - ImGui.GetCursorPosX()
+    local buttonWidth = xSpace - ImGui.GetCursorPosX() - favoriteMarkerWidth
     local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
 
     local clicked = ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold)
@@ -1874,23 +1948,23 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
     end
 
     if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
-            local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
-            local data = utils.deepcopy(entry.data)
-            data.modulePath = activeSpawnList.class:new().modulePath
-            data.position = { x = 0, y = 0, z = 0, w = 0 }
-            data.rotation = { roll = 0, pitch = 0, yaw = 0 }
-
-            new:load({
-                name = utils.getFileName(entry.name),
-                modulePath = new.modulePath,
-                spawnable = data
-            })
-
-            spawnUI.favoritesUI.addNewItem(new:serialize(), new.name, new.icon)
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, "Save as prefab", "spawnNewSavePrefab")) then
+            spawnUI.savePrefabFromEntry(entry, activeSpawnList.class)
         end
 
+        spawnUI.favoritesUI.drawContextMenuItem(
+            activeSpawnList.modulePath,
+            entry.name,
+            entry.fileName or utils.getFileName(entry.name),
+            entry.data,
+            "SpawnNew"
+        )
+
         ImGui.EndPopup()
+    end
+
+    if isFavorite then
+        drawFavoriteRowMarker(activeSpawnList.modulePath, entry.name)
     end
 
     if pushedButtonStyle then
@@ -1958,29 +2032,21 @@ end
 ---Draws expand/collapse icon buttons at the top of hierarchy search results.
 ---@param hierarchyRoot table
 local function drawHierarchyResultControls(hierarchyRoot)
-    local hasFolders = #hierarchyRoot.childOrder > 0
-    local expandIcon = IconGlyphs.ExpandAllOutline or IconGlyphs.ArrowExpandAll or IconGlyphs.ExpandAll or "+"
-    local collapseIcon = IconGlyphs.CollapseAllOutline or IconGlyphs.ArrowCollapseAll or IconGlyphs.CollapseAll or "-"
+    style.drawExpandCollapseButtons(
+        "spawnHierarchy",
+        function ()
+            setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
+        end,
+        function ()
+            setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
+        end,
+        {
+            disabled = #hierarchyRoot.childOrder == 0,
+            expandTooltip = "Expand all folders",
+            collapseTooltip = "Collapse all folders"
+        }
+    )
 
-    ImGui.BeginDisabled(not hasFolders)
-
-    style.pushButtonNoBG(true)
-    if ImGui.Button(expandIcon .. "##spawnHierarchyExpandAll") then
-        setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
-    end
-    style.pushButtonNoBG(false)
-    style.tooltip("Expand all folders")
-
-    ImGui.SameLine()
-
-    style.pushButtonNoBG(true)
-    if ImGui.Button(collapseIcon .. "##spawnHierarchyCollapseAll") then
-        setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
-    end
-    style.pushButtonNoBG(false)
-    style.tooltip("Collapse all folders")
-
-    ImGui.EndDisabled()
     ImGui.Separator()
 end
 
@@ -2124,41 +2190,47 @@ end
 
 local SPAWN_NEW_OPTIONS_POPIN_ID = "##spawnNewOptionsPopin"
 
----Draws right-aligned search-row controls (hierarchy toggle + options popin).
+---Draws the right-aligned hierarchy tree toggle of the search row.
 ---@param activeSpawnList table
 local function drawSpawnNewSearchRowControls(activeSpawnList)
-    local compactButtonWidth = 25 * style.viewSize
-    local controlsCount = activeSpawnList.isPaths and 2 or 1
-    local spacingX = ImGui.GetStyle().ItemSpacing.x
-    local controlsWidth = compactButtonWidth * controlsCount + spacingX * (controlsCount - 1)
+    if not activeSpawnList.isPaths then
+        return
+    end
 
     ImGui.SameLine()
-    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - controlsWidth)
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
 
-    if activeSpawnList.isPaths then
-        local hierarchyTreeChanged
-        settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
-            IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
-            settings.spawnUIHierarchyTree
-        )
-        if hierarchyTreeChanged then
-            settings.save()
-        end
-        style.tooltip("Toggle hierarchy tree results")
-
-        ImGui.SameLine()
+    local hierarchyTreeChanged
+    settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
+        IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
+        settings.spawnUIHierarchyTree
+    )
+    if hierarchyTreeChanged then
+        settings.save()
     end
+    style.tooltip("Toggle hierarchy tree results")
+end
+
+---Draws a right-aligned options icon button plus its popin, on the current line.
+---Shared by every Spawn New sub-tab so the button always sits next to the target group.
+---@param buttonId string Unique `##` suffix of the button.
+---@param popupId string Unique popin ID.
+---@param drawContent fun() Renders the popin body.
+---@param tooltip string?
+function spawnUI.drawOptionsButton(buttonId, popupId, drawContent, tooltip)
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
 
     style.pushButtonNoBG(true)
-    if ImGui.Button(IconGlyphs.CogOutline .. "##spawnNewOptionsButton") then
-        ImGui.OpenPopup(SPAWN_NEW_OPTIONS_POPIN_ID)
+    if ImGui.Button(IconGlyphs.CogOutline .. buttonId) then
+        ImGui.OpenPopup(popupId)
     end
     style.pushButtonNoBG(false)
-    style.tooltip("Options")
+    style.tooltip(tooltip or "Options")
 
-    if ImGui.BeginPopup(SPAWN_NEW_OPTIONS_POPIN_ID) then
-        ImGui.PushID("spawnNewOptionsPopin")
-        spawnUI.drawOptions()
+    if ImGui.BeginPopup(popupId) then
+        ImGui.PushID(popupId)
+        drawContent()
         ImGui.PopID()
         ImGui.EndPopup()
     end
@@ -2200,6 +2272,7 @@ end
 ---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
     spawnUI.drawTargetGroupSelector()
+    spawnUI.drawOptionsButton("##spawnNewOptionsButton", SPAWN_NEW_OPTIONS_POPIN_ID, spawnUI.drawOptions)
 
     style.spacedSeparator()
 
@@ -2326,7 +2399,16 @@ function spawnUI.draw()
             style.tooltipActionLabel(allTabHiddenText)
         end
 
-        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.Group, "Prefabs / Favorites", "spawnUITabFavorites", nil, true)
+        local prefabsTabLabel, prefabsTabHiddenText = style.resolveActionLabel(IconGlyphs.Group, "Prefabs", "spawnUITabPrefabs", nil, true)
+        if ImGui.BeginTabItem(prefabsTabLabel) then
+            style.tooltipActionLabel(prefabsTabHiddenText)
+            spawnUI.prefabsUI.draw()
+            ImGui.EndTabItem()
+        else
+            style.tooltipActionLabel(prefabsTabHiddenText)
+        end
+
+        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.StarBoxMultipleOutline, "Favorites", "spawnUITabAssetFavorites", nil, true)
         if ImGui.BeginTabItem(favoritesTabLabel) then
             style.tooltipActionLabel(favoritesTabHiddenText)
             spawnUI.favoritesUI.draw()
@@ -2728,8 +2810,9 @@ function spawnUI.drawPopup()
         ImGui.OpenPopup("##spawnNew")
     end
 
-    spawnUI.favoritesUI.drawEditFavoritePopup()
-    spawnUI.favoritesUI.drawCreatePrefabPopup()
+    spawnUI.prefabsUI.drawEditFavoritePopup()
+    spawnUI.prefabsUI.drawCreatePrefabPopup()
+    spawnUI.favoritesUI.drawPopups()
 end
 
 return spawnUI

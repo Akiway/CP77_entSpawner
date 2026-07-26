@@ -41,12 +41,17 @@ local config = require("modules/utils/config")
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
+---@field public prefabsAssetPreviewEnabled boolean Master switch for hover previews in the Prefabs sub-tab.
 ---@field public prefabPreviewMaxAssets number
 ---@field public spawnNewVisualizerEnabledByModule table<string, boolean>
 ---@field public filterTags table
 ---@field public favoritesFilter string
 ---@field public favoritesTagsAND boolean
 ---@field public favoritesGroupingState table
+---@field public assetFavoritesFilter string
+---@field public assetFavoritesFilterTags table
+---@field public assetFavoritesTagsAND boolean
+---@field public assetFavoritesGroupOpen table
 ---@field public mainWindowName string
 ---@field public draggingThreshold number
 ---@field public ignoreHiddenDuringExport boolean
@@ -125,6 +130,7 @@ local settingsData = {
     nodeRefPrefix = "mod",
     cacheExclusions = {},
     assetPreviewEnabled = {},
+    prefabsAssetPreviewEnabled = true,
     prefabPreviewMaxAssets = 300,
     spawnNewVisualizerEnabledByModule = {},
     mainWindowName = "World Builder",
@@ -165,6 +171,12 @@ local settingsData = {
     favoritesFilter = "",
     favoritesTagsAND = false,
     favoritesGroupingState = {},
+
+    assetFavoritesFilter = "",
+    assetFavoritesFilterTags = {},
+    assetFavoritesTagsAND = false,
+    assetFavoritesGroupOpen = {},
+
     defaultColliderMaterial = 12,
     -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
     defaultStreamingPreset = 0, -- Interior

@@ -71,6 +71,7 @@ function spawner:new()
         self.baseUI.savedUI.filter = settings.savedUIFilter
         self.baseUI.spawnUI.filter = settings.spawnUIFilter
         self.baseUI.spawnUI.loadSpawnData(self)
+        self.baseUI.spawnUI.prefabsUI.init(self)
         self.baseUI.spawnUI.favoritesUI.init(self)
 
         self.baseUI.spawnedUI.spawner = self

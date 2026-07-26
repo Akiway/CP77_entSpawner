@@ -1364,7 +1364,10 @@ end
 ---@field createValue string? Current text of the create input (externalized state, returned as 3rd value).
 ---@field createInputId string? Unique ID for the create input.
 ---@field createButtonId string? Unique ID suffix for the create add button.
----@field onCreate fun(name: string)? Called when the user confirms a new option; defaults to selecting the name.
+---@field createIcon string? Icon key. When set, an icon selector is drawn before the create input.
+---@field createIconSearch string? Search text of that icon selector (externalized state).
+---@field createIconPickerId string? Unique ID for that icon selector.
+---@field onCreate fun(name: string, iconKey: string?)? Called when the user confirms a new option; defaults to selecting the name.
 
 ---Draw a searchable multi-select combo with select-all / unselect-all controls.
 ---Selection state is externalized through `selections` where keys map to booleans.
@@ -1373,6 +1376,8 @@ end
 ---@return boolean changed
 ---@return string searchValue
 ---@return string createValue Current text of the create input (empty unless `allowCreate` is set).
+---@return string createIcon Icon key of the create row selector (unchanged unless `createIcon` is set).
+---@return string createIconSearch Search text of the create row icon selector.
 function style.drawSearchableMultiSelectCombo(opts)
     opts = opts or {}
 
@@ -1419,6 +1424,9 @@ function style.drawSearchableMultiSelectCombo(opts)
     local createValue = tostring(opts.createValue or "")
     local createInputId = tostring(opts.createInputId or "##multiSelectCreate")
     local createButtonId = tostring(opts.createButtonId or "##multiSelectCreateAdd")
+    local createIcon = opts.createIcon
+    local createIconSearch = tostring(opts.createIconSearch or "")
+    local createIconPickerId = tostring(opts.createIconPickerId or (comboId .. "CreateIcon"))
     local onCreate = opts.onCreate
 
     local changed = false
@@ -1490,12 +1498,25 @@ function style.drawSearchableMultiSelectCombo(opts)
         style.pushButtonNoBG(false)
 
         if allowCreate then
-            ImGui.SetNextItemWidth(searchWidth)
+            local createInputWidth = searchWidth
+
+            if createIcon ~= nil then
+                -- Lazy require: `field` depends on `style`, so it cannot be required at load time.
+                local field = require("modules/utils/field")
+                local iconSelectorWidth = 42 * style.viewSize
+
+                createIcon, createIconSearch = field.drawIconSelector(createIconPickerId, createIcon, createIconSearch)
+                ImGui.SameLine()
+
+                createInputWidth = math.max(60 * style.viewSize, searchWidth - iconSelectorWidth - ImGui.GetStyle().ItemSpacing.x)
+            end
+
+            ImGui.SetNextItemWidth(createInputWidth)
             createValue, _ = ImGui.InputTextWithHint(createInputId, createHint, createValue, 100)
 
             if style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId) then
                 if type(onCreate) == "function" then
-                    onCreate(createValue)
+                    onCreate(createValue, createIcon)
                 else
                     selections[createValue] = true
                 end
@@ -1567,7 +1588,39 @@ function style.drawSearchableMultiSelectCombo(opts)
     end
     ImGui.PopItemWidth()
 
-    return changed, searchValue, createValue
+    return changed, searchValue, createValue, createIcon, createIconSearch
+end
+
+---Draw the expand-all / collapse-all icon button pair used above collapsible lists.
+---@param idScope string Unique ID scope, e.g. `spawnHierarchy`.
+---@param onExpand fun() Called when expand all is pressed.
+---@param onCollapse fun() Called when collapse all is pressed.
+---@param opts {disabled: boolean?, expandTooltip: string?, collapseTooltip: string?}?
+function style.drawExpandCollapseButtons(idScope, onExpand, onCollapse, opts)
+    opts = opts or {}
+
+    local expandIcon = IconGlyphs.ExpandAllOutline or IconGlyphs.ArrowExpandAll or IconGlyphs.ExpandAll or "+"
+    local collapseIcon = IconGlyphs.CollapseAllOutline or IconGlyphs.ArrowCollapseAll or IconGlyphs.CollapseAll or "-"
+
+    ImGui.BeginDisabled(opts.disabled == true)
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(expandIcon .. "##" .. idScope .. "ExpandAll") then
+        onExpand()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip(opts.expandTooltip or "Expand all")
+
+    ImGui.SameLine()
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(collapseIcon .. "##" .. idScope .. "CollapseAll") then
+        onCollapse()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip(opts.collapseTooltip or "Collapse all")
+
+    ImGui.EndDisabled()
 end
 
 ---Draw a no-background button only when the condition is true.
