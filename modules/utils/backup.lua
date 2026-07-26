@@ -5,8 +5,44 @@ local logger = require("modules/utils/logger")
 local backup = {
     root = "backup",
     metadataPath = "backup/metadata.json",
-    metadata = nil
+    metadata = nil,
+    -- Cache of getObjectBackupInfo results keyed by "<source>|<fileName>".
+    -- The Projects tab queries backup info every frame for each expanded group;
+    -- without this cache every frame would hit the disk (io.open) per group.
+    infoCache = {}
 }
+
+---Builds the cache key for a backup info lookup.
+---@param source string Backup namespace.
+---@param fileName string Object file name including extension.
+---@return string key
+local function infoCacheKey(source, fileName)
+    return source .. "|" .. fileName
+end
+
+---Invalidates cached backup info.
+---Pass no arguments to clear everything, a `source` to clear one namespace,
+---or `source` and `fileName` to clear a single entry.
+---@param source string|nil Backup namespace to clear.
+---@param fileName string|nil Object file name to clear within the namespace.
+function backup.invalidateInfoCache(source, fileName)
+    if source == nil then
+        backup.infoCache = {}
+        return
+    end
+
+    if fileName == nil then
+        local prefix = source .. "|"
+        for key in pairs(backup.infoCache) do
+            if key:sub(1, #prefix) == prefix then
+                backup.infoCache[key] = nil
+            end
+        end
+        return
+    end
+
+    backup.infoCache[infoCacheKey(source, fileName)] = nil
+end
 
 ---@alias BackupSource "on_save"|"on_game_load"
 ---@alias BackupMetadataEntry { editedAt: string, createdAt: string }
@@ -540,6 +576,7 @@ function backup.snapshotOnGameLoad()
 
     backup.metadata.last_game_load = timestamp
     saveMetadata()
+    backup.invalidateInfoCache("on_game_load")
     return true
 end
 
@@ -570,6 +607,7 @@ function backup.backupObjectBeforeSave(fileName)
     if copied then
         recordBackup("on_save", relativePath, editedAt, getNowTimestamp())
         saveMetadata()
+        backup.invalidateInfoCache("on_save", fileName)
     end
 
     return copied
@@ -583,12 +621,14 @@ function backup.getObjectBackupPath(source, fileName)
     return getBackupPath(source, getObjectsRelativePath(fileName))
 end
 
----Returns whether a backup exists and the best timestamp to display for it.
+---Computes whether a backup exists and the best timestamp to display for it.
+---This performs the actual disk access; callers should prefer the cached
+---`backup.getObjectBackupInfo` wrapper.
 ---@param source BackupSource Backup namespace to inspect.
 ---@param fileName string Object file name including extension.
 ---@return boolean exists True when backup file exists on disk.
 ---@return string timestamp Best available timestamp (`editedAt`, fallback `createdAt`, or `"Unknown"`/`"-"`).
-function backup.getObjectBackupInfo(source, fileName)
+local function computeObjectBackupInfo(source, fileName)
     local backupPath = backup.getObjectBackupPath(source, fileName)
     local exists = config.fileExists(backupPath)
 
@@ -659,6 +699,26 @@ function backup.getObjectBackupInfo(source, fileName)
     end
 
     return true, timestamp or "Unknown"
+end
+
+---Returns whether a backup exists and the best timestamp to display for it.
+---Results are cached per `source`/`fileName`; the cache is invalidated whenever
+---the backup is (re)created or the caches are reset, so the Projects tab can query
+---this every frame without repeated disk access.
+---@param source BackupSource Backup namespace to inspect.
+---@param fileName string Object file name including extension.
+---@return boolean exists True when backup file exists on disk.
+---@return string timestamp Best available timestamp (`editedAt`, fallback `createdAt`, or `"Unknown"`/`"-"`).
+function backup.getObjectBackupInfo(source, fileName)
+    local cacheKey = infoCacheKey(source, fileName)
+    local cached = backup.infoCache[cacheKey]
+    if cached then
+        return cached.exists, cached.timestamp
+    end
+
+    local exists, timestamp = computeObjectBackupInfo(source, fileName)
+    backup.infoCache[cacheKey] = { exists = exists, timestamp = timestamp }
+    return exists, timestamp
 end
 
 ---Restores one object file from a selected backup namespace.

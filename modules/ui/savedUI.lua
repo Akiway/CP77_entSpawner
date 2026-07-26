@@ -1486,6 +1486,7 @@ function savedUI.reload()
     savedUI.groupProjectIconSearch = {}
     savedUI.pendingGroupProjectPopupId = nil
     ammImportPresetPopup.reset()
+    backup.invalidateInfoCache()
 
     for _, file in pairs(dir("data/objects")) do
         if file.name:match("^.+(%..+)$") == ".json" then
