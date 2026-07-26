@@ -282,6 +282,83 @@ function style.setCursorRelativeAppearing(x, y)
     setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Appearing)
 end
 
+---Constrain the next popup to the viewport and place it near the cursor when appearing.
+---Call right before `ImGui.BeginPopup`, guarded by `ImGui.IsPopupOpen(popupId)`.
+---@param popupId string Popup ID to test for.
+function style.constrainPopupToViewport(popupId)
+    if not ImGui.IsPopupOpen(popupId) then return end
+
+    style.setCursorRelativeAppearing(-5, -5)
+
+    local screenWidth, screenHeight = getDisplaySize()
+    local margin = 8
+    local maxWidth = math.max(200, screenWidth - margin * 2)
+    local maxHeight = math.max(200, screenHeight - margin * 2)
+
+    ImGui.SetNextWindowSizeConstraints(
+        math.min(320 * style.viewSize, maxWidth),
+        math.min(160 * style.viewSize, maxHeight),
+        maxWidth,
+        maxHeight
+    )
+end
+
+---Maximum height a searchable popup may take, clamped to the current screen.
+---@return number
+function style.getPopupMaxHeight()
+    local _, screenHeight = getDisplaySize()
+
+    return math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+end
+
+---Draw an inline muted field label aligned to the widget that follows it.
+---@param label string Label text.
+function style.fieldLabel(label)
+    ImGui.AlignTextToFramePadding()
+    style.mutedText(label)
+    ImGui.SameLine()
+end
+
+---Continue the current line, then place the cursor `offset` scaled units from the
+---right window edge. Used for the trailing icon buttons of header rows.
+---@param offset number Distance from the right edge, in unscaled style units.
+function style.sameLineWindowRight(offset)
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - offset * style.viewSize)
+end
+
+---Move the cursor so that `width` pixels of content end up flush with the right
+---edge of the current window, accounting for cell padding, scrollbar and scroll.
+---@param width number Total width of the content to be drawn.
+---@param yOffset number? Optional additional vertical offset in pixels.
+function style.setCursorRightAligned(width, yOffset)
+    local styleData = ImGui.GetStyle()
+    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and styleData.ScrollbarSize or 0
+
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - width - styleData.CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX())
+
+    if yOffset then
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + yOffset)
+    end
+end
+
+---Push the transparent-button styling used by list row content (icons, names, cog buttons).
+---Must be paired with `style.popListRowContent`.
+function style.pushListRowContent()
+    ImGui.PushStyleColor(ImGuiCol.Button, 0)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+end
+
+---Pop the styling pushed by `style.pushListRowContent`.
+---@param extraStyleVars number? Extra style vars pushed by the caller inside the scope.
+function style.popListRowContent(extraStyleVars)
+    ImGui.PopStyleColor(2)
+    ImGui.PopStyleVar(2 + (extraStyleVars or 0))
+end
+
 ---Draw spawnable metadata in a tooltip for the hovered item and copy current value on middle-click.
 ---@param info table Table containing `node`, `description`, and `previewNote`.
 ---@param currentValue string? Optional selected value shown before metadata.
@@ -1122,6 +1199,70 @@ function style.getMaxWidth(min)
     return width / style.viewSize
 end
 
+---Build the preview label of a multi-select combo from its selection state.
+---Shows `allLabel` when nothing is selected, the single key when exactly one is,
+---and `multiLabelFormat` (a `%d` format) otherwise.
+---@param selections table<string, boolean>? Selection state map.
+---@param allLabel string Label used when no option is selected.
+---@param multiLabelFormat string `string.format` pattern receiving the selected count.
+---@param formatKey fun(key: string): string? Optional decorator for the single-selection label.
+---@return string
+function style.getMultiSelectPreviewLabel(selections, allLabel, multiLabelFormat, formatKey)
+    local selected = {}
+
+    for key, isSelected in pairs(selections or {}) do
+        if isSelected == true then
+            table.insert(selected, tostring(key))
+        end
+    end
+
+    if #selected == 0 then
+        return allLabel
+    end
+
+    if #selected == 1 then
+        return type(formatKey) == "function" and formatKey(selected[1]) or selected[1]
+    end
+
+    return string.format(multiLabelFormat, #selected)
+end
+
+-- Query-syntax help shared by every search field supporting `utils.matchSearch`.
+style.searchQuerySyntaxTooltip = "Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'"
+
+---Draw the standard search row: text input, conditional clear button and syntax help glyph.
+---@class SearchFilterRowOpts
+---@field width number? Input width in unscaled units (default `300`).
+---@field maxLength number? Input buffer length (default `100`).
+---@field hint string? Placeholder text.
+---@field onClear fun()? Called instead of `changed` when the clear button is pressed.
+---@param id string Input ID, e.g. `##filter`.
+---@param value string Current search text.
+---@param opts SearchFilterRowOpts?
+---@return string value
+---@return boolean changed
+---@return boolean cleared
+function style.drawSearchFilterRow(id, value, opts)
+    opts = opts or {}
+    value = tostring(value or "")
+
+    ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
+    local changed
+    value, changed = ImGui.InputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
+
+    local cleared = false
+    if style.drawNoBGConditionalButton(value ~= "", IconGlyphs.Close .. id .. "Clear") then
+        value = ""
+        cleared = true
+    end
+
+    ImGui.SameLine()
+    style.mutedText(IconGlyphs.InformationOutline)
+    style.tooltip(style.searchQuerySyntaxTooltip)
+
+    return value, changed, cleared
+end
+
 ---@param options table
 ---@param baseWidth number
 ---@param optionDisplayFn fun(optionText: string): string?
@@ -1394,7 +1535,7 @@ function style.drawSearchableMultiSelectCombo(opts)
     local selections = opts.selections or {}
     local comboWidth = opts.comboWidth or (260 * style.viewSize)
     local searchWidth = opts.searchWidth or (220 * style.viewSize)
-    local maxPopupHeight = opts.maxPopupHeight or (520 * style.viewSize)
+    local maxPopupHeight = opts.maxPopupHeight or style.getPopupMaxHeight()
     local emptyText = tostring(opts.emptyText or "No options available")
     local noMatchText = tostring(opts.noMatchText or "No matching options")
     local searchInputId = tostring(opts.searchInputId or "##multiSelectSearch")
@@ -1416,8 +1557,15 @@ function style.drawSearchableMultiSelectCombo(opts)
     local getOptionLabel = opts.getOptionLabel or function (option)
         return tostring(option or "")
     end
-    local matchesOption = opts.matchesOption or function ()
-        return true
+    -- Default matcher: case-insensitive search over the option key, which is what
+    -- every caller needs. Pass `matchesOption` only for non-standard matching.
+    local matchesOption = opts.matchesOption or function (option, searchValue, idx)
+        local search = string.lower(tostring(searchValue or ""))
+        if search == "" then
+            return true
+        end
+
+        return utils.safePatternMatch(string.lower(tostring(getOptionKey(option, idx) or "")), search)
     end
     local allowCreate = opts.allowCreate == true
     local createHint = tostring(opts.createHint or "New option...")

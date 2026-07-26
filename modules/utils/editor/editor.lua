@@ -679,6 +679,23 @@ function editor.getScreenToWorldRay(x, y)
     return ray:Normalize()
 end
 
+---Raycasts the scene from the camera through the current cursor position.
+---Shorthand for the `getScreenToWorldRay` + camera-origin + `getRaySceneIntersection`
+---trio used by every "spawn / drop under the cursor" path.
+---@param excludeIds table<number, boolean>? Optional lookup table of element IDs to ignore.
+---@param usePhysical boolean? When true (default), physical raycast hits can override spawnable hits.
+---@return { hit: boolean, isNode: boolean, allHits: table[], result: table? }? hitData Nil when there is no player.
+function editor.getCursorSceneHit(excludeIds, usePhysical)
+    local player = GetPlayer()
+    if not player then
+        return nil
+    end
+
+    local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+
+    return editor.getRaySceneIntersection(editor.getScreenToWorldRay(), origin, excludeIds, usePhysical ~= false)
+end
+
 ---Finds the nearest intersection between a ray and spawned elements or physical world geometry.
 ---@param ray Vector4 Normalized ray direction.
 ---@param origin Vector4 Ray origin in world space.

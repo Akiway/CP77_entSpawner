@@ -3,7 +3,6 @@ local field = require("modules/utils/field")
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
-local Cron = require("modules/utils/Cron")
 local logger = require("modules/utils/logger")
 
 ---@class prefabsUI
@@ -15,8 +14,6 @@ local logger = require("modules/utils/logger")
 ---@field tagMergeTags table
 ---@field newTag string
 ---@field newMergeTag string
----@field tagFilterSize table | {x: number, y: number}
----@field tagMergeSize table | {x: number, y: number}
 ---@field openPopup boolean
 ---@field popupItem favorite?
 ---@field popupItemConflict boolean
@@ -38,8 +35,6 @@ local prefabsUI = {
     tagMergeTags = {},
     newTag = "",
     newMergeTag = "",
-    tagFilterSize = { x = 0, y = 0 },
-    tagMergeSize = { x = 0, y = 0 },
 
     categories = {},
 
@@ -49,10 +44,10 @@ local prefabsUI = {
 
     openCreatePopup = false,
     createItem = nil,
-    createTargetCategoryName = "",
-
-    favoritesFilterSaveTimer = nil
+    createTargetCategoryName = ""
 }
+
+local scheduleFavoritesFilterSave, flushFavoritesFilterSave = utils.makeDebouncedSave()
 
 ---@param fileName string
 ---@param reason string
@@ -66,26 +61,6 @@ local function quarantineInvalidFavoriteFile(fileName, reason)
     else
         logger:error(string.format("[Favorites UI] [%s] Invalid favorite file '%s' (%s). Could not move it; left original file in place.", settings.mainWindowName, fileName, reason))
     end
-end
-
-local function scheduleFavoritesFilterSave()
-    if prefabsUI.favoritesFilterSaveTimer then
-        Cron.Halt(prefabsUI.favoritesFilterSaveTimer)
-    end
-
-    prefabsUI.favoritesFilterSaveTimer = Cron.After(0.35, function ()
-        settings.save()
-        prefabsUI.favoritesFilterSaveTimer = nil
-    end)
-end
-
-local function flushFavoritesFilterSave()
-    if prefabsUI.favoritesFilterSaveTimer then
-        Cron.Halt(prefabsUI.favoritesFilterSaveTimer)
-        prefabsUI.favoritesFilterSaveTimer = nil
-    end
-
-    settings.save()
 end
 
 local PREFABS_OPTIONS_POPIN_ID = "##prefabsSpawnOptionsPopin"
@@ -160,155 +135,57 @@ function prefabsUI.updateCategoryName(oldName, newName)
     prefabsUI.categories[oldName] = nil
 end
 
+-- `getAllTags` walks every category x favorite x tag and is queried several times
+-- within a single draw pass. The result is memoized for the duration of that pass
+-- only: each draw entry point (the tab body and each popup) drops it first, so the
+-- cache can never outlive a mutation.
+local allTagsCache = nil
+
+---Drops the memoized tag list. Called when entering a draw pass, and after any
+---edit that can change which tags exist.
+function prefabsUI.invalidateTagCache()
+    allTagsCache = nil
+end
+
+---Sorted list of every tag in use, including the ones staged in an open popup.
+---@param filter string? Optional case-insensitive pattern the tags must match.
+---@return string[]
 function prefabsUI.getAllTags(filter)
-    local tags = {}
+    if not allTagsCache then
+        local tagSet = {}
 
-    for _, category in pairs(prefabsUI.categories) do
-        for _, favorite in pairs(category.favorites) do
-            for tag, _ in pairs(favorite.tags) do
-                if (filter == "" or utils.safePatternMatch(tag:lower(), filter:lower())) and not tags[tag] then
-                    tags[tag] = true
-                end
+        local function collect(tags)
+            for tag, _ in pairs(tags or {}) do
+                tagSet[tag] = true
             end
         end
-    end
 
-    if prefabsUI.popupItem then
-        for tag, _ in pairs(prefabsUI.popupItem.tags) do
-            if (filter == "" or utils.safePatternMatch(tag:lower(), filter:lower())) and not tags[tag] then
-                tags[tag] = true
+        for _, category in pairs(prefabsUI.categories) do
+            for _, favorite in pairs(category.favorites) do
+                collect(favorite.tags)
             end
         end
+
+        -- Staged items are not in any category yet, but their tags must stay selectable.
+        collect(prefabsUI.popupItem and prefabsUI.popupItem.tags)
+        collect(prefabsUI.createItem and prefabsUI.createItem.tags)
+
+        allTagsCache = utils.getKeys(tagSet)
+        table.sort(allTagsCache)
     end
 
-    if prefabsUI.createItem then
-        for tag, _ in pairs(prefabsUI.createItem.tags) do
-            if (filter == "" or utils.safePatternMatch(tag:lower(), filter:lower())) and not tags[tag] then
-                tags[tag] = true
-            end
+    if not filter or filter == "" then
+        return allTagsCache
+    end
+
+    local matched = {}
+    for _, tag in ipairs(allTagsCache) do
+        if utils.safePatternMatch(tag:lower(), filter:lower()) then
+            table.insert(matched, tag)
         end
     end
 
-    tags = utils.getKeys(tags)
-    table.sort(tags)
-
-    return tags
-end
-
----Builds a stable preview label for a tag multi-select state map.
----@param selections table<string, boolean>?
----@param allLabel string
----@param multiLabelFormat string
----@return string
-local function getTagSelectionPreviewLabel(selections, allLabel, multiLabelFormat)
-    local selectedTags = {}
-
-    if selections then
-        for tag, isSelected in pairs(selections) do
-            if isSelected == true then
-                table.insert(selectedTags, tostring(tag))
-            end
-        end
-    end
-
-    table.sort(selectedTags, function(a, b)
-        return string.lower(a) < string.lower(b)
-    end)
-
-    if #selectedTags == 0 then
-        return allLabel
-    end
-
-    if #selectedTags == 1 then
-        return selectedTags[1]
-    end
-
-    return string.format(multiLabelFormat, #selectedTags)
-end
-
----Removes selected tag keys that are no longer available in the current tag option list.
----@param selections table<string, boolean>?
----@param options string[]
-local function pruneTagSelections(selections, options)
-    if not selections then
-        return
-    end
-
-    local available = {}
-    for _, tag in ipairs(options or {}) do
-        available[tostring(tag)] = true
-    end
-
-    for tag, _ in pairs(selections) do
-        if not available[tostring(tag)] then
-            selections[tag] = nil
-        end
-    end
-end
-
----Matches one tag option against the combo search query.
----@param tagName string
----@param filterValue string
----@return boolean
-local function matchesTagSelectorOption(tagName, filterValue)
-    local searchValue = string.lower(tostring(filterValue or ""))
-    if searchValue == "" then
-        return true
-    end
-
-    return utils.safePatternMatch(string.lower(tostring(tagName or "")), searchValue)
-end
-
----Draws a clear-selection icon button for a tag multi-select filter.
----When the button is clicked, all currently selected tags are cleared.
----@param selections table<string, boolean>?
----@param buttonId string
----@param tooltip string
----@param sameLine boolean?
----@return boolean changed
----@return boolean drawn
-local function drawTagClearButton(selections, buttonId, tooltip, sameLine)
-    local hasSelection = false
-    for _, isSelected in pairs(selections or {}) do
-        if isSelected == true then
-            hasSelection = true
-            break
-        end
-    end
-
-    if not hasSelection then
-        return false, false
-    end
-
-    if sameLine then
-        ImGui.SameLine()
-    end
-
-    local changed = false
-    style.pushButtonNoBG(true)
-    local clicked = ImGui.Button(IconGlyphs.FilterRemoveOutline .. buttonId)
-    style.pushButtonNoBG(false)
-
-    if tooltip ~= "" then
-        style.tooltip(tooltip)
-    end
-
-    if clicked and selections then
-        for key, _ in pairs(selections) do
-            selections[key] = nil
-        end
-        changed = true
-    end
-
-    return changed, true
-end
-
----Draws an inline muted field label, aligned to the following widget, then SameLine.
----@param label string
-local function drawFieldLabel(label)
-    ImGui.AlignTextToFramePadding()
-    style.mutedText(label)
-    ImGui.SameLine()
+    return matched
 end
 
 ---Draws the modern searchable multi-select tag combo (with tag creation) used by the
@@ -321,22 +198,34 @@ end
 ---@return string searchValue
 ---@return string createValue
 function prefabsUI.drawTagSelectorCombo(tags, idScope, searchValue, createValue)
-    local options = prefabsUI.getAllTags("")
-    local preview = getTagSelectionPreviewLabel(tags, "No tags", "%d tags selected")
+    return prefabsUI.drawTagCombo(idScope, tags, searchValue, {
+        allLabel = "No tags",
+        options = prefabsUI.getAllTags(),
+        comboWidth = 200,
+        allowCreate = true,
+        createValue = createValue
+    })
+end
 
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
-
+---Draws one searchable tag multi-select combo. Shared by the create/edit popups,
+---the merge selector and the search-tag filter, which differ only in these options.
+---@param idScope string Unique ImGui id scope.
+---@param selections table<string, boolean> Selection state, mutated in place.
+---@param searchValue string
+---@param opts table
+---@return boolean changed
+---@return string searchValue
+---@return string createValue
+function prefabsUI.drawTagCombo(idScope, selections, searchValue, opts)
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
-        previewLabel = preview,
+        previewLabel = style.getMultiSelectPreviewLabel(selections, opts.allLabel, "%d tags selected"),
         searchHint = "Search tag...",
         searchValue = searchValue,
-        options = options,
-        selections = tags,
-        comboWidth = 200 * style.viewSize,
+        options = opts.options,
+        selections = selections,
+        comboWidth = opts.comboWidth * style.viewSize,
         searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
         emptyText = "No tags available",
         noMatchText = "No matching tags",
         searchInputId = "##" .. idScope .. "Search",
@@ -345,25 +234,27 @@ function prefabsUI.drawTagSelectorCombo(tags, idScope, searchValue, createValue)
         unselectAllButtonId = "##" .. idScope .. "UnselectAll",
         optionIdPrefix = "##" .. idScope .. "Option",
         selectAllTooltip = "Select all tags",
-        unselectAllTooltip = "Unselect all tags",
+        unselectAllTooltip = opts.unselectAllTooltip or "Unselect all tags",
         showClearSelectionButton = true,
         clearSelectionButtonId = "##" .. idScope .. "ClearSelection",
-        clearSelectionTooltip = "Clear selected tags",
-        allowCreate = true,
+        clearSelectionTooltip = opts.clearSelectionTooltip or "Clear selected tags",
+        showAndFilterToggle = opts.showAndFilterToggle == true,
+        andFilterState = settings.favoritesTagsAND,
+        andFilterTooltip = "AND filter mode (Leave off for OR filter)",
+        onAndFilterChanged = function (nextAndFilter)
+            settings.favoritesTagsAND = nextAndFilter
+            settings.save()
+        end,
+        allowCreate = opts.allowCreate == true,
         createHint = "New tag...",
-        createValue = createValue,
+        createValue = opts.createValue or "",
         createInputId = "##" .. idScope .. "Create",
         createButtonId = "##" .. idScope .. "CreateAdd",
-        matchesOption = function (option, sv)
-            return matchesTagSelectorOption(option, sv)
+        onCreate = function (name)
+            selections[name] = true
+            prefabsUI.invalidateTagCache()
         end
     })
-end
-
----Draws the label prefix for a tag multi-select filter row.
----@param label string
-local function drawTagMultiSelectLabel(label)
-    drawFieldLabel(label)
 end
 
 function prefabsUI.addNewItem(serialized, name, icon)
@@ -401,18 +292,10 @@ function prefabsUI.addNewItem(serialized, name, icon)
 end
 
 function prefabsUI.drawEditFavoritePopup()
-    -- Keep popup within the viewport, including after expanding the Tags section.
-    if ImGui.IsPopupOpen("##addFavorite") then
-        style.setCursorRelativeAppearing(-5, -5)
+    prefabsUI.invalidateTagCache()
 
-        local screenWidth, screenHeight = GetDisplayResolution()
-        local margin = 8
-        local maxWidth = math.max(200, screenWidth - margin * 2)
-        local maxHeight = math.max(200, screenHeight - margin * 2)
-        local minWidth = math.min(320 * style.viewSize, maxWidth)
-        local minHeight = math.min(160 * style.viewSize, maxHeight)
-        ImGui.SetNextWindowSizeConstraints(minWidth, minHeight, maxWidth, maxHeight)
-    end
+    -- Keep popup within the viewport, including after expanding the Tags section.
+    style.constrainPopupToViewport("##addFavorite")
 
     if ImGui.BeginPopup("##addFavorite") then
         input.updateContext("main")
@@ -422,7 +305,7 @@ function prefabsUI.drawEditFavoritePopup()
         local noCategory = prefabsUI.popupItem.category == nil
 
         -- Edit name
-        drawFieldLabel("Name")
+        style.fieldLabel("Name")
         style.setNextItemWidth(200)
         if prefabsUI.openPopup then
             prefabsUI.openPopup = false
@@ -440,7 +323,7 @@ function prefabsUI.drawEditFavoritePopup()
         end
 
         -- Select tags
-        drawFieldLabel("Tags")
+        style.fieldLabel("Tags")
         local tagsChanged
         tagsChanged, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(prefabsUI.popupItem.tags, "editTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
         if tagsChanged and not noCategory then
@@ -451,7 +334,7 @@ function prefabsUI.drawEditFavoritePopup()
         end
 
         -- Select category
-        drawFieldLabel("Category")
+        style.fieldLabel("Category")
         local categoryName, changed = prefabsUI.drawSelectCategory(prefabsUI.popupItem.category and prefabsUI.popupItem.category.name or "No Category")
         if changed then
             prefabsUI.newItemCategory = categoryName -- Just use the last selected category
@@ -514,18 +397,10 @@ end
 ---When the entered name already matches a prefab in the target category, the user
 ---can either overwrite that prefab or create a separate copy.
 function prefabsUI.drawCreatePrefabPopup()
-    -- Keep popup within the viewport, including after expanding the Tags section.
-    if ImGui.IsPopupOpen("##createPrefab") then
-        style.setCursorRelativeAppearing(-5, -5)
+    prefabsUI.invalidateTagCache()
 
-        local screenWidth, screenHeight = GetDisplayResolution()
-        local margin = 8
-        local maxWidth = math.max(200, screenWidth - margin * 2)
-        local maxHeight = math.max(200, screenHeight - margin * 2)
-        local minWidth = math.min(320 * style.viewSize, maxWidth)
-        local minHeight = math.min(160 * style.viewSize, maxHeight)
-        ImGui.SetNextWindowSizeConstraints(minWidth, minHeight, maxWidth, maxHeight)
-    end
+    -- Keep popup within the viewport, including after expanding the Tags section.
+    style.constrainPopupToViewport("##createPrefab")
 
     if ImGui.BeginPopup("##createPrefab") then
         local item = prefabsUI.createItem
@@ -539,7 +414,7 @@ function prefabsUI.drawCreatePrefabPopup()
             local noCategory = targetCategory == nil
 
             -- Edit name
-            drawFieldLabel("Name")
+            style.fieldLabel("Name")
             style.setNextItemWidth(200)
             if prefabsUI.openCreatePopup then
                 prefabsUI.openCreatePopup = false
@@ -548,11 +423,11 @@ function prefabsUI.drawCreatePrefabPopup()
             item.name, _ = ImGui.InputTextWithHint("##name", "Name...", item.name, 100)
 
             -- Select tags (staged only, no save)
-            drawFieldLabel("Tags")
+            style.fieldLabel("Tags")
             _, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(item.tags, "createTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
 
             -- Select category
-            drawFieldLabel("Category")
+            style.fieldLabel("Category")
             local categoryName, changed = prefabsUI.drawSelectCategory(not noCategory and prefabsUI.createTargetCategoryName or "No Category")
             if changed then
                 prefabsUI.createTargetCategoryName = categoryName
@@ -789,7 +664,13 @@ function prefabsUI.drawExpandCollapseRow()
     ImGui.Separator()
 end
 
-function prefabsUI.drawMain()
+---Draws the striped-row list shell shared by the Prefabs and Favorites lists:
+---scroll child, single-column table, caller-provided rows, then filler rows so the
+---striping covers the whole area.
+---@param idScope string Unique ImGui id scope of the child + table.
+---@param drawRows fun(context: table) Draws the actual rows, advancing `context.row`.
+---@param drawEmptyState fun()? Drawn above the table, before any row.
+function prefabsUI.drawRowTable(idScope, drawRows, drawEmptyState)
     local cellPadding = 3 * style.viewSize
     local _, y = ImGui.GetContentRegionAvail()
     y = math.max(y, 300 * style.viewSize)
@@ -804,21 +685,17 @@ function prefabsUI.drawMain()
     ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, cellPadding)
     ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
 
-    if ImGui.BeginChild("##favoritesList", -1, y, false) then
-        if ImGui.BeginTable("##favoritesListTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
-            local keys = utils.getKeys(prefabsUI.categories)
-            table.sort(keys)
+    if ImGui.BeginChild("##" .. idScope .. "List", -1, y, false) then
+        if drawEmptyState then
+            drawEmptyState()
+        end
 
-            for _, key in pairs(keys) do
-                context.depth = 0
-                prefabsUI.categories[key]:draw(context)
-            end
+        if ImGui.BeginTable("##" .. idScope .. "ListTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
+            drawRows(context)
 
-            if context.row < nRows then
-                for i = context.row, nRows - 1 do
-                    prefabsUI.pushRow(context)
-                    context.row = context.row + 1
-                end
+            while context.row < nRows do
+                prefabsUI.pushRow(context)
+                context.row = context.row + 1
             end
 
             ImGui.EndTable()
@@ -829,47 +706,31 @@ function prefabsUI.drawMain()
     ImGui.PopStyleVar(2)
 end
 
-function prefabsUI.drawMergeTags()
-    local mergeTagOptions = prefabsUI.getAllTags("")
-    pruneTagSelections(prefabsUI.tagMergeTags, mergeTagOptions)
-    local mergePreview = getTagSelectionPreviewLabel(prefabsUI.tagMergeTags, "No tags selected", "%d tags selected")
+function prefabsUI.drawMain()
+    prefabsUI.drawRowTable("favorites", function (context)
+        local keys = utils.getKeys(prefabsUI.categories)
+        table.sort(keys)
 
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
-
-    drawTagMultiSelectLabel("Tags to rename / merge")
-
-    local _, nextMergeSearch = style.drawSearchableMultiSelectCombo({
-        comboId = "##tagMergeFilterCombo",
-        previewLabel = mergePreview,
-        searchHint = "Search tag...",
-        searchValue = prefabsUI.tagMergeFilter,
-        options = mergeTagOptions,
-        selections = prefabsUI.tagMergeTags,
-        comboWidth = 160 * style.viewSize,
-        searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
-        emptyText = "No tags available",
-        noMatchText = "No matching tags",
-        searchInputId = "##tagMergeSearch",
-        searchClearButtonId = "##tagMergeSearchClear",
-        selectAllButtonId = "##tagMergeSelectAll",
-        unselectAllButtonId = "##tagMergeUnselectAll",
-        optionIdPrefix = "##tagMergeOption",
-        selectAllTooltip = "Select all tags",
-        unselectAllTooltip = "Unselect all tags",
-        matchesOption = function (option, searchValue)
-            return matchesTagSelectorOption(option, searchValue)
+        for _, key in pairs(keys) do
+            context.depth = 0
+            prefabsUI.categories[key]:draw(context)
         end
+    end)
+end
+
+function prefabsUI.drawMergeTags()
+    local mergeTagOptions = prefabsUI.getAllTags()
+    utils.pruneKeys(prefabsUI.tagMergeTags, utils.toKeySet(mergeTagOptions))
+
+    style.fieldLabel("Tags to rename / merge")
+
+    local _, nextMergeSearch = prefabsUI.drawTagCombo("tagMerge", prefabsUI.tagMergeTags, prefabsUI.tagMergeFilter, {
+        allLabel = "No tags selected",
+        options = mergeTagOptions,
+        comboWidth = 160,
+        clearSelectionTooltip = "Clear selected tags to rename/merge"
     })
     prefabsUI.tagMergeFilter = nextMergeSearch
-
-    drawTagClearButton(
-        prefabsUI.tagMergeTags,
-        "##tagMergeSelectionClear",
-        "Clear selected tags to rename/merge",
-        true
-    )
 
     style.mutedText("New tag name")
     ImGui.SameLine()
@@ -908,6 +769,7 @@ function prefabsUI.drawMergeTags()
         end
 
         -- Run cleanup immediately so stale tags do not hide entries until the next frame.
+        prefabsUI.invalidateTagCache()
         prefabsUI.removeUnusedTags()
 
         if changedFilterTags then
@@ -924,9 +786,8 @@ function prefabsUI.drawMergeTags()
 end
 
 function prefabsUI.draw()
+    prefabsUI.invalidateTagCache()
     prefabsUI.removeUnusedTags()
-
-    local changed = false
 
     drawPrefabsSpawnOptionsRow()
 
@@ -944,77 +805,39 @@ function prefabsUI.draw()
 
     style.spacedSeparator()
 
-    ImGui.SetNextItemWidth(300 * style.viewSize)
-    settings.favoritesFilter, changed = ImGui.InputTextWithHint("##filter", "Search by name... (Supports pattern matching)", settings.favoritesFilter, 100)
-    if changed then
+    local filterChanged, filterCleared
+    settings.favoritesFilter, filterChanged, filterCleared = style.drawSearchFilterRow("##filter", settings.favoritesFilter)
+    if filterCleared then
+        flushFavoritesFilterSave()
+    elseif filterChanged then
         scheduleFavoritesFilterSave()
     end
 
-    if style.drawNoBGConditionalButton(settings.favoritesFilter ~= "", IconGlyphs.Close) then
-        settings.favoritesFilter = ""
-        flushFavoritesFilterSave()
-    end
-
-    ImGui.SameLine()
-    style.mutedText(IconGlyphs.InformationOutline)
-    style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
-
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
+    style.sameLineWindowRight(25)
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.Reload) then
         prefabsUI.categories = {}
+        prefabsUI.invalidateTagCache()
         prefabsUI.init(prefabsUI.spawnUI.spawner)
     end
     style.pushButtonNoBG(false)
     style.tooltip("Reload prefabs from disk")
 
-    local searchTagOptions = prefabsUI.getAllTags("")
-    pruneTagSelections(settings.filterTags, searchTagOptions)
-    local searchTagPreview = getTagSelectionPreviewLabel(settings.filterTags, "All tags", "%d tags selected")
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+    local searchTagOptions = prefabsUI.getAllTags()
+    utils.pruneKeys(settings.filterTags, utils.toKeySet(searchTagOptions))
 
-    drawTagMultiSelectLabel("Search Tags")
+    style.fieldLabel("Search Tags")
 
-    local tagsChanged, nextTagSearch = style.drawSearchableMultiSelectCombo({
-        comboId = "##searchTagsFilterCombo",
-        previewLabel = searchTagPreview,
-        searchHint = "Search tag...",
-        searchValue = prefabsUI.tagFilterFilter,
+    local tagsChanged, nextTagSearch = prefabsUI.drawTagCombo("searchTags", settings.filterTags, prefabsUI.tagFilterFilter, {
+        allLabel = "All tags",
         options = searchTagOptions,
-        selections = settings.filterTags,
-        comboWidth = 160 * style.viewSize,
-        searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
-        emptyText = "No tags available",
-        noMatchText = "No matching tags",
-        searchInputId = "##searchTagsFilterSearch",
-        searchClearButtonId = "##searchTagsFilterSearchClear",
-        selectAllButtonId = "##searchTagsSelectAll",
-        unselectAllButtonId = "##searchTagsUnselectAll",
-        optionIdPrefix = "##searchTagsOption",
-        selectAllTooltip = "Select all tags",
+        comboWidth = 160,
         unselectAllTooltip = "Unselect all tags (default behavior: show all)",
-        showAndFilterToggle = true,
-        andFilterState = settings.favoritesTagsAND,
-        andFilterTooltip = "AND filter mode (Leave off for OR filter)",
-        onAndFilterChanged = function (nextAndFilter)
-            settings.favoritesTagsAND = nextAndFilter
-            settings.save()
-        end,
-        matchesOption = function (option, searchValue)
-            return matchesTagSelectorOption(option, searchValue)
-        end
+        clearSelectionTooltip = "Clear selected tag filters",
+        showAndFilterToggle = true
     })
     prefabsUI.tagFilterFilter = nextTagSearch
-    local searchTagSelectionChanged = drawTagClearButton(
-        settings.filterTags,
-        "##searchTagsSelectionClear",
-        "Clear selected tag filters",
-        true
-    )
-    if tagsChanged or searchTagSelectionChanged then
+    if tagsChanged then
         settings.save()
     end
 

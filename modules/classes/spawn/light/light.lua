@@ -111,6 +111,26 @@ function light:new()
     o.description = "Places a static light"
     o.icon = IconGlyphs.LightbulbOn20
 
+    -- Disabled while a Spawn New asset preview runs, so already placed lights and their
+    -- visualizers do not contaminate the previewed asset. `light` itself is only
+    -- suppressed for camera-following lights (see spawnUI.setAssetPreviewActive).
+    o.previewSuppressedComponents = {
+        light = "light",
+        visualizers = {
+            "box",
+            "sphere",
+            "cone",
+            "cone_inner",
+            "capsule_body",
+            "capsule_top",
+            "capsule_bottom",
+            "mesh",
+            "mesh_inner",
+            "radius_sphere",
+            "arrows"
+        }
+    }
+
     o.color = { 1, 1, 1 }
     o.intensity = 100
     o.innerAngle = 20

@@ -975,6 +975,76 @@ function miscUtils.getKeys(tab)
     return keys
 end
 
+---Removes keys from a selection map that are absent from the available key set.
+---Used by every multi-select filter to drop options that no longer exist.
+---@param selections table<string, boolean>?
+---@param availableKeys table<string, boolean>? Set of still-valid keys.
+---@return boolean changed
+function miscUtils.pruneKeys(selections, availableKeys)
+    if not selections then
+        return false
+    end
+
+    availableKeys = availableKeys or {}
+    local changed = false
+
+    for key, _ in pairs(selections) do
+        if not availableKeys[key] then
+            selections[key] = nil
+            changed = true
+        end
+    end
+
+    return changed
+end
+
+---Builds a set from a list of keys, for use with `miscUtils.pruneKeys`.
+---@param list any[]?
+---@return table<string, boolean>
+function miscUtils.toKeySet(list)
+    local set = {}
+
+    for _, value in ipairs(list or {}) do
+        set[tostring(value)] = true
+    end
+
+    return set
+end
+
+---Creates a debounced-save pair for a settings field edited by typing.
+---`schedule` coalesces rapid edits into one write, `flush` writes immediately.
+---@param delay number? Debounce delay in seconds (default `0.35`).
+---@param save fun()? Save function (defaults to `settings.save`).
+---@return fun() schedule
+---@return fun() flush
+function miscUtils.makeDebouncedSave(delay, save)
+    local Cron = require("modules/utils/Cron")
+    local timer = nil
+
+    delay = delay or 0.35
+    save = save or function ()
+        require("modules/utils/settings").save()
+    end
+
+    local function halt()
+        if timer then
+            Cron.Halt(timer)
+            timer = nil
+        end
+    end
+
+    return function ()
+        halt()
+        timer = Cron.After(delay, function ()
+            timer = nil
+            save()
+        end)
+    end, function ()
+        halt()
+        save()
+    end
+end
+
 ---Shortens a path to fit UI width by trimming leading segments and prefixing `...`.
 ---@param path string
 ---@param width number Maximum allowed rendered width.

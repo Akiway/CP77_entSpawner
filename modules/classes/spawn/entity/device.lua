@@ -292,6 +292,7 @@ function device:new()
     o.previewNote = "Device connections / functionality is not previewed."
 
     o.icon = IconGlyphs.AlphaDBoxOutline
+    o.entryFilter = "deviceClass"
 
     o.deviceConnections = {}
     o.connectionNodeRefSearch = {}

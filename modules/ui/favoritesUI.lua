@@ -3,8 +3,6 @@ local field = require("modules/utils/field")
 local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
-local Cron = require("modules/utils/Cron")
-local editor = require("modules/utils/editor/editor")
 local logger = require("modules/utils/logger")
 local assetFavorites = require("modules/utils/assetFavorites")
 local prefabsUI = require("modules/ui/prefabsUI")
@@ -45,12 +43,11 @@ local favoritesUI = {
     popupTagName = nil,
     openTagPopup = false,
     tagEditName = "",
-    tagEditIconSearch = "",
-
-    filterSaveTimer = nil
+    tagEditIconSearch = ""
 }
 
 local moduleIconCache = {}
+local scheduleFilterSave, flushFilterSave = utils.makeDebouncedSave()
 
 ---@param spawner spawner
 function favoritesUI.init(spawner)
@@ -63,26 +60,6 @@ end
 function favoritesUI.reload()
     moduleIconCache = {}
     assetFavorites.load()
-end
-
-local function scheduleFilterSave()
-    if favoritesUI.filterSaveTimer then
-        Cron.Halt(favoritesUI.filterSaveTimer)
-    end
-
-    favoritesUI.filterSaveTimer = Cron.After(0.35, function ()
-        settings.save()
-        favoritesUI.filterSaveTimer = nil
-    end)
-end
-
-local function flushFilterSave()
-    if favoritesUI.filterSaveTimer then
-        Cron.Halt(favoritesUI.filterSaveTimer)
-        favoritesUI.filterSaveTimer = nil
-    end
-
-    settings.save()
 end
 
 ---@param modulePath string
@@ -342,55 +319,9 @@ local function pruneTagFilterSelections()
         return
     end
 
-    local changed = false
-    for tag, _ in pairs(settings.assetFavoritesFilterTags) do
-        if not assetFavorites.hasTag(tag) then
-            settings.assetFavoritesFilterTags[tag] = nil
-            changed = true
-        end
-    end
-
-    if changed then
+    if utils.pruneKeys(settings.assetFavoritesFilterTags, utils.toKeySet(assetFavorites.getTagNames())) then
         settings.save()
     end
-end
-
----@param tagName string
----@param searchValue string
----@return boolean
-local function matchesTagOption(tagName, searchValue)
-    local search = string.lower(tostring(searchValue or ""))
-    if search == "" then
-        return true
-    end
-
-    return utils.safePatternMatch(string.lower(tostring(tagName or "")), search)
-end
-
----@param selections table<string, boolean>?
----@param allLabel string
----@param multiLabelFormat string
----@return string
-local function getTagSelectionPreviewLabel(selections, allLabel, multiLabelFormat)
-    local selected = {}
-
-    for tag, isSelected in pairs(selections or {}) do
-        if isSelected == true then
-            table.insert(selected, tostring(tag))
-        end
-    end
-
-    table.sort(selected, function (a, b) return string.lower(a) < string.lower(b) end)
-
-    if #selected == 0 then
-        return allLabel
-    end
-
-    if #selected == 1 then
-        return assetFavorites.getTagGlyph(selected[1]) .. " " .. selected[1]
-    end
-
-    return string.format(multiLabelFormat, #selected)
 end
 
 ---Draws the shared searchable tag multi-select combo, with icons per tag.
@@ -408,21 +339,22 @@ end
 local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
     opts = opts or {}
 
-    local options = assetFavorites.getTagNames()
-    local preview = getTagSelectionPreviewLabel(selections, opts.allLabel or "No tags", opts.multiLabel or "%d tags selected")
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+    local preview = style.getMultiSelectPreviewLabel(
+        selections,
+        opts.allLabel or "No tags",
+        opts.multiLabel or "%d tags selected",
+        function (tag) return assetFavorites.getTagGlyph(tag) .. " " .. tag end
+    )
 
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
         previewLabel = preview,
         searchHint = "Search tag...",
         searchValue = searchValue,
-        options = options,
+        options = assetFavorites.getTagNames(),
         selections = selections,
         comboWidth = (opts.comboWidth or 200) * style.viewSize,
         searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
         emptyText = "No tags available",
         noMatchText = "No matching tags",
         searchInputId = "##" .. idScope .. "Search",
@@ -456,18 +388,8 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
         end,
         getOptionLabel = function (option)
             return assetFavorites.getTagGlyph(option) .. " " .. tostring(option)
-        end,
-        matchesOption = function (option, search)
-            return matchesTagOption(option, search)
         end
     })
-end
-
----@param label string
-local function drawFieldLabel(label)
-    ImGui.AlignTextToFramePadding()
-    style.mutedText(label)
-    ImGui.SameLine()
 end
 
 ---Stages the favorite settings popup for one entry.
@@ -573,16 +495,16 @@ local function drawEntryPopup()
 
         style.popupTitle(IconGlyphs.StarBoxOutline, "Favorite Settings")
 
-        drawFieldLabel("Asset")
+        style.fieldLabel("Asset")
         ImGui.AlignTextToFramePadding()
         ImGui.Text(entry.name)
         style.tooltip(entry.path)
 
-        drawFieldLabel("Type")
+        style.fieldLabel("Type")
         ImGui.AlignTextToFramePadding()
         style.mutedText(getVariantLabel(entry.modulePath))
 
-        drawFieldLabel("Tags")
+        style.fieldLabel("Tags")
         local tagsChanged
         tagsChanged, favoritesUI.editTagSearch, favoritesUI.editNewTag, favoritesUI.editNewTagIcon, favoritesUI.editNewTagIconSearch = drawTagSelectorCombo(
             entry.tags,
@@ -718,22 +640,20 @@ function favoritesUI.drawPopups()
     drawTagPopup()
 end
 
----Right aligned settings button of one favorite.
----@param entry assetFavoriteEntry
-local function drawEntrySideButtons(entry)
+---Right aligned cog button of a list row (entry or tag group).
+---@param yOffset number Vertical nudge applied before drawing, in pixels.
+---@param tooltip string
+---@param onClick fun()
+local function drawRowCogButton(yOffset, tooltip, onClick)
     local settingsX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
-    local totalX = settingsX + ImGui.GetStyle().ItemSpacing.x
-    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
 
-    ImGui.SetCursorPosX(cursorX)
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+    style.setCursorRightAligned(settingsX + ImGui.GetStyle().ItemSpacing.x, yOffset)
 
     ImGui.SetNextItemAllowOverlap()
     if ImGui.Button(IconGlyphs.CogOutline) then
-        favoritesUI.openEntrySettings(entry)
+        onClick()
     end
-    style.tooltip("Favorite settings")
+    style.tooltip(tooltip)
 end
 
 ---@param entry assetFavoriteEntry
@@ -751,20 +671,10 @@ local function drawEntry(entry, context)
 
     if ImGui.Selectable("##assetFavorite" .. context.row, false, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap) then
         spawnFavorite(entry)
-    elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnUI.dragging and ImGui.IsItemHovered() then
-        spawnUI.dragging = true
-        spawnUI.dragData = { data = entry.data, name = entry.name }
-    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and spawnUI.dragging then
-        if not ImGui.IsItemHovered() then
-            local ray = editor.getScreenToWorldRay()
-            spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-
+    else
+        spawnUI.handleRowDrag({ data = entry.data, name = entry.name }, function ()
             spawnFavorite(entry)
-        end
-
-        spawnUI.dragging = false
-        spawnUI.dragData = nil
-        spawnUI.popupSpawnHit = nil
+        end)
     end
 
     if ImGui.BeginPopupContextItem("##assetFavoriteContext", ImGuiPopupFlags.MouseButtonRight) then
@@ -794,11 +704,7 @@ local function drawEntry(entry, context)
     context.row = context.row + 1
 
     ImGui.SameLine()
-    ImGui.PushStyleColor(ImGuiCol.Button, 0)
-    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-    ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+    style.pushListRowContent()
 
     ImGui.SetNextItemAllowOverlap()
     ImGui.AlignTextToFramePadding()
@@ -829,10 +735,11 @@ local function drawEntry(entry, context)
     end
 
     ImGui.SameLine()
-    drawEntrySideButtons(entry)
+    drawRowCogButton(1 * style.viewSize, "Favorite settings", function ()
+        favoritesUI.openEntrySettings(entry)
+    end)
 
-    ImGui.PopStyleColor(2)
-    ImGui.PopStyleVar(3)
+    style.popListRowContent(1)
 
     ImGui.PopID()
 end
@@ -841,22 +748,12 @@ end
 local function drawGroupSideButtons(group)
     if group.isNoTag then return end
 
-    local settingsX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
-    local totalX = settingsX + ImGui.GetStyle().ItemSpacing.x
-    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-
-    ImGui.SetCursorPosX(cursorX)
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2 * (ImGui.GetFontSize() / 15))
-
-    ImGui.SetNextItemAllowOverlap()
-    if ImGui.Button(IconGlyphs.CogOutline) then
+    drawRowCogButton(2 * (ImGui.GetFontSize() / 15), "Tag settings", function ()
         favoritesUI.openTagPopup = true
         favoritesUI.popupTagName = group.name
         favoritesUI.tagEditName = group.name
         favoritesUI.tagEditIconSearch = ""
-    end
-    style.tooltip("Tag settings")
+    end)
 end
 
 ---@param group table
@@ -879,11 +776,7 @@ local function drawGroup(group, context)
     context.row = context.row + 1
 
     ImGui.SameLine()
-    ImGui.PushStyleColor(ImGuiCol.Button, 0)
-    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-    ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+    style.pushListRowContent()
 
     ImGui.SetNextItemAllowOverlap()
     if ImGui.Button(open and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline) then
@@ -904,8 +797,7 @@ local function drawGroup(group, context)
     ImGui.SameLine()
     drawGroupSideButtons(group)
 
-    ImGui.PopStyleColor(2)
-    ImGui.PopStyleVar(3)
+    style.popListRowContent(1)
 
     ImGui.PopID()
 
@@ -920,21 +812,7 @@ end
 
 ---Draws the favorites list, using the same table / row layout as the prefabs list.
 function favoritesUI.drawMain()
-    local cellPadding = 3 * style.viewSize
-    local _, y = ImGui.GetContentRegionAvail()
-    y = math.max(y, 300 * style.viewSize)
-    local nRows = math.floor(y / prefabsUI.getRowHeight(cellPadding))
-
-    local context = {
-        row = 0,
-        depth = 0,
-        padding = cellPadding
-    }
-
     local groups = buildTagGroups()
-
-    ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, 7.5 * style.viewSize, cellPadding)
-    ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarSize, 12 * style.viewSize)
 
     local hasVisibleEntry = false
     for _, group in ipairs(groups) do
@@ -944,32 +822,22 @@ function favoritesUI.drawMain()
         end
     end
 
-    if ImGui.BeginChild("##assetFavoritesList", -1, y, false) then
-        if assetFavorites.getCount() == 0 then
-            style.mutedText("No favorites yet. Right click an asset in the \"All\" sub-tab and pick \"Add to favorites\".")
-        elseif not hasVisibleEntry then
-            style.mutedText("No favorite matches the current filters.")
-        end
-
-        if ImGui.BeginTable("##assetFavoritesListTable", 1, ImGuiTableFlags.ScrollX or ImGuiTableFlags.NoHostExtendX) then
+    prefabsUI.drawRowTable(
+        "assetFavorites",
+        function (context)
             for _, group in ipairs(groups) do
                 context.depth = 0
                 drawGroup(group, context)
             end
-
-            if context.row < nRows then
-                for _ = context.row, nRows - 1 do
-                    prefabsUI.pushRow(context)
-                    context.row = context.row + 1
-                end
+        end,
+        function ()
+            if assetFavorites.getCount() == 0 then
+                style.mutedText("No favorites yet. Right click an asset in the \"All\" sub-tab and pick \"Add to favorites\".")
+            elseif not hasVisibleEntry then
+                style.mutedText("No favorite matches the current filters.")
             end
-
-            ImGui.EndTable()
         end
-        ImGui.EndChild()
-    end
-
-    ImGui.PopStyleVar(2)
+    )
 end
 
 ---Draws the target group selector plus the options button, on one line.
@@ -1006,24 +874,15 @@ function favoritesUI.draw()
 
     style.spacedSeparator()
 
-    ImGui.SetNextItemWidth(300 * style.viewSize)
-    local filterChanged
-    settings.assetFavoritesFilter, filterChanged = ImGui.InputTextWithHint("##assetFavoritesFilter", "Search by name... (Supports pattern matching)", settings.assetFavoritesFilter, 100)
-    if filterChanged then
+    local filterChanged, filterCleared
+    settings.assetFavoritesFilter, filterChanged, filterCleared = style.drawSearchFilterRow("##assetFavoritesFilter", settings.assetFavoritesFilter)
+    if filterCleared then
+        flushFilterSave()
+    elseif filterChanged then
         scheduleFilterSave()
     end
 
-    if style.drawNoBGConditionalButton(settings.assetFavoritesFilter ~= "", IconGlyphs.Close) then
-        settings.assetFavoritesFilter = ""
-        flushFilterSave()
-    end
-
-    ImGui.SameLine()
-    style.mutedText(IconGlyphs.InformationOutline)
-    style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
-
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 25 * style.viewSize)
+    style.sameLineWindowRight(25)
     style.pushButtonNoBG(true)
     if ImGui.Button(IconGlyphs.Reload .. "##assetFavoritesReload") then
         favoritesUI.reload()
@@ -1031,7 +890,7 @@ function favoritesUI.draw()
     style.pushButtonNoBG(false)
     style.tooltip("Reload favorites from disk")
 
-    drawFieldLabel("Search Tags")
+    style.fieldLabel("Search Tags")
 
     local tagsChanged, nextTagSearch = drawTagSelectorCombo(
         settings.assetFavoritesFilterTags,

@@ -236,9 +236,8 @@ function favorite:drawSideButtons(assetCount)
     if countText then
         totalX = totalX + countX + countCogSpacing
     end
-    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-    ImGui.SetCursorPosX(cursorX)
+    style.setCursorRightAligned(totalX)
+    local cursorX = ImGui.GetCursorPosX()
 
     if countText then
         ImGui.SetNextItemAllowOverlap()
@@ -268,20 +267,10 @@ function favorite:draw(context)
 
     if ImGui.Selectable("##favorite" .. context.row, false, ImGuiSelectableFlags.SpanAllColumns + ImGuiSelectableFlags.AllowOverlap) then
         self.spawnUI.spawnNew({ data = self.data }, require(self.data.modulePath), true)
-    elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not self.spawnUI.dragging and ImGui.IsItemHovered() then
-        self.spawnUI.dragging = true
-        self.spawnUI.dragData = { data = self.data, name = self.name }
-    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and self.spawnUI.dragging then
-        if not ImGui.IsItemHovered() then
-            local ray = editor.getScreenToWorldRay()
-            self.spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-
-            spawnUI.dragData.lastSpawned = spawnUI.spawnNew(self.spawnUI.dragData, require(self.data.modulePath), true)
-        end
-
-        self.spawnUI.dragging = false
-        self.spawnUI.dragData = nil
-        self.spawnUI.popupSpawnHit = nil
+    else
+        self.spawnUI.handleRowDrag({ data = self.data, name = self.name }, function (dragged)
+            dragged.lastSpawned = self.spawnUI.spawnNew(dragged, require(self.data.modulePath), true)
+        end)
     end
 
     if ImGui.BeginPopupContextItem("##favoriteContext", ImGuiPopupFlags.MouseButtonRight) then
@@ -319,11 +308,7 @@ function favorite:draw(context)
 	context.row = context.row + 1
 
 	ImGui.SameLine()
-	ImGui.PushStyleColor(ImGuiCol.Button, 0)
-	ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-	ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-	ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-	ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+	style.pushListRowContent()
 
 	ImGui.SetNextItemAllowOverlap()
 	if self.icon ~= "" then
@@ -340,8 +325,7 @@ function favorite:draw(context)
 	ImGui.SameLine()
 	self:drawSideButtons(self:getAssetCount())
 
-	ImGui.PopStyleColor(2)
-	ImGui.PopStyleVar(3)
+	style.popListRowContent(1)
 
 	ImGui.PopID()
 end

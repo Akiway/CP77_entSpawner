@@ -207,6 +207,15 @@ function entity.getDeviceSecondaryIcon(className)
     return deviceClassSecondaryIconByName[entity.sanitizeDeviceClassName(className)] or ""
 end
 
+---Resolves the secondary icon shown next to a spawn-list entry label.
+---Empty for modules that carry no device class information.
+---@param entry table?
+---@param modulePath string?
+---@return string
+function entity.getEntrySecondaryIcon(entry, modulePath)
+    return entity.getDeviceSecondaryIcon(entity.resolveDeviceClassNameForEntry(entry, modulePath))
+end
+
 ---Refreshes instance secondary icon state and keeps the class-name cache in sync.
 function entity:updateDeviceSecondaryIcon()
     self.secondaryIcon = entity.getDeviceSecondaryIcon(self.deviceClassName)

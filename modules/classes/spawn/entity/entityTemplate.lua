@@ -18,6 +18,7 @@ function template:new()
     o.description = "Spawns an entity from a given .ent file"
 
     o.modulePath = "entity/entityTemplate"
+    o.entryFilter = "deviceClass"
     o.showPositionMarker = false
 
     setmetatable(o, { __index = self })

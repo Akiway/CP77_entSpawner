@@ -399,9 +399,7 @@ function category:drawSideButtons()
     local groupX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
 	if self.isVirtualGroup then settingsX = 0 end
 	local totalX = settingsX + groupX + ImGui.GetStyle().ItemSpacing.x * 2
-    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-    ImGui.SetCursorPosX(cursorX)
+    style.setCursorRightAligned(totalX)
 
 	local grouped = self.grouped
 	style.pushStyleColor(not grouped, ImGuiCol.Text, style.mutedColor)
@@ -564,11 +562,7 @@ function category:draw(context)
 	context.row = context.row + 1
 
 	ImGui.SameLine()
-	ImGui.PushStyleColor(ImGuiCol.Button, 0)
-	ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-	ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-	ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-	ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+	style.pushListRowContent()
 
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(self.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline) then
@@ -588,8 +582,7 @@ function category:draw(context)
 	ImGui.SameLine()
 	self:drawSideButtons()
 
-	ImGui.PopStyleColor(2)
-	ImGui.PopStyleVar(3)
+	style.popListRowContent(1)
 
 	ImGui.PopID()
 
