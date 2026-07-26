@@ -5,8 +5,13 @@ local cache = require("modules/utils/cache")
 local utils = require("modules/utils/utils")
 local perf = require("modules/utils/perf")
 local rht = require("modules/utils/rhtPlugin")
+local projectTag = require("modules/utils/ui/projectTag")
+local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 
 local colliderColors = { "Red", "Green", "Blue" }
+local streamingPresetLabels = { "Interior", "Street", "District", "Landscape", "To the Moon" }
+local exportFormatLabels = { "JSON", "YAML" }
+local PROJECT_NEUTRAL_LABEL = "No Project"
 local outlineColors = { "Green", "Red", "Blue", "Orange", "Yellow", "Light Blue", "White", "Black" }
 local windowNames = { "World Builder", "Object Spawner", "Entity Spawner", "World Additor", "World Editing Toolkit", "World Editor", "WheezeKit", "Buildy McBuildface", "Keanus Editing Kit (Kek)", "Redkit at home" }
 local groupLoadSpeedOptions = { "Fast - with FPS drops", "Slow - without FPS drops" }
@@ -19,8 +24,6 @@ local actionLabelDisplayModeOptions = {
     { value = 3, label = "Preferred text" }
 }
 local wireframeColorStyleTooltipText = "Global projected wireframe color style used by streaming distance and streaming box overlays."
-local materials = { "meatbag.physmat","linoleum.physmat","trash.physmat","plastic.physmat","character_armor.physmat","furniture_upholstery.physmat","metal_transparent.physmat","tire_car.physmat","meat.physmat","metal_car_pipe_steam.physmat","character_flesh.physmat","brick.physmat","character_flesh_head.physmat","leaves.physmat","flesh.physmat","water.physmat","plastic_road.physmat","metal_hollow.physmat","cyberware_flesh.physmat","plaster.physmat","plexiglass.physmat","character_vr.physmat","vehicle_chassis.physmat","sand.physmat","glass_electronics.physmat","leaves_stealth.physmat","tarmac.physmat","metal_car.physmat","tiles.physmat","glass_car.physmat","grass.physmat","concrete.physmat","carpet_techpiercable.physmat","wood_hedge.physmat","stone.physmat","leaves_semitransparent.physmat","metal_catwalk.physmat","upholstery_car.physmat","cyberware_metal.physmat","paper.physmat","leather.physmat","metal_pipe_steam.physmat","metal_pipe_water.physmat","metal_semitransparent.physmat","neon.physmat","glass_dst.physmat","plastic_car.physmat","mud.physmat","dirt.physmat","metal_car_pipe_water.physmat","furniture_leather.physmat","asphalt.physmat","wood_bamboo_poles.physmat","glass_opaque.physmat","carpet.physmat","food.physmat","cyberware_metal_head.physmat","metal_road.physmat","wood_tree.physmat","wood_player_npc_semitransparent.physmat","wood.physmat","metal_car_ricochet.physmat","cardboard.physmat","wood_crown.physmat","metal_ricochet.physmat","plastic_electronics.physmat","glass_semitransparent.physmat","metal_painted.physmat","rubber.physmat","ceramic.physmat","glass_bulletproof.physmat","metal_car_electronics.physmat","trash_bag.physmat","character_cyberflesh.physmat","metal_heavypiercable.physmat","metal.physmat","plastic_car_electronics.physmat","oil_spill.physmat","fabrics.physmat","glass.physmat","metal_techpiercable.physmat","concrete_water_puddles.physmat","character_metal.physmat" }
-table.sort(materials, function(a, b) return a < b end)
 
 local settingsUI = {}
 
@@ -305,6 +308,191 @@ local function drawSpawnNewVisualizerDefaultSelector(spawner)
     style.tooltip("Choose which Spawn New classes start with visualization helper enabled by default.")
 end
 
+---Returns existing project tags gathered from saved groups, when available.
+---@return table<string, table> projectMap
+---@return table[] projectOptions
+local function getDefaultProjectOptions()
+    if type(savedUI) == "table" and type(savedUI.getProjectCatalog) == "function" then
+        return savedUI.getProjectCatalog()
+    end
+
+    return {}, {}
+end
+
+---Primes the create-project popup editor state for the default project tag.
+local function primeDefaultProjectCreateState()
+    local current = projectTag.normalizeProject(settings.defaultGroupProject)
+    settingsUI.defaultProjectCreateState = {
+        name = "",
+        icon = current and current.icon or projectTag.DEFAULT_ICON,
+        color = projectTag.normalizeColor(current and current.color or nil)
+    }
+    settingsUI.defaultProjectIconSearch = settingsUI.defaultProjectIconSearch or ""
+end
+
+---Stores (or clears) the default project tag for new groups and persists it.
+---@param project table?
+local function setDefaultGroupProject(project)
+    local normalized = projectTag.normalizeProject(project)
+    if normalized then
+        settings.defaultGroupProject = {
+            name = normalized.name,
+            icon = normalized.icon,
+            color = { normalized.color[1], normalized.color[2], normalized.color[3] }
+        }
+    else
+        settings.defaultGroupProject = nil
+    end
+
+    settings.save()
+end
+
+---Draws the "Default project tag for new groups" selector, matching the Projects
+---tab assignment UI (existing projects + create-new + clear).
+local function drawDefaultProjectSelector()
+    local current = projectTag.normalizeProject(settings.defaultGroupProject)
+    local currentKey = current and projectTag.normalizeNameKey(current.name) or nil
+    local previewText = current and current.name or PROJECT_NEUTRAL_LABEL
+    local previewIcon = IconGlyphs[(current and current.icon) or projectTag.DEFAULT_ICON] or ""
+
+    local _, projectOptions = getDefaultProjectOptions()
+
+    ImGui.SetNextItemWidth(200 * style.viewSize)
+    if ImGui.BeginCombo("Default project tag for new groups", previewIcon .. " " .. previewText) then
+        if ImGui.Selectable((IconGlyphs[projectTag.DEFAULT_ICON] or "") .. " " .. PROJECT_NEUTRAL_LABEL, current == nil) and current ~= nil then
+            setDefaultGroupProject(nil)
+        end
+
+        for _, option in ipairs(projectOptions) do
+            local icon = IconGlyphs[option.project.icon] or IconGlyphs[projectTag.DEFAULT_ICON] or ""
+            local label = string.format("%s %s##defaultProjectOption%s", icon, option.project.name, option.key)
+            if ImGui.Selectable(label, currentKey == option.key) and currentKey ~= option.key then
+                setDefaultGroupProject(option.project)
+            end
+        end
+
+        ImGui.Separator()
+        if ImGui.Selectable((IconGlyphs.Plus or "+") .. " Create new project tag...##defaultProjectCreate", false) then
+            primeDefaultProjectCreateState()
+            settingsUI.pendingDefaultProjectPopup = true
+        end
+
+        ImGui.EndCombo()
+    end
+    style.tooltip("Project tag assigned to newly created groups by default.")
+
+    ImGui.SameLine()
+    style.pushGreyedOut(current == nil)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Close .. "##defaultProjectClear") and current ~= nil then
+        setDefaultGroupProject(nil)
+    end
+    style.pushButtonNoBG(false)
+    style.popGreyedOut(current == nil)
+    style.tooltip("Clear default project tag")
+
+    local popupId = "##defaultGroupProjectPopup"
+    if settingsUI.pendingDefaultProjectPopup then
+        ImGui.OpenPopup(popupId)
+        settingsUI.pendingDefaultProjectPopup = false
+    end
+
+    if not settingsUI.defaultProjectCreateState then
+        primeDefaultProjectCreateState()
+    end
+    local editor = settingsUI.defaultProjectCreateState
+
+    if ImGui.BeginPopup(popupId) then
+        style.mutedText("Create default project tag")
+        ImGui.Separator()
+
+        ImGui.SetNextItemWidth(220 * style.viewSize)
+        editor.name, _ = ImGui.InputTextWithHint("##defaultProjectName", "Project name...", editor.name or "", 100)
+
+        editor.icon, settingsUI.defaultProjectIconSearch, _ = field.drawIconSelector("settingsDefaultProject", editor.icon, settingsUI.defaultProjectIconSearch)
+        ImGui.SameLine()
+        editor.color, _ = style.trackedColor(nil, "##defaultProjectColor", editor.color, 58)
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        local canAssign = projectTag.trimText(editor.name) ~= ""
+        style.pushGreyedOut(not canAssign)
+        if ImGui.Button("Assign##defaultProject") and canAssign then
+            setDefaultGroupProject({ name = editor.name, icon = editor.icon, color = editor.color })
+            ImGui.CloseCurrentPopup()
+        end
+        style.popGreyedOut(not canAssign)
+
+        ImGui.SameLine()
+        if ImGui.Button("Cancel##defaultProject") then
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    end
+end
+
+---Draws the "Default values" section grouping default values for inputs and selectors.
+local function drawDefaultsSection()
+    if not ImGui.TreeNodeEx("Default values", ImGuiTreeNodeFlags.SpanFullWidth) then
+        return
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    style.sectionHeaderStart("Node properties")
+    local changed
+    settings.nodeRefPrefix, changed = ImGui.InputTextWithHint("NodeRef Prefix", "", settings.nodeRefPrefix, 128)
+    if changed then settings.save() end
+    style.tooltip("Prefix to add when auto generating NodeRef")
+
+    settings.defaultColliderMaterial = tonumber(settings.defaultColliderMaterial) or 0
+    local selectedMaterial = colliderBase.getMaterialDisplayByIndex(settings.defaultColliderMaterial)
+    local materialChanged
+    selectedMaterial, settingsUI.defaultColliderMaterialSearch, materialChanged = style.trackedSearchDropdown(
+        "Default Collider Material##defaultColliderMaterial",
+        "Search material...",
+        selectedMaterial,
+        settingsUI.defaultColliderMaterialSearch or "",
+        colliderBase.getMaterialDisplayOptions(),
+        {
+            width = 200,
+            matchContentWidth = true,
+            tooltip = "Physics material used by default for newly created colliders."
+        }
+    )
+    if materialChanged then
+        settings.defaultColliderMaterial = colliderBase.getMaterialIndexByDisplay(selectedMaterial) or settings.defaultColliderMaterial
+        settings.save()
+    end
+
+    local streamingPreset = math.max(0, math.min(#streamingPresetLabels - 1, settings.defaultStreamingPreset or 0))
+    local streamingPresetIndex, streamingChanged = ImGui.Combo("Default Streaming distance", streamingPreset, streamingPresetLabels, #streamingPresetLabels)
+    if streamingChanged then
+        settings.defaultStreamingPreset = streamingPresetIndex
+        settings.save()
+    end
+    style.comboValueTooltip(streamingPreset, streamingPresetLabels, "Streaming distance preset applied to newly spawned nodes.\nSets both the preset selector and the numeric Streaming Distance value.\n- Interior | 100\n- Street | 400\n- District | 1000\n- Landscape | 5000\n- To the Moon | infinite")
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.sectionHeaderStart("Groups")
+    drawDefaultProjectSelector()
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.sectionHeaderStart("Export")
+    local exportFormat = math.max(0, math.min(#exportFormatLabels - 1, settings.defaultExportFormat or 0))
+    local exportFormatIndex, exportFormatChanged = ImGui.Combo("Default export format", exportFormat, exportFormatLabels, #exportFormatLabels)
+    if exportFormatChanged then
+        settings.defaultExportFormat = exportFormatIndex
+        settings.save()
+    end
+    style.tooltip("Default format for the generated .xl file in the Export tab.")
+    style.sectionHeaderEnd()
+    
+    ImGui.Dummy(0, 4 * style.viewSize)
+    ImGui.TreePop()
+end
+
 ---@param spawner spawner
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
@@ -373,13 +561,6 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("A threshold for all dragging operations, such as the ones in the scene hierarchy.")
 
-        settings.nodeRefPrefix, changed = ImGui.InputTextWithHint("NodeRef Prefix", "", settings.nodeRefPrefix, 128)
-        if changed then settings.save() end
-        style.tooltip("Prefix to add when auto generating NodeRef")
-
-        settings.defaultColliderMaterial, changed = ImGui.Combo("Default Collider Material", settings.defaultColliderMaterial, materials, #materials)
-        if changed then settings.save() end
-
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("TRANSFORM")
         settings.posSteps, changed = ImGui.InputFloat("Position controls step size", settings.posSteps, -9999, 9999, "%.4f")
@@ -412,6 +593,8 @@ function settingsUI.draw(spawner)
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
+
+    drawDefaultsSection()
 
     if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)

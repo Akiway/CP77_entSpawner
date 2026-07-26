@@ -87,6 +87,8 @@ function exportUI.init(spawner)
         end
     end
 
+    exportUI.xlFormat = settings.defaultExportFormat or 0
+
     exportUI.spawner = spawner
 end
 

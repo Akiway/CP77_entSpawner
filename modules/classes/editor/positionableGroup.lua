@@ -369,7 +369,8 @@ function positionableGroup:new(sUI)
 	}
 	o.supportsSaving = true
 	o.applyRotationWhenDropped = false
-	o.project = nil
+	-- Assign the configured default project tag (if any) to newly created groups.
+	o.project = normalizeProjectData(settings.defaultGroupProject)
     o.previewSyncDomain = false
     o.previewSyncDelay = 0
     o.previewSyncPropertyWidth = nil

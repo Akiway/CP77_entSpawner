@@ -489,6 +489,21 @@ local function collectProjectCatalog(allGroups)
     return projectMap, projectOptions
 end
 
+---Returns the catalog of existing project tags gathered from all saved groups.
+---Used by other UIs (e.g. Settings) to offer existing projects for selection.
+---@return table<string, table> projectMap
+---@return table[] projectOptions
+function savedUI.getProjectCatalog()
+    local allGroups = {}
+    for fileName, data in pairs(savedUI.files) do
+        if isSavedGroup(data) then
+            table.insert(allGroups, { fileName = fileName, data = data })
+        end
+    end
+
+    return collectProjectCatalog(allGroups)
+end
+
 ---@param filteredGroups {fileName: string, data: table}[]
 ---@return table[]
 local function buildProjectSections(filteredGroups)

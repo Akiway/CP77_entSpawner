@@ -77,6 +77,10 @@ local config = require("modules/utils/config")
 ---@field public speedTimelineZoom number
 ---@field public speedTimelineSnapEnabled boolean
 ---@field public speedTimelineSnapMeters number
+---@field public defaultColliderMaterial integer
+---@field public defaultGroupProject table? Default project tag ({name, icon, color}) assigned to new groups, or nil for none.
+---@field public defaultStreamingPreset integer Default streaming distance preset index (0 = Interior) for new spawnables.
+---@field public defaultExportFormat integer Default export XL format (0 = JSON, 1 = YAML).
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -156,6 +160,9 @@ local settingsData = {
     favoritesTagsAND = false,
     favoritesGroupingState = {},
     defaultColliderMaterial = 12,
+    -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
+    defaultStreamingPreset = 0, -- Interior
+    defaultExportFormat = 0, -- JSON
 }
 
 local settingsFNs = {}

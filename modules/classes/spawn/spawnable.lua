@@ -11,6 +11,7 @@ local editor = require("modules/utils/editor/editor")
 local GameSettings = require("modules/utils/GameSettings")
 local preview = require("modules/utils/previewUtils")
 local logger = require("modules/utils/logger")
+local settings = require("modules/utils/settings")
 
 ---Base class for any object / node that can be spawned
 ---@class spawnable
@@ -103,10 +104,14 @@ function spawnable:new()
     o.currentSpawnToken = nil
     o.worldNodePropertyWidth = nil
     o.streamingPropertyWidth = nil
-    o.streamingPresetIndex = 0
+
+    -- Default streaming distance is driven by the "Default Streaming distance"
+    -- setting so both the preset selector and the numeric input start in sync.
+    local defaultPreset = math.max(0, math.min(#streamingPresetLabels - 1, settings.defaultStreamingPreset or 0))
+    o.streamingPresetIndex = defaultPreset
 
     o.noExport = false
-    o.primaryRange = 120
+    o.primaryRange = streamingPresetValues[defaultPreset + 1] or 120
     o.uk10 = 1024
     o.uk11 = 512
     o.streamingMultiplier = 1
@@ -811,13 +816,21 @@ function spawnable:loadSpawnData(data, position, rotation)
     self.position = position
     self.rotation = rotation
     self.rotationRelative = data.rotationRelative or false
-    self.primaryRange = data.primaryRange or 100
+
     local presetIndex = data.streamingPresetIndex or self.streamingPresetIndex or 0
     local presetVersion = data.streamingPresetVersion or 1
     if presetVersion < streamingPresetVersion and presetIndex >= 2 then
         presetIndex = presetIndex + 1
     end
     self.streamingPresetIndex = math.min(presetIndex, #streamingPresetLabels - 1)
+
+    -- Freshly spawned assets have no serialized primaryRange, so fall back to the
+    -- value of the configured default distance preset. This keeps the numeric
+    -- Streaming Distance in sync with the preset selector. Saved/loaded assets
+    -- carry their own primaryRange and are left untouched.
+    local presetRange = streamingPresetValues[self.streamingPresetIndex + 1]
+    self.primaryRange = data.primaryRange or presetRange or self.primaryRange or 100
+
     self.uk10 = data.uk10 or self.uk10
     self.uk11 = data.uk11 or self.uk11
 
