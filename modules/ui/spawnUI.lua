@@ -155,6 +155,8 @@ local AMM = nil
 ---@field entryFilterStateByModule table<string, table<string, {selections: table<string, boolean>, search: string}>>
 ---@field filteredHierarchyTree table?
 ---@field hierarchyOpenStateByKey table<string, boolean>
+---@field hierarchyRows hierarchyRow[]?
+---@field hierarchyRowsRoot table?
 ---@field prefabsUI prefabsUI
 ---@field favoritesUI favoritesUI
 spawnUI = {
@@ -189,6 +191,8 @@ spawnUI = {
     entryFilterStateByModule = {},
     filteredHierarchyTree = nil,
     hierarchyOpenStateByKey = {},
+    hierarchyRows = nil,
+    hierarchyRowsRoot = nil,
     prefabsUI = require("modules/ui/prefabsUI"),
     favoritesUI = require("modules/ui/favoritesUI")
 }
@@ -288,6 +292,7 @@ function spawnUI.loadSpawnData(spawner)
     spawnUI.entryFilterStateByModule = {}
     spawnUI.filteredHierarchyTree = nil
     spawnUI.hierarchyOpenStateByKey = {}
+    spawnUI.invalidateHierarchyRows()
     spawnUI.invalidateFilterCaches()
 
     AMM = GetMod("AppearanceMenuMod")
@@ -686,6 +691,13 @@ function spawnUI.invalidateFilterCaches()
     filterOptionsCache = {}
 end
 
+---Drops the flattened hierarchy row list so it gets rebuilt on the next draw.
+---Call whenever the tree itself or any folder open state changed.
+function spawnUI.invalidateHierarchyRows()
+    spawnUI.hierarchyRows = nil
+    spawnUI.hierarchyRowsRoot = nil
+end
+
 ---@param filter SpawnEntryFilter
 ---@param spawnList table
 ---@return string
@@ -875,6 +887,8 @@ end
 ---Builds a cached hierarchy tree from current filtered path results.
 ---Tree folders map to path segments; leaves map to filtered spawn entries.
 function spawnUI.rebuildHierarchyTree()
+    spawnUI.invalidateHierarchyRows()
+
     local activeSpawnList = spawnUI.getActiveSpawnList()
     if not activeSpawnList or not activeSpawnList.isPaths then
         spawnUI.filteredHierarchyTree = nil
@@ -971,6 +985,7 @@ function spawnUI.updateFilter()
     if spawnUI.filter == "" and #activeFilters == 0 then
         spawnUI.filteredList = orderedData
         spawnUI.filteredHierarchyTree = nil
+        spawnUI.invalidateHierarchyRows()
         return
     end
 
@@ -995,6 +1010,7 @@ function spawnUI.updateFilter()
 
     -- Built lazily by `resolveHierarchyRoot`, so the flat view never pays for it.
     spawnUI.filteredHierarchyTree = nil
+    spawnUI.invalidateHierarchyRows()
 end
 
 ---Draws one filter as an inline checkbox row (fixed option set).
@@ -1780,9 +1796,11 @@ local function drawHierarchyResultControls(hierarchyRoot)
         "spawnHierarchy",
         function ()
             setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
+            spawnUI.invalidateHierarchyRows()
         end,
         function ()
             setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
+            spawnUI.invalidateHierarchyRows()
         end,
         {
             disabled = #hierarchyRoot.childOrder == 0,
@@ -1794,51 +1812,116 @@ local function drawHierarchyResultControls(hierarchyRoot)
     ImGui.Separator()
 end
 
----Recursively draws one hierarchy folder node and its children/leaves.
+--- Hierarchy tree virtualization ---------------------------------------------
+--
+-- Drawing the tree by recursing into open nodes costs one full row emit per
+-- visible-or-not entry, every frame. The path lists reach ~150k entries, so
+-- "expand all" turned into millions of ImGui calls per frame and stalled the
+-- render thread. Instead the open tree is flattened once into a linear row
+-- list (mirroring how `spawnedUI` caches `visiblePaths`) and drawn through an
+-- `ImGuiListClipper`, so cost tracks the window height, not the list size.
+--
+-- Rows carry their own indent depth because `TreePush`/`TreePop` nesting
+-- cannot survive rows the clipper skips. Every row is one frame-height line,
+-- which the clipper needs in order to seek without measuring.
+
+---@class hierarchyRow
+---@field folder table? Set on folder rows.
+---@field open boolean? Folder open state, only meaningful with `folder`.
+---@field leaf table? Set on entry rows.
+---@field depth number Indent levels, already resolved for the flat list.
+
+---Appends the visible rows of `node` to `rows`, descending only into open folders.
 ---@param node table
----@param activeSpawnList table
----@param xSpace number
-local function drawHierarchySpawnResultNode(node, activeSpawnList, xSpace)
-    local function drawContents()
-        for _, childKey in ipairs(node.childOrder) do
-            drawHierarchySpawnResultNode(node.children[childKey], activeSpawnList, xSpace)
+---@param depth number
+---@param rows hierarchyRow[]
+local function appendHierarchyRows(node, depth, rows)
+    for _, childKey in ipairs(node.childOrder) do
+        local child = node.children[childKey]
+        local isOpen = spawnUI.hierarchyOpenStateByKey[child.key] == true
+
+        rows[#rows + 1] = { folder = child, open = isOpen, depth = depth }
+
+        if isOpen then
+            appendHierarchyRows(child, depth + 1, rows)
         end
-
-        for _, leaf in ipairs(node.entries) do
-            drawSpawnResultEntryRow(leaf.entry, activeSpawnList, xSpace, leaf.label, true)
-        end
     end
 
-    -- The root node has no label and is drawn inline, without a tree node around it.
-    if node.label == "" then
-        drawContents()
-        return
+    for _, leaf in ipairs(node.entries) do
+        rows[#rows + 1] = { leaf = leaf, depth = depth }
+    end
+end
+
+---Resolves the cached flat row list, rebuilding it when stale.
+---@param hierarchyRoot table
+---@return hierarchyRow[]
+local function resolveHierarchyRows(hierarchyRoot)
+    if spawnUI.hierarchyRows and spawnUI.hierarchyRowsRoot == hierarchyRoot then
+        return spawnUI.hierarchyRows
     end
 
-    local requestedOpenState = spawnUI.hierarchyOpenStateByKey[node.key]
-    if requestedOpenState ~= nil then
-        ImGui.SetNextItemOpen(requestedOpenState, ImGuiCond.Always)
-    end
+    local rows = {}
+    appendHierarchyRows(hierarchyRoot, 0, rows)
+
+    spawnUI.hierarchyRows = rows
+    spawnUI.hierarchyRowsRoot = hierarchyRoot
+
+    return rows
+end
+
+---Draws one folder row, applying and reading back its open state.
+---@param node table
+---@param isOpen boolean
+local function drawHierarchyFolderRow(node, isOpen)
+    -- An unframed tree node is only a text line tall, while entry rows are a full
+    -- frame. Aligning to frame padding makes both kinds exactly `GetFrameHeight()`,
+    -- which the clipper relies on to seek by a fixed row pitch.
+    ImGui.AlignTextToFramePadding()
+
+    ImGui.SetNextItemOpen(isOpen, ImGuiCond.Always)
 
     local nodeLabel = string.format("%s##spawnResultHierarchyNode:%s", node.label, node.key)
     local open = ImGui.TreeNodeEx(nodeLabel, ImGuiTreeNodeFlags.SpanFullWidth)
-    local toggledOpen = ImGui.IsItemToggledOpen()
-    if toggledOpen then
-        spawnUI.hierarchyOpenStateByKey[node.key] = open
-        if open then
-            expandSingleChildFolderChain(node)
-        end
-    elseif requestedOpenState == nil then
-        spawnUI.hierarchyOpenStateByKey[node.key] = open
+    local toggled = ImGui.IsItemToggledOpen()
+
+    -- Children are separate flat rows, so the tree scope is popped right away.
+    -- Row IDs are globally unique (full path keys), so nothing depends on it.
+    if open then
+        ImGui.TreePop()
     end
 
-    if not open then
+    if not toggled then
         return
     end
 
-    drawContents()
+    spawnUI.hierarchyOpenStateByKey[node.key] = open
+    if open then
+        expandSingleChildFolderChain(node)
+    end
 
-    ImGui.TreePop()
+    spawnUI.invalidateHierarchyRows()
+end
+
+---Draws one flattened hierarchy row at its cached indent depth.
+---@param row hierarchyRow
+---@param activeSpawnList table
+---@param xSpace number
+---@param indentSpacing number
+local function drawHierarchyRow(row, activeSpawnList, xSpace, indentSpacing)
+    local indent = row.depth * indentSpacing
+    if indent > 0 then
+        ImGui.Indent(indent)
+    end
+
+    if row.folder then
+        drawHierarchyFolderRow(row.folder, row.open)
+    else
+        drawSpawnResultEntryRow(row.leaf.entry, activeSpawnList, xSpace, row.leaf.label, true)
+    end
+
+    if indent > 0 then
+        ImGui.Unindent(indent)
+    end
 end
 
 ---Resolves the cached hierarchy tree root, rebuilding it when stale.
@@ -1867,7 +1950,30 @@ local function drawHierarchySpawnResults(activeSpawnList, xSpace, hierarchyRoot)
         return
     end
 
-    drawHierarchySpawnResultNode(hierarchyRoot, activeSpawnList, xSpace)
+    local rows = resolveHierarchyRows(hierarchyRoot)
+    if #rows == 0 then
+        return
+    end
+
+    local imguiStyle = ImGui.GetStyle()
+    local indentSpacing = imguiStyle.IndentSpacing
+    if type(indentSpacing) ~= "number" or indentSpacing <= 0 then
+        indentSpacing = 21 * style.viewSize
+    end
+
+    -- Folder and entry rows are both a single framed line, so the pitch is uniform.
+    local rowHeight = ImGui.GetFrameHeight() + imguiStyle.ItemSpacing.y
+
+    -- Toggling a folder inside the loop only drops the cache; `rows` stays valid
+    -- for the rest of this frame, which keeps the clipper's item count stable.
+    local clipper = ImGuiListClipper.new()
+    clipper:Begin(#rows, rowHeight)
+
+    while (clipper:Step()) do
+        for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
+            drawHierarchyRow(rows[i], activeSpawnList, xSpace, indentSpacing)
+        end
+    end
 end
 
 ---Draws the fallback action when no path entries match the search text.
