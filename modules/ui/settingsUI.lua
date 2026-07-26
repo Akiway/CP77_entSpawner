@@ -569,6 +569,10 @@ function settingsUI.draw(spawner)
         settings.rotSteps, changed = ImGui.InputFloat("Rotation controls step size", settings.rotSteps, -9999, 9999, "%.4f")
         if changed then settings.save() end
 
+        settings.applyRotationWhenDropped, changed = ImGui.Checkbox("Apply Rotation When Dropped", settings.applyRotationWhenDropped)
+        if changed then settings.save() end
+        style.tooltip("Default state of the \"Apply Rotation When Dropped\" option in an element's General properties.\nWhen enabled, dropping an element onto a surface also aligns its rotation to that surface.\nThis only sets the default for newly created elements, each one can still be changed individually.")
+
         settings.rotationShiftClickStep, changed = field.advancedTrackedFloat(nil, "Quick Rotation Step", settings.rotationShiftClickStep, {
             step = 0.5,
             shiftStep = 5,

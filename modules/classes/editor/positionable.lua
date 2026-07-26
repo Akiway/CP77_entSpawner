@@ -163,7 +163,7 @@ function positionable:new(sUI)
 	o.visualizerChanged = false
 
 	o.controlsHovered = false
-	o.applyRotationWhenDropped = true
+	o.applyRotationWhenDropped = settings.applyRotationWhenDropped
 
 	o.randomizationSettings = {
 		probability = 0.5
@@ -195,7 +195,11 @@ function positionable:load(data, silent)
 	if self.transformExpanded == nil then self.transformExpanded = true end
 	if self.rotationRelative == nil then self.rotationRelative = false end
 
-	self.applyRotationWhenDropped = data.applyRotationWhenDropped == nil and true or data.applyRotationWhenDropped
+	if data.applyRotationWhenDropped == nil then
+		self.applyRotationWhenDropped = settings.applyRotationWhenDropped
+	else
+		self.applyRotationWhenDropped = data.applyRotationWhenDropped
+	end
 end
 
 function positionable:drawTransform()
@@ -329,6 +333,7 @@ function positionable:drawGeneralProperties()
 	style.mutedText("Apply Rotation When Dropped")
 	ImGui.SameLine()
 	self.applyRotationWhenDropped, _ = style.trackedCheckbox(self, "##applyRotationWhenDropped", self.applyRotationWhenDropped)
+	style.tooltip("Align the rotation to the surface when dropping this element.\nThe default for new elements can be changed in the settings.")
 
 	style.mutedText("Quick Rotation Step")
 	ImGui.SameLine()

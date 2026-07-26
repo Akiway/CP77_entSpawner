@@ -8,6 +8,7 @@ local config = require("modules/utils/config")
 ---@field public coarsePrecisionMultiplier number
 ---@field public rotSteps number
 ---@field public rotationShiftClickStep number
+---@field public applyRotationWhenDropped boolean Default "Apply Rotation When Dropped" state for newly created elements.
 ---@field public despawnOnReload boolean
 ---@field public headerState boolean
 ---@field public deleteConfirm boolean
@@ -91,6 +92,7 @@ local settingsData = {
     coarsePrecisionMultiplier = 5,
     rotSteps = 0.050,
     rotationShiftClickStep = 90,
+    applyRotationWhenDropped = true,
     despawnOnReload = true,
     headerState = true,
     deleteConfirm = true,
