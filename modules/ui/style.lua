@@ -480,7 +480,7 @@ function style.resolveActionLabel(icon, text, id, mode, includeHiddenText)
     local resolvedLabel
     local stableId = type(id) == "string" and id or ""
     if stableId ~= "" then
-        resolvedLabel = visible .. "##" .. stableId
+        resolvedLabel = visible .. "###" .. stableId
     else
         resolvedLabel = visible
     end
