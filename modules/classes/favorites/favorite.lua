@@ -292,7 +292,7 @@ function favorite:draw(context)
         ImGui.Separator()
 
         -- Nested confirm so a single misclick can't delete a prefab (removal is not undoable).
-        if ImGui.BeginMenu(IconGlyphs.Delete .. " Delete") then
+        if ImGui.BeginMenu(IconGlyphs.DeleteOutline .. " Delete") then
             if ImGui.MenuItem("Confirm delete") then
                 if self.category then
                     self.category:removeFavorite(self)

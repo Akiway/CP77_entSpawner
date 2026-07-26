@@ -407,6 +407,8 @@ function favoritesUI.drawEditFavoritePopup()
     if ImGui.BeginPopup("##addFavorite") then
         input.updateContext("main")
 
+        style.popupTitle(IconGlyphs.CogOutline, "Prefab Settings")
+
         local noCategory = favoritesUI.popupItem.category == nil
 
         -- Edit name
@@ -459,13 +461,13 @@ function favoritesUI.drawEditFavoritePopup()
         ImGui.Separator()
 
         -- Close dismisses the popup; edits are saved live so nothing extra is needed here.
-        if ImGui.Button(IconGlyphs.Close .. " Close") then
+        if ImGui.Button(IconGlyphs.CheckboxMarkedCircleOutline .. " Close") then
             favoritesUI.popupItem = nil
             ImGui.CloseCurrentPopup()
         end
 
         ImGui.SameLine()
-        if style.dangerButton(IconGlyphs.Delete .. " Delete") then
+        if style.dangerButton(IconGlyphs.DeleteOutline .. " Delete") then
             if favoritesUI.popupItem.category then
                 favoritesUI.popupItem.category:removeFavorite(favoritesUI.popupItem)
             end
@@ -520,6 +522,8 @@ function favoritesUI.drawCreatePrefabPopup()
 
         if item then
             input.updateContext("main")
+
+            style.popupTitle(IconGlyphs.Group, "Make Prefab")
 
             local targetCategory = favoritesUI.categories[favoritesUI.createTargetCategoryName]
             local noCategory = targetCategory == nil

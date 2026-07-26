@@ -315,6 +315,8 @@ function category:drawEditPopup()
 	if ImGui.BeginPopup("##editCategory" .. self.fileName) then
         input.updateContext("main")
 
+		style.popupTitle(IconGlyphs.CogOutline, "Category Settings")
+
 		self.icon, self.changeIconSearch, changed = field.drawIconSelector("favoriteCategory:" .. self.fileName, self.icon, self.changeIconSearch)
 		if changed then
 			self:save()
@@ -354,37 +356,33 @@ function category:drawEditPopup()
 			style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
 			style.tooltip("Invalid merge target category name.")
 		else
-			if ImGui.Button("Merge") then
+			if style.warnButton(IconGlyphs.CallMerge .. " Merge", { tooltip = "Merge this category into the selected one. This category will be deleted." }) then
 				self.favoritesUI.categories[self.mergeCategorySearch]:merge(self)
 			end
 		end
 
 		ImGui.Separator()
 
-		-- Confirm / delete
-		style.pushButtonNoBG(true)
-		if ImGui.Button(IconGlyphs.CheckCircleOutline) then
+		-- Close dismisses the popup; edits are saved live so nothing extra is needed here.
+		if ImGui.Button(IconGlyphs.CheckboxMarkedCircleOutline .. " Close") then
 			ImGui.CloseCurrentPopup()
 		end
-		style.pushButtonNoBG(false)
 
-		style.pushButtonNoBG(true)
 		ImGui.SameLine()
-		ImGui.Button(IconGlyphs.Delete)
+		style.dangerButton(IconGlyphs.DeleteOutline .. " Delete")
 		if ImGui.BeginPopupContextItem("Delete Category?", ImGuiPopupFlags.MouseButtonLeft) then
 			style.mutedText("Are you sure you want to delete this category?")
-			if ImGui.Button("Confirm") then
+			if style.dangerButton(IconGlyphs.DeleteOutline .. " Confirm") then
 				ImGui.CloseCurrentPopup()
 				self:delete()
 			end
 			ImGui.SameLine()
-			if ImGui.Button("Cancel") then
+			if ImGui.Button(IconGlyphs.Cancel .. " Cancel") then
 				ImGui.CloseCurrentPopup()
 			end
 			ImGui.EndPopup()
 		end
 
-		style.pushButtonNoBG(false)
 		ImGui.EndPopup()
     end
 

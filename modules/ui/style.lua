@@ -319,6 +319,15 @@ function style.spacedSeparator()
     ImGui.Spacing()
 end
 
+---Draw a popup title row (optional icon + text), followed by a separator.
+---@param icon string? Optional leading icon glyph.
+---@param text string Title text.
+function style.popupTitle(icon, text)
+    style.styledText(((icon ~= nil and icon ~= "") and (icon .. " ") or "") .. text, style.highlightColor)
+    ImGui.Separator()
+    ImGui.Spacing()
+end
+
 ---Start a section header block with muted title styling.
 ---Must be paired with `style.sectionHeaderEnd`.
 ---@param text string Header title text.
