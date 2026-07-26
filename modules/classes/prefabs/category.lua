@@ -173,7 +173,7 @@ function category:load(data, fileName)
 	else
 		self.grouped = getGroupedState(self.fileName, nil)
 		for _, favoriteData in pairs(data.favorites) do
-			local favorite = require("modules/classes/favorites/favorite"):new(self.prefabsUI)
+			local favorite = require("modules/classes/prefabs/prefab"):new(self.prefabsUI)
 			favorite:load(favoriteData)
 			-- Loading from disk should not trigger a save of unchanged data.
 			self:addFavorite(favorite, false)
@@ -484,7 +484,7 @@ function category:loadVirtualGroups()
 	end
 
 	for tag, group in pairs(tags) do
-		local cat = require("modules/classes/favorites/category"):new(self.prefabsUI)
+		local cat = require("modules/classes/prefabs/category"):new(self.prefabsUI)
 		local virtualGroupTags = utils.deepcopy(self.virtualGroupTags)
 		virtualGroupTags[tag] = true
 

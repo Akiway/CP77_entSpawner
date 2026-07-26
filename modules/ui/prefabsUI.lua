@@ -132,7 +132,7 @@ function prefabsUI.init(spawner)
             if type(data) ~= "table" or type(data.favorites) ~= "table" then
                 quarantineInvalidFavoriteFile(file.name, "missing or malformed favorites data")
             else
-                local category = require("modules/classes/favorites/category"):new(prefabsUI)
+                local category = require("modules/classes/prefabs/category"):new(prefabsUI)
                 category:load(data, file.name)
 
                 if prefabsUI.categories[category.name] then
@@ -386,7 +386,7 @@ function prefabsUI.addNewItem(serialized, name, icon)
     serialized.visible = true
     serialized.headerOpen = false
 
-    local favorite = require("modules/classes/favorites/favorite"):new(prefabsUI)
+    local favorite = require("modules/classes/prefabs/prefab"):new(prefabsUI)
     favorite.data = serialized
     favorite.name = name
 
@@ -680,7 +680,7 @@ function prefabsUI.drawAddCategory()
 
     local categoryExists = prefabsUI.categories[prefabsUI.newCategoryName] ~= nil
     if style.drawNoBGConditionalButton(prefabsUI.newCategoryName ~= "", IconGlyphs.Plus, categoryExists) and not categoryExists then
-        local category = require("modules/classes/favorites/category"):new(prefabsUI)
+        local category = require("modules/classes/prefabs/category"):new(prefabsUI)
         category:setName(prefabsUI.newCategoryName)
         category.icon = prefabsUI.newCategoryIcon
         category:generateFileName()
