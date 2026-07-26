@@ -643,6 +643,22 @@ function settingsUI.draw(spawner)
             refreshSelectedVisualizers(spawner)
         end
 
+        settings.arrowScaleWithDistance, changed = ImGui.Checkbox("Scale arrows with camera distance", settings.arrowScaleWithDistance)
+        if changed then
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("Keep the positioning arrows at a roughly constant on-screen size, growing them the further the camera is so they stay visible when far away.")
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.arrowSizeMultiplier, changed = ImGui.SliderFloat("Arrow size multiplier", settings.arrowSizeMultiplier, 0.25, 4.0, "%.2f")
+        if changed then
+            settings.arrowSizeMultiplier = math.max(0.25, math.min(settings.arrowSizeMultiplier, 4.0))
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("Overall size of the positioning arrows. Increase this to make them easier to see, e.g. in bright daylight.")
+
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then
             settings.save()

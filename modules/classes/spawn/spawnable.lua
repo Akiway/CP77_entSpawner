@@ -137,7 +137,7 @@ function spawnable:new()
 end
 
 function spawnable:onAssemble(entity)
-    visualizer.attachArrows(entity, self:getArrowSize(), self.isHovered, self.arrowDirection)
+    visualizer.attachArrows(entity, self:getScaledArrowSize(), self.isHovered, self.arrowDirection)
 end
 
 function spawnable:onAttached(entity)
@@ -749,6 +749,52 @@ function spawnable:getArrowSize()
     local size = self:getSize()
     local max = math.min(math.max(size.x, size.y, size.z, 0.75) * 0.4, 1)
     return { x = max, y = max, z = max }
+end
+
+-- Positioning-arrow scaling constants (see spawnable:getArrowDistanceFactor).
+local ARROW_REFERENCE_DISTANCE = 5.0 -- Camera distance (m) at which the base arrow size is kept as-is (factor 1).
+local ARROW_MIN_FACTOR = 0.75        -- Never shrink arrows below this fraction of their base size.
+local ARROW_MAX_FACTOR = 14.0        -- Cap growth so very distant objects don't spawn huge arrows.
+local ARROW_QUANT_STEP = 1.12        -- Geometric bucket size (~12%) used to quantize the factor and avoid per-frame re-toggling.
+
+---Computes the scale factor applied to the positioning-arrow gizmo.
+---With distance scaling enabled this keeps the arrows at a roughly constant on-screen size by
+---growing them proportionally to the camera distance. The result is quantized into geometric
+---buckets so the gizmo only needs to be refreshed when it crosses a bucket, preventing flicker.
+---Always multiplied by the user `arrowSizeMultiplier`, so the multiplier applies even when
+---distance scaling is disabled.
+---@return number factor
+function spawnable:getArrowDistanceFactor()
+    local multiplier = settings.arrowSizeMultiplier or 1.0
+
+    if not settings.arrowScaleWithDistance then
+        return multiplier
+    end
+
+    local player = GetPlayer()
+    if not player then return multiplier end
+    local cameraComponent = player:GetFPPCameraComponent()
+    if not cameraComponent then return multiplier end
+
+    local cameraPosition = cameraComponent:GetLocalToWorld():GetTranslation()
+    local distance = Vector4.Distance(cameraPosition, self:getCenter())
+
+    local factor = (distance / ARROW_REFERENCE_DISTANCE)
+    factor = math.max(ARROW_MIN_FACTOR, math.min(factor, ARROW_MAX_FACTOR))
+    -- Snap onto geometric buckets so continuous camera movement only re-scales occasionally.
+    factor = ARROW_QUANT_STEP ^ math.floor(math.log(factor) / math.log(ARROW_QUANT_STEP) + 0.5)
+
+    return factor * multiplier
+end
+
+---Returns the base arrow size scaled by the current distance/size factor.
+---Used both for rendering the gizmo and for building its click hit-boxes so the two stay aligned.
+---@param factor number? Precomputed factor from `getArrowDistanceFactor`. Recomputed when omitted.
+---@return visualizerScale
+function spawnable:getScaledArrowSize(factor)
+    factor = factor or self:getArrowDistanceFactor()
+    local base = self:getArrowSize()
+    return { x = base.x * factor, y = base.y * factor, z = base.z * factor }
 end
 
 function spawnable:getCenter()

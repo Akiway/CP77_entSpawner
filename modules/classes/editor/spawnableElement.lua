@@ -169,7 +169,15 @@ function spawnableElement:setVisualizerState(state)
 	positionable.setVisualizerState(self, state)
 
 	if not self.spawnable:isSpawned() then return end
-	visualizer.showArrows(self.spawnable:getEntity(), self.visualizerState)
+
+	local entity = self.spawnable:getEntity()
+	visualizer.showArrows(entity, self.visualizerState)
+
+	-- Size the arrows to the current camera distance the moment they are shown, so hover arrows
+	-- appear at the right size immediately (the per-frame driver only tracks the active selection).
+	if self.visualizerState then
+		visualizer.setArrowScale(entity, self.spawnable:getScaledArrowSize())
+	end
 end
 
 function spawnableElement:setVisualizerDirection(direction)

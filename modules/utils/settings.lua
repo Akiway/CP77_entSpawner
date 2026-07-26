@@ -23,6 +23,8 @@ local config = require("modules/utils/config")
 ---@field public editorBottomSize integer
 ---@field public gizmoOnHover boolean
 ---@field public gizmoOnSelected boolean
+---@field public arrowScaleWithDistance boolean
+---@field public arrowSizeMultiplier number
 ---@field public outlineSelected boolean
 ---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
@@ -104,6 +106,8 @@ local settingsData = {
     editorBottomSize = 200,
     gizmoOnHover = true,
     gizmoOnSelected = true,
+    arrowScaleWithDistance = true,
+    arrowSizeMultiplier = 1.0,
     outlineSelected = true,
     selectedVisualizersEnabled = true,
     outlineColor = 0,

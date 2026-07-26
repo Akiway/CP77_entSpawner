@@ -785,6 +785,24 @@ function editor.updateArrowColor()
     visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis)
 end
 
+---Keeps the positioning-arrow gizmo of every selected element sized for the current camera distance.
+---Runs each frame; `visualizer.setArrowScale` only refreshes the mesh when the (quantized) target
+---size actually changed, so a stationary camera performs no work and continuous motion re-scales
+---only when crossing a size bucket.
+function editor.updateArrowScale()
+    if not editor.spawnedUI or not GetPlayer() then return end
+
+    for _, path in pairs(editor.spawnedUI.selectedPaths) do
+        local element = path.ref
+        if utils.isA(element, "spawnableElement") and element.visualizerState and element.spawnable:isSpawned() then
+            local entity = element.spawnable:getEntity()
+            if entity then
+                visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize())
+            end
+        end
+    end
+end
+
 ---Resets cached drag deltas when the active transform axis changes.
 function editor.updateCurrentAxis()
     if not editor.grab and not editor.rotate and not editor.scale then return end
@@ -878,7 +896,8 @@ function editor.checkArrow()
     if not selected or not selected:isSpawned() then return end
 
     local ray = editor.getScreenToWorldRay()
-    local arrowWidth = 0.04 * math.max(selected:getArrowSize().x, selected:getArrowSize().y, selected:getArrowSize().z)
+    local arrowSize = selected:getScaledArrowSize()
+    local arrowWidth = 0.04 * math.max(arrowSize.x, arrowSize.y, arrowSize.z)
     local entityRef = selected:getEntity()
     if not entityRef then
         editor.hoveredArrow = "none"
@@ -904,17 +923,17 @@ function editor.checkArrow()
 
     local xHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = 0, y = -arrowWidth, z = -arrowWidth },
-        max = { x = selected:getArrowSize().x * 2, y = arrowWidth, z = arrowWidth }
+        max = { x = arrowSize.x * 2, y = arrowWidth, z = arrowWidth }
     })
 
     local yHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = -arrowWidth, y = 0, z = -arrowWidth },
-        max = { x = arrowWidth, y = selected:getArrowSize().y * 2, z = arrowWidth }
+        max = { x = arrowWidth, y = arrowSize.y * 2, z = arrowWidth }
     })
 
     local zHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = -arrowWidth, y = -arrowWidth, z = 0 },
-        max = { x = arrowWidth, y = arrowWidth, z = selected:getArrowSize().z * 2 }
+        max = { x = arrowWidth, y = arrowWidth, z = arrowSize.z * 2 }
     })
 
     if zHit.hit then
@@ -1880,6 +1899,7 @@ function editor.onDraw()
     drawSpawnableStreamingRanges()
     drawSpawnableViewportOverlays()
     drawElevatorDoorHelpers()
+    editor.updateArrowScale()
 
     if editor.active then
         if editor.isBrushActive() then

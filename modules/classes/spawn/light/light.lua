@@ -530,6 +530,9 @@ function light:updateArrowVisibilityForCameraFollow(entity)
     end
 
     visualizer.showArrows(target, showArrows)
+    if showArrows then
+        visualizer.setArrowScale(target, self:getScaledArrowSize())
+    end
 end
 
 function light:teleportPlayerToLightCameraAligned()
