@@ -795,7 +795,7 @@ end
 
 -- Positioning-arrow scaling constants (see spawnable:getArrowDistanceFactor).
 local ARROW_REFERENCE_DISTANCE = 5.0 -- Camera distance (m) at which the base arrow size is kept as-is (factor 1).
-local ARROW_MIN_FACTOR = 0.75        -- Never shrink arrows below this fraction of their base size.
+local ARROW_MIN_FACTOR = 0.5        -- Never shrink arrows below this fraction of their base size.
 local ARROW_MAX_FACTOR = 14.0        -- Cap growth so very distant objects don't spawn huge arrows.
 local ARROW_QUANT_STEP = 1.12        -- Geometric bucket size (~12%) used to quantize the factor and avoid per-frame re-toggling.
 
@@ -803,13 +803,15 @@ local ARROW_QUANT_STEP = 1.12        -- Geometric bucket size (~12%) used to qua
 ---With distance scaling enabled this keeps the arrows at a roughly constant on-screen size by
 ---growing them proportionally to the camera distance. The result is quantized into geometric
 ---buckets so the gizmo only needs to be refreshed when it crosses a bucket, preventing flicker.
----Always multiplied by the user `arrowSizeMultiplier`, so the multiplier applies even when
----distance scaling is disabled.
+---Distance scaling only applies in editor mode: it exists for the free editor camera, and outside
+---editor mode nothing drives a per-frame rescale, so a distance factor there would just freeze at
+---whatever the camera last saw. Always multiplied by the user `arrowSizeMultiplier`, so the
+---multiplier applies even when distance scaling is off or the editor is closed.
 ---@return number factor
 function spawnable:getArrowDistanceFactor()
     local multiplier = settings.arrowSizeMultiplier or 1.0
 
-    if not settings.arrowScaleWithDistance then
+    if not settings.arrowScaleWithDistance or not editor.active then
         return multiplier
     end
 

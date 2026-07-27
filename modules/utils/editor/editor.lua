@@ -765,10 +765,12 @@ function editor.updateArrowColor()
 end
 
 ---Keeps the positioning-arrow gizmo of every selected element sized for the current camera distance.
----Runs each frame; `visualizer.setArrowScale` only refreshes the mesh when the (quantized) target
----size actually changed, so a stationary camera performs no work and continuous motion re-scales
----only when crossing a size bucket.
+---Editor mode only, matching `spawnable:getArrowDistanceFactor`; `editor.resetArrowScale` puts the
+---arrows back to base size on exit. Runs each frame; `visualizer.setArrowScale` only refreshes the
+---mesh when the (quantized) target size actually changed, so a stationary camera performs no work
+---and continuous motion re-scales only when crossing a size bucket.
 function editor.updateArrowScale()
+    if not editor.active then return end
     if not editor.spawnedUI or not GetPlayer() then return end
 
     for _, path in pairs(editor.spawnedUI.selectedPaths) do
@@ -777,6 +779,33 @@ function editor.updateArrowScale()
             local entity = element.spawnable:getEntity()
             if entity then
                 visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize())
+            end
+        end
+    end
+end
+
+---Restores every visible positioning-arrow gizmo to its base, distance-independent size.
+---Distance scaling is editor-mode only, but leaving editor mode does not by itself rewrite the
+---`visualScale` already pushed onto the components, so any arrow grown for a far-away editor camera
+---would stay that big in-world. This is what actually applies the un-scaled size on the way out.
+function editor.resetArrowScale()
+    if not editor.spawnedUI then return end
+
+    if editor.spawnedUI.ensureCache then
+        editor.spawnedUI.ensureCache()
+    end
+
+    -- Passed explicitly rather than letting getArrowDistanceFactor resolve it, so the reset does not
+    -- depend on `editor.active` having already been cleared by the caller. Same value that function
+    -- returns once distance scaling is out of the picture: the user multiplier alone.
+    local baseFactor = settings.arrowSizeMultiplier or 1.0
+
+    for _, path in pairs(editor.spawnedUI.paths) do
+        local element = path.ref
+        if utils.isA(element, "spawnableElement") and element.visualizerState and element.spawnable:isSpawned() then
+            local entity = element.spawnable:getEntity()
+            if entity then
+                visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize(baseFactor))
             end
         end
     end
@@ -1818,6 +1847,7 @@ function editor.toggle(state)
         end
         editor.baseUI.restoreWindowPosition = true
         editor.removeHighlight(false)
+        editor.resetArrowScale()
         editor.currentAxis = "none"
         editor.hoveredArrow = "none"
         editor.grab = false

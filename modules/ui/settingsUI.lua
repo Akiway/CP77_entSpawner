@@ -652,7 +652,7 @@ function settingsUI.draw(spawner)
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("Keep the positioning arrows at a roughly constant on-screen size, growing them the further the camera is so they stay visible when far away.")
+        style.tooltip("While in editor mode, keep the positioning arrows at a roughly constant on-screen size, growing them the further the camera is so they stay visible when far away. Outside editor mode the arrows always use their base size.")
 
         ImGui.SetNextItemWidth(150 * style.viewSize)
         settings.arrowSizeMultiplier, changed = ImGui.SliderFloat("Arrow size multiplier", settings.arrowSizeMultiplier, 0.25, 4.0, "%.2f")
