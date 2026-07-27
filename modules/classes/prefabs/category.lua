@@ -5,6 +5,9 @@ local config = require("modules/utils/config")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
 local logger = require("modules/utils/logger")
+local assetFavorites = require("modules/utils/assetFavorites")
+
+local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 
 ---@class category
 ---@field name string
@@ -307,6 +310,184 @@ function category:merge(toMerge)
 	logger:info(string.format("[%s] Merged %s into %s, resulting in the merging of %d favorites.", settings.mainWindowName, toMerge.name, self.name, merges))
 end
 
+---Indexes the entries of one spawn list by the key favorites are stored under.
+---Built lazily, and only for the lists a single conversion run actually touches.
+---@param spawnList table
+---@param modulePath string
+---@param cache table<string, table<string, table>>
+---@return table<string, table>
+local function getSpawnListEntriesByKey(spawnList, modulePath, cache)
+	local index = cache[modulePath]
+	if index then
+		return index
+	end
+
+	index = {}
+	for _, entry in pairs(spawnList.data or {}) do
+		if type(entry) == "table" and type(entry.name) == "string" then
+			index[entry.name] = entry
+		end
+	end
+	cache[modulePath] = index
+
+	return index
+end
+
+---Resolves the asset favorite one prefab of this category maps to.
+---Only single asset prefabs referencing an entry of a path based spawn list qualify:
+---a favorite is a pure asset bookmark, so prefabs holding several assets, and spawnables
+---defined by configuration instead of an asset path, have no favorite representation.
+---@param favorite favorite
+---@return {modulePath: string, path: string, name: string, spawnList: table}?
+function category:getAssetFavoriteTarget(favorite)
+	local data = favorite and favorite.data
+
+	if type(data) ~= "table" or data.modulePath ~= SPAWNABLE_ELEMENT_MODULE_PATH or type(data.spawnable) ~= "table" then
+		return nil
+	end
+
+	local modulePath = tostring(data.spawnable.modulePath or "")
+	local assetPath = tostring(data.spawnable.spawnData or "")
+
+	if modulePath == "" or assetPath == "" then
+		return nil
+	end
+
+	local spawnUI = self.prefabsUI and self.prefabsUI.spawnUI
+	local spawnList = spawnUI and spawnUI.getSpawnListByModulePath(modulePath)
+
+	if not spawnList or not spawnList.isPaths then
+		return nil
+	end
+
+	local name = utils.trimString(favorite.name or "")
+
+	return {
+		modulePath = modulePath,
+		path = assetPath,
+		name = name ~= "" and name or utils.getFileName(assetPath),
+		spawnList = spawnList
+	}
+end
+
+---How many prefabs of this category can be turned into asset favorites.
+---@return number convertible Single asset prefabs that can be favorited
+---@return number alreadyFavorite How many of those are favorited already
+function category:getAssetFavoriteConversionStats()
+	local convertible, alreadyFavorite = 0, 0
+
+	for _, favorite in pairs(self.favorites) do
+		local target = self:getAssetFavoriteTarget(favorite)
+
+		if target then
+			convertible = convertible + 1
+
+			if assetFavorites.isFavorite(target.modulePath, target.path) then
+				alreadyFavorite = alreadyFavorite + 1
+			end
+		end
+	end
+
+	return convertible, alreadyFavorite
+end
+
+---Adds every single asset prefab of this category to the asset favorites.
+---The prefabs themselves are kept: this copies the asset references over, it does not move them.
+---Each favorite is tagged with the category name, plus the tags of its prefab, so the
+---category layout survives in the tag grouped favorites list.
+---@return number added Newly favorited assets
+---@return number updated Already favorited assets that gained tags
+---@return number skipped Prefabs holding no bookmarkable asset, or already up to date
+function category:convertToAssetFavorites()
+	local added, updated, skipped = 0, 0, 0
+	local categoryTag = utils.trimString(self.name or "")
+	local spawnListIndexes = {}
+
+	-- One disk write for the whole category, instead of one per favorite and per tag.
+	assetFavorites.runBatch(function ()
+		if categoryTag ~= "" then
+			assetFavorites.createTag(categoryTag, self.icon)
+		end
+
+		for _, favorite in pairs(self.favorites) do
+			local target = self:getAssetFavoriteTarget(favorite)
+			local existing = target and assetFavorites.get(target.modulePath, target.path) or nil
+			local entry = existing
+
+			if target and not existing then
+				-- Favorite the pristine spawn list entry, not the configured prefab: a
+				-- favorite bookmarks the asset itself. Paths typed by hand are not listed,
+				-- and fall back to the plain asset reference.
+				local listEntry = getSpawnListEntriesByKey(target.spawnList, target.modulePath, spawnListIndexes)[target.path]
+				local entryData = type(listEntry) == "table" and type(listEntry.data) == "table" and listEntry.data or { spawnData = target.path }
+
+				entry = assetFavorites.add(target.modulePath, target.path, target.name, entryData)
+			end
+
+			if not entry then
+				skipped = skipped + 1
+			else
+				local gainedTag = false
+
+				if categoryTag ~= "" and not entry.tags[categoryTag] then
+					assetFavorites.setEntryTag(entry, categoryTag, true)
+					gainedTag = true
+				end
+
+				for tag, _ in pairs(favorite.tags or {}) do
+					if not entry.tags[tag] then
+						assetFavorites.setEntryTag(entry, tag, true)
+						gainedTag = true
+					end
+				end
+
+				if not existing then
+					added = added + 1
+				elseif gainedTag then
+					updated = updated + 1
+				else
+					skipped = skipped + 1
+				end
+			end
+		end
+	end)
+
+	logger:info(string.format("[%s] Converted category \"%s\" to favorites: %d added, %d updated, %d skipped.", settings.mainWindowName, self.name, added, updated, skipped))
+
+	return added, updated, skipped
+end
+
+---Draws the "convert this category to asset favorites" row of the settings popup.
+function category:drawConvertToFavorites()
+	local convertible, alreadyFavorite = self:getAssetFavoriteConversionStats()
+	local canConvert = convertible > 0
+
+	style.mutedText("To favorites:")
+	ImGui.SameLine()
+
+	style.pushGreyedOut(not canConvert)
+	local clicked = ImGui.Button(IconGlyphs.StarBoxOutline .. " Convert")
+	style.popGreyedOut(not canConvert)
+
+	if canConvert then
+		style.tooltip(string.format(
+			"Adds every single asset prefab of this category to the favorites.\n" ..
+			"%d of the %d prefabs hold a single asset (%d already favorited).\n" ..
+			"Prefabs holding several assets are skipped: a favorite only bookmarks one asset, without any configuration.\n" ..
+			"Each favorite is tagged with the category name, and with the tags of its prefab.\n" ..
+			"The prefabs themselves are kept.",
+			convertible, #self.favorites, alreadyFavorite
+		))
+	else
+		style.tooltip("No prefab of this category holds a single favoritable asset.\nFavorites only bookmark assets of the \"All\" sub-tab, without any configuration.")
+	end
+
+	if not clicked or not canConvert then return end
+
+	local added, updatedCount, skipped = self:convertToAssetFavorites()
+	ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("%d favorite(s) added, %d updated, %d skipped", added, updatedCount, skipped)))
+end
+
 function category:drawEditPopup()
 	if ImGui.IsPopupOpen("##editCategory" .. self.fileName) then
         style.setCursorRelativeAppearing(-5, -5)
@@ -360,6 +541,8 @@ function category:drawEditPopup()
 				self.prefabsUI.categories[self.mergeCategorySearch]:merge(self)
 			end
 		end
+
+		self:drawConvertToFavorites()
 
 		ImGui.Separator()
 
