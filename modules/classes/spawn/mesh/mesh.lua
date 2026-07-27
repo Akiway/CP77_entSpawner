@@ -381,7 +381,11 @@ function mesh:getAssetPreviewPosition()
     mesh:SetLocalPosition(diff)
 
     if preview.elements and preview.elements["previewFirstLine"] and preview.elements["previewSecondLine"] then
-        preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+        local label = "Appearance"
+        if #apps > 0 then
+            label = ("Appearance (%d/%d)"):format(self.appIndex + 1, #apps)
+        end
+        preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
         preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
     end
 

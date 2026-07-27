@@ -704,7 +704,12 @@ function entity:getAssetPreviewPosition()
         diff = utils.addVector(diff, self.rotation:ToQuat():Transform(Vector4.new(0, 0, -0.1, 0)))
     end
 
-    preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+    -- The preview cycles through "default" plus every appearance, hence the +1
+    local label = "Appearance"
+    if #self.apps > 0 then
+        label = ("Appearance (%d/%d)"):format(self.appIndex + 1, #self.apps + 1)
+    end
+    preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
     preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(size.x, size.y, size.z))
     position = utils.addVector(position, diff)
 
