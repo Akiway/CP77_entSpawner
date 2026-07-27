@@ -646,6 +646,68 @@ local function exportTagFavorites(tagName)
     logger:info(string.format("[%s] Exported %d favorite(s) of tag \"%s\"", settings.mainWindowName, count, tagName))
 end
 
+---Deletes one tag and drops every piece of UI state referencing it.
+---@param tagName string
+---@param removeOrphans boolean Also remove the favorites this tag was the only tag of.
+---@return number removed Favorites removed along with the tag
+local function deleteTagAndCleanup(tagName, removeOrphans)
+    local removed = 0
+
+    if removeOrphans then
+        removed = assetFavorites.deleteTagWithOrphans(tagName)
+    else
+        assetFavorites.deleteTag(tagName)
+    end
+
+    settings.assetFavoritesFilterTags[tagName] = nil
+    settings.save()
+    transferGroupOpenState(tagName, nil)
+    favoritesUI.popupTagName = nil
+
+    if removeOrphans then
+        logger:info(string.format("[%s] Deleted tag \"%s\" and %d favorite(s) carrying no other tag", settings.mainWindowName, tagName, removed))
+    else
+        logger:info(string.format("[%s] Deleted tag \"%s\"", settings.mainWindowName, tagName))
+    end
+
+    return removed
+end
+
+---Draws the delete button removing the tag together with the favorites it was the
+---only tag of. Guarded by a confirm popup: unlike deleting the tag alone, this
+---discards favorites, and cannot be undone.
+---@param tagName string
+local function drawDeleteTagWithFavoritesButton(tagName)
+    local orphanCount = assetFavorites.getTagOrphanCount(tagName)
+
+    style.dangerButton(IconGlyphs.DeleteSweepOutline .. " Delete tag + favorites")
+    style.tooltip(string.format(
+        "Deletes this tag, and removes the %d favorite(s) carrying no other tag.\n" ..
+        "Favorites that have other tags are kept, they only lose this one.\n" ..
+        "This cannot be undone.",
+        orphanCount
+    ))
+
+    if not ImGui.BeginPopupContextItem("Delete tag and favorites?", ImGuiPopupFlags.MouseButtonLeft) then
+        return
+    end
+
+    style.mutedText(string.format("Delete this tag and remove %d favorite(s)?", orphanCount))
+
+    if style.dangerButton(IconGlyphs.DeleteOutline .. " Confirm") then
+        local removed = deleteTagAndCleanup(tagName, true)
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Tag deleted, %d favorite(s) removed", removed)))
+        ImGui.CloseCurrentPopup()
+    end
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.Cancel .. " Cancel") then
+        ImGui.CloseCurrentPopup()
+    end
+
+    ImGui.EndPopup()
+end
+
 ---Popup used to rename / re-icon / delete one tag.
 local function drawTagPopup()
     local tagName = favoritesUI.popupTagName
@@ -720,16 +782,15 @@ local function drawTagPopup()
             style.tooltip("Copies every favorite of this tag to the clipboard, as a code that can be imported from the favorites list.")
         end
 
-        ImGui.SameLine()
+        -- Both deletions on their own row: four buttons on one line would widen the popup.
         if style.dangerButton(IconGlyphs.DeleteOutline .. " Delete tag") then
-            assetFavorites.deleteTag(tagName)
-            settings.assetFavoritesFilterTags[tagName] = nil
-            settings.save()
-            transferGroupOpenState(tagName, nil)
-            favoritesUI.popupTagName = nil
+            deleteTagAndCleanup(tagName, false)
             ImGui.CloseCurrentPopup()
         end
         style.tooltip("Removes this tag from every favorite. The favorites themselves are kept.")
+
+        ImGui.SameLine()
+        drawDeleteTagWithFavoritesButton(tagName)
 
         ImGui.EndPopup()
     elseif not favoritesUI.openTagPopup then

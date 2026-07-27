@@ -403,6 +403,66 @@ function assetFavorites.deleteTag(tagName)
     assetFavorites.save()
 end
 
+---Whether a favorite carries at least one tag besides `tagName`.
+---@param entry assetFavoriteEntry
+---@param tagName string
+---@return boolean
+local function hasOtherTag(entry, tagName)
+    for tag, isSet in pairs(entry.tags or {}) do
+        if isSet and tag ~= tagName then
+            return true
+        end
+    end
+
+    return false
+end
+
+---Number of favorites carrying this tag and no other one, which `deleteTagWithOrphans` removes.
+---@param tagName string?
+---@return number
+function assetFavorites.getTagOrphanCount(tagName)
+    tagName = tostring(tagName or "")
+    local count = 0
+
+    for _, entry in ipairs(assetFavorites.entries) do
+        if entry.tags[tagName] and not hasOtherTag(entry, tagName) then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+---Removes one tag, along with every favorite it was the only tag of.
+---Favorites carrying other tags are kept, and only lose this one.
+---@param tagName string
+---@return number removed Favorites removed along with the tag
+function assetFavorites.deleteTagWithOrphans(tagName)
+    tagName = tostring(tagName or "")
+    if tagName == "" or not assetFavorites.tags[tagName] then return 0 end
+
+    local removed = 0
+
+    -- Single write for the whole operation, instead of one per removed favorite.
+    assetFavorites.runBatch(function ()
+        -- Backwards, so removing an entry cannot skip the next one.
+        for idx = #assetFavorites.entries, 1, -1 do
+            local entry = assetFavorites.entries[idx]
+
+            if entry.tags[tagName] and not hasOtherTag(entry, tagName) then
+                table.remove(assetFavorites.entries, idx)
+                assetFavorites.byKey[assetFavorites.getKey(entry.modulePath, entry.path)] = nil
+                removed = removed + 1
+            end
+        end
+
+        -- Drops the tag off the favorites that survived, and off the registry.
+        assetFavorites.deleteTag(tagName)
+    end)
+
+    return removed
+end
+
 ---@param oldName string
 ---@param newName string
 ---@return boolean changed
