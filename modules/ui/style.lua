@@ -254,8 +254,16 @@ end
 
 ---Show a tooltip for the currently hovered item.
 ---@param text string Tooltip body text.
-function style.tooltip(text)
-    if ImGui.IsItemHovered() then
+---@param hoveredFlags number? Optional `ImGuiHoveredFlags` bitmask, e.g. `ImGuiHoveredFlags.AllowWhenDisabled`.
+function style.tooltip(text, hoveredFlags)
+    local hovered
+    if hoveredFlags ~= nil then
+        hovered = ImGui.IsItemHovered(hoveredFlags)
+    else
+        hovered = ImGui.IsItemHovered()
+    end
+
+    if hovered then
         style.placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
         ImGui.BeginTooltip()
         ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
@@ -1004,10 +1012,94 @@ function style.trackedIntInput(element, text, value, min, max, width, step, fast
     return newValue, changed, finished
 end
 
+---@param disabledOptions table Keys are 1-based option indices and / or option labels.
+---@param index number 1-based option index.
+---@param optionText string
+---@return boolean
+local function isComboOptionDisabled(disabledOptions, index, optionText)
+    return disabledOptions[index] == true or disabledOptions[optionText] == true
+end
+
+---@param disabledTooltip string|fun(optionText: string, index: number): string?
+---@param optionText string
+---@param index number 1-based option index.
+---@return string?
+local function resolveComboDisabledTooltip(disabledTooltip, optionText, index)
+    if type(disabledTooltip) == "function" then
+        local ok, tooltipText = pcall(disabledTooltip, optionText, index)
+        if ok and tooltipText ~= nil and tooltipText ~= "" then
+            return tostring(tooltipText)
+        end
+
+        return nil
+    end
+
+    if type(disabledTooltip) == "string" and disabledTooltip ~= "" then
+        return disabledTooltip
+    end
+
+    return nil
+end
+
+---Combo drawn from selectables, so that individual options can be greyed out and made unselectable.
+---@param text string Combo label / ID.
+---@param selected number Current zero-based selected index.
+---@param options table Array-like table of option labels.
+---@param comboWidth number Combo width in pixels.
+---@param disabledOptions table Keys are 1-based option indices and / or option labels.
+---@param opts TrackedComboOpts
+---@return number newValue
+---@return boolean changed
+local function drawComboWithDisabledOptions(text, selected, options, comboWidth, disabledOptions, opts)
+    local newValue = selected
+    local changed = false
+    local previewValue = tostring(options[(selected or 0) + 1] or "")
+
+    ImGui.SetNextItemWidth(comboWidth)
+    local comboOpen = ImGui.BeginCombo(text, previewValue)
+    local tooltipText = buildSelectorTooltip(previewValue, opts.tooltip, opts.currentValueTooltip)
+    copySelectorValueOnMiddleClick(previewValue, opts.currentValueTooltip)
+    if tooltipText then
+        style.tooltip(tooltipText)
+    end
+
+    if comboOpen then
+        for index, option in ipairs(options) do
+            local optionText = tostring(option)
+            local isSelected = (index - 1) == selected
+
+            ImGui.PushID(index)
+            if not isSelected and isComboOptionDisabled(disabledOptions, index, optionText) then
+                ImGui.Selectable(optionText, false, ImGuiSelectableFlags.Disabled)
+
+                local disabledTooltip = resolveComboDisabledTooltip(opts.disabledTooltip, optionText, index)
+                if disabledTooltip then
+                    style.tooltip(disabledTooltip, ImGuiHoveredFlags.AllowWhenDisabled)
+                end
+            else
+                if ImGui.Selectable(optionText, isSelected) then
+                    newValue = index - 1
+                    changed = newValue ~= selected
+                end
+                if isSelected then
+                    ImGui.SetItemDefaultFocus()
+                end
+            end
+            ImGui.PopID()
+        end
+
+        ImGui.EndCombo()
+    end
+
+    return newValue, changed
+end
+
 ---Draw a combo box and record history when selection changes.
 ---@class TrackedComboOpts
 ---@field tooltip string? Optional helper text appended after the current value.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
+---@field disabledOptions table<number|string, boolean>? Options that are greyed out and can not be picked, keyed by 1-based index and / or option label. The currently selected option is never disabled.
+---@field disabledTooltip (string|fun(optionText: string, index: number): string?)? Tooltip shown when hovering a disabled option.
 ---@param element table Element used for undo history tracking.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
@@ -1024,13 +1116,21 @@ function style.trackedCombo(element, text, selected, options, width, opts)
 
     width = width or 100
     opts = opts or {}
-    ImGui.SetNextItemWidth(width * style.viewSize)
 
-    local newValue, changed = ImGui.Combo(text, selected, options, #options)
-    local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
-    copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
-    if tooltipText then
-        style.tooltip(tooltipText)
+    local disabledOptions = opts.disabledOptions
+    local newValue, changed
+
+    if type(disabledOptions) == "table" and next(disabledOptions) ~= nil then
+        newValue, changed = drawComboWithDisabledOptions(text, selected, options, width * style.viewSize, disabledOptions, opts)
+    else
+        ImGui.SetNextItemWidth(width * style.viewSize)
+
+        newValue, changed = ImGui.Combo(text, selected, options, #options)
+        local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
+        copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
+        if tooltipText then
+            style.tooltip(tooltipText)
+        end
     end
 
     if changed then
