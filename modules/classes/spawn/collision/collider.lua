@@ -161,11 +161,6 @@ function collider:getArrowSize()
     return { x = max, y = max, z = max }
 end
 
-function collider:setPreview(state)
-    self.previewed = state
-    visualizer.toggleAll(self:getEntity(), self.previewed)
-end
-
 function collider:calculateIntersection(origin, ray)
     if not self:getEntity() or not self.previewed then
         return { hit = false }

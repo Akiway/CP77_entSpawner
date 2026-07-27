@@ -213,6 +213,28 @@ function visualizer.updateCapsuleScale(entity, radius, height)
     end
 end
 
+---Apply a new scale to the `"arrows"` gizmo, but only refresh it when the scale actually changed.
+---The refresh (`Toggle` off/on) is what makes an updated `visualScale` take effect, so skipping it
+---when nothing changed is what lets this be called every frame (for distance scaling) without flicker.
+---No-op when the arrows are absent or currently hidden.
+---@param entity entEntity Target entity.
+---@param scale visualizerScale New arrow scale.
+function visualizer.setArrowScale(entity, scale)
+    if not entity then return end
+
+    local component = entity:FindComponentByName("arrows")
+    if not component or not component:IsEnabled() then return end
+
+    local current = component.visualScale
+    if current and math.abs(current.x - scale.x) < 1e-3 and math.abs(current.y - scale.y) < 1e-3 and math.abs(current.z - scale.z) < 1e-3 then
+        return
+    end
+
+    component.visualScale = ToVector3(scale)
+    component:Toggle(false)
+    component:Toggle(true)
+end
+
 ---Set visibility for the `"arrows"` component.
 ---Requires arrows to be already attached on the entity.
 ---@param entity entEntity Target entity.

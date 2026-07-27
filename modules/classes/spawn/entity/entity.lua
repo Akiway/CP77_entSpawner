@@ -16,6 +16,10 @@ local logger = require("modules/utils/logger")
 local colorUtil = require("modules/utils/color")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 
+local POSITION_MARKER_COMPONENT = "sphere"
+local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
+local POSITION_MARKER_DEFAULT_COLOR = "blue"
+
 local deviceClassSecondaryIconByName = {
     LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
     ForkliftControllerPS = IconGlyphs.Forklift,
@@ -148,6 +152,9 @@ function entity:new()
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
 
+    o.showPositionMarker = false
+    o.positionMarkerColor = POSITION_MARKER_DEFAULT_COLOR
+
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.15
     o.assetPreviewTimer = 0
@@ -205,6 +212,15 @@ end
 ---@return string
 function entity.getDeviceSecondaryIcon(className)
     return deviceClassSecondaryIconByName[entity.sanitizeDeviceClassName(className)] or ""
+end
+
+---Resolves the secondary icon shown next to a spawn-list entry label.
+---Empty for modules that carry no device class information.
+---@param entry table?
+---@param modulePath string?
+---@return string
+function entity.getEntrySecondaryIcon(entry, modulePath)
+    return entity.getDeviceSecondaryIcon(entity.resolveDeviceClassNameForEntry(entry, modulePath))
 end
 
 ---Refreshes instance secondary icon state and keeps the class-name cache in sync.
@@ -547,6 +563,32 @@ function entity:applyComponentOverrides(entRef)
     end
 end
 
+---Adds/updates/hides the sphere marker that visualizes the entity origin.
+---Subclasses opt in by toggling `showPositionMarker`, and pick their own `positionMarkerColor`.
+function entity:updatePositionMarker()
+    local entityRef = self:getEntity()
+    if not entityRef then return end
+
+    local marker = entityRef:FindComponentByName(POSITION_MARKER_COMPONENT)
+
+    if self.showPositionMarker then
+        if not marker then
+            visualizer.addSphere(entityRef, POSITION_MARKER_SCALE, self.positionMarkerColor or POSITION_MARKER_DEFAULT_COLOR)
+        else
+            visualizer.updateScale(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COMPONENT)
+            marker:Toggle(true)
+        end
+    elseif marker then
+        marker:Toggle(false)
+    end
+end
+
+---@param state boolean
+function entity:setPositionMarkerVisible(state)
+    self.showPositionMarker = state
+    self:updatePositionMarker()
+end
+
 function entity:onAssemble(entRef)
     spawnable.onAssemble(self, entRef)
 
@@ -656,13 +698,18 @@ function entity:getAssetPreviewPosition()
         end
     end
 
-    self.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))):ToEulerAngles()
+    self.rotation = utils.multQuat(self.rotation:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))):ToEulerAngles()
 
     if size.z < math.max(size.x, size.y, size.z) * 0.1 then
         diff = utils.addVector(diff, self.rotation:ToQuat():Transform(Vector4.new(0, 0, -0.1, 0)))
     end
 
-    preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+    -- The preview cycles through "default" plus every appearance, hence the +1
+    local label = "Appearance"
+    if #self.apps > 0 then
+        label = ("Appearance (%d/%d)"):format(self.appIndex + 1, #self.apps + 1)
+    end
+    preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
     preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(size.x, size.y, size.z))
     position = utils.addVector(position, diff)
 
@@ -809,7 +856,7 @@ function entity:calculateIntersection(origin, ray)
 
     for _, mesh in pairs(self.meshes) do
         local meshPosition = utils.addVector(mesh.position, self.position)
-        local meshRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), mesh.rotation)
+        local meshRotation = utils.multQuat(self.rotation:ToQuat(), mesh.rotation)
 
         local result = intersection.getBoxIntersection(origin, ray, meshPosition, meshRotation:ToEulerAngles(), mesh.bbox)
 

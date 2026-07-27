@@ -19,6 +19,9 @@ local HIERARCHY_ROW_TOP_PADDING = 2
 local HIERARCHY_COLOR_PERIOD = 0xFF377fcd
 local HIERARCHY_COLOR_PHASE = 0xFF48c731
 local HIERARCHY_COLOR_ENTRY = 0xFFb7692d
+local PERIOD_HOUR_USED_TOOLTIP = "Already used by another time period of this phase.\nA phase can not have two time periods for the same hour."
+local PERIOD_HOUR_DUPLICATE_TOOLTIP = "This hour is used by another time period of this phase.\nOnly one of them will be used by the game, pick a different hour."
+local PERIOD_HOURS_EXHAUSTED_TOOLTIP = "This phase already uses every available time period."
 
 ---@type fun(value: any, fallback: any?): string
 local sanitizeValue = utils.sanitizeText
@@ -122,6 +125,38 @@ local function resolvePreferredOption(selected, options, fallback)
     end
 
     return sanitizeValue(options[1] or "default")
+end
+
+---Collect the hours used by the time periods of a phase.
+---@param periods table
+---@param ignoreKey any? Key of the period to exclude, e.g. the one currently being drawn.
+---@return table<number, boolean> usedHours
+local function collectUsedPeriodHours(periods, ignoreKey)
+    local usedHours = {}
+
+    for key, period in pairs(periods or {}) do
+        if key ~= ignoreKey then
+            usedHours[math.floor(tonumber(period and period.hour) or 0)] = true
+        end
+    end
+
+    return usedHours
+end
+
+---Get the first hour not yet used by any time period of a phase.
+---@param periods table
+---@param hourCount number Number of selectable hours.
+---@return number? hour Nil if every hour is already used.
+local function getFirstUnusedPeriodHour(periods, hourCount)
+    local usedHours = collectUsedPeriodHours(periods)
+
+    for hour = 0, hourCount - 1 do
+        if not usedHours[hour] then
+            return hour
+        end
+    end
+
+    return nil
 end
 
 local function collectPhaseNames(phases)
@@ -381,7 +416,16 @@ local function hierarchyIndent()
     return 17 * style.viewSize
 end
 
-local function drawDuplicateDeleteButtons(duplicateId, deleteId)
+---@class DuplicateDeleteOpts
+---@field duplicateDisabled boolean? Greys out the duplicate button.
+---@field duplicateTooltip string? Replacement tooltip for the duplicate button.
+---@param duplicateId string
+---@param deleteId string
+---@param opts DuplicateDeleteOpts?
+---@return boolean duplicateClicked
+---@return boolean deleteClicked
+local function drawDuplicateDeleteButtons(duplicateId, deleteId, opts)
+    opts = opts or {}
     local duplicateClicked = false
     local deleteClicked = false
 
@@ -397,7 +441,10 @@ local function drawDuplicateDeleteButtons(duplicateId, deleteId)
         ImGui.SetCursorPosX(rightAlignedX)
     end
 
-    duplicateClicked = drawIconActionButton(IconGlyphs.ContentDuplicate, duplicateId, "Duplicate")
+    ImGui.BeginDisabled(opts.duplicateDisabled == true)
+    duplicateClicked = drawIconActionButton(IconGlyphs.ContentDuplicate, duplicateId, nil)
+    ImGui.EndDisabled()
+    style.tooltip(opts.duplicateTooltip or "Duplicate", ImGuiHoveredFlags.AllowWhenDisabled)
     ImGui.SameLine()
     deleteClicked = style.dangerButton(IconGlyphs.DeleteOutline .. "##" .. deleteId)
     style.tooltip("Delete")
@@ -405,16 +452,30 @@ local function drawDuplicateDeleteButtons(duplicateId, deleteId)
     return duplicateClicked, deleteClicked
 end
 
-function community:drawContext(key, tbl)
+---@class ContextOpts
+---@field duplicateDisabled boolean? Greys out the duplicate entry.
+---@field prepareDuplicate fun(copy: table)? Called on the copy before it gets inserted.
+---@param key any
+---@param tbl table
+---@param opts ContextOpts?
+function community:drawContext(key, tbl, opts)
+    opts = opts or {}
+
     if ImGui.BeginPopupContextItem("##remove" .. key, ImGuiPopupFlags.MouseButtonRight) then
         if ImGui.MenuItem(IconGlyphs.DeleteOutline .. " Delete") then
             history.addAction(history.getElementChange(self.object))
             table.remove(tbl, key)
         end
+        ImGui.BeginDisabled(opts.duplicateDisabled == true)
         if ImGui.MenuItem(IconGlyphs.ContentDuplicate .. " Duplicate") then
             history.addAction(history.getElementChange(self.object))
-            table.insert(tbl, utils.deepcopy(tbl[key]))
+            local copy = utils.deepcopy(tbl[key])
+            if opts.prepareDuplicate then
+                opts.prepareDuplicate(copy)
+            end
+            table.insert(tbl, copy)
         end
+        ImGui.EndDisabled()
         ImGui.EndPopup()
     end
 end
@@ -598,7 +659,7 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         return false
     end
 
-    period.hour = tonumber(period.hour) or 1
+    period.hour = math.floor(tonumber(period.hour) or 1)
     period.isSequence = period.isSequence == true
     period.quantity = math.floor(tonumber(period.quantity) or 1)
     period.markings = period.markings or {}
@@ -606,13 +667,26 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
     local periodLabel = self.periodEnums[period.hour + 1] or tostring(period.hour)
     self:drawHierarchyRowBackground("period")
 
+    local usedHours = collectUsedPeriodHours(periods, periodKey)
+    local isDuplicateHour = usedHours[period.hour] == true
+    local nextFreeHour = getFirstUnusedPeriodHour(periods, #self.periodEnums)
+    local usedHourOptions = {}
+    for hour in pairs(usedHours) do
+        usedHourOptions[hour + 1] = true
+    end
+
     local periodOpen = self:getHierarchyState(periodHierarchyKey, false)
     if drawHierarchyDisclosureButton("periodHierarchy", periodOpen, "period") then
         periodOpen = not periodOpen
         self.hierarchyOpen[periodHierarchyKey] = periodOpen
     end
-    self:drawContext(periodKey, periods)
-    
+    self:drawContext(periodKey, periods, {
+        duplicateDisabled = nextFreeHour == nil,
+        prepareDuplicate = function(copy)
+            copy.hour = nextFreeHour
+        end
+    })
+
 
     local modeKey = tostring(period)
     local linkMode = self.periodLinkMode[modeKey]
@@ -625,8 +699,15 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         style.drawIconLabelRow(nil, string.format("[%d]", periodKey))
         ImGui.SameLine()
         period.hour, _ = style.trackedCombo(self.object, "##hour", period.hour, self.periodEnums, 150, {
-            tooltip = "Named hour mappings:\nMidnight = 0:00\nMorning = 6:00\nDay = 9:00\nEvening = 18:00\nNight = 22:00"
+            tooltip = "Named hour mappings:\nMidnight = 0:00\nMorning = 6:00\nDay = 9:00\nEvening = 18:00\nNight = 22:00",
+            disabledOptions = usedHourOptions,
+            disabledTooltip = PERIOD_HOUR_USED_TOOLTIP
         })
+        if isDuplicateHour then
+            ImGui.SameLine()
+            style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+            style.tooltip(PERIOD_HOUR_DUPLICATE_TOOLTIP)
+        end
 
         ImGui.SameLine()
         local nextSequence, sequenceChanged = style.toggleButton(IconGlyphs.Numeric .. "##isSequence", period.isSequence)
@@ -645,6 +726,11 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         style.tooltip("Quantity: " .. tostring(period.quantity) .. "\nNumber of NPC slots active during this time period.")
     else
         style.drawIconLabelRow(nil, string.format("[%d] %s", periodKey, periodLabel))
+        if isDuplicateHour then
+            ImGui.SameLine()
+            style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+            style.tooltip(PERIOD_HOUR_DUPLICATE_TOOLTIP)
+        end
         ImGui.SameLine()
         ImGui.Dummy(8 * style.viewSize, 0)
         ImGui.SameLine()
@@ -667,10 +753,17 @@ function community:drawPeriod(periods, periodKey, periodHierarchyKey)
         ))
     end
 
-    local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicatePeriod", "deletePeriod")
+    local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicatePeriod", "deletePeriod", {
+        duplicateDisabled = nextFreeHour == nil,
+        duplicateTooltip = nextFreeHour ~= nil
+            and string.format("Duplicate, as \"%s\"", self.periodEnums[nextFreeHour + 1])
+            or PERIOD_HOURS_EXHAUSTED_TOOLTIP
+    })
     if duplicateClicked then
         history.addAction(history.getElementChange(self.object))
-        table.insert(periods, utils.deepcopy(periods[periodKey]))
+        local copy = utils.deepcopy(periods[periodKey])
+        copy.hour = nextFreeHour
+        table.insert(periods, copy)
     end
     if deleteClicked then
         history.addAction(history.getElementChange(self.object))
@@ -713,17 +806,25 @@ function community:drawPhasePeriods(phase, phaseHierarchyKey)
     local periodsHeader = style.resolveActionLabelNoIconOnly(IconGlyphs.ClockOutline, "Time Periods", nil)
     drawSectionHeader(periodsHeader, #phase.timePeriods)
     ImGui.SameLine()
+    local nextFreeHour = getFirstUnusedPeriodHour(phase.timePeriods, #self.periodEnums)
+    ImGui.BeginDisabled(nextFreeHour == nil)
     if ImGui.Button("+##addPeriod") then
         history.addAction(history.getElementChange(self.object))
         table.insert(phase.timePeriods, {
-            hour = 1,
+            hour = nextFreeHour,
             isSequence = false,
             markings = {},
             quantity = 1,
             spotNodeRefs = {}
         })
     end
-    style.tooltip("Add time period")
+    ImGui.EndDisabled()
+    style.tooltip(
+        nextFreeHour ~= nil
+            and string.format("Add time period, as \"%s\"", self.periodEnums[nextFreeHour + 1])
+            or PERIOD_HOURS_EXHAUSTED_TOOLTIP,
+        ImGuiHoveredFlags.AllowWhenDisabled
+    )
 
     for periodKey, _ in pairs(phase.timePeriods) do
         ImGui.PushID(periodKey)
@@ -1039,16 +1140,7 @@ function community:draw()
 end
 
 function community:getProperties()
-    local properties = visualized.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(visualized.getProperties(self))
 end
 
 function community:export()

@@ -9,9 +9,8 @@ local quickElevatorSetupUI = require("modules/utils/ui/quickElevatorSetup")
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 local spawnableElement = require("modules/classes/editor/spawnableElement")
 local staticMarker = require("modules/classes/spawn/meta/staticMarker")
+local elevatorDoors = require("modules/utils/elevatorDoors")
 
-local POSITION_MARKER_COMPONENT = "sphere"
-local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
 local POSITION_MARKER_COLOR = "blue"
 local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
 local ELEVATOR_FLOOR_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
@@ -36,36 +35,6 @@ local LIFT_FLOOR_DOOR_BY_SPAWNDATA = {}
 for key, definition in pairs(LIFT_FLOOR_DOOR_DEFINITIONS) do
     LIFT_FLOOR_DOOR_BY_SPAWNDATA[string.lower(definition.spawnData)] = key
 end
-
-local ELEVATOR_DOOR_LAYOUTS = {
-    common = {
-        [1] = "left",
-        [2] = "right"
-    },
-    megabuilding = {
-        [1] = "right",
-        [2] = "bottom",
-        [3] = "top"
-    },
-    commonRiot = {
-        [1] = "left",
-        [2] = "bottom"
-    },
-    industrial = {
-        [1] = "left",
-        [2] = "right"
-    },
-    construction = {
-        [1] = "right",
-        [2] = "left"
-    }
-}
-
-local ELEVATOR_DOOR_LAYOUT_ROTATIONS = {
-    common = "ccw",
-    industrial = "cw",
-    construction = "ccw"
-}
 
 local propertyNames = {
     "Device Class Name",
@@ -182,105 +151,6 @@ local function mergeTableWithDefaults(base, override)
     return merged
 end
 
----@param spawnData string?
----@return table
----@return string
-local function resolveLiftDoorLayout(spawnData)
-    local normalized = string.lower(tostring(spawnData or ""))
-
-    if string.find(normalized, "megabuilding", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.megabuilding, "megabuilding"
-    end
-
-    if string.find(normalized, "common_riot", 1, true) or string.find(normalized, "riot", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.commonRiot, "commonRiot"
-    end
-
-    if string.find(normalized, "industrial", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.industrial, "industrial"
-    end
-
-    if string.find(normalized, "construction", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.construction, "construction"
-    end
-
-    return ELEVATOR_DOOR_LAYOUTS.common, "common"
-end
-
----@param side string?
----@param rotation string?
----@return string?
-local function rotateDoorSide(side, rotation)
-    if not side then
-        return nil
-    end
-
-    if rotation == "cw" then
-        local cw = {
-            left = "top",
-            top = "right",
-            right = "bottom",
-            bottom = "left"
-        }
-
-        return cw[side] or side
-    end
-
-    if rotation == "ccw" then
-        local ccw = {
-            left = "bottom",
-            bottom = "right",
-            right = "top",
-            top = "left"
-        }
-
-        return ccw[side] or side
-    end
-
-    return side
-end
-
----@param lift device
----@param side string
----@return Vector4?
-local function getLiftDoorMarkerWorldPosition(lift, side)
-    if not lift or not lift.position or not lift.rotation or not lift.getBBox then
-        return nil
-    end
-
-    local bbox = lift:getBBox()
-    if not bbox or not bbox.min or not bbox.max then
-        return nil
-    end
-
-    local minX = tonumber(bbox.min.x) or -0.5
-    local minY = tonumber(bbox.min.y) or -0.5
-    local minZ = tonumber(bbox.min.z) or -0.5
-    local maxX = tonumber(bbox.max.x) or 0.5
-    local maxY = tonumber(bbox.max.y) or 0.5
-    local maxZ = tonumber(bbox.max.z) or 0.5
-
-    local sizeX = math.max(0.01, maxX - minX)
-    local sizeY = math.max(0.01, maxY - minY)
-    local sizeZ = math.max(0.01, maxZ - minZ)
-
-    local padding = math.max(0.15, math.min(1.0, math.max(sizeX, sizeY) * 0.12))
-    local localPoint = Vector4.new((minX + maxX) * 0.5, (minY + maxY) * 0.5, minZ + sizeZ * 0.45, 0)
-
-    if side == "left" then
-        localPoint.x = minX - padding
-    elseif side == "right" then
-        localPoint.x = maxX + padding
-    elseif side == "top" then
-        localPoint.y = maxY + padding
-    elseif side == "bottom" then
-        localPoint.y = minY - padding
-    end
-
-    local worldPoint = lift.rotation:ToQuat():Transform(localPoint)
-    return utils.addVector(lift.position, worldPoint)
-end
-
 function device:new()
 	local o = entity.new(self)
 
@@ -292,6 +162,7 @@ function device:new()
     o.previewNote = "Device connections / functionality is not previewed."
 
     o.icon = IconGlyphs.AlphaDBoxOutline
+    o.entryFilter = "deviceClass"
 
     o.deviceConnections = {}
     o.connectionNodeRefSearch = {}
@@ -300,34 +171,11 @@ function device:new()
 
     o.maxPropertyWidth = nil
     o.controllerComponent = ""
-    o.showPositionMarker = false
+    o.positionMarkerColor = POSITION_MARKER_COLOR
     o.showDoorsHelper = true
 
     setmetatable(o, { __index = self })
    	return o
-end
-
-function device:updatePositionMarker()
-    local entityRef = self:getEntity()
-    if not entityRef then return end
-
-    local marker = entityRef:FindComponentByName(POSITION_MARKER_COMPONENT)
-
-    if self.showPositionMarker then
-        if not marker then
-            visualizer.addSphere(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COLOR)
-        else
-            visualizer.updateScale(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COMPONENT)
-            marker:Toggle(true)
-        end
-    elseif marker then
-        marker:Toggle(false)
-    end
-end
-
-function device:setPositionMarkerVisible(state)
-    self.showPositionMarker = state
-    self:updatePositionMarker()
 end
 
 function device:onAssemble(entRef)
@@ -801,17 +649,17 @@ function device:getLiftDoorWorldPosition(doorIndex)
         return nil
     end
 
-    local layout, layoutKey = resolveLiftDoorLayout(self.spawnData)
+    local layout, layoutKey = elevatorDoors.resolveLayout(self.spawnData)
     if type(layout) ~= "table" then
         return nil
     end
 
-    local side = rotateDoorSide(layout[doorIndex], ELEVATOR_DOOR_LAYOUT_ROTATIONS[layoutKey])
+    local side = elevatorDoors.rotateSide(layout[doorIndex], elevatorDoors.LAYOUT_ROTATIONS[layoutKey])
     if not side then
         return nil
     end
 
-    return getLiftDoorMarkerWorldPosition(self, side)
+    return elevatorDoors.getMarkerWorldPosition(self, side)
 end
 
 ---@return element?, table?

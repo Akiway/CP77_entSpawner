@@ -11,6 +11,7 @@ local editor = require("modules/utils/editor/editor")
 local GameSettings = require("modules/utils/GameSettings")
 local preview = require("modules/utils/previewUtils")
 local logger = require("modules/utils/logger")
+local settings = require("modules/utils/settings")
 
 ---Base class for any object / node that can be spawned
 ---@class spawnable
@@ -103,10 +104,14 @@ function spawnable:new()
     o.currentSpawnToken = nil
     o.worldNodePropertyWidth = nil
     o.streamingPropertyWidth = nil
-    o.streamingPresetIndex = 0
+
+    -- Default streaming distance is driven by the "Default Streaming distance"
+    -- setting so both the preset selector and the numeric input start in sync.
+    local defaultPreset = math.max(0, math.min(#streamingPresetLabels - 1, settings.defaultStreamingPreset or 0))
+    o.streamingPresetIndex = defaultPreset
 
     o.noExport = false
-    o.primaryRange = 120
+    o.primaryRange = streamingPresetValues[defaultPreset + 1] or 120
     o.uk10 = 1024
     o.uk11 = 512
     o.streamingMultiplier = 1
@@ -125,6 +130,15 @@ function spawnable:new()
     o.isAssetPreview = false
     o.assetPreviewLensDistortion = false
 
+    -- Spawn New metadata, read by spawnUI so it never has to special-case module paths.
+    -- `collapseSpawnList` replaces the loaded list with a single generic entry, whose label
+    -- is `collapsedSpawnListLabel`; `entryFilter` opts the list into one of spawnUI's
+    -- per-entry filters; `previewSuppressedComponents` are disabled while an asset preview runs.
+    o.collapseSpawnList = false
+    o.collapsedSpawnListLabel = nil
+    o.entryFilter = nil
+    o.previewSuppressedComponents = nil
+
     o.object = object
 
     self.__index = self
@@ -132,7 +146,7 @@ function spawnable:new()
 end
 
 function spawnable:onAssemble(entity)
-    visualizer.attachArrows(entity, self:getArrowSize(), self.isHovered, self.arrowDirection)
+    visualizer.attachArrows(entity, self:getScaledArrowSize(), self.isHovered, self.arrowDirection)
 end
 
 function spawnable:onAttached(entity)
@@ -249,6 +263,21 @@ function spawnable:spawn(ignoreSpawning)
     end)
 
     return true
+end
+
+---Template used by node types whose `spawnData` is a resource path rather than an entity template.
+spawnable.PLACEHOLDER_ENTITY_TEMPLATE = "base\\spawner\\empty_entity.ent"
+
+---Spawns through the placeholder wrapper entity, restoring `spawnData` afterwards.
+---Node types that carry a non-entity resource path in `spawnData` (probes, fog volumes, ...)
+---use this so the base spawn call still receives a valid `.ent` template.
+---@param placeholderPath string? Defaults to `spawnable.PLACEHOLDER_ENTITY_TEMPLATE`.
+function spawnable:spawnAsPlaceholderEntity(placeholderPath)
+    local original = self.spawnData
+    self.spawnData = placeholderPath or spawnable.PLACEHOLDER_ENTITY_TEMPLATE
+
+    spawnable.spawn(self)
+    self.spawnData = original
 end
 
 ---@return boolean
@@ -391,6 +420,24 @@ function spawnable:draw() end
 ---@return table?
 function spawnable:getTransformUIConfig()
     return nil
+end
+
+---Appends this node's own collapsible property section to a base-class property list.
+---Subclasses whose inspector is just "base properties + my own `draw()`" use this
+---so the section descriptor stays defined in one place.
+---@param properties table[] Property list returned by the base class.
+---@return table[] properties The same list, with this node's section appended.
+function spawnable:addNodeProperty(properties)
+    table.insert(properties, {
+        id = self.node,
+        name = self.dataType,
+        defaultHeader = true,
+        draw = function()
+            self:draw()
+        end
+    })
+
+    return properties
 end
 
 function spawnable:getProperties()
@@ -746,6 +793,54 @@ function spawnable:getArrowSize()
     return { x = max, y = max, z = max }
 end
 
+-- Positioning-arrow scaling constants (see spawnable:getArrowDistanceFactor).
+local ARROW_REFERENCE_DISTANCE = 5.0 -- Camera distance (m) at which the base arrow size is kept as-is (factor 1).
+local ARROW_MIN_FACTOR = 0.5        -- Never shrink arrows below this fraction of their base size.
+local ARROW_MAX_FACTOR = 14.0        -- Cap growth so very distant objects don't spawn huge arrows.
+local ARROW_QUANT_STEP = 1.12        -- Geometric bucket size (~12%) used to quantize the factor and avoid per-frame re-toggling.
+
+---Computes the scale factor applied to the positioning-arrow gizmo.
+---With distance scaling enabled this keeps the arrows at a roughly constant on-screen size by
+---growing them proportionally to the camera distance. The result is quantized into geometric
+---buckets so the gizmo only needs to be refreshed when it crosses a bucket, preventing flicker.
+---Distance scaling only applies in editor mode: it exists for the free editor camera, and outside
+---editor mode nothing drives a per-frame rescale, so a distance factor there would just freeze at
+---whatever the camera last saw. Always multiplied by the user `arrowSizeMultiplier`, so the
+---multiplier applies even when distance scaling is off or the editor is closed.
+---@return number factor
+function spawnable:getArrowDistanceFactor()
+    local multiplier = settings.arrowSizeMultiplier or 1.0
+
+    if not settings.arrowScaleWithDistance or not editor.active then
+        return multiplier
+    end
+
+    local player = GetPlayer()
+    if not player then return multiplier end
+    local cameraComponent = player:GetFPPCameraComponent()
+    if not cameraComponent then return multiplier end
+
+    local cameraPosition = cameraComponent:GetLocalToWorld():GetTranslation()
+    local distance = Vector4.Distance(cameraPosition, self:getCenter())
+
+    local factor = (distance / ARROW_REFERENCE_DISTANCE)
+    factor = math.max(ARROW_MIN_FACTOR, math.min(factor, ARROW_MAX_FACTOR))
+    -- Snap onto geometric buckets so continuous camera movement only re-scales occasionally.
+    factor = ARROW_QUANT_STEP ^ math.floor(math.log(factor) / math.log(ARROW_QUANT_STEP) + 0.5)
+
+    return factor * multiplier
+end
+
+---Returns the base arrow size scaled by the current distance/size factor.
+---Used both for rendering the gizmo and for building its click hit-boxes so the two stay aligned.
+---@param factor number? Precomputed factor from `getArrowDistanceFactor`. Recomputed when omitted.
+---@return visualizerScale
+function spawnable:getScaledArrowSize(factor)
+    factor = factor or self:getArrowDistanceFactor()
+    local base = self:getArrowSize()
+    return { x = base.x * factor, y = base.y * factor, z = base.z * factor }
+end
+
 function spawnable:getCenter()
     return self.position
 end
@@ -811,13 +906,21 @@ function spawnable:loadSpawnData(data, position, rotation)
     self.position = position
     self.rotation = rotation
     self.rotationRelative = data.rotationRelative or false
-    self.primaryRange = data.primaryRange or 100
+
     local presetIndex = data.streamingPresetIndex or self.streamingPresetIndex or 0
     local presetVersion = data.streamingPresetVersion or 1
     if presetVersion < streamingPresetVersion and presetIndex >= 2 then
         presetIndex = presetIndex + 1
     end
     self.streamingPresetIndex = math.min(presetIndex, #streamingPresetLabels - 1)
+
+    -- Freshly spawned assets have no serialized primaryRange, so fall back to the
+    -- value of the configured default distance preset. This keeps the numeric
+    -- Streaming Distance in sync with the preset selector. Saved/loaded assets
+    -- carry their own primaryRange and are left untouched.
+    local presetRange = streamingPresetValues[self.streamingPresetIndex + 1]
+    self.primaryRange = data.primaryRange or presetRange or self.primaryRange or 100
+
     self.uk10 = data.uk10 or self.uk10
     self.uk11 = data.uk11 or self.uk11
 

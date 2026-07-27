@@ -2,8 +2,6 @@ local entity = require("modules/classes/spawn/entity/entity")
 local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 
-local POSITION_MARKER_COMPONENT = "sphere"
-local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
 local POSITION_MARKER_COLOR = "beige"
 
 ---Class for entity templates
@@ -18,33 +16,11 @@ function template:new()
     o.description = "Spawns an entity from a given .ent file"
 
     o.modulePath = "entity/entityTemplate"
-    o.showPositionMarker = false
+    o.entryFilter = "deviceClass"
+    o.positionMarkerColor = POSITION_MARKER_COLOR
 
     setmetatable(o, { __index = self })
    	return o
-end
-
-function template:updatePositionMarker()
-    local entityRef = self:getEntity()
-    if not entityRef then return end
-
-    local marker = entityRef:FindComponentByName(POSITION_MARKER_COMPONENT)
-
-    if self.showPositionMarker then
-        if not marker then
-            visualizer.addSphere(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COLOR)
-        else
-            visualizer.updateScale(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COMPONENT)
-            marker:Toggle(true)
-        end
-    elseif marker then
-        marker:Toggle(false)
-    end
-end
-
-function template:setPositionMarkerVisible(state)
-    self.showPositionMarker = state
-    self:updatePositionMarker()
 end
 
 function template:onAssemble(entRef)

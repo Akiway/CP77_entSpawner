@@ -19,7 +19,7 @@ function projectTag.trimText(value)
         return ""
     end
 
-    return value:match("^%s*(.-)%s*$") or ""
+    return utils.trimString(value)
 end
 
 ---Normalize a tag/project name into a case-insensitive lookup key.
@@ -31,27 +31,32 @@ end
 
 ---Normalize project color using shared color utility and module defaults.
 ---@param colorData table?
+---@param fallbackColor number[]? Overrides `projectTag.DEFAULT_COLOR` for this call.
 ---@return number[] normalized
-function projectTag.normalizeColor(colorData)
-    return color.normalizeRGB(colorData, projectTag.DEFAULT_COLOR)
+function projectTag.normalizeColor(colorData, fallbackColor)
+    return color.normalizeRGB(colorData, fallbackColor or projectTag.DEFAULT_COLOR)
 end
 
 ---Normalize icon key to an existing IconGlyph, with fallback.
 ---@param icon string?
+---@param fallbackIcon string? Overrides `projectTag.DEFAULT_ICON` for this call.
 ---@return string normalized
-function projectTag.normalizeIcon(icon)
+function projectTag.normalizeIcon(icon, fallbackIcon)
     if type(icon) == "string" and icon ~= "" and IconGlyphs and IconGlyphs[icon] then
         return icon
     end
 
-    return projectTag.DEFAULT_ICON
+    return fallbackIcon or projectTag.DEFAULT_ICON
 end
 
 ---Normalize project metadata (`name`, `icon`, `color`) using module defaults.
 ---Returns `nil` when project is missing or its name is empty.
 ---@param project table?
+---@param defaults { icon: string?, color: number[] }? Per-call default icon/color, for UIs
+---that present unset projects differently from this module's neutral defaults.
 ---@return table? normalized
-function projectTag.normalizeProject(project)
+function projectTag.normalizeProject(project, defaults)
+    defaults = defaults or {}
     local source = type(project) == "table" and project or nil
 
     local name = projectTag.trimText(source and source.name)
@@ -59,8 +64,8 @@ function projectTag.normalizeProject(project)
         return nil
     end
 
-    local icon = projectTag.normalizeIcon(source and source.icon)
-    local normalizedColor = projectTag.normalizeColor(source and source.color)
+    local icon = projectTag.normalizeIcon(source and source.icon, defaults.icon)
+    local normalizedColor = projectTag.normalizeColor(source and source.color, defaults.color)
 
     return {
         name = name,

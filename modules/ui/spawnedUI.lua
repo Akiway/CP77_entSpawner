@@ -1056,7 +1056,7 @@ function spawnedUI.registerHotkeys()
         if icon == "" then
             icon = IconGlyphs.Group
         end
-        spawnedUI.spawner.baseUI.spawnUI.favoritesUI.addNewItem(spawnedUI.selectedPaths[1].ref:serialize(), spawnedUI.selectedPaths[1].ref.name, icon)
+        spawnedUI.spawner.baseUI.spawnUI.prefabsUI.addNewItem(spawnedUI.selectedPaths[1].ref:serialize(), spawnedUI.selectedPaths[1].ref.name, icon)
     end, hotkeyRunCondition)
 
     -- Open context menu for selected from editor mode
@@ -1510,6 +1510,38 @@ function spawnedUI.drawDragWindow()
     end
 end
 
+---Draws the "Add to / Remove from favorites" context menu entry for one element.
+---Only spawnable elements referencing an asset of a path based spawn list qualify,
+---since favorites are pure asset bookmarks without any configuration.
+---@protected
+---@param element element
+function spawnedUI.drawAssetFavoriteMenuItem(element)
+    if not utils.isA(element, "spawnableElement") or not element.spawnable then
+        return
+    end
+
+    local spawnUI = spawnedUI.spawner and spawnedUI.spawner.baseUI.spawnUI or nil
+    if not spawnUI then
+        return
+    end
+
+    local modulePath = element.spawnable.modulePath
+    local assetPath = tostring(element.spawnable.spawnData or "")
+    local spawnList = spawnUI.getSpawnListByModulePath(modulePath)
+
+    if not spawnList or not spawnList.isPaths or assetPath == "" then
+        return
+    end
+
+    spawnUI.favoritesUI.drawContextMenuItem(
+        modulePath,
+        assetPath,
+        utils.getFileName(assetPath),
+        { spawnData = assetPath },
+        "Spawned"
+    )
+end
+
 ---@protected
 ---@param element element
 function spawnedUI.drawContextMenu(element, path)
@@ -1677,15 +1709,16 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
 		ImGui.Separator()
-        local makeLabelText = not utils.isA(element, "positionableGroup") and "Make Favorite" or "Make Prefab"
-        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, makeLabelText), "CTRL-F") then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, "Save as prefab"), "CTRL-F") then
             local icon = element.icon
             if icon == "" then
                 icon = IconGlyphs.Group
             end
 
-            spawnedUI.spawner.baseUI.spawnUI.favoritesUI.addNewItem(element:serialize(), element.name, icon)
+            spawnedUI.spawner.baseUI.spawnUI.prefabsUI.addNewItem(element:serialize(), element.name, icon)
         end
+
+        spawnedUI.drawAssetFavoriteMenuItem(element)
 
         ImGui.EndPopup()
     end

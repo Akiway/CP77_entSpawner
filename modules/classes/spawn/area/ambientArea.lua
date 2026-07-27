@@ -193,13 +193,6 @@ function ambientArea:drawAmbient(changed)
     end
 end
 
-function ambientArea:drawChannelSelect()
-    if ImGui.TreeNodeEx("Trigger Channels", ImGuiTreeNodeFlags.SpanFullWidth) then
-        self.channels = style.drawTriggerChannelsSelector(self.object, self.channels)
-        ImGui.TreePop()
-    end
-end
-
 function ambientArea:getAvailableTriggers()
     return {
         ["Ambient"] = ambientArea.drawAmbient

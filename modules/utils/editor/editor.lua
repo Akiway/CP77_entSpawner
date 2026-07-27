@@ -7,6 +7,7 @@ local history = require("modules/utils/history")
 local style = require("modules/ui/style")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local brushTool = require("modules/utils/editor/brush")
+local elevatorDoors = require("modules/utils/elevatorDoors")
 
 ---@class editor
 ---@field active boolean
@@ -87,45 +88,6 @@ local function selectedVisualizersEnabled()
 end
 
 brushTool.attach(editor)
-
----@alias elevatorDoorSide "left"|"right"|"top"|"bottom"
----@alias elevatorDoorLayout table<integer, elevatorDoorSide>
-
----Base door-side mapping by lift family.
----Indices correspond to door numbers shown in helper badges.
----@type table<string, elevatorDoorLayout>
-local ELEVATOR_DOOR_LAYOUTS = {
-    common = {
-        [1] = "left",
-        [2] = "right"
-    },
-    megabuilding = {
-        [1] = "right",
-        [2] = "bottom",
-        [3] = "top"
-    },
-    commonRiot = {
-        [1] = "left",
-        [2] = "bottom"
-    },
-    industrial = {
-        [1] = "left",
-        [2] = "right"
-    },
-    construction = {
-        [1] = "right",
-        [2] = "left"
-    }
-}
-
----Optional per-family 2D rotation applied to side mappings before world projection.
----Used to align helper numbering with in-game lift orientation variants.
----@type table<string, "cw"|"ccw">
-local ELEVATOR_DOOR_LAYOUT_ROTATIONS = {
-    common = "ccw",
-    industrial = "cw",
-    construction = "ccw"
-}
 
 ---@return boolean
 local function isSpawnedNameEditActive()
@@ -679,6 +641,23 @@ function editor.getScreenToWorldRay(x, y)
     return ray:Normalize()
 end
 
+---Raycasts the scene from the camera through the current cursor position.
+---Shorthand for the `getScreenToWorldRay` + camera-origin + `getRaySceneIntersection`
+---trio used by every "spawn / drop under the cursor" path.
+---@param excludeIds table<number, boolean>? Optional lookup table of element IDs to ignore.
+---@param usePhysical boolean? When true (default), physical raycast hits can override spawnable hits.
+---@return { hit: boolean, isNode: boolean, allHits: table[], result: table? }? hitData Nil when there is no player.
+function editor.getCursorSceneHit(excludeIds, usePhysical)
+    local player = GetPlayer()
+    if not player then
+        return nil
+    end
+
+    local origin = player:GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+
+    return editor.getRaySceneIntersection(editor.getScreenToWorldRay(), origin, excludeIds, usePhysical ~= false)
+end
+
 ---Finds the nearest intersection between a ray and spawned elements or physical world geometry.
 ---@param ray Vector4 Normalized ray direction.
 ---@param origin Vector4 Ray origin in world space.
@@ -785,6 +764,53 @@ function editor.updateArrowColor()
     visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis)
 end
 
+---Keeps the positioning-arrow gizmo of every selected element sized for the current camera distance.
+---Editor mode only, matching `spawnable:getArrowDistanceFactor`; `editor.resetArrowScale` puts the
+---arrows back to base size on exit. Runs each frame; `visualizer.setArrowScale` only refreshes the
+---mesh when the (quantized) target size actually changed, so a stationary camera performs no work
+---and continuous motion re-scales only when crossing a size bucket.
+function editor.updateArrowScale()
+    if not editor.active then return end
+    if not editor.spawnedUI or not GetPlayer() then return end
+
+    for _, path in pairs(editor.spawnedUI.selectedPaths) do
+        local element = path.ref
+        if utils.isA(element, "spawnableElement") and element.visualizerState and element.spawnable:isSpawned() then
+            local entity = element.spawnable:getEntity()
+            if entity then
+                visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize())
+            end
+        end
+    end
+end
+
+---Restores every visible positioning-arrow gizmo to its base, distance-independent size.
+---Distance scaling is editor-mode only, but leaving editor mode does not by itself rewrite the
+---`visualScale` already pushed onto the components, so any arrow grown for a far-away editor camera
+---would stay that big in-world. This is what actually applies the un-scaled size on the way out.
+function editor.resetArrowScale()
+    if not editor.spawnedUI then return end
+
+    if editor.spawnedUI.ensureCache then
+        editor.spawnedUI.ensureCache()
+    end
+
+    -- Passed explicitly rather than letting getArrowDistanceFactor resolve it, so the reset does not
+    -- depend on `editor.active` having already been cleared by the caller. Same value that function
+    -- returns once distance scaling is out of the picture: the user multiplier alone.
+    local baseFactor = settings.arrowSizeMultiplier or 1.0
+
+    for _, path in pairs(editor.spawnedUI.paths) do
+        local element = path.ref
+        if utils.isA(element, "spawnableElement") and element.visualizerState and element.spawnable:isSpawned() then
+            local entity = element.spawnable:getEntity()
+            if entity then
+                visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize(baseFactor))
+            end
+        end
+    end
+end
+
 ---Resets cached drag deltas when the active transform axis changes.
 function editor.updateCurrentAxis()
     if not editor.grab and not editor.rotate and not editor.scale then return end
@@ -878,7 +904,8 @@ function editor.checkArrow()
     if not selected or not selected:isSpawned() then return end
 
     local ray = editor.getScreenToWorldRay()
-    local arrowWidth = 0.04 * math.max(selected:getArrowSize().x, selected:getArrowSize().y, selected:getArrowSize().z)
+    local arrowSize = selected:getScaledArrowSize()
+    local arrowWidth = 0.04 * math.max(arrowSize.x, arrowSize.y, arrowSize.z)
     local entityRef = selected:getEntity()
     if not entityRef then
         editor.hoveredArrow = "none"
@@ -904,17 +931,17 @@ function editor.checkArrow()
 
     local xHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = 0, y = -arrowWidth, z = -arrowWidth },
-        max = { x = selected:getArrowSize().x * 2, y = arrowWidth, z = arrowWidth }
+        max = { x = arrowSize.x * 2, y = arrowWidth, z = arrowWidth }
     })
 
     local yHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = -arrowWidth, y = 0, z = -arrowWidth },
-        max = { x = arrowWidth, y = selected:getArrowSize().y * 2, z = arrowWidth }
+        max = { x = arrowWidth, y = arrowSize.y * 2, z = arrowWidth }
     })
 
     local zHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = -arrowWidth, y = -arrowWidth, z = 0 },
-        max = { x = arrowWidth, y = arrowWidth, z = selected:getArrowSize().z * 2 }
+        max = { x = arrowWidth, y = arrowWidth, z = arrowSize.z * 2 }
     })
 
     if zHit.hit then
@@ -1045,7 +1072,7 @@ function editor.updateDrag()
 
         if editor.rotationAxisWorld and editor.originalRotationQuat then
             local stepQuat = Quaternion.SetAxisAngle(editor.rotationAxisWorld, Deg2Rad(angleDelta))
-            local targetQuat = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, editor.originalRotationQuat)
+            local targetQuat = utils.multQuat(stepQuat, editor.originalRotationQuat)
             if selected.applyRotationDrag and utils.isA(selected, "positionableGroup") then
                 selected:applyRotationDrag(stepQuat, targetQuat, targetQuat:ToEulerAngles())
             else
@@ -1505,22 +1532,7 @@ end
 ---@param range number Half-extent applied on all axes.
 ---@return boolean inside True when point lies inside the box bounds.
 local function isInsideStreamingBox(point, center, range)
-    return point.x >= (center.x - range) and point.x <= (center.x + range)
-        and point.y >= (center.y - range) and point.y <= (center.y + range)
-        and point.z >= (center.z - range) and point.z <= (center.z + range)
-end
-
----Resolves streaming-range colors based on whether the player is inside the range.
----@param inside boolean True when the player is inside the streaming range.
----@return number color Wireframe edge color.
----@return number labelColor Label color used by overlay text.
-local function getStreamingWireframeThemeColors(inside)
-    local wireframeColorStyle = settings.wireframeColorStyle or 1
-    if wireframeColorStyle == 2 then
-        return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
-    end
-
-    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
+    return projectedWireframe.isInsideStreamingExtents(point, center, range, range, range)
 end
 
 ---Draws streaming-range overlays for eligible spawned elements.
@@ -1538,7 +1550,7 @@ local function drawSpawnableStreamingRanges()
 
     for _, target in ipairs(targets) do
         local inside = isInsideStreamingBox(playerPos, target.refPoint, target.range)
-        local color, labelColor = getStreamingWireframeThemeColors(inside)
+        local color, labelColor = projectedWireframe.getStreamingThemeColors(inside)
 
         projectedWireframe.drawOrientedBox(
             drawList,
@@ -1597,68 +1609,6 @@ local function drawSpawnableViewportOverlays()
     end
 
     projectedWireframe.endOverlay()
-end
-
----Resolves the canonical door layout family from entity spawn path text.
----Returns both layout table and a stable family key used for post-layout rotation rules.
----@param spawnData string?
----@return elevatorDoorLayout
----@return string layoutKey
-local function resolveLiftDoorLayout(spawnData)
-    local normalized = string.lower(tostring(spawnData or ""))
-
-    if string.find(normalized, "megabuilding", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.megabuilding, "megabuilding"
-    end
-
-    if string.find(normalized, "common_riot", 1, true) or string.find(normalized, "riot", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.commonRiot, "commonRiot"
-    end
-
-    if string.find(normalized, "industrial", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.industrial, "industrial"
-    end
-
-    if string.find(normalized, "construction", 1, true) then
-        return ELEVATOR_DOOR_LAYOUTS.construction, "construction"
-    end
-
-    return ELEVATOR_DOOR_LAYOUTS.common, "common"
-end
-
----Rotates a door side label in screen-planar space.
----`cw` means 90 degrees clockwise; `ccw` means 90 degrees counter-clockwise.
----@param side elevatorDoorSide?
----@param rotation "cw"|"ccw"|nil
----@return elevatorDoorSide?
-local function rotateDoorSide(side, rotation)
-    if not side then
-        return nil
-    end
-
-    if rotation == "cw" then
-        local cw = {
-            left = "top",
-            top = "right",
-            right = "bottom",
-            bottom = "left"
-        }
-
-        return cw[side] or side
-    end
-
-    if rotation == "ccw" then
-        local ccw = {
-            left = "bottom",
-            bottom = "right",
-            right = "top",
-            top = "left"
-        }
-
-        return ccw[side] or side
-    end
-
-    return side
 end
 
 ---Finds the selected lift device eligible for door-helper rendering.
@@ -1730,50 +1680,6 @@ local function getElevatorDoorMarkerThemeColors(index)
     return colorByDoor[index] or style.successColor, 0xFFDCD8D1
 end
 
----Computes a world-space helper anchor for one logical door side.
----Anchors are estimated from the lift AABB envelope and then transformed by lift rotation.
----This is intentionally approximate and can be replaced by per-lift custom local offsets.
----@param lift spawnable
----@param side elevatorDoorSide
----@return Vector4?
-local function getLiftDoorMarkerWorldPosition(lift, side)
-    if not lift or not lift.position or not lift.rotation or not lift.getBBox then
-        return nil
-    end
-
-    local bbox = lift:getBBox()
-    if not bbox or not bbox.min or not bbox.max then
-        return nil
-    end
-
-    local minX = tonumber(bbox.min.x) or -0.5
-    local minY = tonumber(bbox.min.y) or -0.5
-    local minZ = tonumber(bbox.min.z) or -0.5
-    local maxX = tonumber(bbox.max.x) or 0.5
-    local maxY = tonumber(bbox.max.y) or 0.5
-    local maxZ = tonumber(bbox.max.z) or 0.5
-
-    local sizeX = math.max(0.01, maxX - minX)
-    local sizeY = math.max(0.01, maxY - minY)
-    local sizeZ = math.max(0.01, maxZ - minZ)
-
-    local padding = math.max(0.15, math.min(1.0, math.max(sizeX, sizeY) * 0.12))
-    local localPoint = Vector4.new((minX + maxX) * 0.5, (minY + maxY) * 0.5, minZ + sizeZ * 0.45, 0)
-
-    if side == "left" then
-        localPoint.x = minX - padding
-    elseif side == "right" then
-        localPoint.x = maxX + padding
-    elseif side == "top" then
-        localPoint.y = maxY + padding
-    elseif side == "bottom" then
-        localPoint.y = minY - padding
-    end
-
-    local worldPoint = lift.rotation:ToQuat():Transform(localPoint)
-    return utils.addVector(lift.position, worldPoint)
-end
-
 ---Draws numbered elevator door helper markers for the currently selected lift.
 ---Pipeline:
 ---1. Resolve selected lift and eligibility.
@@ -1785,11 +1691,11 @@ local function drawElevatorDoorHelpers()
         return
     end
 
-    local layout, layoutKey = resolveLiftDoorLayout(context.lift.spawnData)
+    local layout, layoutKey = elevatorDoors.resolveLayout(context.lift.spawnData)
     if not layout then
         return
     end
-    local layoutRotation = ELEVATOR_DOOR_LAYOUT_ROTATIONS[layoutKey]
+    local layoutRotation = elevatorDoors.LAYOUT_ROTATIONS[layoutKey]
 
     local screen, drawList = projectedWireframe.beginOverlay("##elevatorDoorHelperOverlay")
     if not screen then
@@ -1797,9 +1703,9 @@ local function drawElevatorDoorHelpers()
     end
 
     for doorIndex = 1, 3 do
-        local side = rotateDoorSide(layout[doorIndex], layoutRotation)
+        local side = elevatorDoors.rotateSide(layout[doorIndex], layoutRotation)
         if side then
-            local worldPoint = getLiftDoorMarkerWorldPosition(context.lift, side)
+            local worldPoint = elevatorDoors.getMarkerWorldPosition(context.lift, side)
             if worldPoint then
                 local markerColor, labelColor = getElevatorDoorMarkerThemeColors(doorIndex)
                 projectedWireframe.drawWorldMarker(drawList, screen, worldPoint, {
@@ -1880,6 +1786,7 @@ function editor.onDraw()
     drawSpawnableStreamingRanges()
     drawSpawnableViewportOverlays()
     drawElevatorDoorHelpers()
+    editor.updateArrowScale()
 
     if editor.active then
         if editor.isBrushActive() then
@@ -1945,6 +1852,7 @@ function editor.toggle(state)
         end
         editor.baseUI.restoreWindowPosition = true
         editor.removeHighlight(false)
+        editor.resetArrowScale()
         editor.currentAxis = "none"
         editor.hoveredArrow = "none"
         editor.grab = false

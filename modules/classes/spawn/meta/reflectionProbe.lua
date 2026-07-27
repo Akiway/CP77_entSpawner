@@ -47,6 +47,11 @@ function reflection:new()
     o.description = "Places a reflection probe of variable size. Can be used to make indoors have appropriate base lighting."
     o.icon = IconGlyphs.HomeLightbulbOutline
 
+    -- Spawn New shows a single generic entry instead of the envprobe path browser.
+    -- The concrete envprobe can be changed later in node properties.
+    o.collapseSpawnList = true
+    o.collapsedSpawnListLabel = "Reflection Probe - Default"
+
     o.scale = { x = 5, y = 5, z = 5 }
     o.edgeScale = { x = 0.5, y = 0.5, z = 0.5 }
     o.previewed = true
@@ -178,11 +183,7 @@ function reflection:onAssemble(entity)
 end
 
 function reflection:spawn()
-    local probe = self.spawnData
-    self.spawnData = "base\\spawner\\empty_entity.ent"
-
-    spawnable.spawn(self)
-    self.spawnData = probe
+    self:spawnAsPlaceholderEntity()
 end
 
 function reflection:save()
@@ -218,11 +219,6 @@ end
 
 function reflection:getSize()
     return self.scale
-end
-
-function reflection:setPreview(state)
-    self.previewed = state
-    visualizer.toggleAll(self:getEntity(), self.previewed)
 end
 
 function reflection:draw()
@@ -359,16 +355,7 @@ function reflection:draw()
 end
 
 function reflection:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 function reflection:getGroupedProperties()

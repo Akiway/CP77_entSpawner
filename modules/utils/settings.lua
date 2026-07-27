@@ -8,6 +8,7 @@ local config = require("modules/utils/config")
 ---@field public coarsePrecisionMultiplier number
 ---@field public rotSteps number
 ---@field public rotationShiftClickStep number
+---@field public applyRotationWhenDropped boolean Default "Apply Rotation When Dropped" state for newly created elements.
 ---@field public despawnOnReload boolean
 ---@field public headerState boolean
 ---@field public deleteConfirm boolean
@@ -23,6 +24,8 @@ local config = require("modules/utils/config")
 ---@field public editorBottomSize integer
 ---@field public gizmoOnHover boolean
 ---@field public gizmoOnSelected boolean
+---@field public arrowScaleWithDistance boolean
+---@field public arrowSizeMultiplier number
 ---@field public outlineSelected boolean
 ---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
@@ -38,12 +41,17 @@ local config = require("modules/utils/config")
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
+---@field public prefabsAssetPreviewEnabled boolean Master switch for hover previews in the Prefabs sub-tab.
 ---@field public prefabPreviewMaxAssets number
 ---@field public spawnNewVisualizerEnabledByModule table<string, boolean>
 ---@field public filterTags table
 ---@field public favoritesFilter string
 ---@field public favoritesTagsAND boolean
 ---@field public favoritesGroupingState table
+---@field public assetFavoritesFilter string
+---@field public assetFavoritesFilterTags table
+---@field public assetFavoritesTagsAND boolean
+---@field public assetFavoritesGroupOpen table
 ---@field public mainWindowName string
 ---@field public draggingThreshold number
 ---@field public ignoreHiddenDuringExport boolean
@@ -77,6 +85,10 @@ local config = require("modules/utils/config")
 ---@field public speedTimelineZoom number
 ---@field public speedTimelineSnapEnabled boolean
 ---@field public speedTimelineSnapMeters number
+---@field public defaultColliderMaterial integer
+---@field public defaultGroupProject table? Default project tag ({name, icon, color}) assigned to new groups, or nil for none.
+---@field public defaultStreamingPreset integer Default streaming distance preset index (0 = Interior) for new spawnables.
+---@field public defaultExportFormat integer Default export XL format (0 = JSON, 1 = YAML).
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -85,6 +97,7 @@ local settingsData = {
     coarsePrecisionMultiplier = 5,
     rotSteps = 0.050,
     rotationShiftClickStep = 90,
+    applyRotationWhenDropped = true,
     despawnOnReload = true,
     headerState = true,
     deleteConfirm = true,
@@ -100,6 +113,8 @@ local settingsData = {
     editorBottomSize = 200,
     gizmoOnHover = true,
     gizmoOnSelected = true,
+    arrowScaleWithDistance = true,
+    arrowSizeMultiplier = 1.0,
     outlineSelected = true,
     selectedVisualizersEnabled = true,
     outlineColor = 0,
@@ -115,6 +130,7 @@ local settingsData = {
     nodeRefPrefix = "mod",
     cacheExclusions = {},
     assetPreviewEnabled = {},
+    prefabsAssetPreviewEnabled = true,
     prefabPreviewMaxAssets = 300,
     spawnNewVisualizerEnabledByModule = {},
     mainWindowName = "World Builder",
@@ -155,7 +171,16 @@ local settingsData = {
     favoritesFilter = "",
     favoritesTagsAND = false,
     favoritesGroupingState = {},
+
+    assetFavoritesFilter = "",
+    assetFavoritesFilterTags = {},
+    assetFavoritesTagsAND = false,
+    assetFavoritesGroupOpen = {},
+
     defaultColliderMaterial = 12,
+    -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
+    defaultStreamingPreset = 0, -- Interior
+    defaultExportFormat = 0, -- JSON
 }
 
 local settingsFNs = {}

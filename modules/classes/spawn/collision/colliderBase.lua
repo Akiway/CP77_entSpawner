@@ -92,6 +92,27 @@ function colliderBase.getColliderGenerics()
     return colliderGenerics
 end
 
+---Returns the readable material display labels (1-based array) used by the
+---collision shape material selector.
+---@return string[]
+function colliderBase.getMaterialDisplayOptions()
+    return materialDisplayOptions
+end
+
+---Returns the readable material label for a 0-based material index.
+---@param index number?
+---@return string
+function colliderBase.getMaterialDisplayByIndex(index)
+    return getMaterialDisplayByIndex(index)
+end
+
+---Returns the 0-based material index for a readable material label.
+---@param label string
+---@return number?
+function colliderBase.getMaterialIndexByDisplay(label)
+    return materialDisplayToIndex[label]
+end
+
 ---Respawn the collider to update parameters, if changed
 ---@param changed boolean
 ---@protected
@@ -109,7 +130,7 @@ end
 function colliderBase:getAssetPreviewPosition()
     if self.isAssetPreview then
         local spin = Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))
-        self.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), spin):ToEulerAngles()
+        self.rotation = utils.multQuat(self.rotation:ToQuat(), spin):ToEulerAngles()
     end
 
     return spawnable.getAssetPreviewPosition(self, 0.75)

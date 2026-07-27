@@ -315,4 +315,39 @@ function intersection.getTClosestToRay(aRayOrigin, aRayDirection, bRayOrigin, bR
     return ta, tb
 end
 
+---Performs ray-vs-bounding-box intersection used for selection/manipulation.
+---Also returns an unscaled hit point for tools that need raw mesh-space context.
+---Shared by every mesh-backed spawnable whose hit volume is just its scaled asset AABB.
+---@param entry table Spawnable exposing `getEntity`, `getSize`, `spawnData`, `bBox`, `scale`, `position` and `rotation`.
+---@param origin Vector4
+---@param ray Vector4
+---@return table
+function intersection.getSpawnableBBoxIntersection(entry, origin, ray)
+    if not entry:getEntity() then
+        return { hit = false }
+    end
+
+    local scaleFactor = intersection.getResourcePathScalingFactor(entry.spawnData, entry:getSize())
+
+    local scaledBBox = utils.getScaledBBoxWithFactor(entry.bBox, entry.scale, scaleFactor)
+    local result = intersection.getBoxIntersection(origin, ray, entry.position, entry.rotation, scaledBBox)
+
+    local unscaledHit
+    if result.hit then
+        unscaledHit = intersection.getBoxIntersection(origin, ray, entry.position, entry.rotation, intersection.unscaleBBox(entry.spawnData, entry:getSize(), scaledBBox))
+    end
+
+    return {
+        hit = result.hit,
+        position = result.position,
+        unscaledHit = unscaledHit and unscaledHit.position or result.position,
+        collisionType = "bbox",
+        distance = result.distance,
+        bBox = scaledBBox,
+        objectOrigin = entry.position,
+        objectRotation = entry.rotation,
+        normal = result.normal
+    }
+end
+
 return intersection

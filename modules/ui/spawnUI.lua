@@ -11,6 +11,7 @@ local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
 local prefabPreview = require("modules/utils/prefabPreview")
+local assetFavorites = require("modules/utils/assetFavorites")
 
 local types = {
     ["Entity"] = {
@@ -94,13 +95,31 @@ local types = {
 }
 
 local spawnData = {}
-local typeNames = {}
 local variantNames = {}
 local modulePathToSpawnList = {}
+local modulePathToVariantLabel = {}
 local spawnNewVisualizerClassGroups = {}
 local spawnNewVisualizerModuleSet = {}
-local reflectionProbeModulePath = "meta/reflectionProbe"
-local reflectionProbeDefaultLabel = "Reflection Probe - Default"
+
+-- `types` is static, so the display order is resolved once instead of re-sorting per call.
+local typeNames = utils.getKeys(types)
+table.sort(typeNames, function (a, b) return types[a].index < types[b].index end)
+
+local variantNamesByType = {}
+for _, typeName in ipairs(typeNames) do
+    local names = utils.getKeys(types[typeName].variants)
+    table.sort(names, function (a, b)
+        return types[typeName].variants[a].index < types[typeName].variants[b].index
+    end)
+    variantNamesByType[typeName] = names
+end
+
+---Display-ordered variant names of one type. The returned table is shared, do not mutate it.
+---@param typeName string
+---@return string[]
+local function getSortedVariantNames(typeName)
+    return variantNamesByType[typeName] or {}
+end
 
 local AMM = nil
 
@@ -133,13 +152,12 @@ local AMM = nil
 ---@field flashlightSuppressionComponent IComponent?
 ---@field flashlightSuppressionCaptured boolean
 ---@field flashlightSuppressionPreviousOverride number?
----@field deviceClassFilterSelectionsByModule table<string, table<string, boolean>>
----@field deviceClassFilterSearchByModule table<string, string>
----@field recordTypeFilterSelectionsByModule table<string, table<string, boolean>>
----@field recordTypeFilterSearchByModule table<string, string>
----@field pathOriginFilterSelectionsByModule table<string, table<string, boolean>>
+---@field entryFilterStateByModule table<string, table<string, {selections: table<string, boolean>, search: string}>>
 ---@field filteredHierarchyTree table?
 ---@field hierarchyOpenStateByKey table<string, boolean>
+---@field hierarchyRows hierarchyRow[]?
+---@field hierarchyRowsRoot table?
+---@field prefabsUI prefabsUI
 ---@field favoritesUI favoritesUI
 spawnUI = {
     filter = "",
@@ -170,30 +188,14 @@ spawnUI = {
     flashlightSuppressionComponent = nil,
     flashlightSuppressionCaptured = false,
     flashlightSuppressionPreviousOverride = nil,
-    deviceClassFilterSelectionsByModule = {},
-    deviceClassFilterSearchByModule = {},
-    recordTypeFilterSelectionsByModule = {},
-    recordTypeFilterSearchByModule = {},
-    pathOriginFilterSelectionsByModule = {},
+    entryFilterStateByModule = {},
     filteredHierarchyTree = nil,
     hierarchyOpenStateByKey = {},
+    hierarchyRows = nil,
+    hierarchyRowsRoot = nil,
+    prefabsUI = require("modules/ui/prefabsUI"),
     favoritesUI = require("modules/ui/favoritesUI")
 }
-
----@return string[]
-local function getSortedTypeNames()
-    local names = utils.getKeys(types)
-    table.sort(names, function(a, b) return types[a].index < types[b].index end)
-    return names
-end
-
----@param typeName string
----@return string[]
-local function getSortedVariantNames(typeName)
-    local names = utils.getKeys(types[typeName].variants)
-    table.sort(names, function(a, b) return types[typeName].variants[a].index < types[typeName].variants[b].index end)
-    return names
-end
 
 ---@param instance spawnable?
 ---@return boolean
@@ -204,58 +206,11 @@ local function supportsSpawnNewVisualizerDefault(instance)
         and type(instance.drawPreviewCheckbox) == "function"
 end
 
-local function rebuildSpawnNewVisualizerClassCatalog()
-    local groups = {}
-    local moduleSet = {}
-    local changed = false
-
-    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
-        settings.spawnNewVisualizerEnabledByModule = {}
-        changed = true
-    end
-
-    for _, typeName in ipairs(getSortedTypeNames()) do
-        local entries = {}
-        for _, variantName in ipairs(getSortedVariantNames(typeName)) do
-            local variant = types[typeName].variants[variantName]
-            local instance = variant and variant.class and variant.class:new() or nil
-
-            if supportsSpawnNewVisualizerDefault(instance) then
-                local defaultPreviewed = instance.previewed == true
-                local modulePath = instance.modulePath
-
-                table.insert(entries, {
-                    name = variantName,
-                    modulePath = modulePath,
-                    defaultPreviewed = defaultPreviewed
-                })
-                moduleSet[modulePath] = true
-
-                if type(settings.spawnNewVisualizerEnabledByModule[modulePath]) ~= "boolean" then
-                    settings.spawnNewVisualizerEnabledByModule[modulePath] = defaultPreviewed
-                    changed = true
-                end
-            end
-        end
-
-        if #entries > 0 then
-            groups[typeName] = entries
-        end
-    end
-
-    spawnNewVisualizerClassGroups = groups
-    spawnNewVisualizerModuleSet = moduleSet
-
-    if changed then
-        settings.save()
-    end
-end
-
 ---@return table[]
 function spawnUI.getVisualizerClassGroups()
     local groups = {}
 
-    for _, typeName in ipairs(getSortedTypeNames()) do
+    for _, typeName in ipairs(typeNames) do
         local entries = spawnNewVisualizerClassGroups[typeName]
         if entries and #entries > 0 then
             table.insert(groups, {
@@ -268,29 +223,26 @@ function spawnUI.getVisualizerClassGroups()
     return groups
 end
 
----Replaces reflection probe path list with a single generic spawn entry.
----The concrete envprobe can be changed later in node properties.
+---Replaces a path list with a single generic spawn entry, for spawnables declaring
+---`collapseSpawnList`. The concrete asset can be changed later in node properties.
 ---@param spawnList table
-local function collapseReflectionProbeSpawnList(spawnList)
-    if not spawnList or spawnList.modulePath ~= reflectionProbeModulePath then
-        return
-    end
-
-    local defaultProbePath = ""
+---@param label string
+local function collapseSpawnListToSingleEntry(spawnList, label)
+    local defaultPath = ""
     for _, entry in ipairs(spawnList.data or {}) do
         local path = entry and entry.data and entry.data.spawnData or ""
         if type(path) == "string" and path ~= "" then
-            defaultProbePath = path
+            defaultPath = path
             break
         end
     end
 
     spawnList.data = {
         {
-            data = { spawnData = defaultProbePath },
+            data = { spawnData = defaultPath },
             lastSpawned = nil,
-            name = reflectionProbeDefaultLabel,
-            fileName = reflectionProbeDefaultLabel
+            name = label,
+            fileName = label
         }
     }
 
@@ -298,57 +250,132 @@ local function collapseReflectionProbeSpawnList(spawnList)
     spawnList.isPaths = false
 end
 
+---Sorts one spawn list in the order Spawn New displays it.
+---Done once at load so switching category/variant never re-sorts.
+---@param spawnList table
+local function sortSpawnList(spawnList)
+    -- Sorting every list at load means one malformed entry must not take startup
+    -- down, hence the tostring coercion in both comparators.
+    table.sort(spawnList.data, function (a, b) return tostring(a.name) < tostring(b.name) end)
+
+    if not spawnList.isPaths then return end
+
+    -- Path lists can also be displayed file-name-first ("Strip paths"), so keep a
+    -- second ordering ready instead of re-sorting whenever the toggle flips.
+    local byFileName = {}
+    for index, entry in ipairs(spawnList.data) do
+        byFileName[index] = entry
+    end
+    table.sort(byFileName, function (a, b) return tostring(a.fileName) < tostring(b.fileName) end)
+
+    spawnList.dataByFileName = byFileName
+end
+
+---Returns the spawn list entries in the order Spawn New currently displays them.
+---@param spawnList table
+---@return table[]
+local function getOrderedSpawnListData(spawnList)
+    if spawnList.isPaths and settings.spawnUIOnlyNames and spawnList.dataByFileName then
+        return spawnList.dataByFileName
+    end
+
+    return spawnList.data
+end
+
 ---Loads the spawn data (Either list of e.g. paths, or exported object files) for each data variant
 ---@param spawner spawner
 function spawnUI.loadSpawnData(spawner)
-    typeNames = {}
     variantNames = {}
     spawnData = {}
     modulePathToSpawnList = {}
-    spawnUI.deviceClassFilterSelectionsByModule = {}
-    spawnUI.deviceClassFilterSearchByModule = {}
-    spawnUI.recordTypeFilterSelectionsByModule = {}
-    spawnUI.recordTypeFilterSearchByModule = {}
-    spawnUI.pathOriginFilterSelectionsByModule = {}
+    modulePathToVariantLabel = {}
+    spawnUI.entryFilterStateByModule = {}
     spawnUI.filteredHierarchyTree = nil
     spawnUI.hierarchyOpenStateByKey = {}
+    spawnUI.invalidateHierarchyRows()
+    spawnUI.invalidateFilterCaches()
 
     AMM = GetMod("AppearanceMenuMod")
     spawnUI.spawnedUI = spawner.baseUI.spawnedUI
     spawnUI.spawner = spawner
     spawnUI.filter = tostring(settings.spawnUIFilter or "")
 
-    for dataName, dataType in pairs(types) do
-        spawnData[dataName] = {}
+    local visualizerGroups = {}
+    local visualizerModuleSet = {}
+    local settingsChanged = false
 
-        for variantName, variant in pairs(dataType.variants) do
+    if type(settings.spawnNewVisualizerEnabledByModule) ~= "table" then
+        settings.spawnNewVisualizerEnabledByModule = {}
+        settingsChanged = true
+    end
+
+    for _, dataName in ipairs(typeNames) do
+        spawnData[dataName] = {}
+        local visualizerEntries = {}
+
+        for _, variantName in ipairs(getSortedVariantNames(dataName)) do
+            local variant = types[dataName].variants[variantName]
+            -- One instance per variant serves both the spawn list metadata and the
+            -- visualizer catalog below; instantiating spawnables is not cheap.
             local variantInstance = variant.class:new()
-            local info = { node = variantInstance.node, description = variantInstance.description, previewNote = variantInstance.previewNote }
+            local modulePath = variantInstance.modulePath
             local isPaths = variantInstance.spawnListType == "list"
             local loadSpawnDataFn = isPaths and config.loadLists or config.loadFiles
             local spawnList = {
                 data = loadSpawnDataFn(variantInstance.spawnDataPath),
                 class = variant.class,
-                modulePath = variantInstance.modulePath,
-                info = info,
+                modulePath = modulePath,
+                info = { node = variantInstance.node, description = variantInstance.description, previewNote = variantInstance.previewNote },
                 isPaths = isPaths,
                 assetPreviewDelay = variantInstance.assetPreviewDelay,
-                assetPreviewType = variantInstance.assetPreviewType
+                assetPreviewType = variantInstance.assetPreviewType,
+                entryFilter = variantInstance.entryFilter
             }
-            collapseReflectionProbeSpawnList(spawnList)
-            spawnData[dataName][variantName] = spawnList
-            modulePathToSpawnList[variantInstance.modulePath] = spawnList
 
-            if settings.assetPreviewEnabled[variantInstance.modulePath] == nil then
-                settings.assetPreviewEnabled[variantInstance.modulePath] = true
-                settings.save()
+            if variantInstance.collapseSpawnList then
+                collapseSpawnListToSingleEntry(spawnList, variantInstance.collapsedSpawnListLabel or variantName)
             end
+
+            sortSpawnList(spawnList)
+
+            spawnData[dataName][variantName] = spawnList
+            modulePathToSpawnList[modulePath] = spawnList
+            modulePathToVariantLabel[modulePath] = dataName .. " > " .. variantName
+
+            if settings.assetPreviewEnabled[modulePath] == nil then
+                settings.assetPreviewEnabled[modulePath] = true
+                settingsChanged = true
+            end
+
+            if supportsSpawnNewVisualizerDefault(variantInstance) then
+                local defaultPreviewed = variantInstance.previewed == true
+
+                table.insert(visualizerEntries, {
+                    name = variantName,
+                    modulePath = modulePath,
+                    defaultPreviewed = defaultPreviewed
+                })
+                visualizerModuleSet[modulePath] = true
+
+                if type(settings.spawnNewVisualizerEnabledByModule[modulePath]) ~= "boolean" then
+                    settings.spawnNewVisualizerEnabledByModule[modulePath] = defaultPreviewed
+                    settingsChanged = true
+                end
+            end
+        end
+
+        if #visualizerEntries > 0 then
+            visualizerGroups[dataName] = visualizerEntries
         end
     end
 
-    rebuildSpawnNewVisualizerClassCatalog()
+    spawnNewVisualizerClassGroups = visualizerGroups
+    spawnNewVisualizerModuleSet = visualizerModuleSet
 
-    typeNames = getSortedTypeNames()
+    -- Single write, instead of one per newly seen module.
+    if settingsChanged then
+        settings.save()
+    end
 
     spawnUI.selectedType = math.max(utils.indexValue(typeNames, settings.selectedType) - 1, 0)
 
@@ -365,14 +392,27 @@ function spawnUI.getActiveSpawnList()
     return spawnData[typeNames[spawnUI.selectedType + 1]][variantNames[spawnUI.selectedVariant + 1]]
 end
 
-local deviceClassFilterListByModulePath = {
-    ["entity/entityTemplate"] = true,
-    ["entity/device"] = true
-}
+---Returns the spawn list owning a given spawnable module path, if any.
+---@param modulePath string?
+---@return table?
+function spawnUI.getSpawnListByModulePath(modulePath)
+    if type(modulePath) ~= "string" then
+        return nil
+    end
 
-local recordTypeFilterListByModulePath = {
-    ["entity/entityRecord"] = true
-}
+    return modulePathToSpawnList[modulePath]
+end
+
+---Returns the "Type > Variant" label of a given spawnable module path.
+---@param modulePath string?
+---@return string?
+function spawnUI.getVariantLabelByModulePath(modulePath)
+    if type(modulePath) ~= "string" then
+        return nil
+    end
+
+    return modulePathToVariantLabel[modulePath]
+end
 
 local pathOriginTagInfoByKey = {
     base = { label = "Base game", tag = "Base", color = 0xFF00A6B2 },
@@ -390,211 +430,14 @@ local pathOriginTagInfoByKey = {
      }
 }
 
-local pathOriginFilterOptionOrder = {
-    { key = "base", checkboxIdSuffix = "Base" },
-    { key = "plDlc", checkboxIdSuffix = "PlDlc" },
-    { key = "modded", checkboxIdSuffix = "Modded" }
-}
-
----Returns whether a filter is supported by the active spawn list module.
----@param spawnList table?
----@param moduleSupportMap table<string, boolean>
----@return boolean
-local function supportsFilterForModule(spawnList, moduleSupportMap)
-    return spawnList ~= nil and moduleSupportMap[spawnList.modulePath] == true
-end
-
----Resolves the effective device class name for a list entry.
----Delegates the actual source/fallback logic to entity-domain helpers.
----@param entry table
----@param spawnList table
----@return string
-local function getEntryDeviceClassName(entry, spawnList)
-    return entity.resolveDeviceClassNameForEntry(entry, spawnList.modulePath)
-end
-
----Returns whether the path origin filter should be shown for the active variant.
----@param spawnList table?
----@return boolean
-local function supportsPathOriginFilter(spawnList)
-    return spawnList ~= nil and spawnList.isPaths == true
-end
-
----Gets or lazily creates the per-module Content Origin checkbox state map.
----All options default to checked.
----@param spawnList table?
----@return table<string, boolean>?
-local function getPathOriginFilterSelections(spawnList)
-    if not supportsPathOriginFilter(spawnList) then
-        return nil
-    end
-
-    local modulePath = spawnList.modulePath
-    local selections = spawnUI.pathOriginFilterSelectionsByModule[modulePath]
-    if not selections then
-        selections = {
-            base = true,
-            plDlc = true,
-            modded = true
-        }
-        spawnUI.pathOriginFilterSelectionsByModule[modulePath] = selections
-    end
-
-    return selections
-end
-
----Gets or lazily creates the per-module multi-select state map for a filter.
----@param spawnList table?
----@param moduleSupportMap table<string, boolean>
----@param selectionsByModule table<string, table<string, boolean>>
----@return table<string, boolean>?
-local function getFilterSelectionsForModule(spawnList, moduleSupportMap, selectionsByModule)
-    if not supportsFilterForModule(spawnList, moduleSupportMap) then
-        return nil
-    end
-
-    local modulePath = spawnList.modulePath
-    local selections = selectionsByModule[modulePath]
-    if not selections then
-        selections = {}
-        selectionsByModule[modulePath] = selections
-    end
-
-    return selections
-end
-
----Gets the per-module search text used inside a filter popin.
----Returns an empty string when unsupported or uninitialized.
----@param spawnList table?
----@param moduleSupportMap table<string, boolean>
----@param searchByModule table<string, string>
----@return string
-local function getFilterSearchForModule(spawnList, moduleSupportMap, searchByModule)
-    if not supportsFilterForModule(spawnList, moduleSupportMap) then
-        return ""
-    end
-
-    local modulePath = spawnList.modulePath
-    local searchValue = searchByModule[modulePath]
-    if type(searchValue) ~= "string" then
-        searchValue = ""
-        searchByModule[modulePath] = searchValue
-    end
-
-    return searchValue
-end
-
----Sets the per-module search text used inside a filter popin.
----@param spawnList table?
----@param moduleSupportMap table<string, boolean>
----@param searchByModule table<string, string>
----@param value string
-local function setFilterSearchForModule(spawnList, moduleSupportMap, searchByModule, value)
-    if not supportsFilterForModule(spawnList, moduleSupportMap) then
-        return
-    end
-
-    searchByModule[spawnList.modulePath] = tostring(value or "")
-end
-
----Gets the current Device Class selection state for the active module.
----@param spawnList table?
----@return table<string, boolean>?
-local function getDeviceClassFilterSelections(spawnList)
-    return getFilterSelectionsForModule(
-        spawnList,
-        deviceClassFilterListByModulePath,
-        spawnUI.deviceClassFilterSelectionsByModule
-    )
-end
-
----Gets the current Record Type selection state for the active module.
----@param spawnList table?
----@return table<string, boolean>?
-local function getRecordTypeFilterSelections(spawnList)
-    return getFilterSelectionsForModule(
-        spawnList,
-        recordTypeFilterListByModulePath,
-        spawnUI.recordTypeFilterSelectionsByModule
-    )
-end
-
 ---Returns true when at least one option is selected in a filter map.
 ---@param selections table<string, boolean>?
 ---@return boolean
 local function hasSelectedFilterOption(selections)
-    if not selections then
-        return false
-    end
-
-    for _, isSelected in pairs(selections) do
+    for _, isSelected in pairs(selections or {}) do
         if isSelected then
             return true
         end
-    end
-
-    return false
-end
-
----Builds the selector preview label from current selection state.
----Shows "all" label when none are selected, item label for one, count label otherwise.
----@param selections table<string, boolean>?
----@param allLabel string
----@param multiLabelFormat string
----@return string
-local function getFilterPreviewLabel(selections, allLabel, multiLabelFormat)
-    local selectedCount = 0
-    local singleSelectedKey = ""
-
-    if selections then
-        for key, isSelected in pairs(selections) do
-            if isSelected then
-                selectedCount = selectedCount + 1
-                singleSelectedKey = key
-            end
-        end
-    end
-
-    if selectedCount == 0 then
-        return allLabel
-    end
-
-    if selectedCount == 1 then
-        return singleSelectedKey
-    end
-
-    return string.format(multiLabelFormat, selectedCount)
-end
-
----Draws a clear-selection icon button for one multi-select filter map.
----Returns whether selection changed.
----@param selections table<string, boolean>?
----@param buttonId string
----@param tooltip string
----@param sameLine boolean?
----@return boolean changed
-local function drawMultiSelectClearButton(selections, buttonId, tooltip, sameLine)
-    if not hasSelectedFilterOption(selections) then
-        return false
-    end
-
-    if sameLine then
-        ImGui.SameLine()
-    end
-
-    style.pushButtonNoBG(true)
-    local clicked = ImGui.Button(IconGlyphs.FilterRemoveOutline .. buttonId)
-    style.pushButtonNoBG(false)
-
-    if tooltip ~= "" then
-        style.tooltip(tooltip)
-    end
-
-    if clicked then
-        for key, _ in pairs(selections) do
-            selections[key] = nil
-        end
-        return true
     end
 
     return false
@@ -717,22 +560,11 @@ end
 ---@param spawnList table?
 ---@return string?
 local function getEntryPathOriginKey(entry, spawnList)
-    if not supportsPathOriginFilter(spawnList) then
+    if not spawnList or spawnList.isPaths ~= true then
         return nil
     end
 
     return getPathOriginKeyFromPath(getEntryAssetPath(entry, spawnList))
-end
-
----Returns true when the content-origin filter should actively constrain results.
----@param selections table<string, boolean>?
----@return boolean
-local function isPathOriginFilterEnabled(selections)
-    if not selections then
-        return false
-    end
-
-    return not (selections.base == true and selections.plDlc == true and selections.modded == true)
 end
 
 ---Gets tag display metadata for one search-list entry origin.
@@ -748,73 +580,205 @@ local function getEntryPathOriginTagInfo(entry, spawnList)
     return pathOriginTagInfoByKey[originKey]
 end
 
----Applies selector-popin search matching to an option label.
----@param optionName string
----@param filterValue string
----@return boolean
-local function matchesSelectorOptionFilter(optionName, filterValue)
-    local searchValue = string.lower(tostring(filterValue or ""))
-    if searchValue == "" then
-        return true
-    end
+--- Spawn New per-entry filters -----------------------------------------------
+--
+-- Every filter is described once here and driven generically by
+-- `spawnUI.updateFilter` (matching), `drawEntryFilters` (UI) and
+-- `getFilterState` (per-module selection/search state). Adding a filter means
+-- adding one descriptor plus the `entryFilter` field on the spawnable class.
 
-    return utils.safePatternMatch(string.lower(tostring(optionName or "")), searchValue)
+---@class SpawnEntryFilter
+---@field id string Unique id, also used as ImGui ID scope.
+---@field label string Row label.
+---@field supports fun(spawnList: table): boolean Whether the filter applies to a list.
+---@field resolveKey fun(entry: table, spawnList: table): string Option key of one entry.
+---@field defaults table<string, boolean>? Initial selection state.
+---@field prune boolean? When false, selections are kept even if no entry carries them.
+---@field isActive fun(selections: table<string, boolean>): boolean Whether the filter constrains results.
+---@field accepts fun(selections: table<string, boolean>, key: string): boolean Entry test.
+
+---Default activity test: the filter constrains as soon as one option is picked.
+---@param selections table<string, boolean>
+---@return boolean
+local function anySelected(selections)
+    return hasSelectedFilterOption(selections)
 end
 
----Collects all currently available option keys for a filter from the active spawn list.
----@param spawnList table
----@param resolveKey fun(entry: table, spawnList: table): string
----@return table<string, boolean>
-local function collectAvailableFilterKeys(spawnList, resolveKey)
-    local availableKeys = {}
+---Default entry test: the entry must carry a key that is currently selected.
+---@param selections table<string, boolean>
+---@param key string
+---@return boolean
+local function acceptsSelectedKey(selections, key)
+    return key ~= "" and selections[key] == true
+end
 
+---@type SpawnEntryFilter[]
+local entryFilters = {
+    {
+        id = "pathOrigin",
+        label = "Asset origin",
+        labelTooltip = "Filter entries based on where they come from.\nThis is determined by the starting path of the asset, for example 'base/' or 'mod/'.\nChecking all options will show all entries, while unchecking all will show only entries that don't match any known origin.",
+        -- Rendered as an inline checkbox row rather than a combo; its keys are a
+        -- fixed set, so they must survive lists that happen to contain none of them.
+        checkboxes = {
+            { key = "base", idSuffix = "Base" },
+            { key = "plDlc", idSuffix = "PlDlc" },
+            { key = "modded", idSuffix = "Modded" }
+        },
+        defaults = { base = true, plDlc = true, modded = true },
+        prune = false,
+        supports = function (spawnList) return spawnList.isPaths == true end,
+        resolveKey = function (entry, spawnList) return getEntryPathOriginKey(entry, spawnList) or "" end,
+        isActive = function (selections)
+            return not (selections.base == true and selections.plDlc == true and selections.modded == true)
+        end,
+        accepts = function (selections, key)
+            -- With nothing checked, only entries of unknown origin remain.
+            if not hasSelectedFilterOption(selections) then
+                return key == ""
+            end
+
+            return acceptsSelectedKey(selections, key)
+        end
+    },
+    {
+        id = "deviceClass",
+        label = "Device Class Name",
+        allLabel = "All classes",
+        multiLabel = "%d classes selected",
+        searchHint = "Search class name...",
+        emptyText = "No class names available",
+        noMatchText = "No matching class names",
+        selectAllTooltip = "Select all class names",
+        unselectAllTooltip = "Unselect all class names (default behavior: show all)",
+        clearTooltip = "Clear selected class-name filters",
+        comboWidth = 260,
+        supports = function (spawnList) return spawnList.entryFilter == "deviceClass" end,
+        resolveKey = function (entry, spawnList) return entity.resolveDeviceClassNameForEntry(entry, spawnList.modulePath) end,
+        resolveIcon = entity.getDeviceSecondaryIcon,
+        isActive = anySelected,
+        accepts = acceptsSelectedKey
+    },
+    {
+        id = "recordType",
+        label = "Record type",
+        allLabel = "All record types",
+        multiLabel = "%d record types selected",
+        searchHint = "Search record type...",
+        emptyText = "No record types available",
+        noMatchText = "No matching record types",
+        selectAllTooltip = "Select all record types",
+        unselectAllTooltip = "Unselect all record types (default behavior: show all)",
+        clearTooltip = "Clear selected record-type filters",
+        comboWidth = 200,
+        supports = function (spawnList) return spawnList.entryFilter == "recordType" end,
+        resolveKey = function (entry) return entityRecordClass.getTypePrefix(entry and entry.data and entry.data.spawnData or nil) end,
+        resolveIcon = function () return IconGlyphs.AlphaRBoxOutline end,
+        isActive = anySelected,
+        accepts = acceptsSelectedKey
+    }
+}
+
+-- Available-key sets and option lists are derived from the whole spawn list, which
+-- can hold tens of thousands of entries. Both are cached per module path; the
+-- option cache additionally keys on the search text it counted against.
+local availableFilterKeysCache = {}
+local filterOptionsCache = {}
+
+---Drops every cached filter derivation. Called on load and whenever a list changes.
+function spawnUI.invalidateFilterCaches()
+    availableFilterKeysCache = {}
+    filterOptionsCache = {}
+end
+
+---Drops the flattened hierarchy row list so it gets rebuilt on the next draw.
+---Call whenever the tree itself or any folder open state changed.
+function spawnUI.invalidateHierarchyRows()
+    spawnUI.hierarchyRows = nil
+    spawnUI.hierarchyRowsRoot = nil
+end
+
+---@param filter SpawnEntryFilter
+---@param spawnList table
+---@return string
+local function getFilterCacheKey(filter, spawnList)
+    return filter.id .. "\0" .. tostring(spawnList.modulePath)
+end
+
+---Gets or lazily creates the per-module selection/search state of one filter.
+---@param filter SpawnEntryFilter
+---@param spawnList table?
+---@return {selections: table<string, boolean>, search: string}?
+local function getFilterState(filter, spawnList)
+    if not spawnList or not filter.supports(spawnList) then
+        return nil
+    end
+
+    local byModule = spawnUI.entryFilterStateByModule[filter.id]
+    if not byModule then
+        byModule = {}
+        spawnUI.entryFilterStateByModule[filter.id] = byModule
+    end
+
+    local state = byModule[spawnList.modulePath]
+    if not state then
+        state = { selections = utils.deepcopy(filter.defaults or {}), search = "" }
+        byModule[spawnList.modulePath] = state
+    end
+
+    return state
+end
+
+---Set of option keys present anywhere in the list. Independent of the search text.
+---@param filter SpawnEntryFilter
+---@param spawnList table
+---@return table<string, boolean>
+local function getAvailableFilterKeys(filter, spawnList)
+    local cacheKey = getFilterCacheKey(filter, spawnList)
+    local cached = availableFilterKeysCache[cacheKey]
+    if cached then
+        return cached
+    end
+
+    local availableKeys = {}
     for _, entry in ipairs(spawnList.data) do
-        local key = tostring(resolveKey(entry, spawnList) or "")
+        local key = tostring(filter.resolveKey(entry, spawnList) or "")
         if key ~= "" then
             availableKeys[key] = true
         end
     end
 
+    availableFilterKeysCache[cacheKey] = availableKeys
+
     return availableKeys
 end
 
----Removes selected keys that no longer exist in the available option set.
----@param selections table<string, boolean>?
----@param availableKeys table<string, boolean>
-local function pruneUnavailableFilterSelections(selections, availableKeys)
-    if not selections then
-        return
-    end
-
-    for key, _ in pairs(selections) do
-        if not availableKeys[key] then
-            selections[key] = nil
-        end
-    end
-end
-
----@class SpawnDeviceClassFilterOption
----@field className string
+---@class SpawnEntryFilterOption
+---@field key string
 ---@field icon string
----@field count number
+---@field count number Entries matching the current search text.
 
----Builds Device Class filter options (icon + label + count) for the active list.
+---Builds the option rows (icon + key + count) of one filter for the active list.
+---@param filter SpawnEntryFilter
 ---@param spawnList table
----@return SpawnDeviceClassFilterOption[]
-local function getDeviceClassFilterOptions(spawnList)
-    local optionsByClassName = {}
+---@return SpawnEntryFilterOption[]
+local function getFilterOptions(filter, spawnList)
+    local cacheKey = getFilterCacheKey(filter, spawnList)
+    local cached = filterOptionsCache[cacheKey]
+    if cached and cached.search == spawnUI.filter then
+        return cached.options
+    end
+
+    local resolveIcon = filter.resolveIcon
+    local optionsByKey = {}
 
     for _, entry in ipairs(spawnList.data) do
-        local className = getEntryDeviceClassName(entry, spawnList)
-        if className ~= "" then
-            local option = optionsByClassName[className]
+        local key = tostring(filter.resolveKey(entry, spawnList) or "")
+        if key ~= "" then
+            local option = optionsByKey[key]
             if not option then
-                option = {
-                    className = className,
-                    icon = entity.getDeviceSecondaryIcon(className),
-                    count = 0
-                }
-                optionsByClassName[className] = option
+                option = { key = key, icon = resolveIcon and resolveIcon(key) or "", count = 0 }
+                optionsByKey[key] = option
             end
 
             if matchesSearchFilter(spawnList, entry) then
@@ -824,92 +788,17 @@ local function getDeviceClassFilterOptions(spawnList)
     end
 
     local options = {}
-    for _, option in pairs(optionsByClassName) do
+    for _, option in pairs(optionsByKey) do
         if option.count > 0 then
             table.insert(options, option)
         end
     end
 
-    table.sort(options, function(a, b)
-        return string.lower(a.className) < string.lower(b.className)
-    end)
+    table.sort(options, function (a, b) return string.lower(a.key) < string.lower(b.key) end)
+
+    filterOptionsCache[cacheKey] = { search = spawnUI.filter, options = options }
 
     return options
-end
-
----Extracts a record type prefix for one entry (for example `AttachableObject`).
----@param entry table
----@param _spawnList table
----@return string
-local function getEntryRecordTypePrefix(entry, _spawnList)
-    if not entry then
-        return ""
-    end
-
-    local spawnData = entry.data and entry.data.spawnData or nil
-    return entityRecordClass.getTypePrefix(spawnData)
-end
-
----@class SpawnRecordTypeFilterOption
----@field typeName string
----@field icon string
----@field count number
-
----Builds Record Type filter options (icon + label + count) for the active list.
----@param spawnList table
----@return SpawnRecordTypeFilterOption[]
-local function getRecordTypeFilterOptions(spawnList)
-    local optionsByType = {}
-
-    for _, entry in ipairs(spawnList.data) do
-        local typeName = getEntryRecordTypePrefix(entry, spawnList)
-        if typeName ~= "" then
-            local option = optionsByType[typeName]
-            if not option then
-                option = {
-                    typeName = typeName,
-                    icon = IconGlyphs.AlphaRBoxOutline,
-                    count = 0
-                }
-                optionsByType[typeName] = option
-            end
-
-            if matchesSearchFilter(spawnList, entry) then
-                option.count = option.count + 1
-            end
-        end
-    end
-
-    local options = {}
-    for _, option in pairs(optionsByType) do
-        if option.count > 0 then
-            table.insert(options, option)
-        end
-    end
-
-    table.sort(options, function(a, b)
-        return string.lower(a.typeName) < string.lower(b.typeName)
-    end)
-
-    return options
-end
-
----Resolves the secondary icon displayed between the main icon and entry label in search results.
----Only device/template entries with a known class icon return a value.
----@param entry table
----@param spawnList table
----@return string
-local function getSearchResultSecondaryIcon(entry, spawnList)
-    if not entry or not spawnList then
-        return ""
-    end
-
-    local className = getEntryDeviceClassName(entry, spawnList)
-    if className == "" then
-        return ""
-    end
-
-    return entity.getDeviceSecondaryIcon(className)
 end
 
 ---Formats a search result label while reserving width for an optional secondary icon prefix.
@@ -931,6 +820,8 @@ local function formatSearchResultButtonText(text, width, secondaryIcon)
 end
 
 local PATH_ORIGIN_TAG_TEXT_COLOR = style.regularColor
+-- Same tone as the "Base" asset origin tag
+local FAVORITE_STAR_COLOR = pathOriginTagInfoByKey.base.color
 
 ---Draws a non-clickable rounded tag chip styled like a compact button.
 ---@param tagInfo table?
@@ -996,6 +887,8 @@ end
 ---Builds a cached hierarchy tree from current filtered path results.
 ---Tree folders map to path segments; leaves map to filtered spawn entries.
 function spawnUI.rebuildHierarchyTree()
+    spawnUI.invalidateHierarchyRows()
+
     local activeSpawnList = spawnUI.getActiveSpawnList()
     if not activeSpawnList or not activeSpawnList.isPaths then
         spawnUI.filteredHierarchyTree = nil
@@ -1070,53 +963,42 @@ end
 
 ---Regenerate the filteredList based on the active filter and the currently selected active spawn list
 function spawnUI.updateFilter()
-
     local activeSpawnList = spawnUI.getActiveSpawnList()
-    local classSelections = getDeviceClassFilterSelections(activeSpawnList)
-    if classSelections then
-        local availableClassKeys = collectAvailableFilterKeys(activeSpawnList, getEntryDeviceClassName)
-        pruneUnavailableFilterSelections(classSelections, availableClassKeys)
+    local orderedData = getOrderedSpawnListData(activeSpawnList)
+    local activeFilters = {}
+
+    for _, filter in ipairs(entryFilters) do
+        local state = getFilterState(filter, activeSpawnList)
+        if state then
+            if filter.prune ~= false then
+                utils.pruneKeys(state.selections, getAvailableFilterKeys(filter, activeSpawnList))
+            end
+
+            if filter.isActive(state.selections) then
+                table.insert(activeFilters, { filter = filter, selections = state.selections })
+            end
+        end
     end
-    local classFilterEnabled = hasSelectedFilterOption(classSelections)
 
-    local recordTypeSelections = getRecordTypeFilterSelections(activeSpawnList)
-    if recordTypeSelections then
-        local availableRecordTypeKeys = collectAvailableFilterKeys(activeSpawnList, getEntryRecordTypePrefix)
-        pruneUnavailableFilterSelections(recordTypeSelections, availableRecordTypeKeys)
-    end
-    local recordTypeFilterEnabled = hasSelectedFilterOption(recordTypeSelections)
-
-    local pathOriginSelections = getPathOriginFilterSelections(activeSpawnList)
-    local pathOriginFilterEnabled = isPathOriginFilterEnabled(pathOriginSelections)
-    local hasSelectedPathOrigin = hasSelectedFilterOption(pathOriginSelections)
-
-    if spawnUI.filter == "" and not classFilterEnabled and not recordTypeFilterEnabled and not pathOriginFilterEnabled then
-        spawnUI.filteredList = activeSpawnList.data
-        spawnUI.rebuildHierarchyTree()
+    -- The source lists are pre-sorted at load, so both branches come out ordered
+    -- without ever sorting (or mutating) the loaded data.
+    if spawnUI.filter == "" and #activeFilters == 0 then
+        spawnUI.filteredList = orderedData
+        spawnUI.filteredHierarchyTree = nil
+        spawnUI.invalidateHierarchyRows()
         return
     end
 
     spawnUI.filteredList = {}
-    for _, data in ipairs(activeSpawnList.data) do
+    for _, data in ipairs(orderedData) do
         if matchesSearchFilter(activeSpawnList, data) then
             local include = true
 
-            if classFilterEnabled then
-                local className = getEntryDeviceClassName(data, activeSpawnList)
-                include = className ~= "" and classSelections[className] == true
-            end
-
-            if include and recordTypeFilterEnabled then
-                local recordTypeName = getEntryRecordTypePrefix(data, activeSpawnList)
-                include = recordTypeName ~= "" and recordTypeSelections[recordTypeName] == true
-            end
-
-            if include and pathOriginFilterEnabled then
-                local originKey = getEntryPathOriginKey(data, activeSpawnList)
-                if hasSelectedPathOrigin then
-                    include = originKey ~= nil and pathOriginSelections[originKey] == true
-                else
-                    include = originKey == nil
+            for _, active in ipairs(activeFilters) do
+                local key = tostring(active.filter.resolveKey(data, activeSpawnList) or "")
+                if not active.filter.accepts(active.selections, key) then
+                    include = false
+                    break
                 end
             end
 
@@ -1126,192 +1008,29 @@ function spawnUI.updateFilter()
         end
     end
 
-    spawnUI.rebuildHierarchyTree()
+    -- Built lazily by `resolveHierarchyRoot`, so the flat view never pays for it.
+    spawnUI.filteredHierarchyTree = nil
+    spawnUI.invalidateHierarchyRows()
 end
 
----Draws the Device Class Name multi-select filter selector for entity template/device variants.
+---Draws one filter as an inline checkbox row (fixed option set).
+---@param filter SpawnEntryFilter
+---@param selections table<string, boolean>
 ---@return boolean changed
-function spawnUI.drawDeviceClassFilterSelector()
-    local activeSpawnList = spawnUI.getActiveSpawnList()
-    if not supportsFilterForModule(activeSpawnList, deviceClassFilterListByModulePath) then
-        return false
-    end
-
-    local selections = getDeviceClassFilterSelections(activeSpawnList)
-    local previewLabel = getFilterPreviewLabel(selections, "All classes", "%d classes selected")
-    local popupSearch = getFilterSearchForModule(
-        activeSpawnList,
-        deviceClassFilterListByModulePath,
-        spawnUI.deviceClassFilterSearchByModule
-    )
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+local function drawFilterCheckboxRow(filter, selections)
     local changed = false
 
     ImGui.AlignTextToFramePadding()
-    style.mutedText("Device Class Name")
-    ImGui.SameLine()
+    style.mutedText(filter.label)
+    style.tooltip(filter.labelTooltip)
 
-    local comboChanged, nextPopupSearch = style.drawSearchableMultiSelectCombo({
-        comboId = "##deviceClassFilterCombo",
-        previewLabel = previewLabel,
-        searchHint = "Search class name...",
-        searchValue = popupSearch,
-        getOptions = function ()
-            return getDeviceClassFilterOptions(activeSpawnList)
-        end,
-        selections = selections,
-        comboWidth = 260 * style.viewSize,
-        searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
-        emptyText = "No class names available",
-        noMatchText = "No matching class names",
-        searchInputId = "##deviceClassFilterSearch",
-        searchClearButtonId = "##deviceClassFilterSearchClear",
-        selectAllButtonId = "##deviceClassSelectAll",
-        unselectAllButtonId = "##deviceClassUnselectAll",
-        optionIdPrefix = "##deviceClassOption",
-        selectAllTooltip = "Select all class names",
-        unselectAllTooltip = "Unselect all class names (default behavior: show all)",
-        getOptionKey = function (option)
-            return option.className
-        end,
-        getOptionLabel = function (option)
-            local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
-            return string.format("%s%s (%d)", labelIcon, option.className, option.count)
-        end,
-        matchesOption = function (option, searchValue)
-            return matchesSelectorOptionFilter(option.className, searchValue)
-        end
-    })
-    if comboChanged then
-        changed = true
-    end
-
-    if nextPopupSearch ~= popupSearch then
-        setFilterSearchForModule(
-            activeSpawnList,
-            deviceClassFilterListByModulePath,
-            spawnUI.deviceClassFilterSearchByModule,
-            nextPopupSearch
-        )
-    end
-
-    local clearChanged = drawMultiSelectClearButton(
-        selections,
-        "##deviceClassFilterSelectionClear",
-        "Clear selected class-name filters",
-        true
-    )
-    if clearChanged then
-        changed = true
-    end
-
-    return changed
-end
-
----Draws the Record Type multi-select filter selector for entity record variants.
----@return boolean changed
-function spawnUI.drawRecordTypeFilterSelector()
-    local activeSpawnList = spawnUI.getActiveSpawnList()
-    if not supportsFilterForModule(activeSpawnList, recordTypeFilterListByModulePath) then
-        return false
-    end
-
-    local selections = getRecordTypeFilterSelections(activeSpawnList)
-    local previewLabel = getFilterPreviewLabel(selections, "All record types", "%d record types selected")
-    local popupSearch = getFilterSearchForModule(
-        activeSpawnList,
-        recordTypeFilterListByModulePath,
-        spawnUI.recordTypeFilterSearchByModule
-    )
-    local _, screenHeight = GetDisplayResolution()
-    local maxPopupHeight = math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
-    local changed = false
-
-    ImGui.AlignTextToFramePadding()
-    style.mutedText("Record type")
-    ImGui.SameLine()
-
-    local comboChanged, nextPopupSearch = style.drawSearchableMultiSelectCombo({
-        comboId = "##recordTypeFilterCombo",
-        previewLabel = previewLabel,
-        searchHint = "Search record type...",
-        searchValue = popupSearch,
-        getOptions = function ()
-            return getRecordTypeFilterOptions(activeSpawnList)
-        end,
-        selections = selections,
-        comboWidth = 200 * style.viewSize,
-        searchWidth = 220 * style.viewSize,
-        maxPopupHeight = maxPopupHeight,
-        emptyText = "No record types available",
-        noMatchText = "No matching record types",
-        searchInputId = "##recordTypeFilterSearch",
-        searchClearButtonId = "##recordTypeFilterSearchClear",
-        selectAllButtonId = "##recordTypeSelectAll",
-        unselectAllButtonId = "##recordTypeUnselectAll",
-        optionIdPrefix = "##recordTypeOption",
-        selectAllTooltip = "Select all record types",
-        unselectAllTooltip = "Unselect all record types (default behavior: show all)",
-        getOptionKey = function (option)
-            return option.typeName
-        end,
-        getOptionLabel = function (option)
-            local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
-            return string.format("%s%s (%d)", labelIcon, option.typeName, option.count)
-        end,
-        matchesOption = function (option, searchValue)
-            return matchesSelectorOptionFilter(option.typeName, searchValue)
-        end
-    })
-    if comboChanged then
-        changed = true
-    end
-
-    if nextPopupSearch ~= popupSearch then
-        setFilterSearchForModule(
-            activeSpawnList,
-            recordTypeFilterListByModulePath,
-            spawnUI.recordTypeFilterSearchByModule,
-            nextPopupSearch
-        )
-    end
-
-    local clearChanged = drawMultiSelectClearButton(
-        selections,
-        "##recordTypeFilterSelectionClear",
-        "Clear selected record-type filters",
-        true
-    )
-    if clearChanged then
-        changed = true
-    end
-
-    return changed
-end
-
----Draws the Content Origin filter as 3 inline checkboxes for path-based variants.
----@return boolean changed
-function spawnUI.drawPathOriginFilterSelector()
-    local activeSpawnList = spawnUI.getActiveSpawnList()
-    if not supportsPathOriginFilter(activeSpawnList) then
-        return false
-    end
-
-    local selections = getPathOriginFilterSelections(activeSpawnList)
-    local changed = false
-
-    ImGui.AlignTextToFramePadding()
-    style.mutedText("Asset origin")
-    style.tooltip("Filter entries based on where they come from.\nThis is determined by the starting path of the asset, for example 'base/' or 'mod/'.\nChecking all options will show all entries, while unchecking all will show only entries that don't match any known origin.")
-    for _, option in ipairs(pathOriginFilterOptionOrder) do
+    for _, option in ipairs(filter.checkboxes) do
         ImGui.SameLine()
 
-        local optionChanged = false
         local tagInfo = pathOriginTagInfoByKey[option.key]
+        local optionChanged
         selections[option.key], optionChanged = ImGui.Checkbox(
-            tagInfo.label .. "##pathOrigin" .. option.checkboxIdSuffix,
+            tagInfo.label .. "##" .. filter.id .. option.idSuffix,
             selections[option.key] == true
         )
         if tostring(tagInfo.tooltip or "") ~= "" then
@@ -1326,15 +1045,78 @@ function spawnUI.drawPathOriginFilterSelector()
     return changed
 end
 
----Refresh the filtering and sorting
+---Draws one filter as a searchable multi-select combo.
+---@param filter SpawnEntryFilter
+---@param spawnList table
+---@param state {selections: table<string, boolean>, search: string}
+---@return boolean changed
+local function drawFilterCombo(filter, spawnList, state)
+    style.fieldLabel(filter.label)
+
+    local changed, nextSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##" .. filter.id .. "FilterCombo",
+        previewLabel = style.getMultiSelectPreviewLabel(state.selections, filter.allLabel, filter.multiLabel),
+        searchHint = filter.searchHint,
+        searchValue = state.search,
+        getOptions = function ()
+            return getFilterOptions(filter, spawnList)
+        end,
+        selections = state.selections,
+        comboWidth = filter.comboWidth * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        emptyText = filter.emptyText,
+        noMatchText = filter.noMatchText,
+        searchInputId = "##" .. filter.id .. "FilterSearch",
+        searchClearButtonId = "##" .. filter.id .. "FilterSearchClear",
+        selectAllButtonId = "##" .. filter.id .. "SelectAll",
+        unselectAllButtonId = "##" .. filter.id .. "UnselectAll",
+        optionIdPrefix = "##" .. filter.id .. "Option",
+        selectAllTooltip = filter.selectAllTooltip,
+        unselectAllTooltip = filter.unselectAllTooltip,
+        showClearSelectionButton = true,
+        clearSelectionButtonId = "##" .. filter.id .. "FilterSelectionClear",
+        clearSelectionTooltip = filter.clearTooltip,
+        getOptionKey = function (option)
+            return option.key
+        end,
+        getOptionLabel = function (option)
+            local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
+            return string.format("%s%s (%d)", labelIcon, option.key, option.count)
+        end
+    })
+
+    state.search = nextSearch
+
+    return changed
+end
+
+---Draws every per-entry filter supported by the active spawn list.
+---@return boolean changed
+local function drawEntryFilters()
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    local changed = false
+
+    for _, filter in ipairs(entryFilters) do
+        local state = getFilterState(filter, activeSpawnList)
+        if state then
+            local filterChanged
+            if filter.checkboxes then
+                filterChanged = drawFilterCheckboxRow(filter, state.selections)
+            else
+                filterChanged = drawFilterCombo(filter, activeSpawnList, state)
+            end
+
+            changed = changed or filterChanged
+        end
+    end
+
+    return changed
+end
+
+---Refresh the visible results. Ordering comes from the pre-sorted spawn lists,
+---so this is now just the filter pass.
 function spawnUI.refresh()
     spawnUI.updateFilter()
-
-    if settings.spawnUIOnlyNames and spawnUI.getActiveSpawnList().isPaths then
-        table.sort(spawnUI.filteredList, function(a, b) return a.fileName < b.fileName end)
-    else
-        table.sort(spawnUI.filteredList, function(a, b) return a.name < b.name end)
-    end
 end
 
 ---Applies and persists the selected category, then refreshes variant list and results.
@@ -1386,21 +1168,7 @@ function spawnUI.selectTypeAndVariant(typeName, variantName)
     return true
 end
 
-local LIGHT_MODULE_PATH = "light/light"
 local DEFAULT_HOVER_PREVIEW_DEBOUNCE_SECONDS = 0.1
-local LIGHT_VISUALIZER_COMPONENT_NAMES = {
-    "box",
-    "sphere",
-    "cone",
-    "cone_inner",
-    "capsule_body",
-    "capsule_top",
-    "capsule_bottom",
-    "mesh",
-    "mesh_inner",
-    "radius_sphere",
-    "arrows"
-}
 
 ---@param component IComponent?
 ---@return boolean
@@ -1528,6 +1296,7 @@ local function restoreExternalFlashlightAfterPreview()
     spawnUI.flashlightSuppressionPreviousOverride = nil
 end
 
+---Collects spawned elements whose spawnable declares `previewSuppressedComponents`.
 ---@return table
 local function buildLightSuppressionTargets()
     local targets = {}
@@ -1537,11 +1306,16 @@ local function buildLightSuppressionTargets()
 
     for _, entry in ipairs(spawnUI.spawnedUI.root:getPathsRecursive(true)) do
         local ref = entry.ref
-        if utils.isA(ref, "spawnableElement") and ref.spawnable and ref.spawnable.modulePath == LIGHT_MODULE_PATH then
+        local suppression = utils.isA(ref, "spawnableElement")
+            and ref.spawnable
+            and ref.spawnable.previewSuppressedComponents
+            or nil
+
+        if suppression then
             table.insert(targets, {
                 spawnable = ref.spawnable,
-                lightComponentName = "light",
-                visualizerComponentNames = LIGHT_VISUALIZER_COMPONENT_NAMES
+                lightComponentName = suppression.light,
+                visualizerComponentNames = suppression.visualizers or {}
             })
         end
     end
@@ -1607,8 +1381,8 @@ function spawnUI.setAssetPreviewActive(state)
 
             local entity = resolveLightSuppressionEntity(target)
             if entity then
-                if target.spawnable and target.spawnable.cameraFollowEnabled == true then
-                    local lightComponent = findEntityComponent(entity, target.lightComponentName or "light")
+                if target.lightComponentName and target.spawnable and target.spawnable.cameraFollowEnabled == true then
+                    local lightComponent = findEntityComponent(entity, target.lightComponentName)
                     stateEntry.lightSuppressed = true
                     stateEntry.lightWasEnabled = getComponentEnabledState(lightComponent)
                     if stateEntry.lightWasEnabled and lightComponent then
@@ -1640,7 +1414,7 @@ function spawnUI.setAssetPreviewActive(state)
 
         if entity then
             if stateEntry.lightSuppressed then
-                local lightComponent = findEntityComponent(entity, target.lightComponentName or "light")
+                local lightComponent = findEntityComponent(entity, target.lightComponentName)
                 if lightComponent then
                     setComponentEnabled(lightComponent, stateEntry.lightWasEnabled)
                 end
@@ -1694,13 +1468,14 @@ end
 
 ---@param entry table|favorite
 ---@param isFavorite boolean
-function spawnUI.handleAssetPreviewHovered(entry, isFavorite)
+---@param spawnListOverride table? Spawn list to preview with, when the entry does not belong to the active one
+function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
     if spawnUI.hoveredEntry ~= entry then
         spawnUI.stopActiveAssetPreview()
 
         spawnUI.hoveredEntry = entry
 
-        local activeSpawnList = spawnUI.getActiveSpawnList()
+        local activeSpawnList = spawnListOverride or spawnUI.getActiveSpawnList()
         local assetPreviewType = activeSpawnList.assetPreviewType
         local assetPreviewDelay = activeSpawnList.assetPreviewDelay
         if isFavorite then
@@ -1793,6 +1568,70 @@ function spawnUI.drawDragWindow()
     end
 end
 
+---Stages the "Save as prefab" creation popup for one spawn list entry.
+---The entry is turned into a transform-less spawnable element first, so the
+---created prefab only carries the asset itself.
+---@param entry table
+---@param class table
+function spawnUI.savePrefabFromEntry(entry, class)
+    local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
+    local data = utils.deepcopy(entry.data)
+    data.modulePath = class:new().modulePath
+    data.position = { x = 0, y = 0, z = 0, w = 0 }
+    data.rotation = { roll = 0, pitch = 0, yaw = 0 }
+
+    new:load({
+        name = utils.getFileName(entry.name),
+        modulePath = new.modulePath,
+        spawnable = data
+    })
+
+    spawnUI.prefabsUI.addNewItem(new:serialize(), new.name, new.icon)
+end
+
+---Handles the shared "drag a list row out into the world to spawn it" interaction.
+---Call right after the clickable widget of the row, when it was not clicked.
+---@param payload table Drag payload, shown in the drag window (needs a `name`).
+---@param onDrop fun(payload: table) Called once when the drag is released outside the row.
+function spawnUI.handleRowDrag(payload, onDrop)
+    local dragging = ImGui.IsMouseDragging(0, style.draggingThreshold)
+
+    if dragging then
+        if not spawnUI.dragging and ImGui.IsItemHovered() then
+            spawnUI.dragging = true
+            spawnUI.dragData = payload
+        end
+
+        return
+    end
+
+    if not spawnUI.dragging then return end
+
+    if not ImGui.IsItemHovered() then
+        spawnUI.popupSpawnHit = editor.getCursorSceneHit()
+        onDrop(spawnUI.dragData)
+    end
+
+    spawnUI.dragging = false
+    spawnUI.dragData = nil
+    spawnUI.popupSpawnHit = nil
+end
+
+---Draws the favorite marker shown at the end of a search-result row.
+---@param modulePath string?
+---@param path string?
+local function drawFavoriteRowMarker(modulePath, path)
+    local favorite = assetFavorites.get(modulePath, path)
+    if not favorite then
+        return
+    end
+
+    ImGui.SameLine()
+    ImGui.AlignTextToFramePadding()
+    style.styledText(IconGlyphs.StarBoxOutline, FAVORITE_STAR_COLOR)
+    style.tooltip("Marked as favorite\n" .. spawnUI.favoritesUI.getTagsText(favorite))
+end
+
 ---Draws one interactive search-result row.
 ---Used by both the classic flat list and the hierarchy tree leaves.
 ---@param entry table
@@ -1834,30 +1673,25 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
         ImGui.SameLine()
     end
 
-    local secondaryIcon = getSearchResultSecondaryIcon(entry, activeSpawnList)
-    local buttonWidth = xSpace - ImGui.GetCursorPosX()
+    local isFavorite = assetFavorites.isFavorite(activeSpawnList.modulePath, entry.name)
+    local favoriteMarkerWidth = 0
+    if isFavorite then
+        local starWidth, _ = ImGui.CalcTextSize(IconGlyphs.StarBoxOutline)
+        favoriteMarkerWidth = starWidth + ImGui.GetStyle().ItemSpacing.x
+    end
+
+    local secondaryIcon = entity.getEntrySecondaryIcon(entry, activeSpawnList.modulePath)
+    local buttonWidth = xSpace - ImGui.GetCursorPosX() - favoriteMarkerWidth
     local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
 
     local clicked = ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold)
 
     if clicked then
-        local class = activeSpawnList.class
-        entry.lastSpawned = spawnUI.spawnNew(entry, class, false)
-    elseif ImGui.IsMouseDragging(0, style.draggingThreshold) and not spawnUI.dragging and ImGui.IsItemHovered() then
-        spawnUI.dragging = true
-        spawnUI.dragData = entry
-    elseif not ImGui.IsMouseDragging(0, style.draggingThreshold) and spawnUI.dragging then
-        if not ImGui.IsItemHovered() then
-            local ray = editor.getScreenToWorldRay()
-            spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-
-            local class = activeSpawnList.class
-            spawnUI.dragData.lastSpawned = spawnUI.spawnNew(spawnUI.dragData, class, false)
-        end
-
-        spawnUI.dragging = false
-        spawnUI.dragData = nil
-        spawnUI.popupSpawnHit = nil
+        entry.lastSpawned = spawnUI.spawnNew(entry, activeSpawnList.class, false)
+    else
+        spawnUI.handleRowDrag(entry, function (dragged)
+            dragged.lastSpawned = spawnUI.spawnNew(dragged, activeSpawnList.class, false)
+        end)
     end
     if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
         ImGui.SetClipboardText(entry.name)
@@ -1874,23 +1708,23 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
     end
 
     if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem(IconGlyphs.Group .. " Make Favorite") then
-            local new = require("modules/classes/editor/spawnableElement"):new(spawnUI.spawnedUI)
-            local data = utils.deepcopy(entry.data)
-            data.modulePath = activeSpawnList.class:new().modulePath
-            data.position = { x = 0, y = 0, z = 0, w = 0 }
-            data.rotation = { roll = 0, pitch = 0, yaw = 0 }
-
-            new:load({
-                name = utils.getFileName(entry.name),
-                modulePath = new.modulePath,
-                spawnable = data
-            })
-
-            spawnUI.favoritesUI.addNewItem(new:serialize(), new.name, new.icon)
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, "Save as prefab", "spawnNewSavePrefab")) then
+            spawnUI.savePrefabFromEntry(entry, activeSpawnList.class)
         end
 
+        spawnUI.favoritesUI.drawContextMenuItem(
+            activeSpawnList.modulePath,
+            entry.name,
+            entry.fileName or utils.getFileName(entry.name),
+            entry.data,
+            "SpawnNew"
+        )
+
         ImGui.EndPopup()
+    end
+
+    if isFavorite then
+        drawFavoriteRowMarker(activeSpawnList.modulePath, entry.name)
     end
 
     if pushedButtonStyle then
@@ -1958,78 +1792,136 @@ end
 ---Draws expand/collapse icon buttons at the top of hierarchy search results.
 ---@param hierarchyRoot table
 local function drawHierarchyResultControls(hierarchyRoot)
-    local hasFolders = #hierarchyRoot.childOrder > 0
-    local expandIcon = IconGlyphs.ExpandAllOutline or IconGlyphs.ArrowExpandAll or IconGlyphs.ExpandAll or "+"
-    local collapseIcon = IconGlyphs.CollapseAllOutline or IconGlyphs.ArrowCollapseAll or IconGlyphs.CollapseAll or "-"
+    style.drawExpandCollapseButtons(
+        "spawnHierarchy",
+        function ()
+            setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
+            spawnUI.invalidateHierarchyRows()
+        end,
+        function ()
+            setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
+            spawnUI.invalidateHierarchyRows()
+        end,
+        {
+            disabled = #hierarchyRoot.childOrder == 0,
+            expandTooltip = "Expand all folders",
+            collapseTooltip = "Collapse all folders"
+        }
+    )
 
-    ImGui.BeginDisabled(not hasFolders)
-
-    style.pushButtonNoBG(true)
-    if ImGui.Button(expandIcon .. "##spawnHierarchyExpandAll") then
-        setHierarchyNodeOpenStateRecursive(hierarchyRoot, true)
-    end
-    style.pushButtonNoBG(false)
-    style.tooltip("Expand all folders")
-
-    ImGui.SameLine()
-
-    style.pushButtonNoBG(true)
-    if ImGui.Button(collapseIcon .. "##spawnHierarchyCollapseAll") then
-        setHierarchyNodeOpenStateRecursive(hierarchyRoot, false)
-    end
-    style.pushButtonNoBG(false)
-    style.tooltip("Collapse all folders")
-
-    ImGui.EndDisabled()
     ImGui.Separator()
 end
 
----Recursively draws one hierarchy folder node and its children/leaves.
+--- Hierarchy tree virtualization ---------------------------------------------
+--
+-- Drawing the tree by recursing into open nodes costs one full row emit per
+-- visible-or-not entry, every frame. The path lists reach ~150k entries, so
+-- "expand all" turned into millions of ImGui calls per frame and stalled the
+-- render thread. Instead the open tree is flattened once into a linear row
+-- list (mirroring how `spawnedUI` caches `visiblePaths`) and drawn through an
+-- `ImGuiListClipper`, so cost tracks the window height, not the list size.
+--
+-- Rows carry their own indent depth because `TreePush`/`TreePop` nesting
+-- cannot survive rows the clipper skips. Every row is one frame-height line,
+-- which the clipper needs in order to seek without measuring.
+
+---@class hierarchyRow
+---@field folder table? Set on folder rows.
+---@field open boolean? Folder open state, only meaningful with `folder`.
+---@field leaf table? Set on entry rows.
+---@field depth number Indent levels, already resolved for the flat list.
+
+---Appends the visible rows of `node` to `rows`, descending only into open folders.
 ---@param node table
----@param activeSpawnList table
----@param xSpace number
-local function drawHierarchySpawnResultNode(node, activeSpawnList, xSpace)
-    if node.label == "" then
-        for _, childKey in ipairs(node.childOrder) do
-            drawHierarchySpawnResultNode(node.children[childKey], activeSpawnList, xSpace)
-        end
-
-        for _, leaf in ipairs(node.entries) do
-            drawSpawnResultEntryRow(leaf.entry, activeSpawnList, xSpace, leaf.label, true)
-        end
-        return
-    end
-
-    local requestedOpenState = spawnUI.hierarchyOpenStateByKey[node.key]
-    if requestedOpenState ~= nil then
-        ImGui.SetNextItemOpen(requestedOpenState, ImGuiCond.Always)
-    end
-
-    local nodeLabel = string.format("%s##spawnResultHierarchyNode:%s", node.label, node.key)
-    local open = ImGui.TreeNodeEx(nodeLabel, ImGuiTreeNodeFlags.SpanFullWidth)
-    local toggledOpen = ImGui.IsItemToggledOpen()
-    if toggledOpen then
-        spawnUI.hierarchyOpenStateByKey[node.key] = open
-        if open then
-            expandSingleChildFolderChain(node)
-        end
-    elseif requestedOpenState == nil then
-        spawnUI.hierarchyOpenStateByKey[node.key] = open
-    end
-
-    if not open then
-        return
-    end
-
+---@param depth number
+---@param rows hierarchyRow[]
+local function appendHierarchyRows(node, depth, rows)
     for _, childKey in ipairs(node.childOrder) do
-        drawHierarchySpawnResultNode(node.children[childKey], activeSpawnList, xSpace)
+        local child = node.children[childKey]
+        local isOpen = spawnUI.hierarchyOpenStateByKey[child.key] == true
+
+        rows[#rows + 1] = { folder = child, open = isOpen, depth = depth }
+
+        if isOpen then
+            appendHierarchyRows(child, depth + 1, rows)
+        end
     end
 
     for _, leaf in ipairs(node.entries) do
-        drawSpawnResultEntryRow(leaf.entry, activeSpawnList, xSpace, leaf.label, true)
+        rows[#rows + 1] = { leaf = leaf, depth = depth }
+    end
+end
+
+---Resolves the cached flat row list, rebuilding it when stale.
+---@param hierarchyRoot table
+---@return hierarchyRow[]
+local function resolveHierarchyRows(hierarchyRoot)
+    if spawnUI.hierarchyRows and spawnUI.hierarchyRowsRoot == hierarchyRoot then
+        return spawnUI.hierarchyRows
     end
 
-    ImGui.TreePop()
+    local rows = {}
+    appendHierarchyRows(hierarchyRoot, 0, rows)
+
+    spawnUI.hierarchyRows = rows
+    spawnUI.hierarchyRowsRoot = hierarchyRoot
+
+    return rows
+end
+
+---Draws one folder row, applying and reading back its open state.
+---@param node table
+---@param isOpen boolean
+local function drawHierarchyFolderRow(node, isOpen)
+    -- An unframed tree node is only a text line tall, while entry rows are a full
+    -- frame. Aligning to frame padding makes both kinds exactly `GetFrameHeight()`,
+    -- which the clipper relies on to seek by a fixed row pitch.
+    ImGui.AlignTextToFramePadding()
+
+    ImGui.SetNextItemOpen(isOpen, ImGuiCond.Always)
+
+    local nodeLabel = string.format("%s##spawnResultHierarchyNode:%s", node.label, node.key)
+    local open = ImGui.TreeNodeEx(nodeLabel, ImGuiTreeNodeFlags.SpanFullWidth)
+    local toggled = ImGui.IsItemToggledOpen()
+
+    -- Children are separate flat rows, so the tree scope is popped right away.
+    -- Row IDs are globally unique (full path keys), so nothing depends on it.
+    if open then
+        ImGui.TreePop()
+    end
+
+    if not toggled then
+        return
+    end
+
+    spawnUI.hierarchyOpenStateByKey[node.key] = open
+    if open then
+        expandSingleChildFolderChain(node)
+    end
+
+    spawnUI.invalidateHierarchyRows()
+end
+
+---Draws one flattened hierarchy row at its cached indent depth.
+---@param row hierarchyRow
+---@param activeSpawnList table
+---@param xSpace number
+---@param indentSpacing number
+local function drawHierarchyRow(row, activeSpawnList, xSpace, indentSpacing)
+    local indent = row.depth * indentSpacing
+    if indent > 0 then
+        ImGui.Indent(indent)
+    end
+
+    if row.folder then
+        drawHierarchyFolderRow(row.folder, row.open)
+    else
+        drawSpawnResultEntryRow(row.leaf.entry, activeSpawnList, xSpace, row.leaf.label, true)
+    end
+
+    if indent > 0 then
+        ImGui.Unindent(indent)
+    end
 end
 
 ---Resolves the cached hierarchy tree root, rebuilding it when stale.
@@ -2058,12 +1950,36 @@ local function drawHierarchySpawnResults(activeSpawnList, xSpace, hierarchyRoot)
         return
     end
 
-    drawHierarchySpawnResultNode(hierarchyRoot, activeSpawnList, xSpace)
+    local rows = resolveHierarchyRows(hierarchyRoot)
+    if #rows == 0 then
+        return
+    end
+
+    local imguiStyle = ImGui.GetStyle()
+    local indentSpacing = imguiStyle.IndentSpacing
+    if type(indentSpacing) ~= "number" or indentSpacing <= 0 then
+        indentSpacing = 21 * style.viewSize
+    end
+
+    -- Folder and entry rows are both a single framed line, so the pitch is uniform.
+    local rowHeight = ImGui.GetFrameHeight() + imguiStyle.ItemSpacing.y
+
+    -- Toggling a folder inside the loop only drops the cache; `rows` stays valid
+    -- for the rest of this frame, which keeps the clipper's item count stable.
+    local clipper = ImGuiListClipper.new()
+    clipper:Begin(#rows, rowHeight)
+
+    while (clipper:Step()) do
+        for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
+            drawHierarchyRow(rows[i], activeSpawnList, xSpace, indentSpacing)
+        end
+    end
 end
 
 ---Draws the fallback action when no path entries match the search text.
 function spawnUI.drawNoMatch()
-    if #spawnUI.filteredList ~= 0 or not spawnUI.getActiveSpawnList().isPaths then return end
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+    if #spawnUI.filteredList ~= 0 or not activeSpawnList.isPaths then return end
 
     style.mutedText("No match found...")
     style.mutedText(("Spawn \"%s\" anyways?"):format(spawnUI.filter))
@@ -2078,10 +1994,33 @@ function spawnUI.drawNoMatch()
 
         logger:info(string.format("Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
 
-        local class = spawnUI.getActiveSpawnList().class
         spawnUI.spawnNew({
             data = { spawnData = manualPath }, lastSpawned = nil, name = manualPath, fileName = manualPath
-        }, class, false)
+        }, activeSpawnList.class, false)
+    end
+end
+
+---Draws the "Strip paths" toggle, persisting and re-filtering when it changes.
+---Shared by the options popin and the quick spawn popup, which label it differently.
+---@param labelX number? Cursor X the checkbox is aligned to, for the popup's label column.
+local function drawStripPathsCheckbox(labelX)
+    if labelX then
+        ImGui.Text("Strip paths")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(labelX)
+    else
+        style.mutedText("Strip paths")
+        ImGui.SameLine()
+    end
+
+    local changed
+    settings.spawnUIOnlyNames, changed = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
+    style.tooltip("Only show the name of the file, without the full path")
+
+    if changed then
+        settings.save()
+        -- The toggle drives both the displayed label and the list ordering.
+        spawnUI.refresh()
     end
 end
 
@@ -2089,14 +2028,7 @@ end
 function spawnUI.drawOptions()
     local activeList = spawnUI.getActiveSpawnList()
     if activeList.isPaths then
-        style.mutedText("Strip paths")
-        ImGui.SameLine()
-        local stripPathsChanged
-        settings.spawnUIOnlyNames, stripPathsChanged = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
-        if stripPathsChanged then
-            spawnUI.refresh()
-        end
-        style.tooltip("Only show the name of the file, without the full path")
+        drawStripPathsCheckbox()
     end
 
     if activeList.assetPreviewType ~= "none" then
@@ -2124,41 +2056,45 @@ end
 
 local SPAWN_NEW_OPTIONS_POPIN_ID = "##spawnNewOptionsPopin"
 
----Draws right-aligned search-row controls (hierarchy toggle + options popin).
+---Draws the right-aligned hierarchy tree toggle of the search row.
 ---@param activeSpawnList table
 local function drawSpawnNewSearchRowControls(activeSpawnList)
-    local compactButtonWidth = 25 * style.viewSize
-    local controlsCount = activeSpawnList.isPaths and 2 or 1
-    local spacingX = ImGui.GetStyle().ItemSpacing.x
-    local controlsWidth = compactButtonWidth * controlsCount + spacingX * (controlsCount - 1)
-
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - controlsWidth)
-
-    if activeSpawnList.isPaths then
-        local hierarchyTreeChanged
-        settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
-            IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
-            settings.spawnUIHierarchyTree
-        )
-        if hierarchyTreeChanged then
-            settings.save()
-        end
-        style.tooltip("Toggle hierarchy tree results")
-
-        ImGui.SameLine()
+    if not activeSpawnList.isPaths then
+        return
     end
+
+    style.sameLineWindowRight(25)
+
+    local hierarchyTreeChanged
+    settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
+        IconGlyphs.FileTreeOutline .. "##hierarchyTreeToggle",
+        settings.spawnUIHierarchyTree
+    )
+    if hierarchyTreeChanged then
+        settings.save()
+    end
+    style.tooltip("Toggle hierarchy tree results")
+end
+
+---Draws a right-aligned options icon button plus its popin, on the current line.
+---Shared by every Spawn New sub-tab so the button always sits next to the target group.
+---@param buttonId string Unique `##` suffix of the button.
+---@param popupId string Unique popin ID.
+---@param drawContent fun() Renders the popin body.
+---@param tooltip string?
+function spawnUI.drawOptionsButton(buttonId, popupId, drawContent, tooltip)
+    style.sameLineWindowRight(25)
 
     style.pushButtonNoBG(true)
-    if ImGui.Button(IconGlyphs.CogOutline .. "##spawnNewOptionsButton") then
-        ImGui.OpenPopup(SPAWN_NEW_OPTIONS_POPIN_ID)
+    if ImGui.Button(IconGlyphs.CogOutline .. buttonId) then
+        ImGui.OpenPopup(popupId)
     end
     style.pushButtonNoBG(false)
-    style.tooltip("Options")
+    style.tooltip(tooltip or "Options")
 
-    if ImGui.BeginPopup(SPAWN_NEW_OPTIONS_POPIN_ID) then
-        ImGui.PushID("spawnNewOptionsPopin")
-        spawnUI.drawOptions()
+    if ImGui.BeginPopup(popupId) then
+        ImGui.PushID(popupId)
+        drawContent()
         ImGui.PopID()
         ImGui.EndPopup()
     end
@@ -2200,6 +2136,7 @@ end
 ---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
     spawnUI.drawTargetGroupSelector()
+    spawnUI.drawOptionsButton("##spawnNewOptionsButton", SPAWN_NEW_OPTIONS_POPIN_ID, spawnUI.drawOptions)
 
     style.spacedSeparator()
 
@@ -2240,44 +2177,17 @@ function spawnUI.drawAll()
 
     style.spacedSeparator()
 
-    ImGui.SetNextItemWidth(300 * style.viewSize)
-    local filterChanged
-    spawnUI.filter, filterChanged = ImGui.InputTextWithHint('##Filter', 'Search by name... (Supports pattern matching)', spawnUI.filter, 500)
-    if filterChanged then
+    local filterChanged, filterCleared
+    spawnUI.filter, filterChanged, filterCleared = style.drawSearchFilterRow("##Filter", spawnUI.filter, { maxLength = 500 })
+    if filterChanged or filterCleared then
         saveSpawnUIFilterIfChanged()
         spawnUI.updateFilter()
     end
 
-    if spawnUI.filter ~= '' then
-        ImGui.SameLine()
-
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            spawnUI.filter = ''
-            saveSpawnUIFilterIfChanged()
-            spawnUI.updateFilter()
-        end
-        style.pushButtonNoBG(false)
-    end
-
-    ImGui.SameLine()
-    style.mutedText(IconGlyphs.InformationOutline)
-    style.tooltip("Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'")
-
     local activeSpawnList = spawnUI.getActiveSpawnList()
     drawSpawnNewSearchRowControls(activeSpawnList)
 
-    local extraFilterChanged = false
-    if spawnUI.drawPathOriginFilterSelector() then
-        extraFilterChanged = true
-    end
-    if spawnUI.drawDeviceClassFilterSelector() then
-        extraFilterChanged = true
-    end
-    if spawnUI.drawRecordTypeFilterSelector() then
-        extraFilterChanged = true
-    end
-    if extraFilterChanged then
+    if drawEntryFilters() then
         spawnUI.updateFilter()
     end
 
@@ -2316,24 +2226,27 @@ function spawnUI.draw()
     spawnUI.updateAssetPreview()
     groupLoadManager.drawProgress(style)
 
+    local tabs = {
+        { icon = IconGlyphs.TextBoxSearchOutline, label = "All", id = "spawnUITabAll", draw = spawnUI.drawAll },
+        { icon = IconGlyphs.Group, label = "Prefabs", id = "spawnUITabPrefabs", draw = function () spawnUI.prefabsUI.draw() end },
+        { icon = IconGlyphs.StarBoxMultipleOutline, label = "Favorites", id = "spawnUITabAssetFavorites", draw = function () spawnUI.favoritesUI.draw() end }
+    }
+
     if ImGui.BeginTabBar("##spawnUITabbar", ImGuiTabItemFlags.NoTooltip) then
-        local allTabLabel, allTabHiddenText = style.resolveActionLabel(IconGlyphs.TextBoxSearchOutline, "All", "spawnUITabAll", nil, true)
-        if ImGui.BeginTabItem(allTabLabel) then
-            style.tooltipActionLabel(allTabHiddenText)
-            spawnUI.drawAll()
-            ImGui.EndTabItem()
-        else
-            style.tooltipActionLabel(allTabHiddenText)
+        for _, tab in ipairs(tabs) do
+            local label, hiddenText = style.resolveActionLabel(tab.icon, tab.label, tab.id, nil, true)
+            local open = ImGui.BeginTabItem(label)
+
+            -- The tooltip has to be requested while the tab header is the last item,
+            -- which is true in both branches.
+            style.tooltipActionLabel(hiddenText)
+
+            if open then
+                tab.draw()
+                ImGui.EndTabItem()
+            end
         end
 
-        local favoritesTabLabel, favoritesTabHiddenText = style.resolveActionLabel(IconGlyphs.Group, "Prefabs / Favorites", "spawnUITabFavorites", nil, true)
-        if ImGui.BeginTabItem(favoritesTabLabel) then
-            style.tooltipActionLabel(favoritesTabHiddenText)
-            spawnUI.favoritesUI.draw()
-            ImGui.EndTabItem()
-        else
-            style.tooltipActionLabel(favoritesTabHiddenText)
-        end
         ImGui.EndTabBar()
     end
 end
@@ -2558,8 +2471,7 @@ end
 function spawnUI.repeatLastSpawn()
     if not spawnUI.lastSpawnedClass or not spawnUI.lastSpawnedEntry then return end
 
-    local ray = editor.getScreenToWorldRay()
-    spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil,  true)
+    spawnUI.popupSpawnHit = editor.getCursorSceneHit()
 
     spawnUI.spawnNew(spawnUI.lastSpawnedEntry, spawnUI.lastSpawnedClass, spawnUI.lastSpawnedIsFavorite, spawnUI.lastSpawnedOptions)
     spawnUI.spawnedUI.cachePaths()
@@ -2623,7 +2535,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
             while (clipper:Step()) do
                 for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
                     ImGui.PushID(spawnUI.popupData[i].name)
-                    local secondaryIcon = getSearchResultSecondaryIcon(spawnUI.popupData[i], popupSpawnList)
+                    local secondaryIcon = entity.getEntrySecondaryIcon(spawnUI.popupData[i], popupSpawnList.modulePath)
                     local popupButtonText = formatSearchResultButtonText(
                         spawnUI.popupData[i].name,
                         xSpace - ImGui.GetStyle().ItemSpacing.x * 3,
@@ -2631,16 +2543,13 @@ function spawnUI.drawPopupVariant(typeName, variantName)
                     )
 
                     if ImGui.Button(popupButtonText) then
-                        if settings.spawnAtCursor then
-                            if not spawnUI.popupSpawnHit then
-                                local ray = editor.getScreenToWorldRay()
-                                spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-                            end
-                        else
+                        if not settings.spawnAtCursor then
                             spawnUI.popupSpawnHit = nil
+                        elseif not spawnUI.popupSpawnHit then
+                            spawnUI.popupSpawnHit = editor.getCursorSceneHit()
                         end
-                        local class = popupSpawnList.class
-                        spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], class, false)
+
+                        spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], popupSpawnList.class, false)
                         ImGui.CloseCurrentPopup()
                     end
                     if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
@@ -2674,13 +2583,7 @@ function spawnUI.drawPopup()
         if spawnAtCursorChanged then settings.save() end
         style.tooltip("Spawn the object under the cursor.")
 
-        ImGui.Text("Strip paths")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(x)
-        local stripPathsChanged
-        settings.spawnUIOnlyNames, stripPathsChanged = ImGui.Checkbox("##strip", settings.spawnUIOnlyNames)
-        if stripPathsChanged then settings.save() end
-        style.tooltip("Only show the name of the file, without the full path")
+        drawStripPathsCheckbox(x)
 
         ImGui.Text("Reset search")
         ImGui.SameLine()
@@ -2718,18 +2621,14 @@ function spawnUI.drawPopup()
             spawnUI.popupFilter = ""
         end
 
-        if settings.spawnAtCursor then
-            local ray = editor.getScreenToWorldRay()
-            spawnUI.popupSpawnHit = editor.getRaySceneIntersection(ray, GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), nil, true)
-        else
-            spawnUI.popupSpawnHit = nil
-        end
+        spawnUI.popupSpawnHit = settings.spawnAtCursor and editor.getCursorSceneHit() or nil
 
         ImGui.OpenPopup("##spawnNew")
     end
 
-    spawnUI.favoritesUI.drawEditFavoritePopup()
-    spawnUI.favoritesUI.drawCreatePrefabPopup()
+    spawnUI.prefabsUI.drawEditFavoritePopup()
+    spawnUI.prefabsUI.drawCreatePrefabPopup()
+    spawnUI.favoritesUI.drawPopups()
 end
 
 return spawnUI

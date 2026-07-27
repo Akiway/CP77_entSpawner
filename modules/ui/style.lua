@@ -254,8 +254,16 @@ end
 
 ---Show a tooltip for the currently hovered item.
 ---@param text string Tooltip body text.
-function style.tooltip(text)
-    if ImGui.IsItemHovered() then
+---@param hoveredFlags number? Optional `ImGuiHoveredFlags` bitmask, e.g. `ImGuiHoveredFlags.AllowWhenDisabled`.
+function style.tooltip(text, hoveredFlags)
+    local hovered
+    if hoveredFlags ~= nil then
+        hovered = ImGui.IsItemHovered(hoveredFlags)
+    else
+        hovered = ImGui.IsItemHovered()
+    end
+
+    if hovered then
         style.placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
         ImGui.BeginTooltip()
         ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
@@ -280,6 +288,83 @@ end
 function style.setCursorRelativeAppearing(x, y)
     local xC, yC = ImGui.GetMousePos()
     setNextWindowPosClamped(xC + x * style.viewSize, yC + y * style.viewSize, 1, 1, ImGuiCond.Appearing)
+end
+
+---Constrain the next popup to the viewport and place it near the cursor when appearing.
+---Call right before `ImGui.BeginPopup`, guarded by `ImGui.IsPopupOpen(popupId)`.
+---@param popupId string Popup ID to test for.
+function style.constrainPopupToViewport(popupId)
+    if not ImGui.IsPopupOpen(popupId) then return end
+
+    style.setCursorRelativeAppearing(-5, -5)
+
+    local screenWidth, screenHeight = getDisplaySize()
+    local margin = 8
+    local maxWidth = math.max(200, screenWidth - margin * 2)
+    local maxHeight = math.max(200, screenHeight - margin * 2)
+
+    ImGui.SetNextWindowSizeConstraints(
+        math.min(320 * style.viewSize, maxWidth),
+        math.min(160 * style.viewSize, maxHeight),
+        maxWidth,
+        maxHeight
+    )
+end
+
+---Maximum height a searchable popup may take, clamped to the current screen.
+---@return number
+function style.getPopupMaxHeight()
+    local _, screenHeight = getDisplaySize()
+
+    return math.max(200 * style.viewSize, math.min(520 * style.viewSize, screenHeight - 16))
+end
+
+---Draw an inline muted field label aligned to the widget that follows it.
+---@param label string Label text.
+function style.fieldLabel(label)
+    ImGui.AlignTextToFramePadding()
+    style.mutedText(label)
+    ImGui.SameLine()
+end
+
+---Continue the current line, then place the cursor `offset` scaled units from the
+---right window edge. Used for the trailing icon buttons of header rows.
+---@param offset number Distance from the right edge, in unscaled style units.
+function style.sameLineWindowRight(offset)
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - offset * style.viewSize)
+end
+
+---Move the cursor so that `width` pixels of content end up flush with the right
+---edge of the current window, accounting for cell padding, scrollbar and scroll.
+---@param width number Total width of the content to be drawn.
+---@param yOffset number? Optional additional vertical offset in pixels.
+function style.setCursorRightAligned(width, yOffset)
+    local styleData = ImGui.GetStyle()
+    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and styleData.ScrollbarSize or 0
+
+    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - width - styleData.CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX())
+
+    if yOffset then
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + yOffset)
+    end
+end
+
+---Push the transparent-button styling used by list row content (icons, names, cog buttons).
+---Must be paired with `style.popListRowContent`.
+function style.pushListRowContent()
+    ImGui.PushStyleColor(ImGuiCol.Button, 0)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
+    ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
+    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+end
+
+---Pop the styling pushed by `style.pushListRowContent`.
+---@param extraStyleVars number? Extra style vars pushed by the caller inside the scope.
+function style.popListRowContent(extraStyleVars)
+    ImGui.PopStyleColor(2)
+    ImGui.PopStyleVar(2 + (extraStyleVars or 0))
 end
 
 ---Draw spawnable metadata in a tooltip for the hovered item and copy current value on middle-click.
@@ -315,6 +400,15 @@ end
 ---Draw a separator wrapped by vertical spacing above and below.
 function style.spacedSeparator()
     ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+end
+
+---Draw a popup title row (optional icon + text), followed by a separator.
+---@param icon string? Optional leading icon glyph.
+---@param text string Title text.
+function style.popupTitle(icon, text)
+    style.styledText(((icon ~= nil and icon ~= "") and (icon .. " ") or "") .. text, style.highlightColor)
     ImGui.Separator()
     ImGui.Spacing()
 end
@@ -471,7 +565,7 @@ function style.resolveActionLabel(icon, text, id, mode, includeHiddenText)
     local resolvedLabel
     local stableId = type(id) == "string" and id or ""
     if stableId ~= "" then
-        resolvedLabel = visible .. "##" .. stableId
+        resolvedLabel = visible .. "###" .. stableId
     else
         resolvedLabel = visible
     end
@@ -918,10 +1012,94 @@ function style.trackedIntInput(element, text, value, min, max, width, step, fast
     return newValue, changed, finished
 end
 
+---@param disabledOptions table Keys are 1-based option indices and / or option labels.
+---@param index number 1-based option index.
+---@param optionText string
+---@return boolean
+local function isComboOptionDisabled(disabledOptions, index, optionText)
+    return disabledOptions[index] == true or disabledOptions[optionText] == true
+end
+
+---@param disabledTooltip string|fun(optionText: string, index: number): string?
+---@param optionText string
+---@param index number 1-based option index.
+---@return string?
+local function resolveComboDisabledTooltip(disabledTooltip, optionText, index)
+    if type(disabledTooltip) == "function" then
+        local ok, tooltipText = pcall(disabledTooltip, optionText, index)
+        if ok and tooltipText ~= nil and tooltipText ~= "" then
+            return tostring(tooltipText)
+        end
+
+        return nil
+    end
+
+    if type(disabledTooltip) == "string" and disabledTooltip ~= "" then
+        return disabledTooltip
+    end
+
+    return nil
+end
+
+---Combo drawn from selectables, so that individual options can be greyed out and made unselectable.
+---@param text string Combo label / ID.
+---@param selected number Current zero-based selected index.
+---@param options table Array-like table of option labels.
+---@param comboWidth number Combo width in pixels.
+---@param disabledOptions table Keys are 1-based option indices and / or option labels.
+---@param opts TrackedComboOpts
+---@return number newValue
+---@return boolean changed
+local function drawComboWithDisabledOptions(text, selected, options, comboWidth, disabledOptions, opts)
+    local newValue = selected
+    local changed = false
+    local previewValue = tostring(options[(selected or 0) + 1] or "")
+
+    ImGui.SetNextItemWidth(comboWidth)
+    local comboOpen = ImGui.BeginCombo(text, previewValue)
+    local tooltipText = buildSelectorTooltip(previewValue, opts.tooltip, opts.currentValueTooltip)
+    copySelectorValueOnMiddleClick(previewValue, opts.currentValueTooltip)
+    if tooltipText then
+        style.tooltip(tooltipText)
+    end
+
+    if comboOpen then
+        for index, option in ipairs(options) do
+            local optionText = tostring(option)
+            local isSelected = (index - 1) == selected
+
+            ImGui.PushID(index)
+            if not isSelected and isComboOptionDisabled(disabledOptions, index, optionText) then
+                ImGui.Selectable(optionText, false, ImGuiSelectableFlags.Disabled)
+
+                local disabledTooltip = resolveComboDisabledTooltip(opts.disabledTooltip, optionText, index)
+                if disabledTooltip then
+                    style.tooltip(disabledTooltip, ImGuiHoveredFlags.AllowWhenDisabled)
+                end
+            else
+                if ImGui.Selectable(optionText, isSelected) then
+                    newValue = index - 1
+                    changed = newValue ~= selected
+                end
+                if isSelected then
+                    ImGui.SetItemDefaultFocus()
+                end
+            end
+            ImGui.PopID()
+        end
+
+        ImGui.EndCombo()
+    end
+
+    return newValue, changed
+end
+
 ---Draw a combo box and record history when selection changes.
 ---@class TrackedComboOpts
 ---@field tooltip string? Optional helper text appended after the current value.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
+---@field disabledOptions table<number|string, boolean>? Options that are greyed out and can not be picked, keyed by 1-based index and / or option label. The currently selected option is never disabled.
+---@field disabledTooltip (string|fun(optionText: string, index: number): string?)? Tooltip shown when hovering a disabled option.
 ---@param element table Element used for undo history tracking.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
@@ -938,13 +1116,21 @@ function style.trackedCombo(element, text, selected, options, width, opts)
 
     width = width or 100
     opts = opts or {}
-    ImGui.SetNextItemWidth(width * style.viewSize)
 
-    local newValue, changed = ImGui.Combo(text, selected, options, #options)
-    local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
-    copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
-    if tooltipText then
-        style.tooltip(tooltipText)
+    local disabledOptions = opts.disabledOptions
+    local newValue, changed
+
+    if type(disabledOptions) == "table" and next(disabledOptions) ~= nil then
+        newValue, changed = drawComboWithDisabledOptions(text, selected, options, width * style.viewSize, disabledOptions, opts)
+    else
+        ImGui.SetNextItemWidth(width * style.viewSize)
+
+        newValue, changed = ImGui.Combo(text, selected, options, #options)
+        local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
+        copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
+        if tooltipText then
+            style.tooltip(tooltipText)
+        end
     end
 
     if changed then
@@ -1111,6 +1297,70 @@ function style.getMaxWidth(min)
     width = math.max(width, min)
 
     return width / style.viewSize
+end
+
+---Build the preview label of a multi-select combo from its selection state.
+---Shows `allLabel` when nothing is selected, the single key when exactly one is,
+---and `multiLabelFormat` (a `%d` format) otherwise.
+---@param selections table<string, boolean>? Selection state map.
+---@param allLabel string Label used when no option is selected.
+---@param multiLabelFormat string `string.format` pattern receiving the selected count.
+---@param formatKey fun(key: string): string? Optional decorator for the single-selection label.
+---@return string
+function style.getMultiSelectPreviewLabel(selections, allLabel, multiLabelFormat, formatKey)
+    local selected = {}
+
+    for key, isSelected in pairs(selections or {}) do
+        if isSelected == true then
+            table.insert(selected, tostring(key))
+        end
+    end
+
+    if #selected == 0 then
+        return allLabel
+    end
+
+    if #selected == 1 then
+        return type(formatKey) == "function" and formatKey(selected[1]) or selected[1]
+    end
+
+    return string.format(multiLabelFormat, #selected)
+end
+
+-- Query-syntax help shared by every search field supporting `utils.matchSearch`.
+style.searchQuerySyntaxTooltip = "Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'"
+
+---Draw the standard search row: text input, conditional clear button and syntax help glyph.
+---@class SearchFilterRowOpts
+---@field width number? Input width in unscaled units (default `300`).
+---@field maxLength number? Input buffer length (default `100`).
+---@field hint string? Placeholder text.
+---@field onClear fun()? Called instead of `changed` when the clear button is pressed.
+---@param id string Input ID, e.g. `##filter`.
+---@param value string Current search text.
+---@param opts SearchFilterRowOpts?
+---@return string value
+---@return boolean changed
+---@return boolean cleared
+function style.drawSearchFilterRow(id, value, opts)
+    opts = opts or {}
+    value = tostring(value or "")
+
+    ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
+    local changed
+    value, changed = ImGui.InputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
+
+    local cleared = false
+    if style.drawNoBGConditionalButton(value ~= "", IconGlyphs.Close .. id .. "Clear") then
+        value = ""
+        cleared = true
+    end
+
+    ImGui.SameLine()
+    style.mutedText(IconGlyphs.InformationOutline)
+    style.tooltip(style.searchQuerySyntaxTooltip)
+
+    return value, changed, cleared
 end
 
 ---@param options table
@@ -1355,7 +1605,10 @@ end
 ---@field createValue string? Current text of the create input (externalized state, returned as 3rd value).
 ---@field createInputId string? Unique ID for the create input.
 ---@field createButtonId string? Unique ID suffix for the create add button.
----@field onCreate fun(name: string)? Called when the user confirms a new option; defaults to selecting the name.
+---@field createIcon string? Icon key. When set, an icon selector is drawn before the create input.
+---@field createIconSearch string? Search text of that icon selector (externalized state).
+---@field createIconPickerId string? Unique ID for that icon selector.
+---@field onCreate fun(name: string, iconKey: string?)? Called when the user confirms a new option; defaults to selecting the name.
 
 ---Draw a searchable multi-select combo with select-all / unselect-all controls.
 ---Selection state is externalized through `selections` where keys map to booleans.
@@ -1364,6 +1617,8 @@ end
 ---@return boolean changed
 ---@return string searchValue
 ---@return string createValue Current text of the create input (empty unless `allowCreate` is set).
+---@return string createIcon Icon key of the create row selector (unchanged unless `createIcon` is set).
+---@return string createIconSearch Search text of the create row icon selector.
 function style.drawSearchableMultiSelectCombo(opts)
     opts = opts or {}
 
@@ -1380,7 +1635,7 @@ function style.drawSearchableMultiSelectCombo(opts)
     local selections = opts.selections or {}
     local comboWidth = opts.comboWidth or (260 * style.viewSize)
     local searchWidth = opts.searchWidth or (220 * style.viewSize)
-    local maxPopupHeight = opts.maxPopupHeight or (520 * style.viewSize)
+    local maxPopupHeight = opts.maxPopupHeight or style.getPopupMaxHeight()
     local emptyText = tostring(opts.emptyText or "No options available")
     local noMatchText = tostring(opts.noMatchText or "No matching options")
     local searchInputId = tostring(opts.searchInputId or "##multiSelectSearch")
@@ -1402,14 +1657,24 @@ function style.drawSearchableMultiSelectCombo(opts)
     local getOptionLabel = opts.getOptionLabel or function (option)
         return tostring(option or "")
     end
-    local matchesOption = opts.matchesOption or function ()
-        return true
+    -- Default matcher: case-insensitive search over the option key, which is what
+    -- every caller needs. Pass `matchesOption` only for non-standard matching.
+    local matchesOption = opts.matchesOption or function (option, searchValue, idx)
+        local search = string.lower(tostring(searchValue or ""))
+        if search == "" then
+            return true
+        end
+
+        return utils.safePatternMatch(string.lower(tostring(getOptionKey(option, idx) or "")), search)
     end
     local allowCreate = opts.allowCreate == true
     local createHint = tostring(opts.createHint or "New option...")
     local createValue = tostring(opts.createValue or "")
     local createInputId = tostring(opts.createInputId or "##multiSelectCreate")
     local createButtonId = tostring(opts.createButtonId or "##multiSelectCreateAdd")
+    local createIcon = opts.createIcon
+    local createIconSearch = tostring(opts.createIconSearch or "")
+    local createIconPickerId = tostring(opts.createIconPickerId or (comboId .. "CreateIcon"))
     local onCreate = opts.onCreate
 
     local changed = false
@@ -1481,12 +1746,25 @@ function style.drawSearchableMultiSelectCombo(opts)
         style.pushButtonNoBG(false)
 
         if allowCreate then
-            ImGui.SetNextItemWidth(searchWidth)
+            local createInputWidth = searchWidth
+
+            if createIcon ~= nil then
+                -- Lazy require: `field` depends on `style`, so it cannot be required at load time.
+                local field = require("modules/utils/field")
+                local iconSelectorWidth = 42 * style.viewSize
+
+                createIcon, createIconSearch = field.drawIconSelector(createIconPickerId, createIcon, createIconSearch)
+                ImGui.SameLine()
+
+                createInputWidth = math.max(60 * style.viewSize, searchWidth - iconSelectorWidth - ImGui.GetStyle().ItemSpacing.x)
+            end
+
+            ImGui.SetNextItemWidth(createInputWidth)
             createValue, _ = ImGui.InputTextWithHint(createInputId, createHint, createValue, 100)
 
             if style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId) then
                 if type(onCreate) == "function" then
-                    onCreate(createValue)
+                    onCreate(createValue, createIcon)
                 else
                     selections[createValue] = true
                 end
@@ -1558,7 +1836,39 @@ function style.drawSearchableMultiSelectCombo(opts)
     end
     ImGui.PopItemWidth()
 
-    return changed, searchValue, createValue
+    return changed, searchValue, createValue, createIcon, createIconSearch
+end
+
+---Draw the expand-all / collapse-all icon button pair used above collapsible lists.
+---@param idScope string Unique ID scope, e.g. `spawnHierarchy`.
+---@param onExpand fun() Called when expand all is pressed.
+---@param onCollapse fun() Called when collapse all is pressed.
+---@param opts {disabled: boolean?, expandTooltip: string?, collapseTooltip: string?}?
+function style.drawExpandCollapseButtons(idScope, onExpand, onCollapse, opts)
+    opts = opts or {}
+
+    local expandIcon = IconGlyphs.ExpandAllOutline or IconGlyphs.ArrowExpandAll or IconGlyphs.ExpandAll or "+"
+    local collapseIcon = IconGlyphs.CollapseAllOutline or IconGlyphs.ArrowCollapseAll or IconGlyphs.CollapseAll or "-"
+
+    ImGui.BeginDisabled(opts.disabled == true)
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(expandIcon .. "##" .. idScope .. "ExpandAll") then
+        onExpand()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip(opts.expandTooltip or "Expand all")
+
+    ImGui.SameLine()
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(collapseIcon .. "##" .. idScope .. "CollapseAll") then
+        onCollapse()
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip(opts.collapseTooltip or "Collapse all")
+
+    ImGui.EndDisabled()
 end
 
 ---Draw a no-background button only when the condition is true.

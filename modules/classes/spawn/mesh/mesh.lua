@@ -381,7 +381,11 @@ function mesh:getAssetPreviewPosition()
     mesh:SetLocalPosition(diff)
 
     if preview.elements and preview.elements["previewFirstLine"] and preview.elements["previewSecondLine"] then
-        preview.elements["previewFirstLine"]:SetText("Appearance: " .. self.app)
+        local label = "Appearance"
+        if #apps > 0 then
+            label = ("Appearance (%d/%d)"):format(self.appIndex + 1, #apps)
+        end
+        preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
         preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
     end
 
@@ -505,31 +509,7 @@ end
 ---@param ray Vector4
 ---@return table
 function mesh:calculateIntersection(origin, ray)
-    if not self:getEntity() then
-        return { hit = false }
-    end
-
-    local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
-
-    local scaledBBox = utils.getScaledBBoxWithFactor(self.bBox, self.scale, scaleFactor)
-    local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
-
-    local unscaledHit
-    if result.hit then
-        unscaledHit = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, intersection.unscaleBBox(self.spawnData, self:getSize(), scaledBBox))
-    end
-
-    return {
-        hit = result.hit,
-        position = result.position,
-        unscaledHit = unscaledHit and unscaledHit.position or result.position,
-        collisionType = "bbox",
-        distance = result.distance,
-        bBox = scaledBBox,
-        objectOrigin = self.position,
-        objectRotation = self.rotation,
-        normal = result.normal
-    }
+    return intersection.getSpawnableBBoxIntersection(self, origin, ray)
 end
 
 ---Draws the single-node mesh inspector UI.
@@ -753,16 +733,7 @@ end
 ---Builds single-selection property groups for the editor sidebar.
 ---@return table
 function mesh:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 ---Checks whether current mesh asset supports conversion to the target subtype.
@@ -1089,17 +1060,14 @@ function mesh:getGroupedProperties()
             shape = 0
         },
 		draw = function(element, entries)
-            style.mutedText("Collider Shape")
-            ImGui.SameLine()
-            ImGui.SetNextItemWidth(110 * style.viewSize)
-            element.groupOperationData["mesh"].shape, _ = ImGui.Combo("##colliderShape", element.groupOperationData["mesh"].shape, colliderShapeTypes, 3)
-            style.comboValueTooltip(element.groupOperationData["mesh"].shape, colliderShapeTypes)
-
-            ImGui.SameLine()
-
-            if ImGui.Button("Generate") then
+            ---Runs collider generation over all selected static mesh entries.
+            ---`prepare` configures the shape selection per entry, and skips the entry by returning false.
+            ---@param prepare fun(spawnableEntry: mesh): boolean
+            ---@param toastFormat string
+            local function generateForSelection(prepare, toastFormat)
                 local selectedEntries = {}
                 local nApplied = 0
+                local nSkipped = 0
                 local sourceEntries = entries
 
                 for _, entry in ipairs(sourceEntries) do
@@ -1116,11 +1084,17 @@ function mesh:getGroupedProperties()
                 end
 
                 for _, entry in ipairs(selectedEntries) do
-                    entry.spawnable.colliderShapeTypeIndex = element.groupOperationData["mesh"].shape
-                    local action = entry.spawnable:generateCollider(true)
+                    local action = nil
+
+                    if prepare(entry.spawnable) then
+                        action = entry.spawnable:generateCollider(true)
+                    end
+
                     if action then
                         table.insert(actions, action)
                         nApplied = nApplied + 1
+                    else
+                        nSkipped = nSkipped + 1
                     end
                 end
 
@@ -1141,14 +1115,68 @@ function mesh:getGroupedProperties()
                     })
                 end
 
-                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Generated colliders for %s nodes", nApplied)))
+                local message = string.format(toastFormat, nApplied)
+                if nSkipped > 0 then
+                    message = message .. string.format(" (%s skipped)", nSkipped)
+                end
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, message))
+            end
+
+            style.mutedText("Collider Shape")
+            ImGui.SameLine()
+            ImGui.SetNextItemWidth(110 * style.viewSize)
+            element.groupOperationData["mesh"].shape, _ = ImGui.Combo("##colliderShape", element.groupOperationData["mesh"].shape, colliderShapeTypes, 3)
+            style.comboValueTooltip(element.groupOperationData["mesh"].shape, colliderShapeTypes)
+
+            ImGui.SameLine()
+
+            if ImGui.Button("Generate##colliderShape") then
+                generateForSelection(function (spawnableEntry)
+                    spawnableEntry.colliderShapeTypeIndex = element.groupOperationData["mesh"].shape
+                    return true
+                end, "Generated colliders for %s nodes")
             end
             style.tooltip("Generate Colliders for all selected meshes.")
+
+            style.mutedText("Collision Mesh")
+            ImGui.SameLine()
+
+            if ImGui.Button("Generate##collisionMesh") then
+                generateForSelection(function (spawnableEntry)
+                    local shapeTypeIndex, shapeHashIndex = spawnableEntry:findFirstCollisionMeshShape()
+                    if not shapeTypeIndex then return false end
+
+                    spawnableEntry.colliderShapeTypeIndex = shapeTypeIndex
+                    spawnableEntry.colliderShapeHashIndex = shapeHashIndex
+                    spawnableEntry.colliderShapeSectorHashIndex = 0
+                    return true
+                end, "Generated collision meshes for %s nodes")
+            end
+            style.tooltip("Generate Collision Meshes for all selected meshes.\nUses the first matching ConvexMesh or BV4TriangleMesh.\nMeshes without a matching collision mesh are skipped.")
         end,
 		entries = { self.object }
 	}
 
     return properties
+end
+
+---Finds the first usable complex collision shape of this mesh asset, checking ConvexMesh before BV4TriangleMesh.
+---Shapes without any sector hash are ignored, since no collider can be generated from them.
+---@protected
+---@return integer? shapeTypeIndex Index into colliderShapeTypes, nil if the asset has no matching shape
+---@return integer? shapeHashIndex Index into the shape hashes of that type
+function mesh:findFirstCollisionMeshShape()
+    for _, shapeTypeIndex in ipairs({ 3, 4 }) do
+        local shapeHashes = cache.getMeshCollisionShapeHashes(self.spawnData, colliderShapeTypes[shapeTypeIndex + 1])
+
+        for hashIndex, shapeHash in ipairs(shapeHashes) do
+            if #cache.getCollisionShapeSectorsHashes(shapeHash) > 0 then
+                return shapeTypeIndex, hashIndex - 1
+            end
+        end
+    end
+
+    return nil, nil
 end
 
 ---Generates a collider sibling and wraps mesh + collider in a new group.

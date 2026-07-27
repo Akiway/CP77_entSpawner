@@ -77,11 +77,7 @@ function fog:onAssemble(entity)
 end
 
 function fog:spawn()
-    local probe = self.spawnData
-    self.spawnData = "base\\spawner\\empty_entity.ent"
-
-    spawnable.spawn(self)
-    self.spawnData = probe
+    self:spawnAsPlaceholderEntity()
 end
 
 function fog:save()
@@ -107,11 +103,6 @@ end
 
 function fog:getSize()
     return self.scale
-end
-
-function fog:setPreview(state)
-    self.previewed = state
-    visualizer.toggleAll(self:getEntity(), self.previewed)
 end
 
 function fog:draw()
@@ -160,16 +151,7 @@ function fog:draw()
 end
 
 function fog:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 function fog:getGroupedProperties()

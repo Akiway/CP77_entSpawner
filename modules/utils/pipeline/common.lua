@@ -1,3 +1,5 @@
+local utils = require("modules/utils/utils")
+
 local pipelineCommon = {}
 
 ---@alias pipelineToastKind "info"|"warning"|"error"|"success"|string
@@ -152,6 +154,20 @@ function pipelineCommon.drawCancelableProgress(options)
     if showSeparator then
         style.spacedSeparator()
     end
+end
+
+---Normalizes an export variant name, collapsing empty/`"default"` spellings onto `"default"`.
+---@param variantName string?
+---@return string normalized
+---@return boolean isDefault True when the name resolves to the default variant.
+function pipelineCommon.normalizeVariantName(variantName)
+    local normalized = utils.trimString(variantName)
+
+    if normalized == "" or normalized:lower() == "default" then
+        return "default", true
+    end
+
+    return normalized, false
 end
 
 return pipelineCommon

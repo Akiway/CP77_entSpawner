@@ -35,20 +35,12 @@ local logger = require("modules/utils/logger")
 ---@field lockedRemove boolean
 element = {}
 
-local SPAWNABLE_MODULE_PATH = "modules/classes/editor/spawnableElement"
-local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
-local RANDOMIZED_GROUP_MODULE_PATH = "modules/classes/editor/randomizedGroup"
-
----@param data table?
----@return boolean
-local function isSerializedSpawnable(data)
-	return data and (data.modulePath == SPAWNABLE_MODULE_PATH or data.type == "object" or data.type == "element")
-end
-
----@param data table?
----@return boolean
-local function isSerializedGroup(data)
-	return data and (data.modulePath == POSITIONABLE_GROUP_MODULE_PATH or data.modulePath == RANDOMIZED_GROUP_MODULE_PATH or data.type == "group")
+---Invalidates the cached viewport wireframes owned by the element's spawned UI, when it has one.
+---@param instance element? Element whose `sUI` should refresh its wireframe cache.
+function element.bumpWireframeEpoch(instance)
+	if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
+		instance.sUI.bumpWireframeEpoch()
+	end
 end
 
 ---@param instance element
@@ -633,14 +625,14 @@ function element:serialize()
 		local childData = child:serialize()
 		table.insert(data.childs, childData)
 
-		if isSerializedSpawnable(childData) then
+		if utils.isSerializedSpawnableStrict(childData) then
 			elementCount = elementCount + 1
-		elseif isSerializedGroup(childData) then
+		elseif utils.isSerializedGroupStrict(childData) then
 			elementCount = elementCount + (childData.elementCount or 0)
 		end
 	end
 
-	if isSerializedGroup(data) then
+	if utils.isSerializedGroupStrict(data) then
 		data.elementCount = elementCount
 	end
 

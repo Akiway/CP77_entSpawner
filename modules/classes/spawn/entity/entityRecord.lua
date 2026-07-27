@@ -37,6 +37,7 @@ function record:new()
     o.dataType = "Entity Record"
     o.spawnDataPath = "data/spawnables/entity/records/"
     o.modulePath = "entity/entityRecord"
+    o.entryFilter = "recordType"
     o.icon = IconGlyphs.AlphaRBoxOutline
     o.node = "worldPopulationSpawnerNode"
     o.description = "Spawns an entity from a given TweakDB record"

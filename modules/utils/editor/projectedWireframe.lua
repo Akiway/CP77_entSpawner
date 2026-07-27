@@ -1,4 +1,6 @@
 local utils = require("modules/utils/utils")
+local settings = require("modules/utils/settings")
+local style = require("modules/ui/style")
 
 local projectedWireframe = {}
 
@@ -631,6 +633,32 @@ function projectedWireframe.drawOrientedBox(drawList, screen, position, orientat
             drawBadge(drawList, screen, origin, formatDistance(distance), true, originBadgeOffsetY, originColor, labelColor)
         end
     end
+end
+
+---Tests whether a point lies inside an axis-aligned streaming box given per-axis half-extents.
+---@param point Vector4 Point to test.
+---@param center Vector4 Center of the streaming box.
+---@param extentX number Half-extent on X.
+---@param extentY number Half-extent on Y.
+---@param extentZ number Half-extent on Z.
+---@return boolean inside True when point lies inside the box bounds.
+function projectedWireframe.isInsideStreamingExtents(point, center, extentX, extentY, extentZ)
+    return point.x >= (center.x - extentX) and point.x <= (center.x + extentX)
+        and point.y >= (center.y - extentY) and point.y <= (center.y + extentY)
+        and point.z >= (center.z - extentZ) and point.z <= (center.z + extentZ)
+end
+
+---Resolves streaming-range colors based on whether the player is inside the range.
+---@param inside boolean True when the player is inside the streaming range.
+---@return number color Wireframe edge color.
+---@return number labelColor Label color used by overlay text.
+function projectedWireframe.getStreamingThemeColors(inside)
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+    if wireframeColorStyle == 2 then
+        return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
+    end
+
+    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
 end
 
 return projectedWireframe

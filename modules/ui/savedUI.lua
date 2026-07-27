@@ -58,18 +58,6 @@ function savedUI.startQueuedGroupLoad(group, spawner, loadHidden)
     })
 end
 
-local function isSavedGroup(data)
-    return data and (data.type == "group"
-        or data.modulePath == "modules/classes/editor/positionableGroup"
-        or data.modulePath == "modules/classes/editor/randomizedGroup")
-end
-
-local function isSavedElement(data)
-    return data and (data.type == "object"
-        or data.type == "element"
-        or data.modulePath == "modules/classes/editor/spawnableElement")
-end
-
 ---@param entry {fileName: string, data: table}
 ---@return string
 local function getEntrySortName(entry)
@@ -118,7 +106,7 @@ end
 
 local function hasSavedGroups()
     for _, data in pairs(savedUI.files) do
-        if isSavedGroup(data) then
+        if utils.isSerializedGroupStrict(data) then
             return true
         end
     end
@@ -149,7 +137,7 @@ local function validateSavedEntry(fileName, data)
         return false
     end
 
-    if isSavedGroup(data) then
+    if utils.isSerializedGroupStrict(data) then
         if type(data.childs) ~= "table" or not isPositionValid(data.pos) then
             savedUI.invalidFiles[fileName] = true
             return false
@@ -159,7 +147,7 @@ local function validateSavedEntry(fileName, data)
         return true
     end
 
-    if isSavedElement(data) then
+    if utils.isSerializedSpawnableStrict(data) then
         if type(data.spawnable) ~= "table" or not isPositionValid(data.spawnable.position) then
             savedUI.invalidFiles[fileName] = true
             return false
@@ -327,9 +315,9 @@ local function getSavedGroupElementCount(group)
         local current = table.remove(stack)
 
         for _, child in pairs(current.childs or {}) do
-            if isSavedElement(child) then
+            if utils.isSerializedSpawnableStrict(child) then
                 count = count + 1
-            elseif isSavedGroup(child) then
+            elseif utils.isSerializedGroupStrict(child) then
                 table.insert(stack, child)
             end
         end
@@ -489,6 +477,21 @@ local function collectProjectCatalog(allGroups)
     return projectMap, projectOptions
 end
 
+---Returns the catalog of existing project tags gathered from all saved groups.
+---Used by other UIs (e.g. Settings) to offer existing projects for selection.
+---@return table<string, table> projectMap
+---@return table[] projectOptions
+function savedUI.getProjectCatalog()
+    local allGroups = {}
+    for fileName, data in pairs(savedUI.files) do
+        if utils.isSerializedGroupStrict(data) then
+            table.insert(allGroups, { fileName = fileName, data = data })
+        end
+    end
+
+    return collectProjectCatalog(allGroups)
+end
+
 ---@param filteredGroups {fileName: string, data: table}[]
 ---@return table[]
 local function buildProjectSections(filteredGroups)
@@ -558,7 +561,7 @@ local function buildProjectSections(filteredGroups)
 end
 
 local function removeFromExportListIfPresent(data)
-    if not isSavedGroup(data) then
+    if not utils.isSerializedGroupStrict(data) then
         return 0
     end
 
@@ -571,7 +574,7 @@ local function removeFromExportListIfPresent(data)
 end
 
 local function showDeletedGroupToast(data, removedFromExport)
-    if not isSavedGroup(data) then
+    if not utils.isSerializedGroupStrict(data) then
         return
     end
 
@@ -1140,9 +1143,9 @@ function savedUI.draw(spawner)
             data = data
         }
 
-        if isSavedGroup(data) then
+        if utils.isSerializedGroupStrict(data) then
             table.insert(allGroups, entry)
-        elseif isSavedElement(data) then
+        elseif utils.isSerializedSpawnableStrict(data) then
             table.insert(allObjects, entry)
         end
     end
@@ -1486,6 +1489,7 @@ function savedUI.reload()
     savedUI.groupProjectIconSearch = {}
     savedUI.pendingGroupProjectPopupId = nil
     ammImportPresetPopup.reset()
+    backup.invalidateInfoCache()
 
     for _, file in pairs(dir("data/objects")) do
         if file.name:match("^.+(%..+)$") == ".json" then

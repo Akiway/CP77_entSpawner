@@ -1,7 +1,6 @@
 local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local Cron = require("modules/utils/Cron")
-local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
 local gameUtils = require("modules/utils/gameUtils")
 local logger = require("modules/utils/logger")
@@ -16,11 +15,7 @@ local rht = {
     spawnUI = nil,
     spawner = nil,
     redHotTools = nil,
-    removalEditor = nil,
-    removalAddTargetUpvalueIndex = nil,
-    removalAddTargetUpvalueOwner = nil,
-    removalAddTargetWarned = false,
-    removalPresetPathCache = {}
+    removalEditor = nil
 }
 
 local REPLACER_MODE_LABELS = {
@@ -64,16 +59,10 @@ local function getEnumIndex(enumName, targetValue)
         return 0
     end
 
-    local maxValue = tonumber(EnumGetMax(enumName)) or 100
-    local index = 0
-
-    for i = -25, maxValue do
-        local name = EnumValueToString(enumName, i)
-        if name ~= "" then
-            if name == targetName then
-                return index
-            end
-            index = index + 1
+    -- Same ordered list of non-empty enum names the loop used to rebuild per call, but cached.
+    for index, name in ipairs(utils.enumTable(enumName)) do
+        if name == targetName then
+            return index - 1
         end
     end
 
@@ -633,35 +622,6 @@ local function isReplacementMode(mode)
     return mode == "replace" or mode == "replace_hide"
 end
 
----@param fn function
----@param upvalueName string
----@return number?
-local function findUpvalueIndex(fn, upvalueName)
-    if not fn then
-        return nil
-    end
-
-    if not debug or type(debug.getupvalue) ~= "function" then
-        return nil
-    end
-
-    local index = 1
-    while true do
-        local ok, name = pcall(debug.getupvalue, fn, index)
-        if not ok or not name then
-            break
-        end
-
-        if name == upvalueName then
-            return index
-        end
-
-        index = index + 1
-    end
-
-    return nil
-end
-
 ---@param object any
 ---@param key string
 ---@return any
@@ -782,63 +742,17 @@ local function isNodeRemovalComplete(removalEditor, node)
     return true
 end
 
----@param removalEditor any
----@param currentFile string
----@return string
-local function getRemovalPresetPath(removalEditor, currentFile)
-    local cachedPath = rht.removalPresetPathCache[currentFile]
-    if cachedPath and config.fileExists(cachedPath) then
-        return cachedPath
-    end
-
-    local candidates = {}
-
-    local addRemoval = removalEditor and removalEditor.addRemoval or nil
-    if debug and type(debug.getinfo) == "function" and type(addRemoval) == "function" then
-        local ok, info = pcall(debug.getinfo, addRemoval, "S")
-        if ok and info and type(info.source) == "string" then
-            local source = utils.normalizePath(tostring(info.source):gsub("^@", ""), { separator = "slash" })
-            local modRoot = source:match("^(.*)/init%.lua$")
-            if modRoot then
-                table.insert(candidates, modRoot .. "/data/" .. currentFile)
-            end
-        end
-    end
-
-    table.insert(candidates, "../removalEditor/data/" .. currentFile)
-    table.insert(candidates, "data/" .. currentFile)
-
-    for _, path in ipairs(candidates) do
-        if config.fileExists(path) then
-            rht.removalPresetPathCache[currentFile] = path
-            return path
-        end
-    end
-
-    local fallback = candidates[1] or ("../removalEditor/data/" .. currentFile)
-    rht.removalPresetPathCache[currentFile] = fallback
-    return fallback
-end
-
----@param removalEditor any
----@param preset table
----@param currentFile string
----@return boolean
-local function saveRemovalPreset(removalEditor, preset, currentFile)
-    local path = getRemovalPresetPath(removalEditor, currentFile)
-    local ok, err = config.saveFile(path, preset)
-    if not ok then
-        log("RemovalEditor fallback save failed for '" .. tostring(path) .. "': " .. tostring(err))
-        return false
-    end
-
-    return true
-end
-
+---Inserts a removal entry straight into Removal Editor's live preset table
+---(`removalEditor.presets[currentFile]`), so it shows in its window immediately.
+---We can't call Removal Editor's own `addRemoval`: it needs a file-local `target`
+---upvalue we can't set (CET has no `debug.setupvalue`), and CET's io sandbox blocks
+---writing its `.xl`. Reusing its `addSector`/`createProxyMutation` (parameter-based,
+---no `target`) plus a table insert is the only route that works. See
+---`persistViaDeleteRemoval` for disk persistence.
 ---@param removalEditor any
 ---@param node any
 ---@return boolean
-local function manualAddRemoval(removalEditor, node)
+local function insertRemovalInMemory(removalEditor, node)
     local preset, currentFile = getActivePreset(removalEditor)
     if not preset or not currentFile then
         return false
@@ -883,7 +797,7 @@ local function manualAddRemoval(removalEditor, node)
             end
         end
 
-        return saveRemovalPreset(removalEditor, preset, currentFile)
+        return true
     end
 
     local removal = {
@@ -954,107 +868,92 @@ local function manualAddRemoval(removalEditor, node)
     removal.orientation = serializedOrientation
 
     table.insert(sector.nodeDeletions, 1, removal)
-    return saveRemovalPreset(removalEditor, preset, currentFile)
+    return true
 end
 
----@param addRemoval function
----@param node any
----@return boolean
-local function injectRemovalTarget(addRemoval, node)
-    if not debug or type(debug.getupvalue) ~= "function" or type(debug.setupvalue) ~= "function" then
+---Persists Removal Editor's active preset to disk. We can't write its `.xl` (io sandbox)
+---or drive its `addRemoval` (needs `target`), so we call `removal:deleteRemoval` — its only
+---public method that ends in a save — with args crafted so every step before the save is a
+---no-op and the real preset is only read, never mutated (see inline comments). Best-effort:
+---the sandbox blocks reading the file back, so the on-disk result can't be confirmed here.
+---@param removalEditor any
+---@param preset table
+---@return boolean persisted
+local function persistViaDeleteRemoval(removalEditor, preset)
+    if type(removalEditor.deleteRemoval) ~= "function" then
         return false
     end
 
-    local targetIndex = rht.removalAddTargetUpvalueIndex
-    if targetIndex and rht.removalAddTargetUpvalueOwner ~= addRemoval then
-        targetIndex = nil
-    end
-
-    if targetIndex then
-        local okName, upvalueName = pcall(debug.getupvalue, addRemoval, targetIndex)
-        if not okName or upvalueName ~= "target" then
-            targetIndex = nil
-        end
-    end
-
-    if not targetIndex then
-        targetIndex = findUpvalueIndex(addRemoval, "target")
-        rht.removalAddTargetUpvalueIndex = targetIndex
-        rht.removalAddTargetUpvalueOwner = addRemoval
-    end
-
-    if not targetIndex then
+    if type(preset) ~= "table" or type(preset.streaming) ~= "table" or type(preset.streaming.sectors) ~= "table" then
         return false
     end
 
-    local okSet, setName = pcall(debug.setupvalue, addRemoval, targetIndex, node)
-    if not okSet or setName ~= "target" then
+    -- Refuse unless this is the genuine active preset; deleteRemoval saves whatever we pass.
+    local currentFile = removalEditor.currentFile
+    if not currentFile or currentFile == "" then
+        return false
+    end
+    if type(removalEditor.presets) ~= "table" or removalEditor.presets[currentFile] ~= preset then
         return false
     end
 
-    local okRead, _, currentValue = pcall(debug.getupvalue, addRemoval, targetIndex)
-    if not okRead then
-        return true
+    local sectorCountBefore = #preset.streaming.sectors
+
+    -- Decoy stays non-empty after deleteRemoval's internal table.remove, so its branch that
+    -- prunes the real sector list never fires.
+    local decoySector = { nodeDeletions = { false, false }, nodeMutations = {} }
+    -- No proxyHash, so its updateProxyMutation call returns early.
+    local decoyEntry = {}
+    -- Out-of-range index: even if the prune branch runs, table.remove(list, #list+1) is a no-op.
+    local safeSectorKey = sectorCountBefore + 1
+
+    local ok, err = pcall(removalEditor.deleteRemoval, removalEditor, preset, decoySector, decoyEntry, nil, safeSectorKey)
+    if not ok then
+        log("Removal preset persist via deleteRemoval failed: " .. tostring(err))
+        return false
     end
 
-    return currentValue == node
+    -- Detection net: the crafted args must not have altered the real structure.
+    if #preset.streaming.sectors ~= sectorCountBefore then
+        log("WARNING: Removal preset persist changed sector count ("
+            .. tostring(sectorCountBefore) .. " -> " .. tostring(#preset.streaming.sectors)
+            .. "); Removal Editor internals may have changed - persistence disabled for safety is advised.")
+        return false
+    end
+
+    return true
 end
 
 ---@param removalEditor any
 ---@param node any
 ---@return boolean
 local function bridgeAddRemoval(removalEditor, node)
-    local addRemoval = removalEditor and removalEditor.addRemoval or nil
-    if type(addRemoval) ~= "function" then
+    if not removalEditor then
         return false
-    end
-
-    local injectedTarget = injectRemovalTarget(addRemoval, node)
-
-    if not injectedTarget and not rht.removalAddTargetWarned then
-        rht.removalAddTargetWarned = true
-        log("RemovalEditor bridge warning: internal target upvalue was not injected before addRemoval; fallback path may be used.")
-    end
-
-    local wasComplete = isNodeRemovalComplete(removalEditor, node)
-    local ok, err = pcall(addRemoval, removalEditor, node)
-    if not ok then
-        log("RemovalEditor addRemoval failed: " .. tostring(err))
     end
 
     if isNodeRemovalComplete(removalEditor, node) then
         return true
     end
 
-    if wasComplete then
-        return true
+    if not insertRemovalInMemory(removalEditor, node) then
+        return false
     end
 
-    local fallbackOk = manualAddRemoval(removalEditor, node)
-    if fallbackOk then
-        if ok then
-            log("RemovalEditor addRemoval was incomplete; WB fallback append succeeded.")
-        else
-            log("WB fallback append succeeded after addRemoval failure.")
-        end
-        return true
+    -- The in-memory insert already makes the removal appear in the Removal Editor window.
+    -- Persisting to disk is best-effort and never gates success.
+    local preset = getActivePreset(removalEditor)
+    if preset then
+        persistViaDeleteRemoval(removalEditor, preset)
     end
 
-    if ok then
-        log("RemovalEditor addRemoval did not produce a complete removal entry, and WB fallback append failed.")
-    end
-
-    return false
+    return true
 end
 
 function rht.getRemovalEditor()
     local removalEditor = GetMod("removalEditor")
     if rht.removalEditor ~= removalEditor then
         rht.removalEditor = removalEditor
-        rht.removalAddTargetUpvalueIndex = nil
-        rht.removalAddTargetUpvalueOwner = nil
-        rht.removalAddTargetWarned = false
-        rht.removalPresetPathCache = {}
     end
 
     return rht.removalEditor

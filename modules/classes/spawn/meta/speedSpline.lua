@@ -443,7 +443,7 @@ function speedSpline:getRotationGizmoOrientation(forward, section)
     -- Align the prism model with the combined forward, mirroring the light preview's
     -- `entityRotation * meshLocalOffset` composition.
     local offset = EulerAngles.new(-90, 0, 90):ToQuat()
-    return Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](combined:ToQuat(), offset)
+    return utils.multQuat(combined:ToQuat(), offset)
 end
 
 ---Positions and orients a triangular-prism gizmo at each rotation point, hiding unused ones.

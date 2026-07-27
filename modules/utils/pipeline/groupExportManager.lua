@@ -519,18 +519,6 @@ local function shouldExportNode(runtime, node)
     return true
 end
 
----@param variantName string?
----@return string, boolean
-local function normalizeVariantName(variantName)
-    local normalized = utils.trimString(variantName)
-
-    if normalized == "" or normalized:lower() == "default" then
-        return "default", true
-    end
-
-    return normalized, false
-end
-
 local function prepareCurrentGroupForExport(runtime)
     local current = runtime.current
     if not current or not current.root then
@@ -576,7 +564,7 @@ local function prepareCurrentGroupForExport(runtime)
     local variantSeen = {}
 
     for _, variant in pairs(group.variantData or {}) do
-        local variantName, isDefaultVariant = normalizeVariantName(variant.name)
+        local variantName, isDefaultVariant = pipelineCommon.normalizeVariantName(variant.name)
         if not variantNodes[variantName] then
             variantNodes[variantName] = {}
         end
@@ -599,7 +587,7 @@ local function prepareCurrentGroupForExport(runtime)
                 local top = getTopRootChild(root, node)
                 local variant = top and group.variantData and group.variantData[top.name]
                 if variant then
-                    local variantName = normalizeVariantName(variant and variant.name)
+                    local variantName = pipelineCommon.normalizeVariantName(variant and variant.name)
                     if not variantNodes[variantName] then
                         variantNodes[variantName] = {}
                     end

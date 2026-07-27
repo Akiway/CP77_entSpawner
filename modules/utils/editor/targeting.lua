@@ -83,7 +83,7 @@ function targeting.getLookAtRotation(currentRotation, sourcePosition, targetPosi
     local rotationQuat = currentRotation:ToQuat()
     local localAxis = rotationQuat:TransformInverse(axis:Normalize()):Normalize()
     local deltaQuat = Quaternion.SetAxisAngle(localAxis, math.acos(dot))
-    local targetQuat = Game["OperatorMultiply;QuaternionQuaternion;Quaternion"](rotationQuat, deltaQuat)
+    local targetQuat = utils.multQuat(rotationQuat, deltaQuat)
 
     return targetQuat:ToEulerAngles()
 end

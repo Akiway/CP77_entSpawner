@@ -49,9 +49,6 @@ local MIN_BACKDROP_SCALE = 0.15
 local BACKDROP_MESH = "base\\spawner\\base_grid.w2mesh"
 local BACKDROP_TILT = { roll = 0, pitch = -90, yaw = 0 } -- stands the flat grid up to face the camera
 
-local isSerializedSpawnable = utils.isSerializedSpawnable
-local isSerializedGroup = utils.isSerializedGroup
-
 ---Returns the configured maximum number of assets a prefab may contain to still be previewable.
 ---A value of 0 disables prefab previews entirely.
 ---@return number
@@ -75,11 +72,11 @@ local function collectSpawnableData(data)
         local current = table.remove(stack)
 
         for _, child in pairs(current.childs or {}) do
-            if isSerializedSpawnable(child) then
+            if utils.isSerializedSpawnable(child) then
                 if type(child.spawnable) == "table" and type(child.spawnable.modulePath) == "string" then
                     table.insert(entries, child.spawnable)
                 end
-            elseif isSerializedGroup(child) then
+            elseif utils.isSerializedGroup(child) then
                 table.insert(stack, child)
             end
         end
@@ -120,10 +117,7 @@ local function computeCenterAndExtent(entries)
 
     local center = Vector4.new((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2, 0)
 
-    local dx = max.x - min.x
-    local dy = max.y - min.y
-    local dz = max.z - min.z
-    local radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz)
+    local radius = 0.5 * utils.distanceVector(min, max)
     radius = math.max(MIN_EXTENT, radius * EXTENT_MARGIN_MULT + EXTENT_MARGIN_ADD)
 
     return center, radius
@@ -167,7 +161,7 @@ function prefabPreview.isPreviewable(data, assetCount)
         return false
     end
 
-    if not isSerializedGroup(data) then
+    if not utils.isSerializedGroup(data) then
         return false
     end
 

@@ -26,9 +26,10 @@ function config.fileExists(filename)
 end
 
 ---Reads the full text content of a file.
+---Unlike `config.loadRaw`, this returns `nil` instead of erroring when the file is missing.
 ---@param path string Relative or absolute file path.
 ---@return string? content Full file content, or `nil` when the file cannot be opened.
-local function readAll(path)
+function config.readAll(path)
     local file = io.open(path, "r")
     if not file then
         return nil
@@ -37,6 +38,56 @@ local function readAll(path)
     local content = file:read("*a")
     file:close()
     return content
+end
+
+local readAll = config.readAll
+
+---Key names a `dir()` entry may use for its modification timestamp, in priority order.
+local ENTRY_TIME_KEYS = {
+    "modified",
+    "modifiedAt",
+    "lastModified",
+    "lastModifiedAt",
+    "modificationTime",
+    "writeTime",
+    "lastWriteTime",
+    "mtime",
+    "time",
+    "timestamp"
+}
+
+---Finds the first timestamp-like value on a `dir()` entry.
+---Tries the known key names first, then any string key mentioning time/date/modif.
+---The caller supplies the normalizer, because callers disagree on how raw values
+---(epoch seconds, FILETIME, numeric strings, ...) should be interpreted and formatted.
+---@param entry table? Directory entry as returned by CET's `dir()`.
+---@param normalizeTimeValue fun(value: any): string? Returns the formatted timestamp, or `nil` to keep searching.
+---@return string? timestamp First value the normalizer accepted, or `nil`.
+function config.getEntryTimeValue(entry, normalizeTimeValue)
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    for _, key in ipairs(ENTRY_TIME_KEYS) do
+        local normalized = normalizeTimeValue(entry[key])
+        if normalized then
+            return normalized
+        end
+    end
+
+    for key, value in pairs(entry) do
+        if type(key) == "string" then
+            local lowered = key:lower()
+            if lowered:find("time", 1, true) or lowered:find("date", 1, true) or lowered:find("modif", 1, true) then
+                local normalized = normalizeTimeValue(value)
+                if normalized then
+                    return normalized
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 ---Writes text content to a file in one pass.

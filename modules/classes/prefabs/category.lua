@@ -5,6 +5,9 @@ local config = require("modules/utils/config")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
 local logger = require("modules/utils/logger")
+local assetFavorites = require("modules/utils/assetFavorites")
+
+local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 
 ---@class category
 ---@field name string
@@ -12,7 +15,7 @@ local logger = require("modules/utils/logger")
 ---@field headerOpen boolean
 ---@field favorites favorite[]
 ---@field grouped boolean
----@field favoritesUI favoritesUI
+---@field prefabsUI prefabsUI
 ---@field fileName string
 ---@field openPopup boolean
 ---@field editName string
@@ -124,7 +127,7 @@ local function clearGroupedState(fileName)
 	end
 end
 
----@param fUI favoritesUI
+---@param fUI prefabsUI
 ---@return category
 function category:new(fUI)
 	local o = {}
@@ -135,7 +138,7 @@ function category:new(fUI)
 	o.favorites = {}
 	o.grouped = false
 
-    o.favoritesUI = fUI
+    o.prefabsUI = fUI
 	o.fileName = ""
 	o.openPopup = false
 	o.editName = ""
@@ -173,7 +176,7 @@ function category:load(data, fileName)
 	else
 		self.grouped = getGroupedState(self.fileName, nil)
 		for _, favoriteData in pairs(data.favorites) do
-			local favorite = require("modules/classes/favorites/favorite"):new(self.favoritesUI)
+			local favorite = require("modules/classes/prefabs/prefab"):new(self.prefabsUI)
 			favorite:load(favoriteData)
 			-- Loading from disk should not trigger a save of unchanged data.
 			self:addFavorite(favorite, false)
@@ -307,6 +310,184 @@ function category:merge(toMerge)
 	logger:info(string.format("[%s] Merged %s into %s, resulting in the merging of %d favorites.", settings.mainWindowName, toMerge.name, self.name, merges))
 end
 
+---Indexes the entries of one spawn list by the key favorites are stored under.
+---Built lazily, and only for the lists a single conversion run actually touches.
+---@param spawnList table
+---@param modulePath string
+---@param cache table<string, table<string, table>>
+---@return table<string, table>
+local function getSpawnListEntriesByKey(spawnList, modulePath, cache)
+	local index = cache[modulePath]
+	if index then
+		return index
+	end
+
+	index = {}
+	for _, entry in pairs(spawnList.data or {}) do
+		if type(entry) == "table" and type(entry.name) == "string" then
+			index[entry.name] = entry
+		end
+	end
+	cache[modulePath] = index
+
+	return index
+end
+
+---Resolves the asset favorite one prefab of this category maps to.
+---Only single asset prefabs referencing an entry of a path based spawn list qualify:
+---a favorite is a pure asset bookmark, so prefabs holding several assets, and spawnables
+---defined by configuration instead of an asset path, have no favorite representation.
+---@param favorite favorite
+---@return {modulePath: string, path: string, name: string, spawnList: table}?
+function category:getAssetFavoriteTarget(favorite)
+	local data = favorite and favorite.data
+
+	if type(data) ~= "table" or data.modulePath ~= SPAWNABLE_ELEMENT_MODULE_PATH or type(data.spawnable) ~= "table" then
+		return nil
+	end
+
+	local modulePath = tostring(data.spawnable.modulePath or "")
+	local assetPath = tostring(data.spawnable.spawnData or "")
+
+	if modulePath == "" or assetPath == "" then
+		return nil
+	end
+
+	local spawnUI = self.prefabsUI and self.prefabsUI.spawnUI
+	local spawnList = spawnUI and spawnUI.getSpawnListByModulePath(modulePath)
+
+	if not spawnList or not spawnList.isPaths then
+		return nil
+	end
+
+	local name = utils.trimString(favorite.name or "")
+
+	return {
+		modulePath = modulePath,
+		path = assetPath,
+		name = name ~= "" and name or utils.getFileName(assetPath),
+		spawnList = spawnList
+	}
+end
+
+---How many prefabs of this category can be turned into asset favorites.
+---@return number convertible Single asset prefabs that can be favorited
+---@return number alreadyFavorite How many of those are favorited already
+function category:getAssetFavoriteConversionStats()
+	local convertible, alreadyFavorite = 0, 0
+
+	for _, favorite in pairs(self.favorites) do
+		local target = self:getAssetFavoriteTarget(favorite)
+
+		if target then
+			convertible = convertible + 1
+
+			if assetFavorites.isFavorite(target.modulePath, target.path) then
+				alreadyFavorite = alreadyFavorite + 1
+			end
+		end
+	end
+
+	return convertible, alreadyFavorite
+end
+
+---Adds every single asset prefab of this category to the asset favorites.
+---The prefabs themselves are kept: this copies the asset references over, it does not move them.
+---Each favorite is tagged with the category name, plus the tags of its prefab, so the
+---category layout survives in the tag grouped favorites list.
+---@return number added Newly favorited assets
+---@return number updated Already favorited assets that gained tags
+---@return number skipped Prefabs holding no bookmarkable asset, or already up to date
+function category:convertToAssetFavorites()
+	local added, updated, skipped = 0, 0, 0
+	local categoryTag = utils.trimString(self.name or "")
+	local spawnListIndexes = {}
+
+	-- One disk write for the whole category, instead of one per favorite and per tag.
+	assetFavorites.runBatch(function ()
+		if categoryTag ~= "" then
+			assetFavorites.createTag(categoryTag, self.icon)
+		end
+
+		for _, favorite in pairs(self.favorites) do
+			local target = self:getAssetFavoriteTarget(favorite)
+			local existing = target and assetFavorites.get(target.modulePath, target.path) or nil
+			local entry = existing
+
+			if target and not existing then
+				-- Favorite the pristine spawn list entry, not the configured prefab: a
+				-- favorite bookmarks the asset itself. Paths typed by hand are not listed,
+				-- and fall back to the plain asset reference.
+				local listEntry = getSpawnListEntriesByKey(target.spawnList, target.modulePath, spawnListIndexes)[target.path]
+				local entryData = type(listEntry) == "table" and type(listEntry.data) == "table" and listEntry.data or { spawnData = target.path }
+
+				entry = assetFavorites.add(target.modulePath, target.path, target.name, entryData)
+			end
+
+			if not entry then
+				skipped = skipped + 1
+			else
+				local gainedTag = false
+
+				if categoryTag ~= "" and not entry.tags[categoryTag] then
+					assetFavorites.setEntryTag(entry, categoryTag, true)
+					gainedTag = true
+				end
+
+				for tag, _ in pairs(favorite.tags or {}) do
+					if not entry.tags[tag] then
+						assetFavorites.setEntryTag(entry, tag, true)
+						gainedTag = true
+					end
+				end
+
+				if not existing then
+					added = added + 1
+				elseif gainedTag then
+					updated = updated + 1
+				else
+					skipped = skipped + 1
+				end
+			end
+		end
+	end)
+
+	logger:info(string.format("[%s] Converted category \"%s\" to favorites: %d added, %d updated, %d skipped.", settings.mainWindowName, self.name, added, updated, skipped))
+
+	return added, updated, skipped
+end
+
+---Draws the "convert this category to asset favorites" row of the settings popup.
+function category:drawConvertToFavorites()
+	local convertible, alreadyFavorite = self:getAssetFavoriteConversionStats()
+	local canConvert = convertible > 0
+
+	style.mutedText("To favorites:")
+	ImGui.SameLine()
+
+	style.pushGreyedOut(not canConvert)
+	local clicked = ImGui.Button(IconGlyphs.StarBoxOutline .. " Convert")
+	style.popGreyedOut(not canConvert)
+
+	if canConvert then
+		style.tooltip(string.format(
+			"Adds every single asset prefab of this category to the favorites.\n" ..
+			"%d of the %d prefabs hold a single asset (%d already favorited).\n" ..
+			"Prefabs holding several assets are skipped: a favorite only bookmarks one asset, without any configuration.\n" ..
+			"Each favorite is tagged with the category name, and with the tags of its prefab.\n" ..
+			"The prefabs themselves are kept.",
+			convertible, #self.favorites, alreadyFavorite
+		))
+	else
+		style.tooltip("No prefab of this category holds a single favoritable asset.\nFavorites only bookmark assets of the \"All\" sub-tab, without any configuration.")
+	end
+
+	if not clicked or not canConvert then return end
+
+	local added, updatedCount, skipped = self:convertToAssetFavorites()
+	ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("%d favorite(s) added, %d updated, %d skipped", added, updatedCount, skipped)))
+end
+
 function category:drawEditPopup()
 	if ImGui.IsPopupOpen("##editCategory" .. self.fileName) then
         style.setCursorRelativeAppearing(-5, -5)
@@ -314,6 +495,8 @@ function category:drawEditPopup()
 
 	if ImGui.BeginPopup("##editCategory" .. self.fileName) then
         input.updateContext("main")
+
+		style.popupTitle(IconGlyphs.CogOutline, "Category Settings")
 
 		self.icon, self.changeIconSearch, changed = field.drawIconSelector("favoriteCategory:" .. self.fileName, self.icon, self.changeIconSearch)
 		if changed then
@@ -330,15 +513,15 @@ function category:drawEditPopup()
         end
         self.editName, changed = ImGui.InputTextWithHint("##name", "Name...", self.editName, 100)
         if ImGui.IsItemDeactivatedAfterEdit() then
-			if not self.favoritesUI.categories[self.editName] then
-				self.favoritesUI.updateCategoryName(self.name, self.editName)
+			if not self.prefabsUI.categories[self.editName] then
+				self.prefabsUI.updateCategoryName(self.name, self.editName)
 				self.name = self.editName
 				self:save()
 			else
 				self.editName = self.name
 			end
 		end
-		if self.name ~= self.editName and self.favoritesUI.categories[self.editName] then
+		if self.name ~= self.editName and self.prefabsUI.categories[self.editName] then
 			ImGui.SameLine()
             style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
             style.tooltip("Category with this name already exists.")
@@ -346,45 +529,43 @@ function category:drawEditPopup()
 
 		style.mutedText("Merge into:")
 		ImGui.SameLine()
-		self.mergeCategorySearch, _ = self.favoritesUI.drawSelectCategory(self.mergeCategorySearch)
+		self.mergeCategorySearch, _ = self.prefabsUI.drawSelectCategory(self.mergeCategorySearch)
 		ImGui.SameLine()
 
-		local invalidTarget = self.mergeCategorySearch == self.name or not self.favoritesUI.categories[self.mergeCategorySearch]
+		local invalidTarget = self.mergeCategorySearch == self.name or not self.prefabsUI.categories[self.mergeCategorySearch]
 		if invalidTarget then
 			style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
 			style.tooltip("Invalid merge target category name.")
 		else
-			if ImGui.Button("Merge") then
-				self.favoritesUI.categories[self.mergeCategorySearch]:merge(self)
+			if style.warnButton(IconGlyphs.CallMerge .. " Merge", { tooltip = "Merge this category into the selected one. This category will be deleted." }) then
+				self.prefabsUI.categories[self.mergeCategorySearch]:merge(self)
 			end
 		end
 
+		self:drawConvertToFavorites()
+
 		ImGui.Separator()
 
-		-- Confirm / delete
-		style.pushButtonNoBG(true)
-		if ImGui.Button(IconGlyphs.CheckCircleOutline) then
+		-- Close dismisses the popup; edits are saved live so nothing extra is needed here.
+		if ImGui.Button(IconGlyphs.CheckboxMarkedCircleOutline .. " Close") then
 			ImGui.CloseCurrentPopup()
 		end
-		style.pushButtonNoBG(false)
 
-		style.pushButtonNoBG(true)
 		ImGui.SameLine()
-		ImGui.Button(IconGlyphs.Delete)
+		style.dangerButton(IconGlyphs.DeleteOutline .. " Delete")
 		if ImGui.BeginPopupContextItem("Delete Category?", ImGuiPopupFlags.MouseButtonLeft) then
 			style.mutedText("Are you sure you want to delete this category?")
-			if ImGui.Button("Confirm") then
+			if style.dangerButton(IconGlyphs.DeleteOutline .. " Confirm") then
 				ImGui.CloseCurrentPopup()
 				self:delete()
 			end
 			ImGui.SameLine()
-			if ImGui.Button("Cancel") then
+			if ImGui.Button(IconGlyphs.Cancel .. " Cancel") then
 				ImGui.CloseCurrentPopup()
 			end
 			ImGui.EndPopup()
 		end
 
-		style.pushButtonNoBG(false)
 		ImGui.EndPopup()
     end
 
@@ -401,9 +582,7 @@ function category:drawSideButtons()
     local groupX, _ = ImGui.CalcTextSize(IconGlyphs.CogOutline)
 	if self.isVirtualGroup then settingsX = 0 end
 	local totalX = settingsX + groupX + ImGui.GetStyle().ItemSpacing.x * 2
-    local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
-    local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-    ImGui.SetCursorPosX(cursorX)
+    style.setCursorRightAligned(totalX)
 
 	local grouped = self.grouped
 	style.pushStyleColor(not grouped, ImGuiCol.Text, style.mutedColor)
@@ -486,7 +665,7 @@ function category:loadVirtualGroups()
 	end
 
 	for tag, group in pairs(tags) do
-		local cat = require("modules/classes/favorites/category"):new(self.favoritesUI)
+		local cat = require("modules/classes/prefabs/category"):new(self.prefabsUI)
 		local virtualGroupTags = utils.deepcopy(self.virtualGroupTags)
 		virtualGroupTags[tag] = true
 
@@ -552,7 +731,7 @@ function category:draw(context)
 		return
 	end
 
-	self.favoritesUI.pushRow(context)
+	self.prefabsUI.pushRow(context)
 
 	ImGui.PushID(context.row)
 
@@ -566,11 +745,7 @@ function category:draw(context)
 	context.row = context.row + 1
 
 	ImGui.SameLine()
-	ImGui.PushStyleColor(ImGuiCol.Button, 0)
-	ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
-	ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
-	ImGui.PushStyleVar(ImGuiStyleVar.ButtonTextAlign, 0.5, 0.5)
-	ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
+	style.pushListRowContent()
 
 	ImGui.SetNextItemAllowOverlap()
 	if ImGui.Button(self.headerOpen and IconGlyphs.MenuDownOutline or IconGlyphs.MenuRightOutline) then
@@ -590,8 +765,7 @@ function category:draw(context)
 	ImGui.SameLine()
 	self:drawSideButtons()
 
-	ImGui.PopStyleColor(2)
-	ImGui.PopStyleVar(3)
+	style.popListRowContent(1)
 
 	ImGui.PopID()
 
@@ -639,7 +813,7 @@ function category:delete()
 
 	os.remove("data/favorite/" .. self.fileName)
 	clearGroupedState(self.fileName)
-	self.favoritesUI.categories[self.name] = nil
+	self.prefabsUI.categories[self.name] = nil
 end
 
 return category

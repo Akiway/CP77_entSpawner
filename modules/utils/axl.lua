@@ -1,3 +1,5 @@
+local utils = require("modules/utils/utils")
+
 local axl = {}
 
 ---@param value number?
@@ -21,8 +23,7 @@ end
 local function normalizeInlineValue(value)
     local normalized = tostring(value or "")
     normalized = normalized:gsub("[\r\n]+", " ")
-    normalized = normalized:gsub("^%s+", ""):gsub("%s+$", "")
-    return normalized
+    return utils.trimString(normalized)
 end
 
 ---@param position Vector4|table?

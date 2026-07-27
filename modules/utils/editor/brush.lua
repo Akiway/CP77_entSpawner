@@ -161,10 +161,7 @@ local function recalculateHiddenDotSizes(dots, sizeCache, cameraWorld, viewSize)
         local position = dot and dot.position or nil
 
         if cameraWorld and position then
-            local dx = position.x - cameraWorld.x
-            local dy = position.y - cameraWorld.y
-            local dz = position.z - cameraWorld.z
-            local distance = math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+            local distance = utils.distanceVector(cameraWorld, position)
             radius = getHiddenDotRadiusForDistance(distance, baseRadius, minRadius, maxRadius)
         else
             radius = clampNumber(baseRadius, minRadius, maxRadius)

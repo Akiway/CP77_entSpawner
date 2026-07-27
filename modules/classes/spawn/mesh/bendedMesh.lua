@@ -2414,16 +2414,7 @@ function bendedMesh:draw()
 end
 
 function bendedMesh:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 function bendedMesh:getNormalizedDeformedBox()
