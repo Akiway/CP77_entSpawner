@@ -34,6 +34,10 @@ local assetFavorites = {
 assetFavorites.defaultTagIcon = DEFAULT_TAG_ICON
 assetFavorites.noTagGroupName = NO_TAG_GROUP_NAME
 
+-- Nesting depth of `runBatch`, and whether a save was asked for while inside one
+local suspendedSaves = 0
+local pendingSave = false
+
 ---Builds the unique lookup key of one favorited asset.
 ---@param modulePath string?
 ---@param path string?
@@ -152,8 +156,14 @@ function assetFavorites.load()
 end
 
 ---Writes favorites and the tag registry to disk.
+---Inside `runBatch` the write is deferred and `true` is returned right away.
 ---@return boolean success
 function assetFavorites.save()
+    if suspendedSaves > 0 then
+        pendingSave = true
+        return true
+    end
+
     local data = {
         version = 1,
         tags = {},
@@ -180,6 +190,28 @@ function assetFavorites.save()
     end
 
     return saved
+end
+
+---Runs `action`, collapsing every save it triggers into a single write.
+---Used by bulk operations, where saving per changed entry would rewrite the file
+---(and diff it against its previous content) dozens of times.
+---@param action fun()
+function assetFavorites.runBatch(action)
+    suspendedSaves = suspendedSaves + 1
+
+    local success, err = pcall(action)
+
+    suspendedSaves = suspendedSaves - 1
+
+    if suspendedSaves == 0 and pendingSave then
+        pendingSave = false
+        assetFavorites.save()
+    end
+
+    if not success then
+        -- Whatever the action managed to change before failing is kept and saved
+        logger:error(string.format("[Asset Favorites] Batch operation failed (%s)", tostring(err)))
+    end
 end
 
 ---@return assetFavoriteEntry[]

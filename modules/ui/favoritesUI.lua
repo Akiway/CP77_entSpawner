@@ -5,12 +5,17 @@ local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
 local logger = require("modules/utils/logger")
 local assetFavorites = require("modules/utils/assetFavorites")
+local favoritesImpex = require("modules/utils/favoritesImpex")
 local prefabsUI = require("modules/ui/prefabsUI")
 
 local SPAWN_OPTIONS_POPIN_ID = "##assetFavoritesSpawnOptionsPopin"
+local IMPORT_POPUP_ID = "##assetFavoritesImport"
 local NO_TAG_GROUP_KEY = "\1noTag"
 -- Breathing room between an asset name and its tag icons
 local TAG_ICONS_LEFT_MARGIN = 12
+-- Import codes grow with the number of favorites they carry, so the paste field
+-- needs far more room than the regular name / search inputs
+local IMPORT_CODE_MAX_LENGTH = 1024 * 256
 
 ---Spawn New > Favorites sub-tab.
 ---Favorites are bookmarks to assets of the "All" sub-tab, organized with tags.
@@ -28,6 +33,8 @@ local TAG_ICONS_LEFT_MARGIN = 12
 ---@field openTagPopup boolean
 ---@field tagEditName string
 ---@field tagEditIconSearch string
+---@field importCode string
+---@field importReport favoritesImportReport?
 local favoritesUI = {
     spawnUI = nil,
 
@@ -43,7 +50,10 @@ local favoritesUI = {
     popupTagName = nil,
     openTagPopup = false,
     tagEditName = "",
-    tagEditIconSearch = ""
+    tagEditIconSearch = "",
+
+    importCode = "",
+    importReport = nil
 }
 
 local moduleIconCache = {}
@@ -275,6 +285,68 @@ local function setAllGroupsOpen(open)
     settings.save()
 end
 
+---Popup used to paste a favorites code, opened from the list header row.
+local function drawImportPopup()
+    if ImGui.IsPopupOpen(IMPORT_POPUP_ID) then
+        style.setCursorRelativeAppearing(-5, -5)
+    end
+
+    if not ImGui.BeginPopup(IMPORT_POPUP_ID) then return end
+
+    input.updateContext("main")
+
+    style.popupTitle(IconGlyphs.Import, "Import Favorites")
+
+    style.mutedText("Paste a code exported from the settings of a tag.")
+    ImGui.Spacing()
+
+    style.setNextItemWidth(400)
+    favoritesUI.importCode = ImGui.InputTextWithHint("##assetFavoritesImportCode", "Favorites code...", favoritesUI.importCode, IMPORT_CODE_MAX_LENGTH)
+
+    if style.drawNoBGConditionalButton(favoritesUI.importCode ~= "", IconGlyphs.Close .. "##assetFavoritesImportCodeClear") then
+        favoritesUI.importCode = ""
+        favoritesUI.importReport = nil
+    end
+
+    ImGui.Spacing()
+
+    if ImGui.Button(IconGlyphs.Import .. " Import") then
+        favoritesUI.importReport = favoritesImpex.import(favoritesUI.importCode)
+
+        -- Keep the code around on failure, so it can be fixed instead of re-pasted
+        if not favoritesUI.importReport.err then
+            favoritesUI.importCode = ""
+        end
+    end
+    style.tooltip("Adds the favorites of the code, and the tags they use.\nAssets already favorited only gain the tags they are missing.")
+
+    local report = favoritesUI.importReport
+    if report then
+        ImGui.Spacing()
+
+        if report.err then
+            style.styledText(IconGlyphs.AlertOutline .. " " .. report.err, 0xFF0000FF)
+        else
+            local summary = string.format("%d added, %d updated, %d skipped", report.imported, report.updated, report.skipped)
+
+            if report.tagsCreated > 0 then
+                summary = summary .. string.format(", %d tag(s) created", report.tagsCreated)
+            end
+
+            style.mutedText(IconGlyphs.CheckboxMarkedCircleOutline .. " " .. summary)
+            style.tooltip("Skipped entries were either already favorited with those tags, or did not name an asset.")
+        end
+    end
+
+    ImGui.Separator()
+
+    if ImGui.Button(IconGlyphs.CheckboxMarkedCircleOutline .. " Close") then
+        ImGui.CloseCurrentPopup()
+    end
+
+    ImGui.EndPopup()
+end
+
 ---Draws the expand all / collapse all row shown above the favorites list.
 local function drawExpandCollapseRow()
     local hasGroups = assetFavorites.getCount() > 0 or #assetFavorites.getTagNames() > 0
@@ -289,6 +361,18 @@ local function drawExpandCollapseRow()
             collapseTooltip = "Collapse all tags"
         }
     )
+
+    style.sameLineWindowRight(25)
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Import .. "##assetFavoritesImportOpen") then
+        favoritesUI.importCode = ""
+        favoritesUI.importReport = nil
+        ImGui.OpenPopup(IMPORT_POPUP_ID)
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Import favorites from a code")
+
+    drawImportPopup()
 
     ImGui.Separator()
 end
@@ -547,6 +631,21 @@ local function drawEntryPopup()
     end
 end
 
+---Copies the favorites of one tag to the clipboard as a shareable code.
+---@param tagName string
+local function exportTagFavorites(tagName)
+    local code, count = favoritesImpex.exportTag(tagName)
+
+    if not code then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "No favorite uses this tag"))
+        return
+    end
+
+    ImGui.SetClipboardText(code)
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Copied %d favorite(s) to the clipboard", count)))
+    logger:info(string.format("[%s] Exported %d favorite(s) of tag \"%s\"", settings.mainWindowName, count, tagName))
+end
+
 ---Popup used to rename / re-icon / delete one tag.
 local function drawTagPopup()
     local tagName = favoritesUI.popupTagName
@@ -601,13 +700,24 @@ local function drawTagPopup()
             style.tooltip("A tag with this name already exists.")
         end
 
-        style.mutedText(string.format("Used by %d favorite(s)", assetFavorites.getTagUsageCount(tagName)))
+        local usageCount = assetFavorites.getTagUsageCount(tagName)
+        style.mutedText(string.format("Used by %d favorite(s)", usageCount))
 
         ImGui.Separator()
 
         if ImGui.Button(IconGlyphs.CheckboxMarkedCircleOutline .. " Close") then
             favoritesUI.popupTagName = nil
             ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+        ImGui.BeginDisabled(usageCount == 0)
+        if ImGui.Button(IconGlyphs.Export .. " Export favorites") then
+            exportTagFavorites(tagName)
+        end
+        ImGui.EndDisabled()
+        if usageCount > 0 then
+            style.tooltip("Copies every favorite of this tag to the clipboard, as a code that can be imported from the favorites list.")
         end
 
         ImGui.SameLine()
