@@ -11,6 +11,7 @@ local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
 local prefabPreview = require("modules/utils/prefabPreview")
+local previewControls = require("modules/utils/previewControls")
 local assetFavorites = require("modules/utils/assetFavorites")
 
 local types = {
@@ -1446,6 +1447,7 @@ function spawnUI.stopActiveAssetPreview()
     end
 
     prefabPreview.stop()
+    previewControls.reset()
 
     spawnUI.setAssetPreviewActive(false)
 end
@@ -1520,6 +1522,11 @@ end
 function spawnUI.updateAssetPreview()
     if spawnUI.assetPreviewActive then
         suppressExternalFlashlightDuringPreview()
+    end
+
+    -- Has to run before the previews are moved, they read the resulting orbit / zoom this frame
+    if spawnUI.previewInstance or prefabPreview.isActive() then
+        previewControls.update()
     end
 
     if spawnUI.previewInstance and spawnUI.previewInstance:isSpawned() then

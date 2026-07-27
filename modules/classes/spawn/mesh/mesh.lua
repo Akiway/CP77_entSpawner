@@ -8,6 +8,7 @@ local history = require("modules/utils/history")
 local intersection = require("modules/utils/editor/intersection")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
+local previewControls = require("modules/utils/previewControls")
 local settings = require("modules/utils/settings")
 local appearanceHelper = require("modules/utils/appearanceHelper")
 
@@ -91,6 +92,8 @@ local lossyConversionPairs = {
 ---@field public colliderShapeSectorHashIndex integer
 ---@field private bBoxLoaded boolean
 ---@field private assetStartTime number
+---@field private assetPreviewYaw number
+---@field private assetPreviewAppIndex integer
 ---@field protected maxPropertyWidth number?
 ---@field protected convertTarget integer
 ---@field public assetPreviewType string
@@ -142,6 +145,8 @@ function mesh:new()
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.1
     o.assetStartTime = 0
+    o.assetPreviewYaw = 0
+    o.assetPreviewAppIndex = 0
 
     o.uk10 = 1040
 
@@ -315,10 +320,11 @@ function mesh:onAssemble(entity)
 end
 
 ---Returns world-space anchor for the preview text overlay.
+---@param vertical number? 1 for the top left corner (default), -1 for the bottom left one
 ---@return Vector4
-function mesh:getAssetPreviewTextAnchor()
+function mesh:getAssetPreviewTextAnchor(vertical)
     local pos = preview.getTopLeft(0.8)
-    return utils.addVector(self.position, self.rotation:ToQuat():Transform(Vector4.new(pos, 0, pos, 0)))
+    return utils.addVector(self.position, self.rotation:ToQuat():Transform(Vector4.new(pos, 0, pos * (vertical or 1), 0)))
 end
 
 ---Updates mesh preview transform/appearance and returns preview spawn position.
@@ -346,16 +352,33 @@ function mesh:getAssetPreviewPosition()
     if maxExtent <= 0 then
         maxExtent = 1
     end
-    local factor = 0.275 / maxExtent
+    local factor = (0.275 / maxExtent) * previewControls.zoom
 
     self.scale = { x = factor, y = factor, z = factor }
     mesh.visualScale = Vector3.new(factor, factor, factor)
 
     -- Calculate rotation and cycle app
-    local rotation = (((Cron.time - self.assetStartTime) % 4) / 4) * 360
+    local yaw = (((Cron.time - self.assetStartTime) % 4) / 4) * 360
+    local pitch = 7.5
+
+    if previewControls.isActive() then
+        -- Pick the orbit up where the automatic turntable was left, so taking over does not snap
+        yaw = self.assetPreviewYaw + previewControls.yaw
+        pitch = pitch - previewControls.pitch
+    else
+        self.assetPreviewYaw = yaw
+    end
+
     local apps = self.apps or {}
     if #apps > 0 then
-        local app = math.floor((((Cron.time - self.assetStartTime) % (#apps)) / (#apps)) * #apps)
+        local app
+        if previewControls.appearanceLocked then
+            app = previewControls.getAppearanceIndex(self.assetPreviewAppIndex, #apps)
+        else
+            app = math.floor((((Cron.time - self.assetStartTime) % (#apps)) / (#apps)) * #apps)
+            self.assetPreviewAppIndex = app
+        end
+
         if app ~= self.appIndex then
             self.appIndex = app
             self.app = apps[self.appIndex + 1] or "default"
@@ -364,12 +387,13 @@ function mesh:getAssetPreviewPosition()
         end
     end
 
-    mesh:SetLocalOrientation(EulerAngles.new(0, 7.5, rotation):ToQuat())
+    local orientation = EulerAngles.new(0, pitch, yaw):ToQuat()
+    mesh:SetLocalOrientation(orientation)
 
-    -- Adjust for offcenter bbox, and adjust for rotation
+    -- Adjust for offcenter bbox, and adjust for the orientation the mesh is displayed at
     local diff = utils.subVector(self.position, self:getCenter())
     diff = self.rotation:ToQuat():TransformInverse(diff)
-    diff = Vector4.RotateAxis(diff, Vector4.new(0, 0, 1, 0), Deg2Rad(rotation))
+    diff = orientation:Transform(diff)
 
     -- Adjust for x offset in editor mode
     diff = utils.addVector(diff, utils.multVector(forward, 0.275))
@@ -387,6 +411,8 @@ function mesh:getAssetPreviewPosition()
         end
         preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
         preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(extents[1], extents[2], extents[3]))
+        -- Appearances load asynchronously, so the hint is refreshed here rather than on assemble
+        preview.setControlsHint(previewControls.getHintLines(#apps))
     end
 
     return position

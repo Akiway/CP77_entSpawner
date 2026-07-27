@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local Cron = require("modules/utils/Cron")
 local settings = require("modules/utils/settings")
 local editor = require("modules/utils/editor/editor")
+local previewControls = require("modules/utils/previewControls")
 local logger = require("modules/utils/logger")
 
 ---Lightweight preview for prefab (group) favorites.
@@ -20,6 +21,7 @@ local logger = require("modules/utils/logger")
 ---@field center Vector4?
 ---@field extent number
 ---@field startTime number
+---@field spinAngle number Turntable angle the automatic spin last reached, in degrees
 local prefabPreview = {
     active = false,
     generation = 0,
@@ -30,7 +32,8 @@ local prefabPreview = {
     queueIndex = 1,
     center = nil,
     extent = 1,
-    startTime = 0
+    startTime = 0,
+    spinAngle = 0
 }
 
 local DEFAULT_MAX_ASSETS = 300
@@ -191,7 +194,8 @@ end
 
 ---Computes the current camera-aligned turntable orientation for the whole prefab.
 ---Orienting in camera space keeps the prefab presented to the viewer at any camera pitch,
----while the time-based spin around the camera up axis reveals every side.
+---while the time-based spin around the camera up axis reveals every side. Once the keyboard
+---controls take over, the spin freezes and the manual orbit takes it from there instead.
 ---@return Quaternion?
 local function computeBaseQuat()
     local cameraRotation = editor.getCameraRotation()
@@ -201,10 +205,23 @@ local function computeBaseQuat()
 
     local camQuat = cameraRotation:ToQuat()
     local camUp = camQuat:Transform(Vector4.new(0, 0, 1, 0)):Normalize()
-    local spinAngle = ((Cron.time - prefabPreview.startTime) * SPIN_SPEED_DEG) % 360
-    local spinQuat = Quaternion.SetAxisAngle(camUp, math.rad(spinAngle))
 
-    return utils.multQuat(spinQuat, camQuat)
+    local spinAngle
+    if previewControls.isActive() then
+        spinAngle = prefabPreview.spinAngle + previewControls.yaw
+    else
+        spinAngle = ((Cron.time - prefabPreview.startTime) * SPIN_SPEED_DEG) % 360
+        prefabPreview.spinAngle = spinAngle
+    end
+
+    local quat = utils.multQuat(Quaternion.SetAxisAngle(camUp, math.rad(spinAngle)), camQuat)
+
+    if previewControls.isActive() then
+        local camRight = camQuat:Transform(Vector4.new(1, 0, 0, 0)):Normalize()
+        quat = utils.multQuat(Quaternion.SetAxisAngle(camRight, math.rad(previewControls.pitch)), quat)
+    end
+
+    return quat
 end
 
 ---Computes the screen-centered world anchor whose distance adapts to the prefab size.
@@ -217,7 +234,7 @@ local function computePreviewAnchor()
         tanHalf = 0.5
     end
 
-    local distance = math.max(MIN_DISTANCE, (prefabPreview.extent / tanHalf) * DISTANCE_MARGIN)
+    local distance = math.max(MIN_DISTANCE, (prefabPreview.extent / tanHalf) * DISTANCE_MARGIN / previewControls.zoom)
     local anchor = editor.getForward(distance)
     if not anchor or (anchor.x == 0 and anchor.y == 0 and anchor.z == 0) then
         return nil
@@ -255,6 +272,7 @@ function prefabPreview.stop()
     prefabPreview.queue = nil
     prefabPreview.queueIndex = 1
     prefabPreview.center = nil
+    prefabPreview.spinAngle = 0
     prefabPreview.active = false
 end
 

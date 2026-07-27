@@ -13,6 +13,9 @@ local input = {
     trackingNumeric = false,
     numericSign = 1,
     numeric = "",
+    ---Raised by the settings UI while it records a new binding, so the key being bound does not also
+    ---trigger a hotkey. Cleared by input.update every frame, a hidden rebinding UI cannot get stuck.
+    rebindActive = false,
 }
 
 function input.registerImGuiHotkey(keys, callback, runCondition)
@@ -27,6 +30,8 @@ end
 ---InputText remains active while focused, even if the pointer moves over another window.
 ---@return boolean
 function input.isUIInputActive()
+    if input.rebindActive then return true end
+
     return ImGui.IsAnyItemActive and ImGui.IsAnyItemActive() or false
 end
 
@@ -101,6 +106,9 @@ function input.update()
             input.numericSign = 1
         end
     end
+
+    -- Re-raised by the settings UI on every frame it keeps recording, see input.rebindActive
+    input.rebindActive = false
 end
 
 function input.resetContext()
