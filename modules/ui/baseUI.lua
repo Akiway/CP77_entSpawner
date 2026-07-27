@@ -270,11 +270,11 @@ function baseUI.init()
     wu = windowUtils or ImGui
 
     if windowUtils then
-        local lock = windowUtils.API.LockWindow
-        lock("##drag")
-        lock("WB##shortcuts-popup")
-        lock("##boxSelect")
-        lock("##projectedWireframeOverlay")
+        local ignore = windowUtils.API.IgnoreWindow
+        ignore("##drag")
+        ignore("WB##shortcuts-popup")
+        ignore("##boxSelect")
+        ignore("##projectedWireframeOverlay")
     end
 
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
