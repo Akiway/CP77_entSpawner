@@ -508,30 +508,6 @@ local function normalizeAngleDeg(angle)
     return value
 end
 
----@param rotationLike any
----@return EulerAngles?
-local function toEulerAnglesSafe(rotationLike)
-    if not rotationLike then
-        return nil
-    end
-
-    if rotationLike.roll ~= nil and rotationLike.pitch ~= nil and rotationLike.yaw ~= nil then
-        return EulerAngles.new(rotationLike.roll, rotationLike.pitch, rotationLike.yaw)
-    end
-
-    local okEuler, euler = pcall(function ()
-        if type(rotationLike.ToEulerAngles) == "function" then
-            return rotationLike:ToEulerAngles()
-        end
-        return nil
-    end)
-    if okEuler and euler then
-        return euler
-    end
-
-    return nil
-end
-
 ---@param entity entEntity?
 function light:updateArrowVisibilityForCameraFollow(entity)
     local target = entity or self:getEntity()
@@ -583,8 +559,8 @@ function light:teleportPlayerToLightCameraAligned()
     if camera then
         local cameraTransform = camera:GetLocalToWorld()
         if cameraTransform then
-            local cameraEuler = toEulerAnglesSafe(cameraTransform:GetRotation())
-            local playerEuler = toEulerAnglesSafe(player:GetWorldOrientation())
+            local cameraEuler = gameUtils.toEulerAnglesSafe(cameraTransform:GetRotation())
+            local playerEuler = gameUtils.toEulerAnglesSafe(player:GetWorldOrientation())
             if cameraEuler and playerEuler then
                 cameraPitchOffset = normalizeAngleDeg(cameraEuler.pitch - playerEuler.pitch)
                 cameraYawOffset = normalizeAngleDeg(cameraEuler.yaw - playerEuler.yaw)
@@ -624,7 +600,7 @@ function light:getCameraFollowTransform()
     local targetPosition = utils.addVector(cameraPosition, cameraForward)
     local targetRotation = targeting.getLookAtRotation(self.rotation, cameraPosition, targetPosition)
     if not targetRotation and cameraRotation then
-        targetRotation = toEulerAnglesSafe(cameraRotation)
+        targetRotation = gameUtils.toEulerAnglesSafe(cameraRotation)
     end
 
     return cameraPosition, targetRotation
@@ -1617,16 +1593,7 @@ function light:draw()
 end
 
 function light:getProperties()
-    local properties = visualized.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(visualized.getProperties(self))
 end
 
 function light:getGroupedProperties()

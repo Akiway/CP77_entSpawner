@@ -104,11 +104,6 @@ function occluder:getSize()
     return self.scale
 end
 
-function occluder:setPreview(state)
-    self.previewed = state
-    visualizer.toggleAll(self:getEntity(), self.previewed)
-end
-
 function occluder:calculateIntersection(origin, ray)
     if not self.previewed then
         return { hit = false }
@@ -155,16 +150,7 @@ function occluder:draw()
 end
 
 function occluder:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 function occluder:getGroupedProperties()

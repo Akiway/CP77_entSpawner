@@ -158,26 +158,10 @@ local function buildVariantDataFromBlob(blob, existingVariantData)
     return variants
 end
 
----@param variantName string?
----@return string, boolean
-local function normalizeVariantName(variantName)
-    local normalized = utils.trimString(variantName)
-
-    if normalized == "" or normalized:lower() == "default" then
-        return "default", true
-    end
-
-    return normalized, false
-end
-
 ---@param variantData table?
 ---@return string[]
 local function getSortedVariantGroupNames(variantData)
-    local names = {}
-
-    for name, _ in pairs(variantData or {}) do
-        table.insert(names, name)
-    end
+    local names = utils.getKeys(variantData or {})
 
     table.sort(names, function(a, b)
         local aName = tostring(a or ""):lower()
@@ -234,29 +218,6 @@ local function getGroupCenterVector(group)
     return Vector4.new(center.x or 0, center.y or 0, center.z or 0, 0)
 end
 
----@param point Vector4
----@param center Vector4
----@param extentX number
----@param extentY number
----@param extentZ number
----@return boolean
-local function isInsideStreamingExtents(point, center, extentX, extentY, extentZ)
-    return point.x >= (center.x - extentX) and point.x <= (center.x + extentX)
-        and point.y >= (center.y - extentY) and point.y <= (center.y + extentY)
-        and point.z >= (center.z - extentZ) and point.z <= (center.z + extentZ)
-end
-
----@param inside boolean
----@return number, number
-local function getStreamingWireframeThemeColors(inside)
-    local wireframeColorStyle = settings.wireframeColorStyle or 1
-    if wireframeColorStyle == 2 then
-        return inside and 0xFF50FF50 or 0xFF5050FF, 0xFF000000
-    end
-
-    return inside and style.successColor or 0xFF0000B2, 0xFFDCD8D1
-end
-
 local function drawGroupStreamingBoxes()
     local player = GetPlayer()
     if not player then return end
@@ -289,8 +250,8 @@ local function drawGroupStreamingBoxes()
     local identityQuat = EulerAngles.new(0, 0, 0):ToQuat()
 
     for _, target in ipairs(targets) do
-        local inside = isInsideStreamingExtents(playerPos, target.center, target.extentX, target.extentY, target.extentZ)
-        local color, labelColor = getStreamingWireframeThemeColors(inside)
+        local inside = projectedWireframe.isInsideStreamingExtents(playerPos, target.center, target.extentX, target.extentY, target.extentZ)
+        local color, labelColor = projectedWireframe.getStreamingThemeColors(inside)
 
         projectedWireframe.drawOrientedBox(
             drawList,
@@ -371,12 +332,12 @@ function exportUI.drawGroups()
                             ImGui.PushID(name)
                             ImGui.SetNextItemWidth(variantNameColumnWidth)
                             local previousName = variantData.name or ""
-                            local _, previousIsDefaultName = normalizeVariantName(previousName)
+                            local _, previousIsDefaultName = pipelineCommon.normalizeVariantName(previousName)
                             variantData.name = ImGui.InputTextWithHint('##variantName', 'default', variantData.name, 100)
                             local variantNameTooltip = variantData.name or ""
                             style.tooltip(variantNameTooltip ~= "" and variantNameTooltip or "default")
                             ImGui.SameLine()
-                            local normalizedName, isDefaultName = normalizeVariantName(variantData.name)
+                            local normalizedName, isDefaultName = pipelineCommon.normalizeVariantName(variantData.name)
                             local changed = false
                             ImGui.BeginDisabled(isDefaultName)
                             variantData.defaultOn, changed = style.toggleButton(IconGlyphs.EyeOutline, variantData.defaultOn)
@@ -393,7 +354,7 @@ function exportUI.drawGroups()
                             if changed and not isDefaultName then
                                 for variant, _ in pairs(group.variantData) do
                                     local siblingName = group.variantData[variant] and group.variantData[variant].name
-                                    local siblingNormalizedName, siblingIsDefaultName = normalizeVariantName(siblingName)
+                                    local siblingNormalizedName, siblingIsDefaultName = pipelineCommon.normalizeVariantName(siblingName)
                                     if not siblingIsDefaultName and siblingNormalizedName == normalizedName then
                                         group.variantData[variant].defaultOn = variantData.defaultOn
                                     end
@@ -517,7 +478,7 @@ function exportUI.drawGroups()
                     local inside = false
 
                     if center and player then
-                        inside = isInsideStreamingExtents(playerPos, center, group.streamingX, group.streamingY, group.streamingZ)
+                        inside = projectedWireframe.isInsideStreamingExtents(playerPos, center, group.streamingX, group.streamingY, group.streamingZ)
                     end
 
                     local distance = center and utils.distanceVector(center, playerPos) or 0
@@ -1369,15 +1330,6 @@ function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)
     return nodeRefMap[nodeRef]
 end
 
----@param value any
----@return string
-local function sanitizeValue(value)
-    local sanitized = tostring(value or "")
-    sanitized = sanitized:gsub("^%s+", ""):gsub("%s+$", "")
-    sanitized = sanitized:gsub("[\128-\255]", "")
-    return sanitized
-end
-
 ---@param object table
 ---@param reason string
 local function addMissingElevatorFloorSetupIssue(object, reason)
@@ -1391,7 +1343,7 @@ local function addMissingElevatorFloorSetupIssue(object, reason)
     table.insert(exportUI.exportIssues.missingElevatorFloorSetup, {
         name = tostring(ref and ref.name or "Unknown"),
         group = tostring(root and root.name or "Unknown"),
-        nodeRef = sanitizeValue(spawnable.nodeRef),
+        nodeRef = utils.sanitizeText(spawnable.nodeRef),
         reason = tostring(reason or "Missing elevator floor setup")
     })
 end
@@ -1426,7 +1378,7 @@ function exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
 
     if object.ref.spawnable.persistent and object.ref.spawnable.nodeRef ~= "" then
         local psData = object.ref.spawnable:getPSData()
-        local className = sanitizeValue(object.ref.spawnable.deviceClassName)
+        local className = utils.sanitizeText(object.ref.spawnable.deviceClassName)
         local isElevatorFloorTerminal = className == ELEVATOR_FLOOR_TERMINAL_CONTROLLER_CLASS
 
         if isElevatorFloorTerminal then
@@ -1764,7 +1716,7 @@ function exportUI.exportGroup(group)
 
     -- Group and bring the nodes in order, based on their variant, starting with default
     for groupName, variant in pairs(group.variantData) do
-        local variantName = normalizeVariantName(variant.name)
+        local variantName = pipelineCommon.normalizeVariantName(variant.name)
 
         if not variantNodes[variantName] then
             variantNodes[variantName] = {}

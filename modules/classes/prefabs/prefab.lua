@@ -18,17 +18,14 @@ local iconResolveCache = {}
 local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
 
-local isSerializedSpawnable = utils.isSerializedSpawnable
-local isSerializedGroup = utils.isSerializedGroup
-
 ---@param data table?
 ---@return number?
 local function getSerializedAssetCount(data)
-    if isSerializedSpawnable(data) then
+    if utils.isSerializedSpawnable(data) then
         return 1
     end
 
-    if not isSerializedGroup(data) then
+    if not utils.isSerializedGroup(data) then
         return nil
     end
 
@@ -44,9 +41,9 @@ local function getSerializedAssetCount(data)
         local current = table.remove(stack)
 
         for _, child in pairs(current.childs or {}) do
-            if isSerializedSpawnable(child) then
+            if utils.isSerializedSpawnable(child) then
                 count = count + 1
-            elseif isSerializedGroup(child) then
+            elseif utils.isSerializedGroup(child) then
                 local childCount = tonumber(child.elementCount)
                 if childCount then
                     count = count + math.max(0, math.floor(childCount))

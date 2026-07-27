@@ -213,13 +213,6 @@ function meshCollider:getSize()
     return utils.getBoxSize(self.bBox, self.scale)
 end
 
-function meshCollider:getArrowSize()
-    local size = self:getSize()
-    local max = math.min(math.max(size.x, size.y, size.z, 0.75) * 0.4, 1)
-
-    return { x = max, y = max, z = max }
-end
-
 ---@protected
 ---@param finished boolean
 ---@param delta Vector4
@@ -247,31 +240,7 @@ function meshCollider:updateScale(finished, delta)
 end
 
 function meshCollider:calculateIntersection(origin, ray)
-    if not self:getEntity() then
-        return { hit = false }
-    end
-
-    local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
-
-    local scaledBBox = utils.getScaledBBoxWithFactor(self.bBox, self.scale, scaleFactor)
-    local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
-
-    local unscaledHit
-    if result.hit then
-        unscaledHit = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, intersection.unscaleBBox(self.spawnData, self:getSize(), scaledBBox))
-    end
-
-    return {
-        hit = result.hit,
-        position = result.position,
-        unscaledHit = unscaledHit and unscaledHit.position or result.position,
-        collisionType = "bbox",
-        distance = result.distance,
-        bBox = scaledBBox,
-        objectOrigin = self.position,
-        objectRotation = self.rotation,
-        normal = result.normal
-    }
+    return intersection.getSpawnableBBoxIntersection(self, origin, ray)
 end
 
 function meshCollider:draw()

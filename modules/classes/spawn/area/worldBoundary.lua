@@ -2,6 +2,7 @@ local area = require("modules/classes/spawn/area/area")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local field = require("modules/utils/field")
+local element = require("modules/classes/editor/element")
 
 local function bumpBoundaryOrientationEpoch(instance)
     local sUI = instance and instance.object and instance.object.sUI
@@ -46,9 +47,7 @@ function worldBoundary:draw()
     area.draw(self)
     if previousOutlinePath ~= self.outlinePath then
         bumpBoundaryOrientationEpoch(self)
-        if self.object and self.object.sUI and self.object.sUI.bumpWireframeEpoch then
-            self.object.sUI.bumpWireframeEpoch()
-        end
+        element.bumpWireframeEpoch(self.object)
         self:updateOutlineFacePreview(previousOutlinePath)
         self:updateOutlineFacePreview(self.outlinePath, self.orientation)
     end

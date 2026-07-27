@@ -1,5 +1,6 @@
 local config = require("modules/utils/config")
 local utils = require("modules/utils/utils")
+local pipelineCommon = require("modules/utils/pipeline/common")
 
 local groupExportSidecar = {}
 groupExportSidecar.SCHEMA_VERSION = 1
@@ -100,44 +101,11 @@ local function normalizeTimeValue(value)
     return nil
 end
 
+---Delegates to the shared scan, keeping this module's own `normalizeTimeValue` semantics.
+---@param entry table?
+---@return string?
 local function getEntryTimeValue(entry)
-    if type(entry) ~= "table" then
-        return nil
-    end
-
-    local candidateKeys = {
-        "modified",
-        "modifiedAt",
-        "lastModified",
-        "lastModifiedAt",
-        "modificationTime",
-        "writeTime",
-        "lastWriteTime",
-        "mtime",
-        "time",
-        "timestamp"
-    }
-
-    for _, key in ipairs(candidateKeys) do
-        local normalized = normalizeTimeValue(entry[key])
-        if normalized then
-            return normalized
-        end
-    end
-
-    for key, value in pairs(entry) do
-        if type(key) == "string" then
-            local lowered = key:lower()
-            if lowered:find("time", 1, true) or lowered:find("date", 1, true) or lowered:find("modif", 1, true) then
-                local normalized = normalizeTimeValue(value)
-                if normalized then
-                    return normalized
-                end
-            end
-        end
-    end
-
-    return nil
+    return config.getEntryTimeValue(entry, normalizeTimeValue)
 end
 
 local function getFileTimeFromDir(path)
@@ -153,28 +121,6 @@ local function getFileTimeFromDir(path)
     end
 
     return nil
-end
-
-local function readAll(path)
-    local file = io.open(path, "r")
-    if not file then
-        return nil
-    end
-
-    local content = file:read("*a")
-    file:close()
-    return content
-end
-
----@param variantName string?
----@return string
-local function normalizeVariantName(variantName)
-    local normalized = utils.trimString(variantName)
-    if normalized == "" or normalized:lower() == "default" then
-        return "default"
-    end
-
-    return normalized
 end
 
 local function normalizeNumber(value)
@@ -193,7 +139,7 @@ function groupExportSidecar.resolveGroupSourceRevision(groupName)
         return "missing"
     end
 
-    local raw = readAll(path)
+    local raw = config.readAll(path)
     if raw and raw ~= "" then
         local editedAt = raw:match('"lastEditedAt"%s*:%s*"([^"]+)"')
         editedAt = normalizeTimestampString(editedAt)
@@ -282,7 +228,7 @@ function groupExportSidecar.buildGroupSignature(group, options)
         table.insert(parts, string.format(
             "variant:%s|name=%s|defaultOn=%s|ref=%s",
             key,
-            normalizeVariantName(variant.name),
+            pipelineCommon.normalizeVariantName(variant.name),
             variant.defaultOn and "1" or "0",
             tostring(variant.ref or "")
         ))

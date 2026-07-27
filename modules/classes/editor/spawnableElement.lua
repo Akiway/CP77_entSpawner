@@ -7,6 +7,7 @@ local intersection = require("modules/utils/editor/intersection")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
 
+local element = require("modules/classes/editor/element")
 local positionable = require("modules/classes/editor/positionable")
 
 ---Class for an element holding a spawnable
@@ -15,12 +16,6 @@ local positionable = require("modules/classes/editor/positionable")
 ---@field parent positionableGroup|randomizedGroup
 ---@field silent boolean
 local spawnableElement = setmetatable({}, { __index = positionable })
-
-local function bumpWireframeEpoch(instance)
-    if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
-        instance.sUI.bumpWireframeEpoch()
-    end
-end
 
 local function invalidateParentAutoCenter(instance)
 	local current = instance and instance.parent or nil
@@ -95,7 +90,7 @@ function spawnableElement:load(data, silent)
 			end)
 		end)
 
-		bumpWireframeEpoch(self)
+		element.bumpWireframeEpoch(self)
 	end
 end
 
@@ -229,14 +224,14 @@ function spawnableElement:setPosition(position)
     self.spawnable.position = position
     self.spawnable:update()
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setPositionDelta(delta)
     self.spawnable.position = utils.addVector(self.spawnable.position, delta)
     self.spawnable:update()
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setRotation(rotation)
@@ -245,7 +240,7 @@ function spawnableElement:setRotation(rotation)
     self.spawnable.rotation = rotation
     self.spawnable:update()
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setRotationDelta(delta)
@@ -259,7 +254,7 @@ function spawnableElement:setRotationDelta(delta)
 
     self.spawnable:update()
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:getPosition()
@@ -286,7 +281,7 @@ function spawnableElement:setScaleDelta(delta, finished)
 
     self.spawnable:updateScale(finished, delta)
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:setScale(scale, finished)
@@ -304,7 +299,7 @@ function spawnableElement:setScale(scale, finished)
 
     self.spawnable:updateScale(finished, delta)
     invalidateParentAutoCenter(self)
-    bumpWireframeEpoch(self)
+    element.bumpWireframeEpoch(self)
 end
 
 function spawnableElement:getSize()
@@ -346,7 +341,7 @@ function spawnableElement:dropToSurface(grouped, direction, excludeDict)
 		history.addAction(history.getElementChange(self))
 	end
 	
-	local newRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.spawnable.rotation:ToQuat(), diff)
+	local newRotation = utils.multQuat(self.spawnable.rotation:ToQuat(), diff)
 	if self.applyRotationWhenDropped then
 		self:setRotation(newRotation:ToEulerAngles())
 	end

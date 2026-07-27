@@ -305,44 +305,11 @@ end
 ---Finds and normalizes the most relevant timestamp from a directory entry table.
 ---@param entry table Directory entry object returned by `dir()`.
 ---@return string|nil normalizedTimestamp
+---Delegates to the shared scan, keeping this module's own `normalizeTimeValue` semantics.
+---@param entry table?
+---@return string?
 local function getEntryTimeValue(entry)
-    if type(entry) ~= "table" then
-        return nil
-    end
-
-    local candidateKeys = {
-        "modified",
-        "modifiedAt",
-        "lastModified",
-        "lastModifiedAt",
-        "modificationTime",
-        "writeTime",
-        "lastWriteTime",
-        "mtime",
-        "time",
-        "timestamp"
-    }
-
-    for _, key in ipairs(candidateKeys) do
-        local normalized = normalizeTimeValue(entry[key])
-        if normalized then
-            return normalized
-        end
-    end
-
-    for key, value in pairs(entry) do
-        if type(key) == "string" then
-            local lowered = key:lower()
-            if lowered:find("time", 1, true) or lowered:find("date", 1, true) or lowered:find("modif", 1, true) then
-                local normalized = normalizeTimeValue(value)
-                if normalized then
-                    return normalized
-                end
-            end
-        end
-    end
-
-    return nil
+    return config.getEntryTimeValue(entry, normalizeTimeValue)
 end
 
 ---Looks up a file entry in its parent directory and returns its normalized timestamp.

@@ -9,6 +9,7 @@ local projectTagUtil = require("modules/utils/ui/projectTag")
 local previewSyncManager = require("modules/utils/previewSyncManager")
 local previewTimeline = require("modules/ui/previewTimeline")
 
+local element = require("modules/classes/editor/element")
 local positionable = require("modules/classes/editor/positionable")
 
 ---Class for organizing multiple objects and or groups, with position and rotation
@@ -57,77 +58,19 @@ local function alignGroupRotationInputs()
     end
 end
 
-local function bumpWireframeEpoch(instance)
-	if instance and instance.sUI and instance.sUI.bumpWireframeEpoch then
-		instance.sUI.bumpWireframeEpoch()
-	end
-end
-
----@param value number?
----@return number
-local function clamp01(value)
-    value = tonumber(value) or 0
-    return math.max(0, math.min(value, 1))
-end
-
----@param color table?
----@return number[]
-local function normalizeProjectColor(color)
-    local r = tonumber(color and (color[1] or color["1"] or color.r or color.x))
-    local g = tonumber(color and (color[2] or color["2"] or color.g or color.y))
-    local b = tonumber(color and (color[3] or color["3"] or color.b or color.z))
-
-    if r == nil or g == nil or b == nil then
-        return {
-            PROJECT_DEFAULT_COLOR[1],
-            PROJECT_DEFAULT_COLOR[2],
-            PROJECT_DEFAULT_COLOR[3]
-        }
-    end
-
-    if r > 1 or g > 1 or b > 1 then
-        r = r / 255
-        g = g / 255
-        b = b / 255
-    end
-
-    return {
-        clamp01(r),
-        clamp01(g),
-        clamp01(b)
-    }
-end
+---Group-local project defaults, which differ from the neutral `projectTag` module defaults.
+local PROJECT_DEFAULTS = { icon = PROJECT_DEFAULT_ICON, color = PROJECT_DEFAULT_COLOR }
 
 ---@param project table?
 ---@return table?
 local function normalizeProjectData(project)
-    if type(project) ~= "table" then
-        return nil
-    end
-
-    local name = type(project.name) == "string" and utils.trimString(project.name) or ""
-    if name == "" then
-        return nil
-    end
-
-    local icon = type(project.icon) == "string" and IconGlyphs[project.icon] and project.icon or PROJECT_DEFAULT_ICON
-    local color = normalizeProjectColor(project.color)
-
-    return {
-        name = name,
-        icon = icon,
-        color = { color[1], color[2], color[3] }
-    }
+    return projectTagUtil.normalizeProject(project, PROJECT_DEFAULTS)
 end
 
 ---@param data table?
 ---@return boolean
 local function isSerializedSavedGroup(data)
-    return type(data) == "table" and (
-        data.type == "group"
-        or data.modulePath == "modules/classes/editor/positionableGroup"
-        or data.modulePath == "modules/classes/editor/randomizedGroup"
-    )
+    return type(data) == "table" and utils.isSerializedGroupStrict(data)
 end
 
 ---@param instance positionableGroup
@@ -429,7 +372,7 @@ function positionableGroup:load(data, silent)
     self.previewSyncDomain = data.previewSyncDomain == true
     self.previewSyncDelay = math.max(0, tonumber(data.previewSyncDelay) or 0)
 	self:invalidateAutoCenterCache(false)
-	bumpWireframeEpoch(self)
+	element.bumpWireframeEpoch(self)
 end
 
 function positionableGroup:serialize()
@@ -671,14 +614,14 @@ function positionableGroup:setOriginToCenter()
 		self.origin = self:getCenter()
 	end
 	self.originInitialized = true
-	bumpWireframeEpoch(self)
+	element.bumpWireframeEpoch(self)
 end
 
 function positionableGroup:setOrigin(v)
 	self.origin = v
 	self.originMode = "manual"
 	self.originInitialized = true
-	bumpWireframeEpoch(self)
+	element.bumpWireframeEpoch(self)
 end
 
 function positionableGroup:getPosition()
@@ -773,7 +716,7 @@ function positionableGroup:drawRotation(rotation)
 			local localAxis = axis == "roll" and Vector4.new(0, 1, 0, 0) or Vector4.new(1, 0, 0, 0)
 			local worldAxis = startQuat:Transform(localAxis):Normalize()
 			local stepQuat = Quaternion.SetAxisAngle(worldAxis, Deg2Rad(angleDelta))
-			local targetQuat = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, startQuat)
+			local targetQuat = utils.multQuat(stepQuat, startQuat)
 
 			self.rotationUIDragValue[axis] = newValue
 			self:applyRotationDrag(stepQuat, targetQuat, targetQuat:ToEulerAngles())
@@ -834,7 +777,7 @@ function positionableGroup:setIdentity(rotation)
 	self.rotationUIDragValue.pitch = nil
 	self.rotation = EulerAngles.new(roll, pitch, yaw)
 	self.rotationQuat = self.rotation:ToQuat()
-	bumpWireframeEpoch(self)
+	element.bumpWireframeEpoch(self)
 end
 
 function positionableGroup:beginRotationDrag()
@@ -870,7 +813,7 @@ function positionableGroup:applyRotationDrag(stepQuat, targetQuat, targetEuler)
 	self.rotation = targetEuler or targetQuat:ToEulerAngles()
 
 	for _, data in pairs(state.entries) do
-		local newRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, data.startRotationQuat):ToEulerAngles()
+		local newRotation = utils.multQuat(stepQuat, data.startRotationQuat):ToEulerAngles()
 		data.entry:setRotation(newRotation)
 
 		local newPosition = utils.addVector(state.position, stepQuat:Transform(data.startRelativePosition))
@@ -899,7 +842,7 @@ function positionableGroup:setRotation(rotation)
 		local relativePosition = utils.subVector(entry:getPosition(), pos)
 		local entryQuat = entry:getRotation():ToQuat()
 
-		local newRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](deltaQuat, entryQuat):ToEulerAngles()
+		local newRotation = utils.multQuat(deltaQuat, entryQuat):ToEulerAngles()
 		entry:setRotation(newRotation)
 
 		local newPosition = utils.addVector(pos, deltaQuat:Transform(relativePosition))
@@ -931,8 +874,8 @@ function positionableGroup:setRotationDelta(delta)
 		local worldAxis = workingQuat:Transform(localAxis):Normalize()
 		local stepQuat = Quaternion.SetAxisAngle(worldAxis, Deg2Rad(angleDeg))
 
-		deltaQuat = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, deltaQuat)
-		workingQuat = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](stepQuat, workingQuat)
+		deltaQuat = utils.multQuat(stepQuat, deltaQuat)
+		workingQuat = utils.multQuat(stepQuat, workingQuat)
 	end
 
 	-- Keep mapping aligned with existing element behavior:
@@ -948,7 +891,7 @@ function positionableGroup:setRotationDelta(delta)
 		local relativePosition = utils.subVector(entry:getPosition(), pos)
 		local entryQuat = entry:getRotation():ToQuat()
 
-		local newRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](deltaQuat, entryQuat):ToEulerAngles()
+		local newRotation = utils.multQuat(deltaQuat, entryQuat):ToEulerAngles()
 		entry:setRotation(newRotation)
 
 		local newPosition = utils.addVector(pos, deltaQuat:Transform(relativePosition))
@@ -1005,7 +948,7 @@ function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 		history.addAction(history.getElementChange(self))
 	end
 
-	local newRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self:getRotation():ToQuat(), diff)
+	local newRotation = utils.multQuat(self:getRotation():ToQuat(), diff)
 	if self.applyRotationWhenDropped then
 		self:setRotation(newRotation:ToEulerAngles())
 	end

@@ -59,16 +59,10 @@ local function getEnumIndex(enumName, targetValue)
         return 0
     end
 
-    local maxValue = tonumber(EnumGetMax(enumName)) or 100
-    local index = 0
-
-    for i = -25, maxValue do
-        local name = EnumValueToString(enumName, i)
-        if name ~= "" then
-            if name == targetName then
-                return index
-            end
-            index = index + 1
+    -- Same ordered list of non-empty enum names the loop used to rebuild per call, but cached.
+    for index, name in ipairs(utils.enumTable(enumName)) do
+        if name == targetName then
+            return index - 1
         end
     end
 

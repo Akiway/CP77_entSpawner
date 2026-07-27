@@ -121,16 +121,7 @@ function sound:getVisualizerSize()
 end
 
 function sound:getProperties()
-    local properties = visualized.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(visualized.getProperties(self))
 end
 
 function sound:export()

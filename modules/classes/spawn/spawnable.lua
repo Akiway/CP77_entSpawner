@@ -265,6 +265,21 @@ function spawnable:spawn(ignoreSpawning)
     return true
 end
 
+---Template used by node types whose `spawnData` is a resource path rather than an entity template.
+spawnable.PLACEHOLDER_ENTITY_TEMPLATE = "base\\spawner\\empty_entity.ent"
+
+---Spawns through the placeholder wrapper entity, restoring `spawnData` afterwards.
+---Node types that carry a non-entity resource path in `spawnData` (probes, fog volumes, ...)
+---use this so the base spawn call still receives a valid `.ent` template.
+---@param placeholderPath string? Defaults to `spawnable.PLACEHOLDER_ENTITY_TEMPLATE`.
+function spawnable:spawnAsPlaceholderEntity(placeholderPath)
+    local original = self.spawnData
+    self.spawnData = placeholderPath or spawnable.PLACEHOLDER_ENTITY_TEMPLATE
+
+    spawnable.spawn(self)
+    self.spawnData = original
+end
+
 ---@return boolean
 function spawnable:isSpawned()
     return self.spawned
@@ -405,6 +420,24 @@ function spawnable:draw() end
 ---@return table?
 function spawnable:getTransformUIConfig()
     return nil
+end
+
+---Appends this node's own collapsible property section to a base-class property list.
+---Subclasses whose inspector is just "base properties + my own `draw()`" use this
+---so the section descriptor stays defined in one place.
+---@param properties table[] Property list returned by the base class.
+---@return table[] properties The same list, with this node's section appended.
+function spawnable:addNodeProperty(properties)
+    table.insert(properties, {
+        id = self.node,
+        name = self.dataType,
+        defaultHeader = true,
+        draw = function()
+            self:draw()
+        end
+    })
+
+    return properties
 end
 
 function spawnable:getProperties()

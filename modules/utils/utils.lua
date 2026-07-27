@@ -235,6 +235,27 @@ function miscUtils.isSerializedSpawnable(data)
             or data.spawnable ~= nil)
 end
 
+---Strict variant of `isSerializedSpawnable`: matches only explicit `type`/`modulePath` markers.
+---Use this when classifying already-saved trees, where every node carries those markers;
+---the lenient variant above also accepts payloads identified only by a `spawnable` field.
+---@param data table?
+---@return boolean
+function miscUtils.isSerializedSpawnableStrict(data)
+    return data and (data.modulePath == SERIALIZED_SPAWNABLE_ELEMENT_PATH
+        or data.type == "object"
+        or data.type == "element")
+end
+
+---Strict variant of `isSerializedGroup`: matches only explicit `type`/`modulePath` markers.
+---The lenient variant below also treats any node carrying `childs` as a group.
+---@param data table?
+---@return boolean
+function miscUtils.isSerializedGroupStrict(data)
+    return data and (data.modulePath == SERIALIZED_POSITIONABLE_GROUP_PATH
+        or data.modulePath == SERIALIZED_RANDOMIZED_GROUP_PATH
+        or data.type == "group")
+end
+
 ---Whether a serialized node (favorite/exported data) represents a group of elements.
 ---@param data table?
 ---@return boolean
@@ -538,9 +559,9 @@ end
 ---@param delta eulerLike Rotation delta in degrees.
 ---@return EulerAngles
 function miscUtils.addEulerRelative(current, delta)
-    local result = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](current:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 1, 0, 0), Deg2Rad(delta.roll)))
-    result = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](result, Quaternion.SetAxisAngle(Vector4.new(1, 0, 0, 0), Deg2Rad(delta.pitch)))
-    result = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](result, Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(delta.yaw)))
+    local result = miscUtils.multQuat(current:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 1, 0, 0), Deg2Rad(delta.roll)))
+    result = miscUtils.multQuat(result, Quaternion.SetAxisAngle(Vector4.new(1, 0, 0, 0), Deg2Rad(delta.pitch)))
+    result = miscUtils.multQuat(result, Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(delta.yaw)))
 
     return result:ToEulerAngles()
 end

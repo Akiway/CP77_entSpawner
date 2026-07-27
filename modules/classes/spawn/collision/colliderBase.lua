@@ -130,7 +130,7 @@ end
 function colliderBase:getAssetPreviewPosition()
     if self.isAssetPreview then
         local spin = Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))
-        self.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), spin):ToEulerAngles()
+        self.rotation = utils.multQuat(self.rotation:ToQuat(), spin):ToEulerAngles()
     end
 
     return spawnable.getAssetPreviewPosition(self, 0.75)

@@ -16,6 +16,10 @@ local logger = require("modules/utils/logger")
 local colorUtil = require("modules/utils/color")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 
+local POSITION_MARKER_COMPONENT = "sphere"
+local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
+local POSITION_MARKER_DEFAULT_COLOR = "blue"
+
 local deviceClassSecondaryIconByName = {
     LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
     ForkliftControllerPS = IconGlyphs.Forklift,
@@ -147,6 +151,9 @@ function entity:new()
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
+
+    o.showPositionMarker = false
+    o.positionMarkerColor = POSITION_MARKER_DEFAULT_COLOR
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.15
@@ -556,6 +563,32 @@ function entity:applyComponentOverrides(entRef)
     end
 end
 
+---Adds/updates/hides the sphere marker that visualizes the entity origin.
+---Subclasses opt in by toggling `showPositionMarker`, and pick their own `positionMarkerColor`.
+function entity:updatePositionMarker()
+    local entityRef = self:getEntity()
+    if not entityRef then return end
+
+    local marker = entityRef:FindComponentByName(POSITION_MARKER_COMPONENT)
+
+    if self.showPositionMarker then
+        if not marker then
+            visualizer.addSphere(entityRef, POSITION_MARKER_SCALE, self.positionMarkerColor or POSITION_MARKER_DEFAULT_COLOR)
+        else
+            visualizer.updateScale(entityRef, POSITION_MARKER_SCALE, POSITION_MARKER_COMPONENT)
+            marker:Toggle(true)
+        end
+    elseif marker then
+        marker:Toggle(false)
+    end
+end
+
+---@param state boolean
+function entity:setPositionMarkerVisible(state)
+    self.showPositionMarker = state
+    self:updatePositionMarker()
+end
+
 function entity:onAssemble(entRef)
     spawnable.onAssemble(self, entRef)
 
@@ -665,7 +698,7 @@ function entity:getAssetPreviewPosition()
         end
     end
 
-    self.rotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))):ToEulerAngles()
+    self.rotation = utils.multQuat(self.rotation:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))):ToEulerAngles()
 
     if size.z < math.max(size.x, size.y, size.z) * 0.1 then
         diff = utils.addVector(diff, self.rotation:ToQuat():Transform(Vector4.new(0, 0, -0.1, 0)))
@@ -818,7 +851,7 @@ function entity:calculateIntersection(origin, ray)
 
     for _, mesh in pairs(self.meshes) do
         local meshPosition = utils.addVector(mesh.position, self.position)
-        local meshRotation = Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](self.rotation:ToQuat(), mesh.rotation)
+        local meshRotation = utils.multQuat(self.rotation:ToQuat(), mesh.rotation)
 
         local result = intersection.getBoxIntersection(origin, ray, meshPosition, meshRotation:ToEulerAngles(), mesh.bbox)
 

@@ -183,11 +183,7 @@ function reflection:onAssemble(entity)
 end
 
 function reflection:spawn()
-    local probe = self.spawnData
-    self.spawnData = "base\\spawner\\empty_entity.ent"
-
-    spawnable.spawn(self)
-    self.spawnData = probe
+    self:spawnAsPlaceholderEntity()
 end
 
 function reflection:save()
@@ -223,11 +219,6 @@ end
 
 function reflection:getSize()
     return self.scale
-end
-
-function reflection:setPreview(state)
-    self.previewed = state
-    visualizer.toggleAll(self:getEntity(), self.previewed)
 end
 
 function reflection:draw()
@@ -364,16 +355,7 @@ function reflection:draw()
 end
 
 function reflection:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 function reflection:getGroupedProperties()

@@ -2,6 +2,7 @@ local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local logger = require("modules/utils/logger")
+local element = require("modules/classes/editor/element")
 
 ---Class for worldAreaShapeNode
 ---@class area : visualized
@@ -158,24 +159,13 @@ function area:draw()
     local idx, changed = style.trackedCombo(self.object, "##outlinePath", index - 1, paths, 225)
     if changed then
         self.outlinePath = paths[idx + 1]
-        if self.object and self.object.sUI and self.object.sUI.bumpWireframeEpoch then
-            self.object.sUI.bumpWireframeEpoch()
-        end
+        element.bumpWireframeEpoch(self.object)
     end
     style.tooltip("Path to the group containing the outline markers.\nMust be contained within the same root group as this area.")
 end
 
 function area:getProperties()
-    local properties = visualized.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(visualized.getProperties(self))
 end
 
 ---@protected

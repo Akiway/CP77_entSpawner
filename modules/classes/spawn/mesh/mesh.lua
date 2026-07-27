@@ -505,31 +505,7 @@ end
 ---@param ray Vector4
 ---@return table
 function mesh:calculateIntersection(origin, ray)
-    if not self:getEntity() then
-        return { hit = false }
-    end
-
-    local scaleFactor = intersection.getResourcePathScalingFactor(self.spawnData, self:getSize())
-
-    local scaledBBox = utils.getScaledBBoxWithFactor(self.bBox, self.scale, scaleFactor)
-    local result = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, scaledBBox)
-
-    local unscaledHit
-    if result.hit then
-        unscaledHit = intersection.getBoxIntersection(origin, ray, self.position, self.rotation, intersection.unscaleBBox(self.spawnData, self:getSize(), scaledBBox))
-    end
-
-    return {
-        hit = result.hit,
-        position = result.position,
-        unscaledHit = unscaledHit and unscaledHit.position or result.position,
-        collisionType = "bbox",
-        distance = result.distance,
-        bBox = scaledBBox,
-        objectOrigin = self.position,
-        objectRotation = self.rotation,
-        normal = result.normal
-    }
+    return intersection.getSpawnableBBoxIntersection(self, origin, ray)
 end
 
 ---Draws the single-node mesh inspector UI.
@@ -753,16 +729,7 @@ end
 ---Builds single-selection property groups for the editor sidebar.
 ---@return table
 function mesh:getProperties()
-    local properties = spawnable.getProperties(self)
-    table.insert(properties, {
-        id = self.node,
-        name = self.dataType,
-        defaultHeader = true,
-        draw = function()
-            self:draw()
-        end
-    })
-    return properties
+    return self:addNodeProperty(spawnable.getProperties(self))
 end
 
 ---Checks whether current mesh asset supports conversion to the target subtype.
