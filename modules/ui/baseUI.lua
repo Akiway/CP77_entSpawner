@@ -275,6 +275,14 @@ function baseUI.init()
         ignore("WB##shortcuts-popup")
         ignore("##boxSelect")
         ignore("##projectedWireframeOverlay")
+        ignore("##exportStreamingBoxOverlay")
+        ignore("##brushOverlay")
+        ignore("##groupBoundsOverlay")
+        ignore("##streamingRangeOverlay")
+        ignore("##spawnableViewportOverlay")
+        ignore("##elevatorDoorHelperOverlay")
+        ignore("Depth Selection")
+        ignore("Spawned UI Profiler")
     end
 
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
