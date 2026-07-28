@@ -11,6 +11,7 @@ local history = require("modules/utils/history")
 local registry = require("modules/utils/nodeRefRegistry")
 local Cron = require("modules/utils/Cron")
 local preview = require("modules/utils/previewUtils")
+local previewControls = require("modules/utils/previewControls")
 local appearanceHelper = require("modules/utils/appearanceHelper")
 local logger = require("modules/utils/logger")
 local colorUtil = require("modules/utils/color")
@@ -106,6 +107,7 @@ local deviceClassSourceByModulePath = {
 ---@field public apps table
 ---@field public appsLoaded boolean
 ---@field public appIndex integer
+---@field private assetPreviewAppIndex integer Index the asset preview's automatic appearance cycle last reached
 ---@field private bBoxCallback function
 ---@field public bBox table {min: Vector4, max: Vector4}
 ---@field public bBoxLoaded boolean
@@ -133,6 +135,7 @@ function entity:new()
     o.apps = {}
     o.appsLoaded = false
     o.appIndex = 0
+    o.assetPreviewAppIndex = 0
     o.appSearch = ""
     o.bBoxCallback = nil
     o.bBox = { min = Vector4.new(-0.5, -0.5, -0.5, 0), max = Vector4.new( 0.5, 0.5, 0.5, 0) }
@@ -659,13 +662,14 @@ function entity:onAttached(entRef)
     end, {})
 end
 
-function entity:getAssetPreviewTextAnchor()
+---@param vertical number? 1 for the top left corner (default), -1 for the bottom left one
+function entity:getAssetPreviewTextAnchor(vertical)
     if not self.assetPreviewBackplane then
         return Vector4.new(1, 1, 0, 0)
     end
 
     local pos = preview.getTopLeft(0.275)
-    return utils.addVector(self.assetPreviewBackplane.position, utils.addEulerRelative(self.assetPreviewBackplane.rotation, EulerAngles.new(0, 90, 0)):ToQuat():Transform(Vector4.new(pos, 0, pos, 0)))
+    return utils.addVector(self.assetPreviewBackplane.position, utils.addEulerRelative(self.assetPreviewBackplane.rotation, EulerAngles.new(0, 90, 0)):ToQuat():Transform(Vector4.new(pos, 0, pos * (vertical or 1), 0)))
 end
 
 function entity:getAssetPreviewPosition()
@@ -681,15 +685,28 @@ function entity:getAssetPreviewPosition()
     end
 
     local size = self:getSize()
-    local distance = math.max(size.x, size.y, size.z) * 1.6
+    local distance = (math.max(size.x, size.y, size.z) * 1.6) / previewControls.zoom
 
     local diff = utils.subVector(self.position, self:getCenter())
     local position, forward = spawnable.getAssetPreviewPosition(self, distance)
 
+    -- The cycle walks "default" plus every appearance, hence the +1
+    local appCount = #self.apps + 1
+    local targetIndex = self.appIndex
+
     self.assetPreviewTimer = self.assetPreviewTimer + Cron.deltaTime
-    if self.assetPreviewTimer > 1.5 then
+    if previewControls.appearanceLocked then
+        targetIndex = previewControls.getAppearanceIndex(self.assetPreviewAppIndex, appCount)
+    elseif self.assetPreviewTimer > 1.5 then
         self.assetPreviewTimer = 0
-        self.appIndex = (self.appIndex + 1) % (#self.apps + 1)
+        targetIndex = (self.appIndex + 1) % appCount
+        self.assetPreviewAppIndex = targetIndex
+    else
+        self.assetPreviewAppIndex = self.appIndex
+    end
+
+    if targetIndex ~= self.appIndex then
+        self.appIndex = targetIndex
         local new = self.apps[self.appIndex] or "default"
         if new ~= self.app then
             self.app = new
@@ -698,19 +715,20 @@ function entity:getAssetPreviewPosition()
         end
     end
 
-    self.rotation = utils.multQuat(self.rotation:ToQuat(), Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))):ToEulerAngles()
+    previewControls.updateTurntable(self, 50)
 
     if size.z < math.max(size.x, size.y, size.z) * 0.1 then
         diff = utils.addVector(diff, self.rotation:ToQuat():Transform(Vector4.new(0, 0, -0.1, 0)))
     end
 
-    -- The preview cycles through "default" plus every appearance, hence the +1
     local label = "Appearance"
     if #self.apps > 0 then
-        label = ("Appearance (%d/%d)"):format(self.appIndex + 1, #self.apps + 1)
+        label = ("Appearance (%d/%d)"):format(self.appIndex + 1, appCount)
     end
     preview.elements["previewFirstLine"]:SetText(label .. ": " .. self.app)
     preview.elements["previewSecondLine"]:SetText(("Size: X=%.2fm Y=%.2fm Z=%.2fm"):format(size.x, size.y, size.z))
+    -- Appearances load asynchronously, so the hint is refreshed here rather than on assemble
+    preview.setControlsHint(previewControls.getHintLines(appCount))
     position = utils.addVector(position, diff)
 
     return position, forward

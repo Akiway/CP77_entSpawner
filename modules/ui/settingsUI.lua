@@ -7,6 +7,9 @@ local perf = require("modules/utils/perf")
 local rht = require("modules/utils/rhtPlugin")
 local projectTag = require("modules/utils/ui/projectTag")
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
+local previewControls = require("modules/utils/previewControls")
+local keys = require("modules/utils/keys")
+local input = require("modules/utils/input")
 
 local colliderColors = { "Red", "Green", "Blue" }
 local streamingPresetLabels = { "Interior", "Street", "District", "Landscape", "To the Moon" }
@@ -493,6 +496,82 @@ local function drawDefaultsSection()
     ImGui.TreePop()
 end
 
+---Draws one rebindable row: a button showing the bound key, which starts listening when clicked.
+---@param action { id: string, label: string, hint: string }
+---@param bindings table<string, string>
+---@param usageCount table<string, integer> How many actions each key is bound to, to flag conflicts
+local function drawBindingRow(action, bindings, usageCount)
+    local listening = settingsUI.listeningBinding == action.id
+    local bound = bindings[action.id] or ""
+    local conflicting = not listening and bound ~= "" and (usageCount[bound] or 0) > 1
+
+    style.pushStyleColor(conflicting, ImGuiCol.Text, style.warnColor)
+    if ImGui.Button((listening and "Press a key..." or keys.getLabel(bound)) .. "##binding" .. action.id, 150 * style.viewSize, 0) then
+        settingsUI.listeningBinding = listening and nil or action.id
+    end
+    style.popStyleColor(conflicting)
+
+    if listening then
+        style.tooltip("Press the key to bind, or Escape to cancel.")
+    elseif conflicting then
+        style.tooltip(action.hint .. "\n\nThis key is bound to more than one action, both will trigger.")
+    else
+        style.tooltip(action.hint)
+    end
+
+    ImGui.SameLine()
+    ImGui.Text(action.label)
+
+    if not listening then return end
+
+    -- Keep the key being recorded from also firing whatever hotkey it happens to be
+    input.rebindActive = true
+
+    if ImGui.IsKeyPressed(ImGuiKey.Escape, false) then
+        settingsUI.listeningBinding = nil
+        return
+    end
+
+    local captured = keys.capture()
+    if captured then
+        previewControls.setBinding(action.id, captured)
+        settingsUI.listeningBinding = nil
+    end
+end
+
+local function drawBindingsSection()
+    if not ImGui.TreeNodeEx("Bindings", ImGuiTreeNodeFlags.SpanFullWidth) then
+        settingsUI.listeningBinding = nil
+        return
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    style.sectionHeaderStart("Asset preview", "Keys used while hovering an entry in the \"Spawn New\" list.\nMoving the point of view stops the automatic turntable, stepping the appearance stops the automatic appearance cycle.\nThey are also listed in the bottom left corner of the preview itself.")
+
+    local bindings = previewControls.getBindings()
+
+    local usageCount = {}
+    for _, action in ipairs(previewControls.actions) do
+        local bound = bindings[action.id] or ""
+        usageCount[bound] = (usageCount[bound] or 0) + 1
+    end
+
+    for _, action in ipairs(previewControls.actions) do
+        drawBindingRow(action, bindings, usageCount)
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    if ImGui.Button("Restore defaults##previewBindings") then
+        previewControls.restoreDefaultBindings()
+        settingsUI.listeningBinding = nil
+    end
+    style.tooltip(("Rebind everything to the defaults for the game's language, currently a %s keyboard."):format(previewControls.getKeyboardLayout():upper()))
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    ImGui.TreePop()
+end
+
 ---@param spawner spawner
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
@@ -599,6 +678,7 @@ function settingsUI.draw(spawner)
     end
 
     drawDefaultsSection()
+    drawBindingsSection()
 
     if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)

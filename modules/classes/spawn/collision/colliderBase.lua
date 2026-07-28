@@ -3,7 +3,7 @@ local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
 local visualizer = require("modules/utils/visualizer")
-local Cron = require("modules/utils/Cron")
+local previewControls = require("modules/utils/previewControls")
 
 local colliderGenerics = {
     -- it's cursed, but I ain't scrolling to the end of the line for that
@@ -129,8 +129,7 @@ end
 ---@return Vector4
 function colliderBase:getAssetPreviewPosition()
     if self.isAssetPreview then
-        local spin = Quaternion.SetAxisAngle(Vector4.new(0, 0, 1, 0), Deg2Rad(Cron.deltaTime * 50))
-        self.rotation = utils.multQuat(self.rotation:ToQuat(), spin):ToEulerAngles()
+        previewControls.updateTurntable(self, 50)
     end
 
     return spawnable.getAssetPreviewPosition(self, 0.75)

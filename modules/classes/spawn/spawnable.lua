@@ -54,6 +54,7 @@ local settings = require("modules/utils/settings")
 ---@field public assetPreviewType string none|backdrop|current_position
 ---@field public assetPreviewDelay number
 ---@field public isAssetPreview boolean
+---@field public assetPreviewBaseRotation EulerAngles? Rotation the asset preview turntable was at when the keyboard controls took over
 ---@field private assetPreviewLensDistortion boolean
 ---@field public streamingRefPointOverride boolean
 ---@field public streamingRefPoint Vector4
@@ -698,8 +699,9 @@ function spawnable:getGroupedProperties()
     return properties
 end
 
----Returns the world position of the top left corner, which shall act as anchor for any HUD text of the asset preview
-function spawnable:getAssetPreviewTextAnchor()
+---Returns the world position of a left corner of the asset preview, which shall act as anchor for its HUD text
+---@param vertical number? 1 for the top left corner (default), -1 for the bottom left one
+function spawnable:getAssetPreviewTextAnchor(vertical)
     return self.position
 end
 
@@ -707,7 +709,7 @@ end
 function spawnable:setAssetPreviewTextPostition()
     if not preview.elements["previewFirstLine"] then return end
 
-    local x, y = editor.camera.worldToScreen(self:getAssetPreviewTextAnchor())
+    local x, y = editor.camera.worldToScreen(self:getAssetPreviewTextAnchor(1))
 
     local width, height = GetDisplayResolution()
     local factor = width / 2560
@@ -719,6 +721,21 @@ function spawnable:setAssetPreviewTextPostition()
     preview.elements["previewFirstLine"]:SetTranslation(rx, ry)
     preview.elements["previewSecondLine"]:SetTranslation(rx, ry + 40 * factor)
     preview.elements["previewThirdLine"]:SetTranslation(rx, ry + 80 * factor)
+
+    -- The control hint hugs the bottom left corner instead, stacking upwards from it
+    local lineCount = preview.controlsLineCount
+    if lineCount > 0 then
+        local bottomX, bottomY = editor.camera.worldToScreen(self:getAssetPreviewTextAnchor(-1))
+        local bx = (bottomX + 1) * width / 2 + 20 * factor
+        local by = (- bottomY + 1) * height / 2 - 60 * factor
+
+        for line = 1, lineCount do
+            local element = preview.elements[preview.getControlsLineKey(line)]
+            if element then
+                element:SetTranslation(bx, by - (lineCount - line) * 40 * factor)
+            end
+        end
+    end
 end
 
 ---Position where the asset preview should be spawned, the actual entity position
@@ -767,6 +784,7 @@ function spawnable:assetPreview(state)
             preview.elements["previewFirstLine"]:SetVisible(false)
             preview.elements["previewSecondLine"]:SetVisible(false)
             preview.elements["previewThirdLine"]:SetVisible(false)
+            preview.setControlsHint(nil)
             if editor.active then GameSettings.Set("/accessibility/interface/LensDistortionOverride", self.assetPreviewLensDistortion) end
         end
         self:despawn()

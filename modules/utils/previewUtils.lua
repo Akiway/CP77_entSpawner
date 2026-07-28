@@ -1,6 +1,13 @@
 local preview = {
-    elements = {}
+    elements = {},
+    ---Number of control hint lines currently shown, drives their bottom aligned placement.
+    controlsLineCount = 0,
+    ---Text the hint was last filled with, so it is only rebuilt when it actually changes.
+    controlsSignature = ""
 }
+
+-- Upper bound on the control hint, the widgets are created once and reused.
+local CONTROLS_LINES = 4
 
 function preview.addHUDText(key, size, x, y, color)
     color = color or "MainColors.Blue"
@@ -46,6 +53,39 @@ function preview.addHUD()
     preview.addHUDText("previewFirstLine", 30 * factor, 730, 180)
     preview.addHUDText("previewSecondLine", 30 * factor, 730, 180 + 45 * factor)
     preview.addHUDText("previewThirdLine", 30 * factor, 730, 180 + 90 * factor, "MainColors.Red")
+
+    for line = 1, CONTROLS_LINES do
+        preview.addHUDText(preview.getControlsLineKey(line), 30 * factor, 730, 180 + (135 + line * 45) * factor)
+    end
+
+    preview.controlsLineCount = 0
+    preview.controlsSignature = ""
+end
+
+---@param line integer 1 based line index
+---@return string key
+function preview.getControlsLineKey(line)
+    return "previewControlsLine" .. line
+end
+
+---Fills the bottom left control hint of the asset preview, and shows exactly as many lines as given.
+---Cheap to call every frame, the widgets are only touched when the text changed.
+---@param lines string[]? Pass nil or an empty list to hide the hint.
+function preview.setControlsHint(lines)
+    local signature = lines and table.concat(lines, "\n") or ""
+    if signature == preview.controlsSignature then return end
+
+    preview.controlsSignature = signature
+    preview.controlsLineCount = lines and math.min(#lines, CONTROLS_LINES) or 0
+
+    for line = 1, CONTROLS_LINES do
+        local element = preview.elements[preview.getControlsLineKey(line)]
+        if element then
+            local text = (lines and line <= preview.controlsLineCount) and lines[line] or nil
+            element:SetText(text or "")
+            element:SetVisible(text ~= nil)
+        end
+    end
 end
 
 function preview.getBackplaneSize(size)

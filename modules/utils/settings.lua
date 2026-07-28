@@ -89,6 +89,7 @@ local config = require("modules/utils/config")
 ---@field public defaultGroupProject table? Default project tag ({name, icon, color}) assigned to new groups, or nil for none.
 ---@field public defaultStreamingPreset integer Default streaming distance preset index (0 = Interior) for new spawnables.
 ---@field public defaultExportFormat integer Default export XL format (0 = JSON, 1 = YAML).
+---@field public previewBindings table<string, string> ImGuiKey names bound to the asset preview controls, keyed by action id. Empty until first resolved from the game language.
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -181,6 +182,9 @@ local settingsData = {
     -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
     defaultStreamingPreset = 0, -- Interior
     defaultExportFormat = 0, -- JSON
+
+    -- Resolved from the game language on first use, see previewControls.getBindings
+    previewBindings = {},
 }
 
 local settingsFNs = {}

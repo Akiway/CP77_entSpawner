@@ -85,9 +85,10 @@ function decal:onAssemble(entity)
     self:assetPreviewAssemble(entity)
 end
 
-function decal:getAssetPreviewTextAnchor()
+---@param vertical number? 1 for the top left corner (default), -1 for the bottom left one
+function decal:getAssetPreviewTextAnchor(vertical)
     local pos = preview.getTopLeft(0.535)
-    return utils.addVector(self.position, self.rotation:ToQuat():Transform(Vector4.new(pos, 0, pos, 0)))
+    return utils.addVector(self.position, self.rotation:ToQuat():Transform(Vector4.new(pos, 0, pos * (vertical or 1), 0)))
 end
 
 function decal:getAssetPreviewPosition()
