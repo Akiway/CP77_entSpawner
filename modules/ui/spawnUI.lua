@@ -39,8 +39,9 @@ local types = {
             ["Rotating Mesh"] = { class = require("modules/classes/spawn/mesh/rotatingMesh"), index = 2 },
             ["Cloth Mesh"] = { class = require("modules/classes/spawn/mesh/clothMesh"), index = 3 },
             ["Dynamic Mesh"] = { class = require("modules/classes/spawn/physics/dynamicMesh"), index = 4 },
-            ["Bended Mesh"] = { class = require("modules/classes/spawn/mesh/bendedMesh"), index = 5 },
-            ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 6 }
+            ["Destructible Mesh"] = { class = require("modules/classes/spawn/physics/destructibleMesh"), index = 5 },
+            ["Bended Mesh"] = { class = require("modules/classes/spawn/mesh/bendedMesh"), index = 6 },
+            ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 7 }
         },
         index = 2
     },

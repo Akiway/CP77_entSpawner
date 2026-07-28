@@ -135,7 +135,8 @@ local COLLISION_MODULE_PATHS = {
 -- Spawnables previewed as a different, simpler class (e.g. dynamic meshes shown as static
 -- meshes so they don't fall/simulate while being previewed).
 local PREVIEW_MODULE_REMAP = {
-    ["physics/dynamicMesh"] = "mesh/mesh"
+    ["physics/dynamicMesh"] = "mesh/mesh",
+    ["physics/destructibleMesh"] = "mesh/mesh"
 }
 
 ---Resolves the spawnable module path used for the preview, or nil when it should be skipped.

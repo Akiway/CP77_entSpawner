@@ -20,6 +20,7 @@ local colliderShapeTypes = { "Box", "Capsule", "Sphere", "ConvexMesh", "BV4Trian
 local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
 local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
 local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
+local destructibleListPath = "data/spawnables/mesh/destructible/paths_destructible.txt"
 
 -- Supported module targets for single-item and grouped conversion.
 local conversionTargets = {
@@ -28,6 +29,7 @@ local conversionTargets = {
     { modulePath = "mesh/rotatingMesh", icon = IconGlyphs.FormatRotate90, text = "Rotating Mesh", plural = "rotating meshes" },
     { modulePath = "mesh/clothMesh", icon = IconGlyphs.ReceiptOutline, text = "Cloth Mesh", plural = "cloth meshes" },
     { modulePath = "physics/dynamicMesh", icon = IconGlyphs.CubeSend, text = "Dynamic Mesh", plural = "dynamic meshes" },
+    { modulePath = "physics/destructibleMesh", icon = IconGlyphs.CubeOffOutline, text = "Destructible Mesh", plural = "destructible meshes" },
     { modulePath = "mesh/proxyMesh", icon = IconGlyphs.BoxShadow, text = "Proxy Mesh", plural = "proxy meshes" }
 }
 
@@ -45,27 +47,38 @@ local lossyConversionPairs = {
     ["mesh/bendedMesh>mesh/rotatingMesh"] = true,
     ["mesh/bendedMesh>mesh/clothMesh"] = true,
     ["mesh/bendedMesh>physics/dynamicMesh"] = true,
+    ["mesh/bendedMesh>physics/destructibleMesh"] = true,
     ["mesh/bendedMesh>mesh/proxyMesh"] = true,
     ["mesh/rotatingMesh>mesh/bendedMesh"] = true,
     ["mesh/rotatingMesh>mesh/mesh"] = true,
     ["mesh/rotatingMesh>mesh/clothMesh"] = true,
     ["mesh/rotatingMesh>physics/dynamicMesh"] = true,
+    ["mesh/rotatingMesh>physics/destructibleMesh"] = true,
     ["mesh/rotatingMesh>mesh/proxyMesh"] = true,
     ["mesh/clothMesh>mesh/bendedMesh"] = true,
     ["mesh/clothMesh>mesh/mesh"] = true,
     ["mesh/clothMesh>mesh/rotatingMesh"] = true,
     ["mesh/clothMesh>physics/dynamicMesh"] = true,
+    ["mesh/clothMesh>physics/destructibleMesh"] = true,
     ["mesh/clothMesh>mesh/proxyMesh"] = true,
     ["physics/dynamicMesh>mesh/bendedMesh"] = true,
     ["physics/dynamicMesh>mesh/mesh"] = true,
     ["physics/dynamicMesh>mesh/rotatingMesh"] = true,
     ["physics/dynamicMesh>mesh/clothMesh"] = true,
+    ["physics/dynamicMesh>physics/destructibleMesh"] = true,
     ["physics/dynamicMesh>mesh/proxyMesh"] = true,
+    ["physics/destructibleMesh>mesh/mesh"] = true,
+    ["physics/destructibleMesh>mesh/bendedMesh"] = true,
+    ["physics/destructibleMesh>mesh/rotatingMesh"] = true,
+    ["physics/destructibleMesh>mesh/clothMesh"] = true,
+    ["physics/destructibleMesh>physics/dynamicMesh"] = true,
+    ["physics/destructibleMesh>mesh/proxyMesh"] = true,
     ["mesh/proxyMesh>mesh/mesh"] = true,
     ["mesh/proxyMesh>mesh/bendedMesh"] = true,
     ["mesh/proxyMesh>mesh/rotatingMesh"] = true,
     ["mesh/proxyMesh>mesh/clothMesh"] = true,
-    ["mesh/proxyMesh>physics/dynamicMesh"] = true
+    ["mesh/proxyMesh>physics/dynamicMesh"] = true,
+    ["mesh/proxyMesh>physics/destructibleMesh"] = true
 }
 
 ---Class for worldMeshNode
@@ -781,6 +794,10 @@ function mesh:isMeshConversionAllowed(targetModulePath)
 
     if targetModulePath == "physics/dynamicMesh" then
         return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
+    end
+
+    if targetModulePath == "physics/destructibleMesh" then
+        return cache.isSpawnDataInSet(self.spawnData, destructibleListPath)
     end
 
     return true

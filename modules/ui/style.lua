@@ -52,11 +52,26 @@ end
 ---@param helperText string?
 ---@param showValue boolean?
 ---@return string?
+---Strips the ImGui id suffix from a widget label. `##`/`###` and everything after them
+---are not rendered by ImGui, so they must not leak into tooltips or the clipboard either.
+---@param value any
+---@return string
+local function stripWidgetId(value)
+    local text = tostring(value or "")
+    local idStart = text:find("##", 1, true)
+
+    if idStart then
+        text = text:sub(1, idStart - 1)
+    end
+
+    return (text:gsub("%s+$", ""))
+end
+
 local function buildSelectorTooltip(value, helperText, showValue)
     local tooltipParts = {}
 
     if showValue ~= false then
-        local valueText = tostring(value or "")
+        local valueText = stripWidgetId(value)
         if valueText ~= "" then
             table.insert(tooltipParts, valueText)
         end
@@ -78,7 +93,7 @@ end
 local function copySelectorValueOnMiddleClick(value, showValue)
     if showValue == false then return end
 
-    local valueText = tostring(value or "")
+    local valueText = stripWidgetId(value)
     if valueText == "" then return end
 
     if ImGui.IsItemHovered() and ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
