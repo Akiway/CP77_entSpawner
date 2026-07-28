@@ -10,6 +10,8 @@ local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 
+local wu
+
 ---@class spawnedUI
 ---@field root element
 ---@field filter string
@@ -3020,6 +3022,8 @@ function spawnedUI.drawPinnedHierarchyWindow()
         return
     end
 
+    wu = wu or GetMod("WindowUtils") or ImGui
+
     spawnedUI.ensureCache()
 
     local groupEntry = getPinnedHierarchyGroupEntry()
@@ -3031,7 +3035,7 @@ function spawnedUI.drawPinnedHierarchyWindow()
 
     local title = style.resolveActionLabelNoIconOnly(IconGlyphs.PinOutline, groupEntry.ref.name, "focusedHierarchyWindow")
     ImGui.SetNextWindowSize(400 * style.viewSize, 500 * style.viewSize, ImGuiCond.FirstUseEver)
-    spawnedUI.pinnedHierarchy.open = ImGui.Begin(title, true, ImGuiWindowFlags.NoCollapse)
+    spawnedUI.pinnedHierarchy.open = wu.Begin(title, true, ImGuiWindowFlags.NoCollapse)
 
     if spawnedUI.pinnedHierarchy.open then
         input.updateContext("main")
@@ -3047,7 +3051,7 @@ function spawnedUI.drawPinnedHierarchyWindow()
             })
         end
 
-        ImGui.End()
+        wu.End()
     end
 end
 
