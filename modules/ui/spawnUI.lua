@@ -83,7 +83,8 @@ local types = {
             ["Conversation Area"] = { class = require("modules/classes/spawn/area/conversationArea"), index = 7 },
             ["Crowd Null Area"] = { class = require("modules/classes/spawn/area/crowdNull"), index = 8 },
             ["Dummy Area"] = { class = require("modules/classes/spawn/area/dummyArea"), index = 9 },
-            ["World Boundary"] = { class = require("modules/classes/spawn/area/worldBoundary"), index = 10 }
+            ["World Boundary"] = { class = require("modules/classes/spawn/area/worldBoundary"), index = 10 },
+            ["Guard Area"] = { class = require("modules/classes/spawn/area/guardArea"), index = 11 }
         },
         index = 7
     },
