@@ -283,6 +283,7 @@ function baseUI.init()
         ignore("##elevatorDoorHelperOverlay")
         ignore("Depth Selection")
         ignore("Spawned UI Profiler")
+        ignore(string.format("%s Error", settings.mainWindowName .. " " .. ModVersion))
     end
 
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
