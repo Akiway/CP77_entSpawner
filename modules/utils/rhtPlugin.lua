@@ -6,6 +6,9 @@ local gameUtils = require("modules/utils/gameUtils")
 local logger = require("modules/utils/logger")
 local axl = require("modules/utils/axl")
 local registry = require("modules/utils/nodeRefRegistry")
+local history = require("modules/utils/history")
+local element = require("modules/classes/editor/element")
+local red = require("modules/utils/redConverter")
 
 ---@class rht
 ---@field public spawnUI spawnUI?
@@ -18,6 +21,10 @@ local rht = {
     redHotTools = nil,
     removalEditor = nil
 }
+
+local function log(message)
+    logger:info("[RHT plugin] " .. tostring(message))
+end
 
 local REPLACER_MODE_LABELS = {
     clone = "Clone",
@@ -87,6 +94,150 @@ local function safeGet(object, key)
     end
 
     return nil
+end
+
+---The node object behind a Red Hot Tools target. It is reachable through the loaded definition
+---or through the streamed instance, and which of the two is filled in depends on how the
+---target was picked, so take whichever actually reads back rather than assuming.
+---@param node any
+---@param probe string Property that must read back for the object to count as usable.
+---@return any?
+local function getNativeNode(node, probe)
+    local function readable(candidate)
+        return safeGet(candidate, probe) ~= nil and candidate or nil
+    end
+
+    local native = readable(node and node.nodeDefinition)
+    if not native and node and node.nodeInstance and type(node.nodeInstance.GetNode) == "function" then
+        native = readable(node.nodeInstance:GetNode())
+    end
+
+    return native
+end
+
+-- Notifier class -> the trigger type the editor lists it under. Only the ones the Trigger Area
+-- variant can actually author: an area whose notifier is missing here keeps its class default,
+-- which is what Ambient and Conversation areas rely on.
+local TRIGGER_TYPE_BY_NOTIFIER = {
+    ["worldInteriorAreaNotifier"] = "Interior",
+    ["worldLocationAreaNotifier"] = "Location",
+    ["questTriggerNotifier_Quest"] = "Quest Notifier",
+    ["worldQuestPreventionNotifier"] = "Prevention",
+    ["worldVehicleForbiddenAreaNotifier"] = "Vehicle Forbidden",
+    ["questContentBlockTriggerAreaNotifier"] = "Content Block",
+    ["worldEnvAreaNotifier"] = "Env Trigger"
+}
+
+---Channel checkboxes from the notifier's channel bitfield. The RED converter flattens it to its
+---comma-separated member list, but falls back to a plain mask when the bitfield definition
+---cannot be resolved, so both forms are accepted.
+---@param includeChannels any
+---@return table
+local function toTriggerChannels(includeChannels)
+    local channels = {}
+    local text = tostring(includeChannels or "")
+    local mask = tonumber((text:gsub("ULL", ""):gsub("LL", "")))
+    local enabled = {}
+
+    for name in text:gmatch("[^,%s]+") do
+        enabled[name] = true
+    end
+
+    for index, name in ipairs(style.triggerChannelEnum) do
+        if mask then
+            channels[index] = math.floor(mask / 2 ^ (index - 1)) % 2 == 1
+        else
+            channels[index] = enabled[name] == true
+        end
+    end
+
+    return channels
+end
+
+---Overlays converted notifier values onto the editor's own default trigger for that type.
+---The default declares exactly which fields the trigger UI edits and in which Lua types, which
+---the converted values cannot be trusted for: it produces export-shaped data, where booleans
+---are already flattened to 1/0 and the checkboxes would choke on them.
+---@param default table Default trigger table, mutated in place.
+---@param converted table
+---@return table default
+local function applyConvertedTrigger(default, converted)
+    for key, fallback in pairs(default) do
+        local value = converted[key]
+
+        if value ~= nil then
+            if type(fallback) == "boolean" then
+                default[key] = value == true or value == 1
+            elseif type(fallback) == "number" then
+                default[key] = tonumber(value) or fallback
+            elseif type(fallback) == type(value) then
+                default[key] = value
+            end
+        end
+    end
+
+    return default
+end
+
+---Trigger data of a `worldTriggerAreaNode`, in the shape the editor's trigger UI edits and the
+---exporter writes back. The notifier is converted whole by the project's RED converter, so no
+---field of any notifier kind has to be read by hand; only the type label the UI selects on and
+---the channel checkboxes are derived separately.
+---@param node any
+---@return table
+local function readTriggerAreaData(node)
+    local notifiers = safeGet(getNativeNode(node, "notifiers"), "notifiers")
+    local notifier = type(notifiers) == "table" and notifiers[1] or nil
+    if not notifier then
+        return {}
+    end
+
+    local ok, converted = pcall(red.redDataToJSON, notifier)
+    if not ok or type(converted) ~= "table" then
+        log("Could not convert trigger notifier: " .. tostring(converted))
+        return {}
+    end
+
+    local triggerType = TRIGGER_TYPE_BY_NOTIFIER[tostring(converted["$type"])]
+    if not triggerType then
+        return {}
+    end
+
+    -- Required late: the class pulls enum tables that are only there once the game is up.
+    local probe = require("modules/classes/spawn/area/triggerArea"):new()
+    local buildDefault = probe:getAvailableTriggers()[triggerType]
+    if not buildDefault then
+        return {}
+    end
+    buildDefault(probe, true)
+
+    return {
+        triggerType = triggerType,
+        trigger = applyConvertedTrigger(probe.trigger, converted),
+        channels = toTriggerChannels(converted.includeChannels)
+    }
+end
+
+---Definition of one area node type. Area nodes hold nothing but a polygon plus whatever their
+---own kind adds, and the polygon is rebuilt separately (see `attachAreaOutline`) because
+---entSpawner keeps it in a group of outline markers instead of on the node itself.
+---@param sub string Spawn New variant under the "Area" category.
+---@param extras? fun(node: any, native: any): table Fields beyond the shape, for the kinds that have any.
+---@return table
+local function areaDefinition(sub, extras)
+    return {
+        dataRetrieval = function(node)
+            if not extras then
+                return {}
+            end
+
+            return extras(node, getNativeNode(node, "color"))
+        end,
+        category = "Area",
+        sub = sub,
+        outline = true,
+        replacer = true
+    }
 end
 
 local TYPE_MAP = {
@@ -457,17 +608,7 @@ local TYPE_MAP = {
                 return markings
             end
 
-            -- The node is reachable through its definition or through its streamed instance,
-            -- and which of the two is filled in depends on how the target was picked. Take
-            -- whichever actually reads back, rather than assuming.
-            local function readable(candidate)
-                return safeGet(candidate, "spot") ~= nil and candidate or nil
-            end
-
-            local native = readable(node and node.nodeDefinition)
-            if not native and node and node.nodeInstance and type(node.nodeInstance.GetNode) == "function" then
-                native = readable(node.nodeInstance:GetNode())
-            end
+            local native = getNativeNode(node, "spot")
 
             -- Red Hot Tools resolves the workspot itself; reading the node is the fallback.
             local workspot = type(node and node.workspotPath) == "string" and node.workspotPath or ""
@@ -495,6 +636,51 @@ local TYPE_MAP = {
         replacer = true,
         preserveNodeRef = true
     },
+    ["worldStaticMarkerNode"] = {
+        dataRetrieval = function(node)
+            -- The node's only authored content is which marker kind sits in `data`; entSpawner
+            -- models that as the one "quest marker" flag it can write back out.
+            local marker = safeGet(getNativeNode(node, "isEnabled"), "data")
+            local questMarker = false
+
+            if marker then
+                pcall(function()
+                    questMarker = marker:IsA("worldQuestMarker")
+                end)
+            end
+
+            return { questMarker = questMarker }
+        end,
+        category = "Meta",
+        sub = "Static Marker",
+        replacer = true
+    },
+    -- Areas are all one shape node underneath. Notifier/trigger contents are handles this
+    -- addon does not reconstruct, so those variants clone with their editor defaults and only
+    -- the shape (plus anything listed below) comes across.
+    ["worldTriggerAreaNode"] = areaDefinition("Trigger Area", readTriggerAreaData),
+    -- A location area is a trigger area carrying a district notifier. Its own `locationName`
+    -- has no counterpart in the editor, which authors every trigger as worldTriggerAreaNode.
+    ["worldLocationAreaNode"] = areaDefinition("Trigger Area", readTriggerAreaData),
+    ["worldAmbientAreaNode"] = areaDefinition("Ambient Area"),
+    ["worldInterestingConversationsAreaNode"] = areaDefinition("Conversation Area"),
+    ["worldCrowdNullAreaNode"] = areaDefinition("Crowd Null Area"),
+    ["worldPreventionFreeAreaNode"] = areaDefinition("Prevention Free"),
+    ["worldWaterNullAreaNode"] = areaDefinition("Water Null"),
+    ["gameKillTriggerNode"] = areaDefinition("Kill Area"),
+    ["gameWorldBoundaryNode"] = areaDefinition("World Boundary", function(node)
+        -- A boundary keeps its outline in the node's own frame, and entSpawner stores that
+        -- frame as the yaw it re-applies on export.
+        local euler = gameUtils.toEulerAnglesSafe(node.nodeOrientation)
+        local yaw = euler and tonumber(euler.yaw) or 0
+
+        return { orientation = (yaw % 360 + 360) % 360 }
+    end),
+    ["worldGuardAreaNode"] = areaDefinition("Guard Area", function(_, native)
+        -- The connected communities and the pursuit area are NodeRefs pointing into the
+        -- vanilla world, which a clone cannot resolve, so only the plain range comes across.
+        return { pursuitRange = tonumber(safeGet(native, "pursuitRange")) or 0 }
+    end),
     ["worldReflectionProbeNode"] = {
         dataRetrieval = function(node)
             if not node or not node.nodeInstance or type(node.nodeInstance.GetNode) ~= "function" then
@@ -539,12 +725,21 @@ local TYPE_PRIORITY = {
     "worldStaticLightNode",
     "worldStaticSoundEmitterNode",
     "worldAISpotNode",
+    "worldStaticMarkerNode",
+    -- Ambient, conversation and location areas derive from worldTriggerAreaNode, so they have
+    -- to be tried first for an unrecognized subclass to land on the closest match it really is.
+    "worldAmbientAreaNode",
+    "worldInterestingConversationsAreaNode",
+    "worldLocationAreaNode",
+    "worldTriggerAreaNode",
+    "worldCrowdNullAreaNode",
+    "worldPreventionFreeAreaNode",
+    "worldWaterNullAreaNode",
+    "gameKillTriggerNode",
+    "gameWorldBoundaryNode",
+    "worldGuardAreaNode",
     "worldReflectionProbeNode"
 }
-
-local function log(message)
-    logger:info("[RHT plugin] " .. tostring(message))
-end
 
 local function sanitizeReplacerMode(mode)
     if VALID_REPLACER_MODES[mode] then
@@ -667,23 +862,23 @@ local function toScaleVector(scale)
     return nil
 end
 
-local function applyTransform(element, position, rotation, scale)
-    if not element then
+local function applyTransform(target, position, rotation, scale)
+    if not target then
         return
     end
 
-    if position and element.setPosition then
-        element:setPosition(position)
+    if position and target.setPosition then
+        target:setPosition(position)
     end
 
     local euler = gameUtils.toEulerAnglesSafe(rotation)
-    if euler and element.setRotation then
-        element:setRotation(euler)
+    if euler and target.setRotation then
+        target:setRotation(euler)
     end
 
     local scaleVector = toScaleVector(scale)
-    if scaleVector and element.setScale then
-        element:setScale(scaleVector, true)
+    if scaleVector and target.setScale then
+        target:setScale(scaleVector, true)
     end
 end
 
@@ -1148,6 +1343,120 @@ function rht.copyAXLNodeMutation(node)
     }))
 end
 
+---World-space outline of an area node. The node stores its polygon as points local to its own
+---transform plus one height for the extruded volume; the editor expresses the same shape as a
+---group of outline markers standing in the world.
+---@param node any
+---@return Vector4[] points
+---@return number height
+local function readAreaOutline(node)
+    local points = {}
+
+    local outline = safeGet(getNativeNode(node, "outline"), "outline")
+    local rawPoints = safeGet(outline, "points")
+    local origin = node and (node.nodePosition or node.entityPosition or node.position) or nil
+
+    if type(rawPoints) ~= "table" or not origin then
+        return points, 0
+    end
+
+    local orientation = node.nodeOrientation or node.entityOrientation or node.orientation
+    local lowestZ = nil
+
+    for _, point in ipairs(rawPoints) do
+        local offset = Vector4.new(tonumber(point.x) or 0, tonumber(point.y) or 0, tonumber(point.z) or 0, 0)
+
+        if orientation then
+            local ok, rotated = pcall(function()
+                return orientation:Transform(offset)
+            end)
+            if ok and rotated then
+                offset = rotated
+            end
+        end
+
+        local world = utils.addVector(origin, offset)
+        if lowestZ == nil or world.z < lowestZ then
+            lowestZ = world.z
+        end
+
+        table.insert(points, world)
+    end
+
+    -- Outline markers force one shared Z across their whole group as they assemble, so settle
+    -- on the base of the volume instead of letting spawn order decide which point wins.
+    for _, point in ipairs(points) do
+        point.z = lowestZ
+    end
+
+    return points, tonumber(safeGet(outline, "height")) or 0
+end
+
+---Rebuilds an area's shape as the group of outline markers the editor derives it from, and
+---points the clone at that group. An area spawnable holds no geometry of its own, so the clone
+---is only a copy of the node once the group exists.
+---
+---Both end up under a wrapper group because an area only accepts outlines sharing its own root:
+---dropped side by side under the tree root, each would be a root of its own and the outline
+---would never show up in the area's picker.
+---@param node any
+---@param clone any spawnableElement
+---@return boolean
+local function attachAreaOutline(node, clone)
+    local spawnable = clone and clone.spawnable
+    local parent = clone and clone.parent
+    if not spawnable or not parent then
+        return false
+    end
+
+    local points, height = readAreaOutline(node)
+    if #points < 3 then
+        log("Area node exposes no usable outline, the clone is spawned without one.")
+        return false
+    end
+
+    local groupClass = require("modules/classes/editor/positionableGroup")
+    local markerClass = require("modules/classes/spawn/area/outlineMarker")
+    local elementClass = require("modules/classes/editor/spawnableElement")
+
+    local wrapper = groupClass:new(clone.sUI)
+    wrapper.name = clone.name
+    local index = utils.indexValue(parent.childs, clone)
+    wrapper:setParent(parent, index > 0 and index or nil)
+
+    local outline = groupClass:new(clone.sUI)
+    outline.name = "outline"
+    outline:setParent(wrapper)
+
+    for markerIndex, point in ipairs(points) do
+        local marker = markerClass:new()
+        marker:loadSpawnData({ height = height }, point, EulerAngles.new(0, 0, 0))
+
+        local markerElement = elementClass:new(clone.sUI)
+        markerElement:load({
+            name = string.format("marker_%02d", markerIndex),
+            modulePath = markerElement.modulePath,
+            spawnable = marker:save()
+        })
+        markerElement:setParent(outline)
+    end
+
+    -- Snapshot the wrapper while it still holds only the outline: the clone moving in is the
+    -- separate phase `getMoveToNewGroup` expects, and `spawnNew` already recorded its insert.
+    local insertWrapper = history.getInsert({ wrapper })
+    local removeClone = history.getRemove({ clone })
+    clone:setParent(wrapper)
+
+    -- Read the path back instead of rebuilding it: `addChild` renames on collision, so the
+    -- names set above are not necessarily the ones the path ends up being built from.
+    spawnable.outlinePath = outline:getPath()
+    element.bumpWireframeEpoch(clone)
+
+    history.addAction(history.getMoveToNewGroup(insertWrapper, removeClone, history.getInsert({ clone })))
+
+    return true
+end
+
 local function getCloneDefinition(definition)
     local targetType = sanitizeMeshTargetType(settings.rhtAddonMeshTargetType)
     if targetType == "Static" and definition and definition.category == "Mesh" then
@@ -1315,6 +1624,11 @@ function rht.executeReplacer(node)
     local clone = spawnClone(node, definition)
     if not clone then
         return
+    end
+
+    -- The shape is the area, not a mode-specific extra, so it is rebuilt for every mode.
+    if definition.outline then
+        attachAreaOutline(node, clone)
     end
 
     if isReplacementMode(mode) then
