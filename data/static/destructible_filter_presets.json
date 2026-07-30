@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "presets": {
+    "Debris": {
+      "queryMask1": "0",
+      "queryMask2": "528384",
+      "simulationMask1": "4096",
+      "simulationMask2": "236",
+      "uses": 265787,
+      "variants": 4
+    },
+    "World Dynamic": {
+      "queryMask1": "0",
+      "queryMask2": "71925768",
+      "simulationMask1": "114696",
+      "simulationMask2": "9223372036854780879",
+      "uses": 221231,
+      "variants": 1
+    },
+    "Destructible": {
+      "queryMask1": "0",
+      "queryMask2": "67649600",
+      "simulationMask1": "16448",
+      "simulationMask2": "765",
+      "uses": 35344,
+      "variants": 2
+    },
+    "Custom": {
+      "queryMask1": "0",
+      "queryMask2": "528384",
+      "simulationMask1": "4096",
+      "simulationMask2": "9223372036854780812",
+      "uses": 3155,
+      "variants": 1
+    },
+    "World Static": {
+      "queryMask1": "0",
+      "queryMask2": "71942148",
+      "simulationMask1": "376836",
+      "simulationMask2": "5070",
+      "uses": 60,
+      "variants": 2
+    },
+    "None": {
+      "queryMask1": "0",
+      "queryMask2": "0",
+      "simulationMask1": "0",
+      "simulationMask2": "0",
+      "uses": 14,
+      "variants": 1
+    },
+    "Device solid visible": {
+      "queryMask1": "0",
+      "queryMask2": "70107400",
+      "simulationMask1": "114696",
+      "simulationMask2": "23627",
+      "uses": 33,
+      "variants": 1
+    },
+    "No Collision": {
+      "queryMask1": "0",
+      "queryMask2": "0",
+      "simulationMask1": "0",
+      "simulationMask2": "9223372036854775808",
+      "uses": 1,
+      "variants": 1
+    },
+    "Complex Environment Collision": {
+      "queryMask1": "0",
+      "queryMask2": "4718592",
+      "simulationMask1": "0",
+      "simulationMask2": "9223372036854775808",
+      "uses": 2,
+      "variants": 2
+    },
+    "Block Player and Vehicles": {
+      "queryMask1": "0",
+      "queryMask2": "114688",
+      "simulationMask1": "114688",
+      "simulationMask2": "9223372036854775808",
+      "uses": 1,
+      "variants": 1
+    },
+    "Particle": {
+      "queryMask1": "0",
+      "queryMask2": "512",
+      "simulationMask1": "512",
+      "simulationMask2": "9223372036854776572",
+      "uses": 1,
+      "variants": 1
+    }
+  }
+}

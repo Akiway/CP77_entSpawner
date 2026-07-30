@@ -97,7 +97,7 @@ local TYPE_MAP = {
     ["worldInstancedDestructibleMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Dynamic Mesh",
+        sub = "Destructible Mesh",
         replacer = true
     },
     ["worldBendedMeshNode"] = {

@@ -204,17 +204,19 @@ function randomizedGroup:drawGroupRandomization()
 	style.mutedText("Randomization Rule")
 	ImGui.SameLine()
 	ImGui.SetCursorPosX(self.maxPropertyWidth)
-	self.randomizationRule, changed = style.trackedCombo(self, "##randomizationRule", self.randomizationRule, { "Per Object", "Fixed" })
+	self.randomizationRule, changed = style.trackedCombo(self, "##randomizationRule", self.randomizationRule, { "Per Object", "Fixed" }, {
+		tooltip = "Per Object: For each object, use the probability defined per object.\nFixed: Spawn a fixed amount, taking per object probabilies into account."
+	})
 	self:applyRandomization(changed)
-	style.tooltip("Per Object: For each object, use the probability defined per object.\nFixed: Spawn a fixed amount, taking per object probabilies into account.")
 
 	if self.randomizationRule == 1 then
 		style.mutedText("Fixed Amount Rule")
 		ImGui.SameLine()
 		ImGui.SetCursorPosX(self.maxPropertyWidth)
-		self.fixedAmountRule, changed = style.trackedCombo(self, "##randomizationRuleFixed", self.fixedAmountRule, { "Percentage", "Total" })
+		self.fixedAmountRule, changed = style.trackedCombo(self, "##randomizationRuleFixed", self.fixedAmountRule, { "Percentage", "Total" }, {
+			tooltip = "Percentage: Spawn a fixed percantage of the objects.\nTotal: Spawn a fixed total amount of objects."
+		})
 		self:applyRandomization(changed)
-		style.tooltip("Percentage: Spawn a fixed percantage of the objects.\nTotal: Spawn a fixed total amount of objects.")
 
 		if self.fixedAmountRule == 0 then
 			style.mutedText("Fixed Amount %")
