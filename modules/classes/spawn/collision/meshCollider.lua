@@ -294,7 +294,7 @@ function meshCollider:export()
 		["compiledData"] = {
 			["BufferId"] = tostring(tonumber(FNV1a64("CollisionBuffer" .. math.random(1, 10000000)))),
 			["Flags"] = 4063232,
-			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
+			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4",
 			["Data"] = {
 				["Actors"] = {
 					{

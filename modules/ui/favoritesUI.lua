@@ -91,16 +91,16 @@ local function getModuleIcon(modulePath)
     end
 
     local icon = ""
-    local spawnList = getSpawnList(modulePath)
 
-    if spawnList and spawnList.class then
-        local okInstance, instance = pcall(function ()
-            return spawnList.class:new()
-        end)
+    -- Instantiated from the module itself rather than from the spawn list's class: a Spawn
+    -- New variant may host several spawnable classes, so its class is not necessarily the
+    -- one this module path names.
+    local okInstance, instance = pcall(function ()
+        return require("modules/classes/spawn/" .. modulePath):new()
+    end)
 
-        if okInstance and instance and type(instance.icon) == "string" then
-            icon = instance.icon
-        end
+    if okInstance and instance and type(instance.icon) == "string" then
+        icon = instance.icon
     end
 
     if icon == "" then
@@ -556,11 +556,16 @@ local function spawnFavorite(entry)
         return nil
     end
 
-    return favoritesUI.spawnUI.spawnNew({
+    -- `modulePath` is what picks the class: the spawn list this favorite belongs to may host
+    -- several spawnable classes, in which case its own class is only one of them.
+    local spawnEntry = {
         data = entry.data,
         name = entry.path,
-        fileName = entry.name
-    }, spawnList.class, false)
+        fileName = entry.name,
+        modulePath = entry.modulePath
+    }
+
+    return favoritesUI.spawnUI.spawnNew(spawnEntry, favoritesUI.spawnUI.resolveEntryClass(spawnList, spawnEntry), false)
 end
 
 ---Popup used to edit the tags of one favorite.
@@ -850,7 +855,8 @@ local function drawEntry(entry, context)
 
     if ImGui.BeginPopupContextItem("##assetFavoriteContext", ImGuiPopupFlags.MouseButtonRight) then
         if spawnList and ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, "Save as prefab", "assetFavoriteSavePrefab")) then
-            spawnUI.savePrefabFromEntry({ data = entry.data, name = entry.path, fileName = entry.name }, spawnList.class)
+            local prefabEntry = { data = entry.data, name = entry.path, fileName = entry.name, modulePath = entry.modulePath }
+            spawnUI.savePrefabFromEntry(prefabEntry, spawnUI.resolveEntryClass(spawnList, prefabEntry))
         end
 
         favoritesUI.drawContextMenuItem(entry.modulePath, entry.path, entry.name, entry.data, "Row")

@@ -13,6 +13,15 @@ local destructibleData = {
     effectsPath = "data/static/destructible_effects.json",
     meshDefaultsPath = "data/static/destructible_mesh_defaults.json",
 
+    -- Every .effect in the game, the same list the Effects spawnable browses. The surveyed
+    -- lists are strict subsets of it, so offering all of them costs nothing and lets any
+    -- effect be used on any destruction node instead of only the ones CDPR happened to pair
+    -- with that node type. Shared by all three destruction spawnables.
+    allEffectsPath = "data/spawnables/visual/effects/paths_effect.txt",
+
+    ---@type string[]?
+    allEffects = nil,
+
     ---@type table?
     presets = nil,
     ---@type string[]?
@@ -163,6 +172,27 @@ function destructibleData.getIdleEffects()
     return destructibleData.idleEffects
 end
 
+---Every .effect path in the game, prefixed with the "none" entry. Read with a guarded
+---io.open rather than config.loadText, which raises when the file is missing.
+---@return string[]
+function destructibleData.getAllEffects()
+    if destructibleData.allEffects then
+        return destructibleData.allEffects
+    end
+
+    local paths = {}
+    local file = io.open(destructibleData.allEffectsPath, "r")
+    if file then
+        for line in file:lines() do
+            table.insert(paths, line)
+        end
+        file:close()
+    end
+
+    destructibleData.allEffects = toSelectableList(paths)
+    return destructibleData.allEffects
+end
+
 function destructibleData.loadMeshDefaults()
     local data = config.loadFile(destructibleData.meshDefaultsPath)
     local entries = type(data) == "table" and data.meshes or nil
@@ -211,6 +241,7 @@ function destructibleData.reload()
     destructibleData.presetNames = nil
     destructibleData.fracturingEffects = nil
     destructibleData.idleEffects = nil
+    destructibleData.allEffects = nil
     destructibleData.meshDefaults = nil
 end
 

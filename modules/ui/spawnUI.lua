@@ -35,11 +35,22 @@ local types = {
     },
     ["Mesh"] = {
         variants = {
-            ["Mesh"] = { class = require("modules/classes/spawn/mesh/mesh"), index = 1 },
+            ["Static Mesh"] = { class = require("modules/classes/spawn/mesh/mesh"), index = 1 },
             ["Rotating Mesh"] = { class = require("modules/classes/spawn/mesh/rotatingMesh"), index = 2 },
             ["Cloth Mesh"] = { class = require("modules/classes/spawn/mesh/clothMesh"), index = 3 },
             ["Dynamic Mesh"] = { class = require("modules/classes/spawn/physics/dynamicMesh"), index = 4 },
-            ["Destructible Mesh"] = { class = require("modules/classes/spawn/physics/destructibleMesh"), index = 5 },
+            -- One browser over all three destruction nodes. A mesh eligible for more than one
+            -- of them appears once per node type, which is how the type gets picked; the row
+            -- icon and the "Node type" filter tell them apart.
+            ["Destructible Mesh"] = {
+                class = require("modules/classes/spawn/physics/destructibleMesh"),
+                index = 5,
+                sources = {
+                    { modulePath = "physics/destructibleMesh", label = "Instanced Destructible Mesh" },
+                    { modulePath = "physics/physicalDestruction", label = "Physical Destruction Mesh" },
+                    { modulePath = "physics/bakedDestruction", label = "Baked Destruction Mesh" }
+                }
+            },
             ["Bended Mesh"] = { class = require("modules/classes/spawn/mesh/bendedMesh"), index = 6 },
             ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 7 }
         },
@@ -103,6 +114,13 @@ local modulePathToSpawnList = {}
 local modulePathToVariantLabel = {}
 local spawnNewVisualizerClassGroups = {}
 local spawnNewVisualizerModuleSet = {}
+-- Node type label -> icon, for variants hosting several spawnable classes. The entry filter
+-- receives only the label, so the icons cannot be read back off the spawn list.
+local hostedIconByLabel = {}
+-- Module path -> per-entry node type resolver, for the hosted classes whose asset list covers
+-- more than one node type group. Kept here rather than on the spawn list because the row
+-- icon is resolved from the entry alone.
+local hostedGroupResolverByModule = {}
 
 -- `types` is static, so the display order is resolved once instead of re-sorting per call.
 local typeNames = utils.getKeys(types)
@@ -253,6 +271,130 @@ local function collapseSpawnListToSingleEntry(spawnList, label)
     spawnList.isPaths = false
 end
 
+---Builds the entry list of a variant that hosts several spawnable classes, and records the
+---hosted sources on the spawn list.
+---
+---Used when one browser covers more than one world node type: the node types have separate
+---spawnable classes and separate path lists, but the user picks an asset first and the node
+---type follows from it. Every entry is tagged with the module that spawns it, so
+---`resolveEntryClass` can hand the right class to `spawnNew`, and with a label the
+---`nodeType` entry filter groups by.
+---@param spawnList table
+---@param sources {modulePath: string, label: string}[]
+---@return table entries
+local function mergeHostedSpawnSources(spawnList, sources)
+    local merged = {}
+    spawnList.hostedSources = {}
+
+    for _, source in ipairs(sources) do
+        local class = require("modules/classes/spawn/" .. source.modulePath)
+        local instance = class:new()
+        local label = source.label or instance.dataType or source.modulePath
+
+        table.insert(spawnList.hostedSources, {
+            modulePath = source.modulePath,
+            label = label,
+            icon = instance.icon,
+            node = instance.node,
+            description = instance.description,
+            groupsNote = class.nodeTypeGroupsNote
+        })
+        hostedIconByLabel[label] = instance.icon
+
+        -- A class whose asset list covers several node type groups names them itself, and
+        -- decides per entry which one it falls in. Resolving is left to draw time: the rule
+        -- needs static data that should not be read at startup for a browser nobody opened.
+        if type(class.resolveNodeTypeGroup) == "function" then
+            for _, group in ipairs(class.nodeTypeGroups or {}) do
+                hostedIconByLabel[group.label] = group.icon or instance.icon
+            end
+            hostedGroupResolverByModule[source.modulePath] = class.resolveNodeTypeGroup
+        end
+
+        for _, entry in ipairs(config.loadLists(instance.spawnDataPath)) do
+            entry.modulePath = source.modulePath
+            entry.nodeTypeLabel = label
+            table.insert(merged, entry)
+        end
+    end
+
+    return merged
+end
+
+---Info tooltip of a variant hosting several spawnable classes: one line per hosted node
+---type, instead of the host class's own description which only covers one of them.
+---@param spawnList table
+---@return table info {node, description, previewNote}
+local function buildHostedSpawnInfo(spawnList)
+    local nodes = {}
+    local descriptions = {}
+
+    for _, source in ipairs(spawnList.hostedSources or {}) do
+        table.insert(nodes, source.node)
+
+        local description = source.label .. " (" .. source.node .. "): " .. source.description
+        if source.groupsNote then
+            description = description .. "\n" .. source.groupsNote
+        end
+        table.insert(descriptions, description)
+    end
+
+    return {
+        node = table.concat(nodes, ", "),
+        description = table.concat(descriptions, "\n\n") ..
+            "\n\nThe asset decides which node is placed; the Node type filter narrows the list down to one.",
+        previewNote = "Destruction is not simulated in-editor. The intact mesh and its physics body are previewed."
+    }
+end
+
+---Node type one entry of a hosted browser belongs to. Normally the label of the list it came
+---from, unless its class splits its own assets into several node type groups.
+---@param entry table?
+---@return string
+local function resolveHostedNodeType(entry)
+    if not entry then
+        return ""
+    end
+
+    local resolve = hostedGroupResolverByModule[entry.modulePath or ""]
+    if resolve then
+        return tostring(resolve(entry) or "")
+    end
+
+    return tostring(entry.nodeTypeLabel or "")
+end
+
+---Row icon marking which node type an entry belongs to, in a variant hosting several
+---spawnable classes. Empty for every other list, which has nothing to disambiguate.
+---@param entry table?
+---@return string
+local function getHostedEntryIcon(entry)
+    return hostedIconByLabel[resolveHostedNodeType(entry)] or ""
+end
+
+---The spawnable class that spawns a given entry. Entries of a variant hosting several
+---classes carry their own module path; everything else uses the variant's class.
+---@param spawnList table?
+---@param entry table?
+---@return table class
+local function resolveEntryClass(spawnList, entry)
+    local modulePath = entry and entry.modulePath
+    if type(modulePath) == "string" and modulePath ~= "" then
+        return require("modules/classes/spawn/" .. modulePath)
+    end
+
+    return spawnList.class
+end
+
+---Public form of `resolveEntryClass`, for callers outside this module that build a synthetic
+---entry and need the class it should spawn as (the RHT clone path).
+---@param spawnList table?
+---@param entry table?
+---@return table class
+function spawnUI.resolveEntryClass(spawnList, entry)
+    return resolveEntryClass(spawnList, entry)
+end
+
 ---Sorts one spawn list in the order Spawn New displays it.
 ---Done once at load so switching category/variant never re-sorts.
 ---@param spawnList table
@@ -292,6 +434,8 @@ function spawnUI.loadSpawnData(spawner)
     spawnData = {}
     modulePathToSpawnList = {}
     modulePathToVariantLabel = {}
+    hostedIconByLabel = {}
+    hostedGroupResolverByModule = {}
     spawnUI.entryFilterStateByModule = {}
     spawnUI.filteredHierarchyTree = nil
     spawnUI.hierarchyOpenStateByKey = {}
@@ -335,6 +479,15 @@ function spawnUI.loadSpawnData(spawner)
                 entryFilter = variantInstance.entryFilter
             }
 
+            -- A variant may host several spawnable classes in one browser, when the classes
+            -- cover different world nodes over asset sets that do not overlap. Every entry
+            -- then carries the module that spawns it, and an entry filter lets the user
+            -- narrow the list down to one node type.
+            if variant.sources then
+                spawnList.data = mergeHostedSpawnSources(spawnList, variant.sources)
+                spawnList.info = buildHostedSpawnInfo(spawnList)
+            end
+
             if variantInstance.collapseSpawnList then
                 collapseSpawnListToSingleEntry(spawnList, variantInstance.collapsedSpawnListLabel or variantName)
             end
@@ -344,6 +497,13 @@ function spawnUI.loadSpawnData(spawner)
             spawnData[dataName][variantName] = spawnList
             modulePathToSpawnList[modulePath] = spawnList
             modulePathToVariantLabel[modulePath] = dataName .. " > " .. variantName
+
+            -- Hosted classes resolve back to the browser they live in, so asset preview
+            -- settings, favorites and the "Type > Variant" label work for them too.
+            for _, source in ipairs(spawnList.hostedSources or {}) do
+                modulePathToSpawnList[source.modulePath] = spawnList
+                modulePathToVariantLabel[source.modulePath] = dataName .. " > " .. variantName
+            end
 
             if settings.assetPreviewEnabled[modulePath] == nil then
                 settings.assetPreviewEnabled[modulePath] = true
@@ -659,6 +819,29 @@ local entryFilters = {
         supports = function (spawnList) return spawnList.entryFilter == "deviceClass" end,
         resolveKey = function (entry, spawnList) return entity.resolveDeviceClassNameForEntry(entry, spawnList.modulePath) end,
         resolveIcon = entity.getDeviceSecondaryIcon,
+        isActive = anySelected,
+        accepts = acceptsSelectedKey
+    },
+    {
+        -- For variants hosting several spawnable classes: narrows the merged browser down to
+        -- one world node type. The key comes off the entry rather than its data, because it
+        -- is the list the entry came from that decides its node type.
+        id = "nodeType",
+        label = "Node type",
+        allLabel = "All node types",
+        multiLabel = "%d node types selected",
+        searchHint = "Search node type...",
+        emptyText = "No node types available",
+        noMatchText = "No matching node types",
+        selectAllTooltip = "Select all node types",
+        unselectAllTooltip = "Unselect all node types (default behavior: show all)",
+        clearTooltip = "Clear selected node-type filters",
+        comboWidth = 220,
+        supports = function (spawnList) return spawnList.hostedSources ~= nil end,
+        resolveKey = function (entry) return resolveHostedNodeType(entry) end,
+        -- resolveIcon only receives the key, so the icons are looked up in the map the
+        -- hosted sources filled in rather than off the spawn list.
+        resolveIcon = function (key) return hostedIconByLabel[key] end,
         isActive = anySelected,
         accepts = acceptsSelectedKey
     },
@@ -1504,7 +1687,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
                 spawnUI.previewInstance = require("modules/classes/spawn/" .. data.spawnable.modulePath):new()
                 data = data.spawnable
             else
-                spawnUI.previewInstance = activeSpawnList.class:new()
+                spawnUI.previewInstance = resolveEntryClass(activeSpawnList, entry):new()
                 data.modulePath = spawnUI.previewInstance.modulePath
             end
 
@@ -1689,17 +1872,22 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
         favoriteMarkerWidth = starWidth + ImGui.GetStyle().ItemSpacing.x
     end
 
-    local secondaryIcon = entity.getEntrySecondaryIcon(entry, activeSpawnList.modulePath)
+    -- In a browser hosting several node types the node type is the useful marker; elsewhere
+    -- the device class icon is, and only one of the two ever applies to a given list.
+    local secondaryIcon = getHostedEntryIcon(entry)
+    if secondaryIcon == "" then
+        secondaryIcon = entity.getEntrySecondaryIcon(entry, activeSpawnList.modulePath)
+    end
     local buttonWidth = xSpace - ImGui.GetCursorPosX() - favoriteMarkerWidth
     local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
 
     local clicked = ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold)
 
     if clicked then
-        entry.lastSpawned = spawnUI.spawnNew(entry, activeSpawnList.class, false)
+        entry.lastSpawned = spawnUI.spawnNew(entry, resolveEntryClass(activeSpawnList, entry), false)
     else
         spawnUI.handleRowDrag(entry, function (dragged)
-            dragged.lastSpawned = spawnUI.spawnNew(dragged, activeSpawnList.class, false)
+            dragged.lastSpawned = spawnUI.spawnNew(dragged, resolveEntryClass(activeSpawnList, dragged), false)
         end)
     end
     if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
@@ -1718,7 +1906,7 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
 
     if ImGui.BeginPopupContextItem("##spawnNewContext", ImGuiPopupFlags.MouseButtonRight) then
         if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.Group, "Save as prefab", "spawnNewSavePrefab")) then
-            spawnUI.savePrefabFromEntry(entry, activeSpawnList.class)
+            spawnUI.savePrefabFromEntry(entry, resolveEntryClass(activeSpawnList, entry))
         end
 
         spawnUI.favoritesUI.drawContextMenuItem(
@@ -2003,6 +2191,8 @@ function spawnUI.drawNoMatch()
 
         logger:info(string.format("Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
 
+        -- This path matched no list entry, so there is nothing to read a node type off for
+        -- a variant hosting several classes: the variant's own class is the only choice.
         spawnUI.spawnNew({
             data = { spawnData = manualPath }, lastSpawned = nil, name = manualPath, fileName = manualPath
         }, activeSpawnList.class, false)
@@ -2544,7 +2734,10 @@ function spawnUI.drawPopupVariant(typeName, variantName)
             while (clipper:Step()) do
                 for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
                     ImGui.PushID(spawnUI.popupData[i].name)
-                    local secondaryIcon = entity.getEntrySecondaryIcon(spawnUI.popupData[i], popupSpawnList.modulePath)
+                    local secondaryIcon = getHostedEntryIcon(spawnUI.popupData[i])
+                    if secondaryIcon == "" then
+                        secondaryIcon = entity.getEntrySecondaryIcon(spawnUI.popupData[i], popupSpawnList.modulePath)
+                    end
                     local popupButtonText = formatSearchResultButtonText(
                         spawnUI.popupData[i].name,
                         xSpace - ImGui.GetStyle().ItemSpacing.x * 3,
@@ -2558,7 +2751,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
                             spawnUI.popupSpawnHit = editor.getCursorSceneHit()
                         end
 
-                        spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], popupSpawnList.class, false)
+                        spawnUI.popupData[i].lastSpawned = spawnUI.spawnNew(spawnUI.popupData[i], resolveEntryClass(popupSpawnList, spawnUI.popupData[i]), false)
                         ImGui.CloseCurrentPopup()
                     end
                     if ImGui.IsItemClicked(ImGuiMouseButton.Middle) then

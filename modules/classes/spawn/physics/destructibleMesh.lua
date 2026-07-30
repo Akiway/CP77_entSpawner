@@ -50,6 +50,37 @@ local constantExport = {
     occluderAutohideDistanceScale = 255 -- 98.01%
 }
 
+---Node type groups this class is browsed under, when it shares a browser with the other
+---destruction classes. Every mesh carrying destruction data is offered, but the game itself
+---only ever placed a fraction of them on this node, and only those have surveyed settings to
+---pre-fill; the rest start from generic defaults. Both groups spawn the same world node, so
+---the split only decides what is browsed together.
+---The first entry is the group of meshes the game configures.
+destructibleMesh.nodeTypeGroups = {
+    { label = "Instanced Destructible Mesh", icon = IconGlyphs.GlassFragile },
+    { label = "Instanced Destructible Mesh (Generic)", icon = IconGlyphs.DatabaseOffOutline }
+}
+
+---Explains the split in the browser's info tooltip, where the two groups otherwise look
+---like two different world nodes.
+destructibleMesh.nodeTypeGroupsNote =
+    "\"" .. destructibleMesh.nodeTypeGroups[1].label .. "\" holds the meshes the base game places as destructibles, " ..
+    "which come with its settings pre-filled. \"" .. destructibleMesh.nodeTypeGroups[2].label .. "\" holds every other " ..
+    "eligible mesh, which starts from generic defaults. Both place the same node."
+
+---Which of `nodeTypeGroups` a Spawn New entry belongs to.
+---@param entry table? Spawn New entry; its `name` is the mesh path.
+---@return string label
+function destructibleMesh.resolveNodeTypeGroup(entry)
+    local groups = destructibleMesh.nodeTypeGroups
+
+    if destructibleData.hasMeshDefaults(entry and entry.name) then
+        return groups[1].label
+    end
+
+    return groups[2].label
+end
+
 ---@param value any
 ---@return boolean
 local function toBoolean(value)
@@ -108,13 +139,13 @@ end
 function destructibleMesh:new()
 	local o = mesh.new(self)
 
-    o.dataType = "Destructible Mesh"
+    o.dataType = "Instanced Destructible Mesh"
     o.modulePath = "physics/destructibleMesh"
     o.spawnDataPath = "data/spawnables/mesh/destructible/"
     o.node = "worldInstancedDestructibleMeshNode"
     o.description = "Places a destructible mesh, from a given .mesh file. Reacts to impulses and can break apart, using the physics data shipped with the mesh."
     o.previewNote = "Destruction itself is not simulated in-editor. The physics body and the idle effect are previewed, and the fracturing effect can be played on demand."
-    o.icon = IconGlyphs.CubeOffOutline
+    o.icon = IconGlyphs.GlassFragile
 
     o.simulationType = 2 -- Kinematic
     o.startInactive = false
@@ -155,6 +186,10 @@ end
 
 function destructibleMesh:loadSpawnData(data, position, rotation)
     mesh.loadSpawnData(self, data, position, rotation)
+
+    -- `dataType` is serialized and copied straight back by spawnable:loadSpawnData, so it is
+    -- re-asserted here; otherwise objects saved under an older name keep displaying it.
+    self.dataType = "Instanced Destructible Mesh"
 
     -- A freshly placed asset (or one converted from another mesh type) carries no
     -- destructible settings yet, so it starts from how the game uses that mesh.
@@ -462,7 +497,7 @@ function destructibleMesh:drawEffectSelector(label, id, value, searchKey, option
 
     local selected, search, changed = style.trackedSearchDropdown(
         id,
-        "Search effect or type a path...",
+        "Search or type a path...",
         value,
         self[searchKey],
         options,
@@ -609,8 +644,8 @@ function destructibleMesh:draw()
         "##fracturingEffect",
         self.fracturingEffect,
         "fracturingEffectSearch",
-        destructibleData.getFracturingEffects(),
-        "Effect played when the mesh breaks.\nThe list holds the effects the game uses for destruction, any other .effect path can be typed in."
+        destructibleData.getAllEffects(),
+        "Effect played when the mesh breaks.\nEvery .effect in the game is listed, and any other path can be typed in."
     )
     -- The effect descs are baked when the entity is assembled, so a new resource needs a
     -- respawn before it can be played.
@@ -665,8 +700,8 @@ function destructibleMesh:draw()
             "##idleEffect",
             self.idleEffect,
             "idleEffectSearch",
-            destructibleData.getIdleEffects(),
-            "Effect played continuously while the mesh is intact, e.g. a flame or steam. Previewed live.\nThe list holds the effects the game uses as idle effects, any other .effect path can be typed in."
+            destructibleData.getAllEffects(),
+            "Effect played continuously while the mesh is intact, e.g. a flame or steam. Previewed live.\nEvery .effect in the game is listed, and any other path can be typed in."
         )
         self:updateFull(self.idleEffect ~= previousIdleEffect)
 
@@ -745,7 +780,7 @@ function destructibleMesh:export()
                 ["buffer"] = {
                     ["BufferId"] = utils.nextExportBufferId("CookedInstanceTransformsBuffer"),
                     ["Flags"] = 4063232,
-                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.CookedInstanceTransformsBuffer, WolvenKit.RED4, Version=8.19.1.0, Culture=neutral, PublicKeyToken=null",
+                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.CookedInstanceTransformsBuffer, WolvenKit.RED4",
                     ["Data"] = {
                         ["Transforms"] = {
                             {

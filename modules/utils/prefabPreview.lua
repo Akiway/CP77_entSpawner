@@ -136,7 +136,9 @@ local COLLISION_MODULE_PATHS = {
 -- meshes so they don't fall/simulate while being previewed).
 local PREVIEW_MODULE_REMAP = {
     ["physics/dynamicMesh"] = "mesh/mesh",
-    ["physics/destructibleMesh"] = "mesh/mesh"
+    ["physics/destructibleMesh"] = "mesh/mesh",
+    ["physics/physicalDestruction"] = "mesh/mesh",
+    ["physics/bakedDestruction"] = "mesh/mesh"
 }
 
 ---Resolves the spawnable module path used for the preview, or nil when it should be skipped.

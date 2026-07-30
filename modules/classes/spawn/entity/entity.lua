@@ -1,4 +1,4 @@
-﻿local intersection = require("modules/utils/editor/intersection")
+local intersection = require("modules/utils/editor/intersection")
 local spawnable = require("modules/classes/spawn/spawnable")
 local builder = require("modules/utils/entityBuilder")
 local utils = require("modules/utils/utils")
@@ -1550,7 +1550,7 @@ function entity:export(index, length)
                 ["$type"] = "entEntityInstanceData",
                 ["buffer"] = {
                     ["BufferId"] = utils.nextExportBufferId("EntityBuffer"),
-                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
+                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4",
                     ["Data"] = {
                         ["Version"] = 4,
                         ["Sections"] = 6,

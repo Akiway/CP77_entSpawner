@@ -287,7 +287,7 @@ function collider:export()
 		["compiledData"] = {
 			["BufferId"] = utils.nextExportBufferId("CollisionBuffer"),
 			["Flags"] = 4063232,
-			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4, Version=8.14.1.0, Culture=neutral, PublicKeyToken=null",
+			["Type"] = "WolvenKit.RED4.Archive.Buffer.CollisionBuffer, WolvenKit.RED4",
 			["Data"] = {
 				["Actors"] = {
 					{

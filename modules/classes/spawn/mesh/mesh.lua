@@ -21,6 +21,8 @@ local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
 local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
 local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
 local destructibleListPath = "data/spawnables/mesh/destructible/paths_destructible.txt"
+local physicalDestructionListPath = "data/spawnables/mesh/physicalDestruction/paths_physical_destruction.txt"
+local bakedDestructionListPath = "data/spawnables/mesh/bakedDestruction/paths_baked_destruction.txt"
 
 -- Supported module targets for single-item and grouped conversion.
 local conversionTargets = {
@@ -29,7 +31,9 @@ local conversionTargets = {
     { modulePath = "mesh/rotatingMesh", icon = IconGlyphs.FormatRotate90, text = "Rotating Mesh", plural = "rotating meshes" },
     { modulePath = "mesh/clothMesh", icon = IconGlyphs.ReceiptOutline, text = "Cloth Mesh", plural = "cloth meshes" },
     { modulePath = "physics/dynamicMesh", icon = IconGlyphs.CubeSend, text = "Dynamic Mesh", plural = "dynamic meshes" },
-    { modulePath = "physics/destructibleMesh", icon = IconGlyphs.CubeOffOutline, text = "Destructible Mesh", plural = "destructible meshes" },
+    { modulePath = "physics/destructibleMesh", icon = IconGlyphs.GlassFragile, text = "Instanced Destructible Mesh", plural = "instanced destructible meshes" },
+    { modulePath = "physics/physicalDestruction", icon = IconGlyphs.CubeUnfolded, text = "Physical Destruction Mesh", plural = "physical destruction meshes" },
+    { modulePath = "physics/bakedDestruction", icon = IconGlyphs.CubeOffOutline, text = "Baked Destruction Mesh", plural = "baked destruction meshes" },
     { modulePath = "mesh/proxyMesh", icon = IconGlyphs.BoxShadow, text = "Proxy Mesh", plural = "proxy meshes" }
 }
 
@@ -81,6 +85,34 @@ local lossyConversionPairs = {
     ["mesh/proxyMesh>physics/destructibleMesh"] = true
 }
 
+-- The two destruction subtypes pair with every other target in both directions, which would
+-- be 34 more lines above without reading any clearer, so their pairs are derived instead.
+for _, target in ipairs(conversionTargets) do
+    local path = target.modulePath
+
+    -- Leaving either destruction type drops what only it stores: the fracture hierarchy
+    -- levels and destruction params, or the baked animation and its fractured mesh.
+    if path ~= "physics/physicalDestruction" then
+        lossyConversionPairs["physics/physicalDestruction>" .. path] = true
+    end
+    if path ~= "physics/bakedDestruction" then
+        lossyConversionPairs["physics/bakedDestruction>" .. path] = true
+    end
+
+    -- worldPhysicalDestructionNode derives from worldNode rather than worldMeshNode, so
+    -- becoming one always drops the shadow, occluder and wind impulse settings. That makes
+    -- it the one target Static Mesh cannot convert to losslessly.
+    if path ~= "physics/physicalDestruction" then
+        lossyConversionPairs[path .. ">physics/physicalDestruction"] = true
+    end
+
+    -- Baked destruction keeps those, so only subtypes with settings of their own lose
+    -- anything on the way in.
+    if path ~= "physics/bakedDestruction" and path ~= "mesh/mesh" then
+        lossyConversionPairs[path .. ">physics/bakedDestruction"] = true
+    end
+end
+
 ---Class for worldMeshNode
 ---@class mesh : spawnable
 ---@field public apps table
@@ -90,6 +122,7 @@ local lossyConversionPairs = {
 ---@field protected occluderType integer
 ---@field protected occluderTypes table
 ---@field protected hasOccluder boolean|table
+---@field protected hasMeshNodeFlags boolean
 ---@field protected windImpulseEnabled boolean
 ---@field protected castLocalShadows integer
 ---@field protected castRayTracedGlobalShadows integer
@@ -135,6 +168,10 @@ function mesh:new()
     o.occluderType = 0
     o.occluderTypes = utils.enumTable("visWorldOccluderType")
     o.hasOccluder = false
+    -- `windImpulseEnabled` and the shadow casting modes come from worldMeshNode. Subtypes
+    -- whose node derives straight from worldNode instead (worldPhysicalDestructionNode)
+    -- clear this so the UI does not offer properties their node cannot store.
+    o.hasMeshNodeFlags = true
     o.windImpulseEnabled = true
 
     o.castLocalShadows = 0
@@ -231,7 +268,9 @@ function mesh:loadMeshResourceData(forceRefresh)
         self.bBox.max = cachedResource.bBoxMax
         self.bBox.min = cachedResource.bBoxMin
         self.appIndex = math.max(utils.indexValue(self.apps, self.app) - 1, 0)
-        self.hasOccluder = cachedResource.occluder
+        -- occluderType is declared on worldMeshNode, so a subtype whose node derives straight
+        -- from worldNode has nowhere to store it however the mesh itself was authored.
+        self.hasOccluder = self.hasMeshNodeFlags and cachedResource.occluder
         self.bBoxLoaded = true
 
         if utils.indexValue(self.apps, self.app) - 1 < 0 then
@@ -634,13 +673,15 @@ function mesh:draw()
         self.occluderType, _ = style.trackedCombo(self.object, "##occluderType", self.occluderType, self.occluderTypes, 110)
     end
 
-    style.mutedText("Enable Wind Impulse")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.windImpulseEnabled, _ = style.trackedCheckbox(self.object, "##windImpulseEnabled", self.windImpulseEnabled)
-    style.tooltip("Enable wind impulse for this mesh, not previewed.")
+    if self.hasMeshNodeFlags then
+        style.mutedText("Enable Wind Impulse")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        self.windImpulseEnabled, _ = style.trackedCheckbox(self.object, "##windImpulseEnabled", self.windImpulseEnabled)
+        style.tooltip("Enable wind impulse for this mesh, not previewed.")
+    end
 
-    self.shadowHeaderState = ImGui.TreeNodeEx("Shadow Settings")
+    self.shadowHeaderState = self.hasMeshNodeFlags and ImGui.TreeNodeEx("Shadow Settings")
 
     if self.shadowHeaderState then
         if not self.maxShadowPropertiesWidth then
@@ -798,6 +839,17 @@ function mesh:isMeshConversionAllowed(targetModulePath)
 
     if targetModulePath == "physics/destructibleMesh" then
         return cache.isSpawnDataInSet(self.spawnData, destructibleListPath)
+    end
+
+    -- Both destruction node types need a mesh baked for them: physical destruction needs a
+    -- fracture hierarchy, baked destruction needs a destruction animation. Neither can be
+    -- faked from an arbitrary mesh, so the lists are the ones the game itself places.
+    if targetModulePath == "physics/physicalDestruction" then
+        return cache.isSpawnDataInSet(self.spawnData, physicalDestructionListPath)
+    end
+
+    if targetModulePath == "physics/bakedDestruction" then
+        return cache.isSpawnDataInSet(self.spawnData, bakedDestructionListPath)
     end
 
     return true

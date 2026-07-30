@@ -88,22 +88,33 @@ local TYPE_MAP = {
         sub = "Template",
         replacer = true
     },
+    -- All three destruction nodes live in the one "Destructible Mesh" variant, so the module
+    -- path has to say which of its hosted classes the clone becomes.
     ["worldPhysicalDestructionNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Dynamic Mesh",
+        sub = "Destructible Mesh",
+        modulePath = "physics/physicalDestruction",
+        replacer = true
+    },
+    ["worldBakedDestructionNode"] = {
+        data = "meshPath",
+        category = "Mesh",
+        sub = "Destructible Mesh",
+        modulePath = "physics/bakedDestruction",
         replacer = true
     },
     ["worldInstancedDestructibleMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
         sub = "Destructible Mesh",
+        modulePath = "physics/destructibleMesh",
         replacer = true
     },
     ["worldBendedMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Mesh",
+        sub = "Static Mesh",
         replacer = true
     },
     ["worldStaticOccluderMeshNode"] = {
@@ -134,25 +145,25 @@ local TYPE_MAP = {
     ["worldFoliageNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Mesh",
+        sub = "Static Mesh",
         replacer = true
     },
     ["worldStaticMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Mesh",
+        sub = "Static Mesh",
         replacer = true
     },
     ["worldInstancedMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Mesh",
+        sub = "Static Mesh",
         replacer = true
     },
     ["worldMeshNode"] = {
         data = "meshPath",
         category = "Mesh",
-        sub = "Mesh",
+        sub = "Static Mesh",
         replacer = true
     },
     -- Abstract base for every proxy mesh node (worldGenericProxyMeshNode, worldBuildingProxyMeshNode, ...).
@@ -441,6 +452,7 @@ local TYPE_PRIORITY = {
     "worldDeviceNode",
     "worldEntityNode",
     "worldPhysicalDestructionNode",
+    "worldBakedDestructionNode",
     "worldInstancedDestructibleMeshNode",
     "worldBendedMeshNode",
     "worldStaticOccluderMeshNode",
@@ -1127,7 +1139,11 @@ local function spawnClone(node, definition)
         entry.name = debugName
     end
 
-    local clone = rht.spawnUI.spawnNew(entry, activeList.class, false)
+    -- Variants hosting several spawnable classes need the clone to say which one it is;
+    -- resolveEntryClass falls back to the variant's own class when nothing is set.
+    entry.modulePath = cloneDefinition.modulePath
+
+    local clone = rht.spawnUI.spawnNew(entry, rht.spawnUI.resolveEntryClass(activeList, entry), false)
     if not clone then
         return nil
     end

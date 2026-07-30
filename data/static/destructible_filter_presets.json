@@ -88,6 +88,26 @@
       "simulationMask2": "9223372036854776572",
       "uses": 1,
       "variants": 1
+    },
+    "Foliage Debris": {
+      "queryMask1": "0",
+      "queryMask2": "528384",
+      "simulationMask1": "4096",
+      "simulationMask2": "252",
+      "uses": 0,
+      "variants": 1,
+      "usedBy": "worldPhysicalDestructionNode",
+      "physicalUses": 3521
+    },
+    "Debris Cluster": {
+      "queryMask1": "0",
+      "queryMask2": "67649600",
+      "simulationMask1": "20480",
+      "simulationMask2": "701",
+      "uses": 0,
+      "variants": 2,
+      "usedBy": "worldPhysicalDestructionNode",
+      "physicalUses": 113
     }
   }
 }
