@@ -5,6 +5,7 @@ local utils = require("modules/utils/utils")
 local gameUtils = require("modules/utils/gameUtils")
 local logger = require("modules/utils/logger")
 local axl = require("modules/utils/axl")
+local registry = require("modules/utils/nodeRefRegistry")
 
 ---@class rht
 ---@field public spawnUI spawnUI?
@@ -67,6 +68,25 @@ local function getEnumIndex(enumName, targetValue)
     end
 
     return 0
+end
+
+---@param object any
+---@param key string
+---@return any
+local function safeGet(object, key)
+    if object == nil then
+        return nil
+    end
+
+    local ok, value = pcall(function()
+        return object[key]
+    end)
+
+    if ok then
+        return value
+    end
+
+    return nil
 end
 
 local TYPE_MAP = {
@@ -408,20 +428,72 @@ local TYPE_MAP = {
     },
     ["worldAISpotNode"] = {
         dataRetrieval = function(node)
-            if not node or not node.nodeInstance or type(node.nodeInstance.GetNode) ~= "function" then
-                return ""
+            local function toBool(value, defaultValue)
+                if type(value) == "boolean" then
+                    return value
+                end
+
+                if value == nil then
+                    return defaultValue
+                end
+
+                return tonumber((tostring(value):gsub("ULL", ""):gsub("LL", ""))) == 1
             end
 
-            local nativeNode = node.nodeInstance:GetNode()
-            if not nativeNode or not nativeNode.spot or not nativeNode.spot.resource then
-                return ""
+            -- markings is an array:CName, which CET hands over as a plain list of CName.
+            local function toMarkings(value)
+                local markings = {}
+                if type(value) ~= "table" then
+                    return markings
+                end
+
+                for _, marking in ipairs(value) do
+                    local name = type(marking) == "string" and marking or safeGet(marking, "value")
+                    if type(name) == "string" and name ~= "" and name ~= "None" then
+                        table.insert(markings, name)
+                    end
+                end
+
+                return markings
             end
 
-            return ResRef.FromHash(nativeNode.spot.resource.hash):ToString()
+            -- The node is reachable through its definition or through its streamed instance,
+            -- and which of the two is filled in depends on how the target was picked. Take
+            -- whichever actually reads back, rather than assuming.
+            local function readable(candidate)
+                return safeGet(candidate, "spot") ~= nil and candidate or nil
+            end
+
+            local native = readable(node and node.nodeDefinition)
+            if not native and node and node.nodeInstance and type(node.nodeInstance.GetNode) == "function" then
+                native = readable(node.nodeInstance:GetNode())
+            end
+
+            -- Red Hot Tools resolves the workspot itself; reading the node is the fallback.
+            local workspot = type(node and node.workspotPath) == "string" and node.workspotPath or ""
+            if workspot == "" then
+                local hash = safeGet(safeGet(safeGet(native, "spot"), "resource"), "hash")
+                if hash then
+                    workspot = ResRef.FromHash(hash):ToString()
+                end
+            end
+
+            -- Only an AIActionSpot carries a workspot; the other AISpot kinds have nothing to clone.
+            if workspot == "" then
+                return nil
+            end
+
+            return {
+                spawnData = workspot,
+                isWorkspotInfinite = toBool(safeGet(native, "isWorkspotInfinite"), true),
+                isWorkspotStatic = toBool(safeGet(native, "isWorkspotStatic"), false),
+                markings = toMarkings(safeGet(native, "markings"))
+            }
         end,
         category = "AI",
         sub = "AI Spot",
-        replacer = false
+        replacer = true,
+        preserveNodeRef = true
     },
     ["worldReflectionProbeNode"] = {
         dataRetrieval = function(node)
@@ -634,25 +706,6 @@ local function isReplacementMode(mode)
     return mode == "replace" or mode == "replace_hide"
 end
 
----@param object any
----@param key string
----@return any
-local function safeGet(object, key)
-    if object == nil then
-        return nil
-    end
-
-    local ok, value = pcall(function()
-        return object[key]
-    end)
-
-    if ok then
-        return value
-    end
-
-    return nil
-end
-
 ---@param removalEditor any
 ---@return table?, string?
 local function getActivePreset(removalEditor)
@@ -816,7 +869,7 @@ local function insertRemovalInMemory(removalEditor, node)
         type = node.nodeType,
         index = node.instanceIndex,
         nodeRef = node.nodeRef or "",
-        resource = node.meshPath or node.templatePath or node.materialPath or node.effectPath or node.recordID or "",
+        resource = node.meshPath or node.templatePath or node.materialPath or node.effectPath or node.recordID or node.workspotPath or "",
         debugName = node.debugName or ""
     }
 
@@ -1012,9 +1065,14 @@ function rht.sendToSearch(node)
     local resolved = resolveData(node, definition)
     local searchText = type(resolved) == "string" and resolved or ""
 
-    -- Table-returning resolvers (e.g. Proxy Mesh) still expose a usable mesh path for filtering.
+    -- Table-returning resolvers (e.g. Proxy Mesh, AI Spot) don't hand back a plain path, but
+    -- the node still carries the one the browser is filtered by.
     if searchText == "" and type(node.meshPath) == "string" then
         searchText = node.meshPath
+    end
+
+    if searchText == "" and type(node.workspotPath) == "string" then
+        searchText = node.workspotPath
     end
 
     if searchText ~= "" then
@@ -1064,6 +1122,7 @@ function rht.copyAXLNodeMutation(node)
         or node.materialPath
         or node.effectPath
         or node.recordID
+        or node.workspotPath
         or ""
 
     local position = isRHTNodePositionVisible(node.nodePosition) and node.nodePosition or node.entityPosition
@@ -1213,6 +1272,34 @@ local function spawnClone(node, definition)
     return clone
 end
 
+---An AI Spot is only reached through the NodeRef its community points at, so a replacement
+---that answers to a different ref is dead weight. Replacement modes only: in Clone mode the
+---original stays in the world and two nodes would claim the same ref.
+---@param node any
+---@param definition table
+---@param clone any
+local function applyPreservedNodeRef(node, definition, clone)
+    if not definition.preserveNodeRef then
+        return
+    end
+
+    local spawnable = clone and clone.spawnable
+    if not spawnable or spawnable.nodeRef == nil then
+        return
+    end
+
+    -- Red Hot Tools hands back the raw node hash when a ref doesn't resolve to a path,
+    -- which is not something the editor can write out.
+    local nodeRef = type(node.nodeRef) == "string" and utils.trimString(node.nodeRef) or ""
+    if not nodeRef:match("^%$/") then
+        log("Node has no resolvable NodeRef, the replacement keeps an empty one.")
+        return
+    end
+
+    spawnable.nodeRef = nodeRef
+    registry.invalidate()
+end
+
 function rht.executeReplacer(node)
     if not node then
         return
@@ -1231,6 +1318,8 @@ function rht.executeReplacer(node)
     end
 
     if isReplacementMode(mode) then
+        applyPreservedNodeRef(node, definition, clone)
+
         local removalEditor = rht.getRemovalEditor()
         if removalEditor and removalEditor.addRemoval then
             if rht.hasActiveRemovalPreset() then
