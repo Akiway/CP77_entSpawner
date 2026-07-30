@@ -1754,7 +1754,7 @@ function spawnUI.drawDragWindow()
 
     local x, y = ImGui.GetMousePos()
     ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Always)
-    if ImGui.Begin("##drag", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then
+    if ImGui.Begin("##wb-drag-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then
         ImGui.Text(spawnUI.dragData.name)
         ImGui.End()
     end

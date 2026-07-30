@@ -10,6 +10,8 @@ local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 
+local wu
+
 ---@class spawnedUI
 ---@field root element
 ---@field filter string
@@ -1501,7 +1503,7 @@ function spawnedUI.drawDragWindow()
 
         local x, y = ImGui.GetMousePos()
         ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Always)
-        if ImGui.Begin("##drag", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then
+        if ImGui.Begin("##wb-drag-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then
             local text = #spawnedUI.selectedPaths == 1 and spawnedUI.selectedPaths[1].ref.name or (#spawnedUI.selectedPaths .. " elements")
             text = (spawnedUI.rangeSelectActive() and "Reorder " or "") .. text
             ImGui.Text(text)
@@ -3020,6 +3022,8 @@ function spawnedUI.drawPinnedHierarchyWindow()
         return
     end
 
+    wu = wu or GetMod("WindowUtils") or ImGui
+
     spawnedUI.ensureCache()
 
     local groupEntry = getPinnedHierarchyGroupEntry()
@@ -3031,7 +3035,7 @@ function spawnedUI.drawPinnedHierarchyWindow()
 
     local title = style.resolveActionLabelNoIconOnly(IconGlyphs.PinOutline, groupEntry.ref.name, "focusedHierarchyWindow")
     ImGui.SetNextWindowSize(400 * style.viewSize, 500 * style.viewSize, ImGuiCond.FirstUseEver)
-    spawnedUI.pinnedHierarchy.open = ImGui.Begin(title, true, ImGuiWindowFlags.NoCollapse)
+    spawnedUI.pinnedHierarchy.open = wu.Begin(title, true, ImGuiWindowFlags.NoCollapse)
 
     if spawnedUI.pinnedHierarchy.open then
         input.updateContext("main")
@@ -3047,7 +3051,7 @@ function spawnedUI.drawPinnedHierarchyWindow()
             })
         end
 
-        ImGui.End()
+        wu.End()
     end
 end
 
@@ -3330,7 +3334,7 @@ function spawnedUI.drawTop()
             ImGui.MenuItem(label, shortcut)
         end
 
-        if ImGui.Begin("WB##shortcuts-popup", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.AlwaysAutoResize) then
+        if ImGui.Begin("##wb-shortcuts-popup-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.AlwaysAutoResize) then
             if ImGui.BeginTable("##shortcutsTable", 2, ImGuiTableFlags.SizingStretchSame) then
                 ImGui.TableNextColumn()
 

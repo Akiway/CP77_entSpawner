@@ -243,7 +243,7 @@ local function drawGroupStreamingBoxes()
 
     if #targets == 0 then return end
 
-    local screen, drawList = projectedWireframe.beginOverlay("##exportStreamingBoxOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-export-streaming-box-overlay-wui")
     if not screen then return end
 
     local playerPos = player:GetWorldPosition()
@@ -610,8 +610,8 @@ end
 
 function exportUI.handleTemplateDeletePopup()
     if exportUI.templateDeletePopup then
-        ImGui.OpenPopup("Delete Template?")
-        if ImGui.BeginPopupModal("Delete Template?", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Delete Template?##wb-wui")
+        if ImGui.BeginPopupModal("Delete Template?##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             local targetName = exportUI.templateDeleteTarget and exportUI.templateDeleteTarget.data and exportUI.templateDeleteTarget.data.projectName or "Unknown"
             ImGui.Text("Delete \"" .. targetName .. "\"?")
             style.mutedText("This action cannot be undone.")
@@ -875,8 +875,8 @@ end
 
 function exportUI.drawIssues()
     if exportUI.getCurrentIssue() == "nodeRefDuplicated" then
-        ImGui.OpenPopup("Duplicated NodeRefs")
-        if ImGui.BeginPopupModal("Duplicated NodeRefs", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Duplicated NodeRefs##wb-wui")
+        if ImGui.BeginPopupModal("Duplicated NodeRefs##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("Duplicated nodeRefs found, please fix them before exporting!")
 
             ImGui.Separator()
@@ -902,8 +902,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "missingElevatorFloorSetup" then
-        ImGui.OpenPopup("Missing Elevator Floor Setup")
-        if ImGui.BeginPopupModal("Missing Elevator Floor Setup", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Missing Elevator Floor Setup##wb-wui")
+        if ImGui.BeginPopupModal("Missing Elevator Floor Setup##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("Persistent elevator floor terminal data is missing and export cannot safely create .psrep entries.")
 
             ImGui.Separator()
@@ -933,8 +933,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "noOutlineMarkers" then
-        ImGui.OpenPopup("Missing Outline Markers")
-        if ImGui.BeginPopupModal("Missing Outline Markers", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Missing Outline Markers##wb-wui")
+        if ImGui.BeginPopupModal("Missing Outline Markers##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following area nodes have no outline, possibly due to a broken outline group link!")
 
             ImGui.Separator()
@@ -952,8 +952,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "noSplineMarker" then
-        ImGui.OpenPopup("Missing Spline Points")
-        if ImGui.BeginPopupModal("Missing Spline Points", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Missing Spline Points##wb-wui")
+        if ImGui.BeginPopupModal("Missing Spline Points##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following spline nodes have no points, possibly due to a broken spline group link!")
 
             ImGui.Separator()
@@ -971,8 +971,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "splineEmptyRef" then
-        ImGui.OpenPopup("Empty Spline NodeRef")
-        if ImGui.BeginPopupModal("Empty Spline NodeRef", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Empty Spline NodeRef##wb-wui")
+        if ImGui.BeginPopupModal("Empty Spline NodeRef##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following Spline nodes do not have a NodeRef assigned to them, making them unusable!")
 
             ImGui.Separator()
@@ -990,8 +990,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "spotEmptyRef" then
-        ImGui.OpenPopup("Empty AISpot NodeRef")
-        if ImGui.BeginPopupModal("Empty AISpot NodeRef", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Empty AISpot NodeRef##wb-wui")
+        if ImGui.BeginPopupModal("Empty AISpot NodeRef##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following AISpot's do not have a NodeRef assigned to them, making them unusable!")
 
             ImGui.Separator()
@@ -1009,8 +1009,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "spotReferencingEmpty" then
-        ImGui.OpenPopup("Community Referencing Missing NodeRef")
-        if ImGui.BeginPopupModal("Community Referencing Missing NodeRef", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Community Referencing Missing NodeRef##wb-wui")
+        if ImGui.BeginPopupModal("Community Referencing Missing NodeRef##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following Community Entries reference a NodeRef that is not part of this export. (Might still work, if the NodeRef is part of another export)")
 
             ImGui.Separator()
@@ -1044,8 +1044,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "markingUnresolved" then
-        ImGui.OpenPopup("Unresolved Marking")
-        if ImGui.BeginPopupModal("Unresolved Marking", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Unresolved Marking##wb-wui")
+        if ImGui.BeginPopupModal("Unresolved Marking##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following markings have no AISpots associated with them.")
 
             ImGui.Separator()
@@ -1079,8 +1079,8 @@ function exportUI.drawIssues()
         end
     end
     if exportUI.getCurrentIssue() == "missingInitialPhase" then
-        ImGui.OpenPopup("Missing Initial Phase")
-        if ImGui.BeginPopupModal("Missing Initial Phase", true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.OpenPopup("Missing Initial Phase##wb-wui")
+        if ImGui.BeginPopupModal("Missing Initial Phase##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
             ImGui.Text("The following Community Entries reference non-existing phases as their initial phase.")
 
             ImGui.Separator()

@@ -3,6 +3,8 @@ local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local input = require("modules/utils/input")
 
+local wu
+
 ---A spatial timeline for a single Speed Spline node. The horizontal axis is distance along the
 ---spline (meters), not time. It exposes three tracks (speed ranges, rotation points, ground-snap
 ---points) that can be dragged, resized and reordered, plus a scrubber that mirrors the cursor
@@ -916,6 +918,8 @@ local function syncToSelection()
 end
 
 function speedSplineTimeline.drawWindow()
+    wu = wu or GetMod("WindowUtils") or ImGui
+
     syncToSelection()
 
     -- Always clear the scrubber first; it is re-set below only while hovering the speed lane.
@@ -958,7 +962,7 @@ function speedSplineTimeline.drawWindow()
         dockStyleApplied = true
     end
 
-    speedSplineTimeline.open = ImGui.Begin("Speed Spline Timeline", true, timelineFlags)
+    speedSplineTimeline.open = wu.Begin("Speed Spline Timeline", true, timelineFlags, { skip = settings.speedTimelineDockBottom })
     if not speedSplineTimeline.open then
         -- CET only pairs End() with a truthy Begin(); collapsed/closed window must not call End().
         endDrag()
@@ -1028,7 +1032,7 @@ function speedSplineTimeline.drawWindow()
                 settings.save()
             end
         end
-        ImGui.End()
+        wu.End()
         style.popStyleVar(dockStyleApplied)
         style.popStyleColor(dockStyleApplied)
     end

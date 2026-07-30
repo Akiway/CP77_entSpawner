@@ -1138,7 +1138,7 @@ function editor.drawDepthSelect()
     ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Appearing)
 
     ImGui.PushStyleColor(ImGuiCol.TitleBgActive, 0, 0, 0, 1)
-    editor.depthSelectOpen = ImGui.Begin("Depth Selection", true, ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoCollapse)
+    editor.depthSelectOpen = ImGui.Begin("Depth Selection##wb-wui", true, ImGuiWindowFlags.NoResize + ImGuiWindowFlags.AlwaysAutoResize + ImGuiWindowFlags.NoCollapse)
     editor.depthSelectOpen = editor.depthSelectOpen and ImGui.IsWindowFocused(ImGuiHoveredFlags.ChildWindows)
     ImGui.PopStyleColor()
 
@@ -1486,7 +1486,7 @@ local function drawHoveredGroupBounds()
     local targets = getOverlayTargets()
     if #targets == 0 then return end
 
-    local screen, drawList = projectedWireframe.beginOverlay("##groupBoundsOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-group-bounds-overlay-wui")
     if not screen then return end
 
     for _, target in ipairs(targets) do
@@ -1542,7 +1542,7 @@ local function drawSpawnableStreamingRanges()
     local targets = getStreamingRangeTargets()
     if #targets == 0 then return end
 
-    local screen, drawList = projectedWireframe.beginOverlay("##streamingRangeOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-streaming-range-overlay-wui")
     if not screen then return end
 
     local playerPos = GetPlayer():GetWorldPosition()
@@ -1601,7 +1601,7 @@ local function drawSpawnableViewportOverlays()
 
     if #targets == 0 then return end
 
-    local screen, drawList = projectedWireframe.beginOverlay("##spawnableViewportOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-spawnable-viewport-overlay-wui")
     if not screen then return end
 
     for _, spawnable in ipairs(targets) do
@@ -1697,7 +1697,7 @@ local function drawElevatorDoorHelpers()
     end
     local layoutRotation = elevatorDoors.LAYOUT_ROTATIONS[layoutKey]
 
-    local screen, drawList = projectedWireframe.beginOverlay("##elevatorDoorHelperOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-elevator-helper-overlay-wui")
     if not screen then
         return
     end
@@ -1766,7 +1766,7 @@ function editor.handleBoxSelect()
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, 0, 0)
         ImGui.PushStyleColor(ImGuiCol.WindowBg, 0, 0, 0, 0.1)
-        editor.boxSelectActive = ImGui.Begin("##boxSelect", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoCollapse)
+        editor.boxSelectActive = ImGui.Begin("##wb-box-select-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoCollapse)
         ImGui.PopStyleColor()
         ImGui.PopStyleVar()
     end
@@ -1835,6 +1835,11 @@ function editor.toggle(state)
     editor.active = editorEnabled
     editor.camera.toggle(editorEnabled)
     editor.baseUI.loadTabSize = true
+
+    local ws = GetMod("WindowSwitcher")
+    if ws and ws.SetTaskbarVisible then
+        ws.SetTaskbarVisible("entSpawner", not editorEnabled)
+    end
 
     if editorEnabled ~= wasEditorEnabled and GameOptions and GameOptions.SetFloat then
         GameOptions.SetFloat("World", "StreamingTeleportMagSq", editorEnabled and 2147483648.00 or 4096.000000)

@@ -12,6 +12,8 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local history = require("modules/utils/history")
 
+local wu
+
 ---@class baseUI
 baseUI = {
     spawnUI = require("modules/ui/spawnUI"),
@@ -264,6 +266,9 @@ local function drawMenuButton()
 end
 
 function baseUI.init()
+    local windowUtils = GetMod("WindowUtils")
+    wu = windowUtils or ImGui
+
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
@@ -295,7 +300,7 @@ function baseUI.draw(spawner)
     if not editor.camera then return end
 
     if #baseUI.requirementsIssues > 0 then
-        if ImGui.Begin(string.format("%s Error", settings.mainWindowName .. " " .. ModVersion), ImGuiWindowFlags.AlwaysAutoResize) then
+        if ImGui.Begin(string.format("%s %s Error##wb-wui", settings.mainWindowName, ModVersion), ImGuiWindowFlags.AlwaysAutoResize) then
             style.mutedText(string.format("The following issues are preventing %s from running:", settings.mainWindowName))
 
             for _, issue in pairs(baseUI.requirementsIssues) do
@@ -350,7 +355,7 @@ function baseUI.draw(spawner)
         flags = flags + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar
     end
 
-    if ImGui.Begin(settings.mainWindowName, flags) then
+    if wu.Begin(settings.mainWindowName, flags) then
         if not editorActive then
             drawRightAlignedTitleBarVersion(settings.mainWindowName, ModVersion)
         end
@@ -415,7 +420,7 @@ function baseUI.draw(spawner)
 
         drawMenuButton()
 
-        ImGui.End()
+        wu.End()
     end
 
     style.popStyleVar(not editorActive)
@@ -436,7 +441,7 @@ function baseUI.draw(spawner)
             end
 
             local detachedTabLabel = getTabLabel(tab, "detachedTab:" .. tostring(tab.id))
-            settings.windowStates[tab.id] = ImGui.Begin(detachedTabLabel, true, tabs[key].flags)
+            settings.windowStates[tab.id] = wu.Begin(detachedTabLabel, true, tabs[key].flags)
             input.updateContext("main")
 
             if not settings.windowStates[tab.id] then
@@ -445,7 +450,7 @@ function baseUI.draw(spawner)
             tab.draw(spawner)
 
             if settings.windowStates[tab.id] then
-                ImGui.End()
+                wu.End()
             end
         end
     end
