@@ -269,23 +269,6 @@ function baseUI.init()
     local windowUtils = GetMod("WindowUtils")
     wu = windowUtils or ImGui
 
-    if windowUtils then
-        local ignore = windowUtils.API.IgnoreWindow
-        ignore("##drag")
-        ignore("WB##shortcuts-popup")
-        ignore("##boxSelect")
-        ignore("##projectedWireframeOverlay")
-        ignore("##exportStreamingBoxOverlay")
-        ignore("##brushOverlay")
-        ignore("##groupBoundsOverlay")
-        ignore("##streamingRangeOverlay")
-        ignore("##spawnableViewportOverlay")
-        ignore("##elevatorDoorHelperOverlay")
-        ignore("Depth Selection")
-        ignore("Spawned UI Profiler")
-        ignore(string.format("%s Error", settings.mainWindowName .. " " .. ModVersion))
-    end
-
     if baseUI.previewTimeline and baseUI.previewTimeline.bindSpawnedUI then
         baseUI.previewTimeline.bindSpawnedUI(baseUI.spawnedUI)
     end
@@ -317,7 +300,7 @@ function baseUI.draw(spawner)
     if not editor.camera then return end
 
     if #baseUI.requirementsIssues > 0 then
-        if ImGui.Begin(string.format("%s Error", settings.mainWindowName .. " " .. ModVersion), ImGuiWindowFlags.AlwaysAutoResize) then
+        if ImGui.Begin(string.format("%s %s Error##wb-wui", settings.mainWindowName, ModVersion), ImGuiWindowFlags.AlwaysAutoResize) then
             style.mutedText(string.format("The following issues are preventing %s from running:", settings.mainWindowName))
 
             for _, issue in pairs(baseUI.requirementsIssues) do

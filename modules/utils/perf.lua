@@ -163,7 +163,7 @@ function perf.drawPanel()
     end
 
     ImGui.SetNextWindowSize(620 * style.viewSize, 360 * style.viewSize, ImGuiCond.FirstUseEver)
-    if ImGui.Begin("Spawned UI Profiler", ImGuiWindowFlags.NoCollapse) then
+    if ImGui.Begin("Spawned UI Profiler##wb-wui", ImGuiWindowFlags.NoCollapse) then
         style.mutedText("Rolling window: " .. tostring(perf.maxSamples) .. " samples per metric")
 
         if ImGui.Button("Reset Metrics") then

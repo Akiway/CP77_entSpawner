@@ -340,7 +340,7 @@ function projectedWireframe.beginOverlay(windowId)
         + ImGuiWindowFlags.NoBringToFrontOnFocus
         + ImGuiWindowFlags.NoSavedSettings
 
-    if not ImGui.Begin(windowId or "##projectedWireframeOverlay", flags) then
+    if not ImGui.Begin(windowId or "##wb-wireframe-overlay-wui", flags) then
         ImGui.End()
         return nil, nil
     end

@@ -1536,7 +1536,7 @@ end
 ---@param eraseActive boolean?
 ---@param brushReady boolean?
 local function drawBrushPreview(editor, hitData, eraseActive, brushReady)
-    local screen, drawList = projectedWireframe.beginOverlay("##brushOverlay")
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-brush-overlay-wui")
     if not screen then
         return
     end
