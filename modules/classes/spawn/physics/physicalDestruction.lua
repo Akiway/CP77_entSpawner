@@ -1,10 +1,10 @@
-local mesh = require("modules/classes/spawn/mesh/mesh")
+local destructionMesh = require("modules/classes/spawn/physics/destructionMesh")
 local spawnable = require("modules/classes/spawn/spawnable")
 local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
-local Cron = require("modules/utils/Cron")
+local redExport = require("modules/utils/redExport")
 local destructionData = require("modules/utils/destructionData")
 
 ---Class for worldPhysicalDestructionNode
@@ -19,7 +19,10 @@ local destructionData = require("modules/utils/destructionData")
 ---a single value in at least 99% of the 19539 placements and are written from
 ---`constantExport` rather than being editable. Collision masks follow from the filter preset
 ---name, so they are never edited by hand.
----@class physicalDestruction : mesh
+---
+---Preset handling, the per mesh defaults note and the effect preview come from
+---[[destructionMesh]], which the other two destruction node types share.
+---@class physicalDestruction : destructionMesh
 ---@field public simulationType integer
 ---@field public startInactive boolean
 ---@field public turnDynamicOnImpulse boolean
@@ -42,12 +45,8 @@ local destructionData = require("modules/utils/destructionData")
 ---@field public navmeshImpact integer
 ---@field public forceAutoHideDistance number
 ---@field public levels {preset: string, fracturingEffect: string}[]
----@field private advancedHeaderState boolean
 ---@field private levelsHeaderState boolean
----@field private effectStopCron number?
----@field private hasActiveEffects boolean
----@field private pendingRespawn boolean
-local physicalDestruction = setmetatable({}, { __index = mesh })
+local physicalDestruction = setmetatable({}, { __index = destructionMesh })
 
 ---Values the game keeps constant across essentially every placement. Written on export, not
 ---editable. Percentages are the share of the 19539 surveyed nodes using that value.
@@ -90,10 +89,6 @@ local fractureFieldMasks = {
 -- fracturing effect per destruction level; the preview plays the first one that is set.
 local FRACTURING_EFFECT_NAME = "fracturingEffect"
 
--- Destroying the entity in the same frame as the stop event leaves the effect playing with
--- nothing left to stop it, so the despawn waits this long.
-local effectStopDelay = 0.1
-
 -- Levels used when a mesh has no surveyed layout. 3 is what 80% of the game's nodes use.
 local defaultLevelCount = 3
 
@@ -110,80 +105,8 @@ local function getDefaultNavmeshImpactIndex(enumValues)
     return math.max(index - 1, 0)
 end
 
----@param value any
----@return boolean
-local function toBoolean(value)
-    if type(value) == "boolean" then
-        return value
-    end
-    if type(value) == "number" then
-        return value ~= 0
-    end
-    local text = utils.trimString(value or ""):lower()
-    return text == "true" or text == "1"
-end
-
----Starts/stops an effect on the preview entity. Wrapped because the helper needs a
----gameObject, and silently doing nothing beats spamming the log if the preview entity ever
----turns out not to be one.
----@param entity entEntity?
----@param start boolean
-local function toggleEffect(entity, start)
-    if not entity then return end
-
-    pcall(function ()
-        if start then
-            GameObjectEffectHelper.StartEffectEvent(entity, FRACTURING_EFFECT_NAME, false, worldEffectBlackboard.new())
-        else
-            GameObjectEffectHelper.StopEffectEvent(entity, FRACTURING_EFFECT_NAME)
-        end
-    end)
-end
-
----RED-JSON payload for a `raRef:worldEffect` resource reference.
----@param path string
----@return table
-local function exportResourceRef(path)
-    return {
-        ["Flags"] = "Soft",
-        ["DepotPath"] = {
-            ["$type"] = "ResourcePath",
-            ["$storage"] = "string",
-            ["$value"] = path
-        }
-    }
-end
-
----RED-JSON payload for a handle to a physicsFilterData built from a preset name.
----@param preset string
----@return table
-local function exportFilterData(preset)
-    local masks = destructionData.getPresetMasks(preset)
-
-    return {
-        ["Data"] = {
-            ["$type"] = "physicsFilterData",
-            ["preset"] = {
-                ["$type"] = "CName",
-                ["$storage"] = "string",
-                ["$value"] = preset
-            },
-            ["queryFilter"] = {
-                ["$type"] = "physicsQueryFilter",
-                ["mask1"] = masks.queryMask1,
-                ["mask2"] = masks.queryMask2
-            },
-            ["simulationFilter"] = {
-                ["$type"] = "physicsSimulationFilter",
-                ["mask1"] = masks.simulationMask1,
-                ["mask2"] = masks.simulationMask2
-            }
-        }
-    }
-end
-
 function physicalDestruction:new()
-	local o = mesh.new(self)
+	local o = destructionMesh.new(self)
 
     o.dataType = "Physical Destruction Mesh"
     o.modulePath = "physics/physicalDestruction"
@@ -194,11 +117,10 @@ function physicalDestruction:new()
     o.icon = IconGlyphs.CubeUnfolded
 
     -- The node derives from worldNode, not worldMeshNode: no shadow casting modes, no
-    -- occluder, no render scene layer mask, no wind impulse. Clearing this also keeps
-    -- loadMeshResourceData from turning the occluder row back on for a mesh that has one.
+    -- occluder, no render scene layer mask, no wind impulse. Clearing this keeps them out of
+    -- both the properties panel and the export, and keeps loadMeshResourceData from turning
+    -- the occluder row back on for a mesh that has one.
     o.hasMeshNodeFlags = false
-    -- The mesh ships its own destruction collision, so there is nothing to generate.
-    o.hideGenerate = true
 
     o.simulationType = 2 -- Kinematic, 82.3%
     o.startInactive = false
@@ -238,24 +160,25 @@ function physicalDestruction:new()
     o.levelPresetSearch = {}
     o.levelEffectSearch = {}
 
-    o.advancedHeaderState = false
     o.levelsHeaderState = false
-    o.convertTarget = 0
 
-    o.effectStopCron = nil
-    o.hasActiveEffects = false
-    o.pendingRespawn = false
+    -- The node stores one fracturing effect per destruction level, so there is nothing to
+    -- run continuously: the single slot only exists for the play button.
+    o.effectSlots = {
+        { name = FRACTURING_EFFECT_NAME, resolve = function (this) return this:getPreviewEffect() end }
+    }
+    o.playableEffectSlot = FRACTURING_EFFECT_NAME
+
+    o.fallbackPreset = destructionData.fallbackPhysicalPreset
+    o.defaultsAbsentText = "The base game never places this mesh as physical destruction, so the settings below start from generic defaults."
+    o.defaultsRestoreTooltip = "Restores the settings the base game uses for this mesh, including its destruction levels."
 
     setmetatable(o, { __index = self })
    	return o
 end
 
 function physicalDestruction:loadSpawnData(data, position, rotation)
-    mesh.loadSpawnData(self, data, position, rotation)
-
-    -- `dataType` is serialized and copied straight back by spawnable:loadSpawnData, so it is
-    -- re-asserted here; otherwise objects saved under an older name keep displaying it.
-    self.dataType = "Physical Destruction Mesh"
+    destructionMesh.loadSpawnData(self, data, position, rotation)
 
     -- A freshly placed asset (or one converted from another mesh type) carries no
     -- destruction settings yet, so it starts from how the game uses that mesh.
@@ -284,6 +207,11 @@ function physicalDestruction:setLevelCount(count)
     end
 end
 
+---@return boolean
+function physicalDestruction:hasMeshDefaults()
+    return destructionData.hasPhysicalDefaults(self.spawnData)
+end
+
 ---Applies the settings the game most commonly uses with the current mesh.
 ---@param silent boolean? Suppresses the toast, used when placing a new asset.
 ---@return boolean applied
@@ -293,22 +221,13 @@ function physicalDestruction:applyMeshDefaults(silent)
         return false
     end
 
-    local function enumIndex(list, value, fallback)
-        if value == nil then return fallback end
-        local index = utils.indexValue(list, value)
-        if index > 0 then
-            return index - 1
-        end
-        return fallback
-    end
-
     local function number(value, fallback)
         return tonumber(value) or fallback
     end
 
-    self.simulationType = enumIndex(self.simulationTypeEnum, defaults["destructionParams.simulationType"], self.simulationType)
-    self.navmeshImpact = enumIndex(self.navmeshImpactEnum, defaults["navigationSetting.navmeshImpact"], self.navmeshImpact)
-    self.fractureFieldMask = enumIndex(fractureFieldMasks, defaults["destructionParams.fractureFieldMask"], self.fractureFieldMask)
+    self.simulationType = utils.enumIndex(self.simulationTypeEnum, defaults["destructionParams.simulationType"], self.simulationType)
+    self.navmeshImpact = utils.enumIndex(self.navmeshImpactEnum, defaults["navigationSetting.navmeshImpact"], self.navmeshImpact)
+    self.fractureFieldMask = utils.enumIndex(fractureFieldMasks, defaults["destructionParams.fractureFieldMask"], self.fractureFieldMask)
 
     self.audioMetadata = utils.trimString(defaults.audioMetadata or "None")
     if self.audioMetadata == "" then
@@ -327,22 +246,22 @@ function physicalDestruction:applyMeshDefaults(silent)
     self.debrisTimeoutMax = number(defaults["destructionParams.debrisTimeoutMax"], self.debrisTimeoutMax)
 
     if defaults["destructionParams.turnDynamicOnImpulse"] ~= nil then
-        self.turnDynamicOnImpulse = toBoolean(defaults["destructionParams.turnDynamicOnImpulse"])
+        self.turnDynamicOnImpulse = utils.toBoolean(defaults["destructionParams.turnDynamicOnImpulse"])
     end
     if defaults["destructionParams.markEdgeChunks"] ~= nil then
-        self.markEdgeChunks = toBoolean(defaults["destructionParams.markEdgeChunks"])
+        self.markEdgeChunks = utils.toBoolean(defaults["destructionParams.markEdgeChunks"])
     end
     if defaults["destructionParams.buildConvexForClusters"] ~= nil then
-        self.buildConvexForClusters = toBoolean(defaults["destructionParams.buildConvexForClusters"])
+        self.buildConvexForClusters = utils.toBoolean(defaults["destructionParams.buildConvexForClusters"])
     end
     if defaults["destructionParams.accumulateDamage"] ~= nil then
-        self.accumulateDamage = toBoolean(defaults["destructionParams.accumulateDamage"])
+        self.accumulateDamage = utils.toBoolean(defaults["destructionParams.accumulateDamage"])
     end
     if defaults["destructionParams.debrisTimeout"] ~= nil then
-        self.debrisTimeout = toBoolean(defaults["destructionParams.debrisTimeout"])
+        self.debrisTimeout = utils.toBoolean(defaults["destructionParams.debrisTimeout"])
     end
     if defaults["destructionParams.visualsRemain"] ~= nil then
-        self.visualsRemain = toBoolean(defaults["destructionParams.visualsRemain"])
+        self.visualsRemain = utils.toBoolean(defaults["destructionParams.visualsRemain"])
     end
 
     -- The level count is not a free choice: it follows the fracture hierarchy baked into
@@ -358,9 +277,7 @@ function physicalDestruction:applyMeshDefaults(silent)
         end
     end
 
-    if not silent then
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Applied game defaults for this mesh"))
-    end
+    self:reportMeshDefaultsApplied(silent)
 
     return true
 end
@@ -394,23 +311,7 @@ function physicalDestruction:onAssemble(entity)
         component.startInactive = self.startInactive
 
         -- Level 0 is the intact body, so its filter data is what the preview collides with.
-        local preset = self.levels[1] and self.levels[1].preset or destructionData.fallbackPhysicalPreset
-        local masks = destructionData.getPresetMasks(preset)
-
-        local filterData = physicsFilterData.new()
-        filterData.preset = preset
-
-        local query = physicsQueryFilter.new()
-        query.mask1 = tonumber(masks.queryMask1) or 0
-        query.mask2 = tonumber(masks.queryMask2) or 0
-
-        local sim = physicsSimulationFilter.new()
-        sim.mask1 = tonumber(masks.simulationMask1) or 0
-        sim.mask2 = tonumber(masks.simulationMask2) or 0
-
-        filterData.queryFilter = query
-        filterData.simulationFilter = sim
-        component.filterData = filterData
+        self:applyFilterData(component, self:getPresetName())
     end
 
     entity:AddComponent(component)
@@ -418,125 +319,18 @@ function physicalDestruction:onAssemble(entity)
     self:assembleEffects(entity)
 
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
-    mesh.assetPreviewAssemble(self, entity)
+    destructionMesh.assetPreviewAssemble(self, entity)
 end
 
----Cancels a pending delayed despawn.
----@private
----@return boolean cancelled
-function physicalDestruction:cancelEffectStop()
-    if not self.effectStopCron then
-        return false
-    end
-
-    Cron.Halt(self.effectStopCron)
-    self.effectStopCron = nil
-    return true
-end
-
----Spawns through a game object rather than the plain entity the other mesh types use.
----`GameObjectEffectHelper` only accepts a gameObject, and it is the only way to drive an
----`entEffectSpawnerComponent`, which has no methods of its own.
-function physicalDestruction:spawn()
-    -- Hiding and immediately showing again lands here while the delayed despawn is still
-    -- pending. The entity is alive, so keep it rather than leaving a stale preview behind.
-    if self:cancelEffectStop() and self:isSpawned() then
-        self.pendingRespawn = false
-        return
-    end
-
-    local meshPath = self.spawnData
-    self.spawnData = "base\\spawner\\empty_game_object.ent"
-
-    spawnable.spawn(self)
-    self.spawnData = meshPath
-end
-
----Registers the fracturing effect on the preview entity, stopped. Effect descs are baked at
----assemble time, so changing the resource requires a respawn.
----@protected
----@param entity entEntity
-function physicalDestruction:assembleEffects(entity)
-    if self.isAssetPreview then return end
-
-    local effect = self:getPreviewEffect()
-    if effect == "" then return end
-
-    local desc = entEffectDesc.new()
-    desc.effect = effect
-    desc.effectName = FRACTURING_EFFECT_NAME
-
-    local component = entEffectSpawnerComponent.new()
-    component.name = "effects"
-    component.effectDescs = { desc }
-    entity:AddComponent(component)
-end
-
----Plays the fracturing effect once on the preview entity.
----@return boolean played
-function physicalDestruction:playFracturingEffect()
-    local entity = self:getEntity()
-    if not entity or self:getPreviewEffect() == "" then
-        return false
-    end
-
-    -- Restart from the beginning if it is still running from a previous press.
-    toggleEffect(entity, false)
-    toggleEffect(entity, true)
-    self.hasActiveEffects = true
-
-    return true
-end
-
-function physicalDestruction:despawn()
-    local entity = self:getEntity()
-
-    -- Nothing is playing, so the entity can go right away and hiding stays synchronous.
-    if not entity or not self.hasActiveEffects then
-        self:cancelEffectStop()
-        mesh.despawn(self)
-        return
-    end
-
-    toggleEffect(entity, false)
-    self.hasActiveEffects = false
-
-    self:cancelEffectStop()
-    self.effectStopCron = Cron.After(effectStopDelay, function ()
-        self.effectStopCron = nil
-        mesh.despawn(self)
-
-        if self.pendingRespawn then
-            self.pendingRespawn = false
-            self:spawn()
-        end
-    end)
-end
-
----The despawn is delayed while an effect is stopping, so the respawn has to wait for it
----instead of spawning into a still-alive entity.
-function physicalDestruction:respawn()
-    if self.spawning then
-        self.queueRespawn = true
-        return
-    end
-
-    if not self:isSpawned() then
-        self:spawn()
-        return
-    end
-
-    self:despawn()
-
-    if self.effectStopCron then
-        self.pendingRespawn = true
-    else
-        self:spawn()
-    end
+---Level 0 is the intact mesh, so its preset is the one the preview body collides with.
+---The node has no single `filterPreset` of its own; every level carries one.
+---@return string
+function physicalDestruction:getPresetName()
+    return self.levels[1] and self.levels[1].preset or self.fallbackPreset
 end
 
 function physicalDestruction:save()
-    local data = mesh.save(self)
+    local data = destructionMesh.save(self)
 
     data.simulationType = self.simulationType
     data.startInactive = self.startInactive
@@ -569,44 +363,6 @@ function physicalDestruction:save()
     end
 
     return data
-end
-
----Respawns the preview after changing a property that is only applied on assemble.
----@protected
----@param changed boolean
-function physicalDestruction:updateFull(changed)
-    if changed and self:isSpawned() then self:respawn() end
-end
-
----Explains where the destruction settings come from, and offers to restore them.
----@private
-function physicalDestruction:drawMeshDefaultsNote()
-    local hasDefaults = destructionData.hasPhysicalDefaults(self.spawnData)
-
-    ImGui.Dummy(0, 8 * style.viewSize)
-
-    if hasDefaults then
-        style.styledTextWrapped("The settings below were filled in from how the base game places this mesh.", style.mutedColor)
-    else
-        style.styledTextWrapped("The base game never places this mesh as physical destruction, so the settings below start from generic defaults.", style.mutedColor)
-    end
-
-    style.pushGreyedOut(not hasDefaults)
-    if ImGui.Button("Reset to game defaults##physicalDestructionDefaults") and hasDefaults then
-        history.addAction(history.getElementChange(self.object))
-        self:applyMeshDefaults(false)
-        self:updateFull(true)
-    end
-    style.popGreyedOut(not hasDefaults)
-
-    if hasDefaults then
-        style.tooltip("Restores the settings the base game uses for this mesh, including its destruction levels.")
-    else
-        style.tooltip("No recorded usage for this mesh, nothing to restore.", ImGuiHoveredFlags.AllowWhenDisabled)
-    end
-
-    ImGui.Dummy(0, 4 * style.viewSize)
-    ImGui.Spacing()
 end
 
 ---Draws the per level preset and fracturing effect rows.
@@ -700,7 +456,7 @@ end
 function physicalDestruction:draw()
     local calculateMaxWidth = not self.maxPropertyWidth
 
-    mesh.draw(self)
+    destructionMesh.draw(self)
 
     if calculateMaxWidth then
         self.maxPropertyWidth = math.max(self.maxPropertyWidth, utils.getTextMaxWidth({
@@ -762,31 +518,15 @@ function physicalDestruction:draw()
     self.bondEndurance = style.trackedDragFloat(self.object, "##bondEndurance", self.bondEndurance, 0.1, 0, 10000, "%.2f")
     style.tooltip("How much damage the bonds between chunks take before they let go. The game mostly uses 20, and 1000 to make a piece effectively unbreakable.")
 
-    style.mutedText("Audio Metadata")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local audioSets = destructionData.getAllAudioMetadata()
-    local audio, audioSearch, audioChanged = style.trackedSearchDropdown(
+    self.audioMetadata = self:drawResourceSelector(
+        "Audio Metadata",
         "##audioMetadata",
-        "Search or type a name...",
         self.audioMetadata,
-        self.audioMetadataSearch or "",
-        audioSets,
-        {
-            element = self.object,
-            width = 220,
-            matchContentWidth = true,
-            allowCustom = true,
-            optionExistsFn = function (optionText)
-                return utils.indexValue(audioSets, utils.trimString(optionText)) ~= -1
-            end,
-            tooltip = "Sound set played while the mesh breaks. Not previewed.\nThe list holds every set seen on a destruction node, and any other name can be typed in."
-        }
+        "audioMetadataSearch",
+        destructionData.getAllAudioMetadata(),
+        "Search or type a name...",
+        "Sound set played while the mesh breaks. Not previewed.\nThe list holds every set seen on a destruction node, and any other name can be typed in."
     )
-    self.audioMetadataSearch = audioSearch
-    if audioChanged then
-        self.audioMetadata = audio
-    end
 
     self.levelsHeaderState = ImGui.TreeNodeEx("Destruction Levels (" .. tostring(#self.levels) .. ")")
     if self.levelsHeaderState then
@@ -794,19 +534,10 @@ function physicalDestruction:draw()
         ImGui.TreePop()
     end
 
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local previewEffect = self:getPreviewEffect()
-    local disabled = previewEffect == "" or not self:isSpawned()
-    style.pushGreyedOut(disabled)
-    if ImGui.Button(IconGlyphs.Play .. " Play fracturing effect##playFracturingEffect") and not disabled then
-        self:playFracturingEffect()
-    end
-    style.popGreyedOut(disabled)
-    if previewEffect == "" then
-        style.tooltip("Set a fracturing effect on one of the destruction levels first.", ImGuiHoveredFlags.AllowWhenDisabled)
-    else
-        style.tooltip("Plays the first effect any level defines, once, on the preview. The mesh itself does not break, destruction is not simulated in-editor.", ImGuiHoveredFlags.AllowWhenDisabled)
-    end
+    self:drawPlayEffectButton(
+        "Set a fracturing effect on one of the destruction levels first.",
+        "Plays the first effect any level defines, once, on the preview. The mesh itself does not break, destruction is not simulated in-editor."
+    )
 
     self.advancedHeaderState = ImGui.TreeNodeEx("Advanced")
 
@@ -898,28 +629,15 @@ function physicalDestruction:draw()
 end
 
 function physicalDestruction:export()
-    local data = mesh.export(self)
+    -- worldPhysicalDestructionNode derives from worldNode, so none of the worldMeshNode
+    -- rendering flags exist on it. `hasMeshNodeFlags` keeps mesh:export from writing them.
+    local data = destructionMesh.export(self)
     data.type = "worldPhysicalDestructionNode"
 
-    -- worldPhysicalDestructionNode derives from worldNode, so none of the worldMeshNode
-    -- rendering flags mesh.export writes exist on it.
-    data.data.castLocalShadows = nil
-    data.data.castRayTracedGlobalShadows = nil
-    data.data.castRayTracedLocalShadows = nil
-    data.data.castShadows = nil
-    data.data.occluderType = nil
-    data.data.windImpulseEnabled = nil
-
     data.data.forceAutoHideDistance = self.forceAutoHideDistance
-    data.data.audioMetadata = {
-        ["$type"] = "CName",
-        ["$storage"] = "string",
-        ["$value"] = self.audioMetadata == "" and "None" or self.audioMetadata
-    }
+    data.data.audioMetadata = redExport.cName(self.audioMetadata)
 
-    for key, value in pairs(constantExport) do
-        data.data[key] = value
-    end
+    utils.combineHashTable(data.data, constantExport)
 
     local params = {
         ["$type"] = "physicsDestructionParams",
@@ -943,9 +661,7 @@ function physicalDestruction:export()
         ["fractureFieldMask"] = fractureFieldMasks[self.fractureFieldMask + 1] or "FF_Default"
     }
 
-    for key, value in pairs(constantDestructionParams) do
-        params[key] = value
-    end
+    utils.combineHashTable(params, constantDestructionParams)
 
     data.data.destructionParams = params
 
@@ -954,12 +670,12 @@ function physicalDestruction:export()
     for _, level in ipairs(self.levels) do
         local entry = {
             ["$type"] = "physicsDestructionLevelData",
-            ["filterData"] = exportFilterData(level.preset)
+            ["filterData"] = redExport.filterData(level.preset, destructionData.getPresetMasks(level.preset))
         }
 
         local effect = utils.trimString(level.fracturingEffect or "")
         if effect ~= "" then
-            entry["fracturingEffect"] = exportResourceRef(effect)
+            entry["fracturingEffect"] = redExport.resourceRef(effect)
         end
 
         table.insert(levels, entry)
@@ -968,10 +684,7 @@ function physicalDestruction:export()
 
     -- useMeshNavmeshSettings is always on, so navigationSetting is never read. It is still
     -- written with the chosen value, to keep the node consistent when inspected.
-    data.data.navigationSetting = {
-        ["$type"] = "NavGenNavigationSetting",
-        ["navmeshImpact"] = self.navmeshImpactEnum[self.navmeshImpact + 1] or "Blocking"
-    }
+    data.data.navigationSetting = redExport.navigationSetting(self.navmeshImpactEnum[self.navmeshImpact + 1])
 
     return data
 end

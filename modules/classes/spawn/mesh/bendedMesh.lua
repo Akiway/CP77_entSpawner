@@ -521,9 +521,6 @@ end
 
 function bendedMesh:loadSpawnData(data, position, rotation)
     mesh.loadSpawnData(self, data, position, rotation)
-    self.dataType = "Bended Mesh"
-    self.modulePath = "mesh/bendedMesh"
-    self.node = "worldBendedMeshNode"
 
     self.isBendedRoad = toBoolean(data.isBendedRoad, true)
     self.removeFromRainMap = toBoolean(data.removeFromRainMap, false)

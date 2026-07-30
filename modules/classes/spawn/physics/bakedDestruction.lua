@@ -1,9 +1,9 @@
-local mesh = require("modules/classes/spawn/mesh/mesh")
+local destructionMesh = require("modules/classes/spawn/physics/destructionMesh")
 local spawnable = require("modules/classes/spawn/spawnable")
 local visualizer = require("modules/utils/visualizer")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
+local redExport = require("modules/utils/redExport")
 local destructionData = require("modules/utils/destructionData")
 
 ---Class for worldBakedDestructionNode
@@ -21,7 +21,11 @@ local destructionData = require("modules/utils/destructionData")
 ---The survey found two distinct populations: 71% of placements have no fractured mesh and
 ---use the `Debris` preset (vegetation, where the fracture lives inside the one mesh), and
 ---29% pair an intact mesh with a `*_dst_dynamic` mesh under the `Destructible` preset.
----@class bakedDestruction : mesh
+---
+---Preset handling and the per mesh defaults note come from [[destructionMesh]], which the
+---other two destruction node types share. This one previews no effect: the destruction
+---effect only plays when the animation triggers, which never happens in-editor.
+---@class bakedDestruction : destructionMesh
 ---@field public meshFractured string
 ---@field public meshFracturedAppearance string
 ---@field public numFrames number
@@ -34,8 +38,7 @@ local destructionData = require("modules/utils/destructionData")
 ---@field public damageThreshold number
 ---@field public damageEndurance number
 ---@field public forceAutoHideDistance number
----@field private advancedHeaderState boolean
-local bakedDestruction = setmetatable({}, { __index = mesh })
+local bakedDestruction = setmetatable({}, { __index = destructionMesh })
 
 ---Values the game keeps constant across essentially every placement. Written on export, not
 ---editable. Percentages are the share of the 4116 surveyed nodes using that value.
@@ -56,35 +59,8 @@ local constantExport = {
     occluderAutohideDistanceScale = 255 -- 99.60%
 }
 
----@param value any
----@return boolean
-local function toBoolean(value)
-    if type(value) == "boolean" then
-        return value
-    end
-    if type(value) == "number" then
-        return value ~= 0
-    end
-    local text = utils.trimString(value or ""):lower()
-    return text == "true" or text == "1"
-end
-
----RED-JSON payload for a `raRef` resource reference.
----@param path string
----@return table
-local function exportResourceRef(path)
-    return {
-        ["Flags"] = "Soft",
-        ["DepotPath"] = {
-            ["$type"] = "ResourcePath",
-            ["$storage"] = "string",
-            ["$value"] = path
-        }
-    }
-end
-
 function bakedDestruction:new()
-	local o = mesh.new(self)
+	local o = destructionMesh.new(self)
 
     o.dataType = "Baked Destruction Mesh"
     o.modulePath = "physics/bakedDestruction"
@@ -94,8 +70,6 @@ function bakedDestruction:new()
     o.previewNote = "The intact mesh is previewed. The destruction animation and the fractured mesh are not played in-editor."
     o.icon = IconGlyphs.CubeOffOutline
 
-    o.hideGenerate = true
-
     o.meshFractured = ""
     o.meshFracturedAppearance = "None"
     o.numFrames = 50
@@ -103,31 +77,26 @@ function bakedDestruction:new()
     o.restartOnTrigger = false
     o.disableCollidersOnTrigger = true
 
-    o.filterPreset = 0
     o.destructionEffect = ""
     o.audioMetadata = "None"
     o.damageThreshold = 10
     o.damageEndurance = 20
     o.forceAutoHideDistance = 150
 
-    o.filterPresetSearch = ""
     o.destructionEffectSearch = ""
     o.audioMetadataSearch = ""
     o.meshFracturedSearch = ""
 
-    o.advancedHeaderState = false
-    o.convertTarget = 0
+    o.fallbackPreset = destructionData.fallbackBakedPreset
+    o.defaultsAbsentText = "The base game never places this mesh as baked destruction, so the settings below start from generic defaults. A mesh needs a baked destruction animation for this node to do anything."
+    o.defaultsRestoreTooltip = "Restores the settings the base game uses for this mesh, including its fractured mesh."
 
     setmetatable(o, { __index = self })
    	return o
 end
 
 function bakedDestruction:loadSpawnData(data, position, rotation)
-    mesh.loadSpawnData(self, data, position, rotation)
-
-    -- `dataType` is serialized and copied straight back by spawnable:loadSpawnData, so it is
-    -- re-asserted here; otherwise objects saved under an older name keep displaying it.
-    self.dataType = "Baked Destruction Mesh"
+    destructionMesh.loadSpawnData(self, data, position, rotation)
 
     -- A freshly placed asset (or one converted from another mesh type) carries no baked
     -- destruction settings yet, so it starts from how the game uses that mesh.
@@ -136,11 +105,15 @@ function bakedDestruction:loadSpawnData(data, position, rotation)
     end
 end
 
----@private
----@return string
-function bakedDestruction:getPresetName()
-    local names = destructionData.bakedPresets
-    return names[self.filterPreset + 1] or names[1] or destructionData.fallbackBakedPreset
+---Only the presets the survey saw on this node, rather than the full preset map.
+---@return string[]
+function bakedDestruction:getPresetNames()
+    return destructionData.bakedPresets
+end
+
+---@return boolean
+function bakedDestruction:hasMeshDefaults()
+    return destructionData.hasBakedDefaults(self.spawnData)
 end
 
 ---Applies the settings the game most commonly uses with the current mesh.
@@ -154,34 +127,18 @@ function bakedDestruction:applyMeshDefaults(silent)
 
     self.numFrames = tonumber(defaults.numFrames) or self.numFrames
 
-    if defaults["filterData.preset"] then
-        local index = utils.indexValue(destructionData.bakedPresets, defaults["filterData.preset"])
-        if index > 0 then
-            self.filterPreset = index - 1
-        end
-    end
+    self.filterPreset = utils.enumIndex(self:getPresetNames(), defaults["filterData.preset"], self.filterPreset)
+    self.occluderType = utils.enumIndex(self.occluderTypes, defaults.occluderType, self.occluderType)
+    self.castLocalShadows = utils.enumIndex(self.shadowCastingModeEnum, defaults.castLocalShadows, self.castLocalShadows)
 
     if defaults.playOnlyOnce ~= nil then
-        self.playOnlyOnce = toBoolean(defaults.playOnlyOnce)
+        self.playOnlyOnce = utils.toBoolean(defaults.playOnlyOnce)
     end
     if defaults.restartOnTrigger ~= nil then
-        self.restartOnTrigger = toBoolean(defaults.restartOnTrigger)
+        self.restartOnTrigger = utils.toBoolean(defaults.restartOnTrigger)
     end
     if defaults.disableCollidersOnTrigger ~= nil then
-        self.disableCollidersOnTrigger = toBoolean(defaults.disableCollidersOnTrigger)
-    end
-
-    if defaults.occluderType then
-        local index = utils.indexValue(self.occluderTypes, defaults.occluderType)
-        if index > 0 then
-            self.occluderType = index - 1
-        end
-    end
-    if defaults.castLocalShadows then
-        local index = utils.indexValue(self.shadowCastingModeEnum, defaults.castLocalShadows)
-        if index > 0 then
-            self.castLocalShadows = index - 1
-        end
+        self.disableCollidersOnTrigger = utils.toBoolean(defaults.disableCollidersOnTrigger)
     end
 
     self.meshFractured = utils.trimString(defaults.meshFractured or "")
@@ -197,9 +154,7 @@ function bakedDestruction:applyMeshDefaults(silent)
         self.audioMetadata = "None"
     end
 
-    if not silent then
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Applied game defaults for this mesh"))
-    end
+    self:reportMeshDefaultsApplied(silent)
 
     return true
 end
@@ -221,36 +176,20 @@ function bakedDestruction:onAssemble(entity)
     component.castShadows = Enum.new("shadowsShadowCastingMode", self.castShadows)
 
     if not self.isAssetPreview then
-        local preset = self:getPresetName()
-        local masks = destructionData.getPresetMasks(preset)
-
         -- The node itself is static until triggered, so the preview body is kinematic.
         component.simulationType = Enum.new("physicsSimulationType", 2)
 
-        local filterData = physicsFilterData.new()
-        filterData.preset = preset
-
-        local query = physicsQueryFilter.new()
-        query.mask1 = tonumber(masks.queryMask1) or 0
-        query.mask2 = tonumber(masks.queryMask2) or 0
-
-        local sim = physicsSimulationFilter.new()
-        sim.mask1 = tonumber(masks.simulationMask1) or 0
-        sim.mask2 = tonumber(masks.simulationMask2) or 0
-
-        filterData.queryFilter = query
-        filterData.simulationFilter = sim
-        component.filterData = filterData
+        self:applyFilterData(component, self:getPresetName())
     end
 
     entity:AddComponent(component)
 
     visualizer.updateScale(entity, self:getArrowSize(), "arrows")
-    mesh.assetPreviewAssemble(self, entity)
+    destructionMesh.assetPreviewAssemble(self, entity)
 end
 
 function bakedDestruction:save()
-    local data = mesh.save(self)
+    local data = destructionMesh.save(self)
 
     data.meshFractured = self.meshFractured
     data.meshFracturedAppearance = self.meshFracturedAppearance
@@ -269,93 +208,10 @@ function bakedDestruction:save()
     return data
 end
 
----Respawns the preview after changing a property that is only applied on assemble.
----@protected
----@param changed boolean
-function bakedDestruction:updateFull(changed)
-    if changed and self:isSpawned() then self:respawn() end
-end
-
----Explains where the baked destruction settings come from, and offers to restore them.
----@private
-function bakedDestruction:drawMeshDefaultsNote()
-    local hasDefaults = destructionData.hasBakedDefaults(self.spawnData)
-
-    ImGui.Dummy(0, 8 * style.viewSize)
-
-    if hasDefaults then
-        style.styledTextWrapped("The settings below were filled in from how the base game places this mesh.", style.mutedColor)
-    else
-        style.styledTextWrapped("The base game never places this mesh as baked destruction, so the settings below start from generic defaults. A mesh needs a baked destruction animation for this node to do anything.", style.mutedColor)
-    end
-
-    style.pushGreyedOut(not hasDefaults)
-    if ImGui.Button("Reset to game defaults##bakedDestructionDefaults") and hasDefaults then
-        history.addAction(history.getElementChange(self.object))
-        self:applyMeshDefaults(false)
-        self:updateFull(true)
-    end
-    style.popGreyedOut(not hasDefaults)
-
-    if hasDefaults then
-        style.tooltip("Restores the settings the base game uses for this mesh, including its fractured mesh.")
-    else
-        style.tooltip("No recorded usage for this mesh, nothing to restore.", ImGuiHoveredFlags.AllowWhenDisabled)
-    end
-
-    ImGui.Dummy(0, 4 * style.viewSize)
-    ImGui.Spacing()
-end
-
----Draws one resource row backed by a surveyed list, allowing any typed path.
----@private
----@param label string
----@param id string
----@param value string
----@param searchKey string
----@param options string[]
----@param hint string
----@param tooltip string
----@return string
-function bakedDestruction:drawResourceSelector(label, id, value, searchKey, options, hint, tooltip)
-    style.mutedText(label)
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-
-    self[searchKey] = self[searchKey] or ""
-
-    local selected, search, changed = style.trackedSearchDropdown(
-        id,
-        hint,
-        value,
-        self[searchKey],
-        options,
-        {
-            element = self.object,
-            width = 220,
-            matchContentWidth = true,
-            -- The listed values are the ones the game itself uses, but anything can be
-            -- typed in, including resources added by mods.
-            allowCustom = true,
-            optionExistsFn = function (optionText)
-                return utils.indexValue(options, utils.trimString(optionText)) ~= -1
-            end,
-            tooltip = tooltip
-        }
-    )
-    self[searchKey] = search
-
-    if changed then
-        return selected
-    end
-
-    return value
-end
-
 function bakedDestruction:draw()
     local calculateMaxWidth = not self.maxPropertyWidth
 
-    mesh.draw(self)
+    destructionMesh.draw(self)
 
     if calculateMaxWidth then
         self.maxPropertyWidth = math.max(self.maxPropertyWidth, utils.getTextMaxWidth({
@@ -405,30 +261,10 @@ function bakedDestruction:draw()
     self.numFrames = style.trackedDragFloat(self.object, "##numFrames", self.numFrames, 1, 1, 1000, "%.0f")
     style.tooltip("Length of the baked destruction animation, in frames. Played back at 24 fps, which the game never changes.\nThis has to match what the mesh was baked with; the survey value is the one to use.")
 
-    style.mutedText("Collision Preset")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    local presetNames = destructionData.bakedPresets
-    self.filterPreset = math.max(0, math.min(self.filterPreset, #presetNames - 1))
-    local selectedPreset = presetNames[self.filterPreset + 1] or destructionData.fallbackBakedPreset
-    local presetChanged
-    selectedPreset, self.filterPresetSearch, presetChanged = style.trackedSearchDropdown(
-        "##filterPreset",
-        "Search preset...",
-        selectedPreset,
-        self.filterPresetSearch or "",
-        presetNames,
-        {
-            element = self.object,
-            width = 200,
-            matchContentWidth = true,
-            tooltip = "Collision behaviour. The game uses Debris for the meshes that fracture in place and Destructible for the ones that swap to a fractured mesh."
-        }
+    self:drawPresetSelector(
+        "Collision behaviour. The game uses Debris for the meshes that fracture in place and Destructible for the ones that swap to a fractured mesh.",
+        200
     )
-    if presetChanged then
-        self.filterPreset = math.max(utils.indexValue(presetNames, selectedPreset) - 1, 0)
-        self:updateFull(true)
-    end
 
     self.destructionEffect = self:drawResourceSelector(
         "Destruction Effect",
@@ -490,9 +326,7 @@ function bakedDestruction:draw()
 end
 
 function bakedDestruction:export()
-    local masks = destructionData.getPresetMasks(self:getPresetName())
-
-    local data = mesh.export(self)
+    local data = destructionMesh.export(self)
     data.type = "worldBakedDestructionNode"
 
     data.data.forceAutoHideDistance = self.forceAutoHideDistance
@@ -503,55 +337,23 @@ function bakedDestruction:export()
     data.data.damageThreshold = self.damageThreshold
     data.data.damageEndurance = self.damageEndurance
 
-    data.data.meshFracturedAppearance = {
-        ["$type"] = "CName",
-        ["$storage"] = "string",
-        ["$value"] = self.meshFracturedAppearance == "" and "None" or self.meshFracturedAppearance
-    }
-    data.data.audioMetadata = {
-        ["$type"] = "CName",
-        ["$storage"] = "string",
-        ["$value"] = self.audioMetadata == "" and "None" or self.audioMetadata
-    }
+    data.data.meshFracturedAppearance = redExport.cName(self.meshFracturedAppearance)
+    data.data.audioMetadata = redExport.cName(self.audioMetadata)
 
-    for key, value in pairs(constantExport) do
-        data.data[key] = value
-    end
+    utils.combineHashTable(data.data, constantExport)
 
-    data.data.filterData = {
-        ["Data"] = {
-            ["$type"] = "physicsFilterData",
-            ["preset"] = {
-                ["$type"] = "CName",
-                ["$storage"] = "string",
-                ["$value"] = self:getPresetName()
-            },
-            ["queryFilter"] = {
-                ["$type"] = "physicsQueryFilter",
-                ["mask1"] = masks.queryMask1,
-                ["mask2"] = masks.queryMask2
-            },
-            ["simulationFilter"] = {
-                ["$type"] = "physicsSimulationFilter",
-                ["mask1"] = masks.simulationMask1,
-                ["mask2"] = masks.simulationMask2
-            }
-        }
-    }
+    data.data.filterData = redExport.filterData(self:getPresetName(), self:getMasks())
 
     if self.meshFractured ~= "" then
-        data.data.meshFractured = exportResourceRef(self.meshFractured)
+        data.data.meshFractured = redExport.resourceRef(self.meshFractured)
     end
     if self.destructionEffect ~= "" then
-        data.data.destructionEffect = exportResourceRef(self.destructionEffect)
+        data.data.destructionEffect = redExport.resourceRef(self.destructionEffect)
     end
 
     -- useMeshNavmeshSettings is always on, so navigationSetting is never read. It is still
     -- written with the value the game uses, to keep the node consistent when inspected.
-    data.data.navigationSetting = {
-        ["$type"] = "NavGenNavigationSetting",
-        ["navmeshImpact"] = "Blocking"
-    }
+    data.data.navigationSetting = redExport.navigationSetting("Blocking")
 
     return data
 end

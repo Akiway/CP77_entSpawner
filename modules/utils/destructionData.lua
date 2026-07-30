@@ -25,10 +25,6 @@ local destructionData = {
     ---@type string[]?
     fracturedMeshOptions = nil,
     ---@type string[]?
-    fracturingEffects = nil,
-    ---@type string[]?
-    destructionEffects = nil,
-    ---@type string[]?
     physicalAudioMetadata = nil,
     ---@type string[]?
     bakedAudioMetadata = nil,
@@ -50,38 +46,17 @@ destructionData.bakedPresets = { "Destructible", "Debris", "World Static" }
 destructionData.fallbackPhysicalPreset = "Destructible"
 destructionData.fallbackBakedPreset = "Destructible"
 
+---Key form used for the per mesh lookup tables: lower case, backslash separated.
 ---@param path string?
 ---@return string
 local function normalizePath(path)
-    return utils.trimString(path or ""):lower():gsub("/", "\\")
+    return utils.normalizePath(path, { separator = "backslash", lowercase = true })
 end
 
 ---@param value any
 ---@return table
 local function asTable(value)
     return type(value) == "table" and value or {}
-end
-
----@param list any
----@return string[]
-local function toSelectableList(list)
-    -- Leading empty entry is the "None" option of the dropdowns.
-    local out = { "" }
-    if type(list) ~= "table" then
-        return out
-    end
-
-    local seen = {}
-    for _, path in ipairs(list) do
-        local text = utils.trimString(path or "")
-        if text ~= "" and not seen[text:lower()] then
-            seen[text:lower()] = true
-            table.insert(out, text)
-        end
-    end
-
-    table.sort(out, function(a, b) return a:lower() < b:lower() end)
-    return out
 end
 
 ---Maps a surveyed preset name onto one the class can actually express.
@@ -238,7 +213,7 @@ function destructionData.getFracturedMeshOptions()
             end
         end
 
-        destructionData.fracturedMeshOptions = toSelectableList(paths)
+        destructionData.fracturedMeshOptions = utils.toSelectableList(paths)
     end
 
     return destructionData.fracturedMeshOptions
@@ -281,41 +256,22 @@ local function toOrderedList(list)
     return out
 end
 
+---Only the audio metadata lists are read: the file also holds the effect paths the survey saw
+---on each node type, but the selectors offer every .effect in the game instead, so nothing
+---reads them back.
 function destructionData.loadLists()
-    local data = config.loadFile(destructionData.listsPath)
-    local root = asTable(data)
+    local root = asTable(config.loadFile(destructionData.listsPath))
 
-    destructionData.fracturingEffects = toSelectableList(root.physicalFracturing)
-    destructionData.destructionEffects = toSelectableList(root.bakedDestruction)
     destructionData.physicalAudioMetadata = toOrderedList(root.physicalAudioMetadata)
     destructionData.bakedAudioMetadata = toOrderedList(root.bakedAudioMetadata)
 end
 
 ---Every .effect in the game, prefixed with "none". The effect selectors are deliberately not
 ---restricted to the paths the survey saw on a given node type: nothing in the engine ties an
----effect to one node class, so any of them is a valid choice. The surveyed lists are still
----below, for reference and for pre-filling per mesh defaults.
+---effect to one node class, so any of them is a valid choice.
 ---@return string[]
 function destructionData.getAllEffects()
     return destructibleData.getAllEffects()
-end
-
----Effect paths the game hangs off a physical destruction level, prefixed with "none".
----@return string[]
-function destructionData.getFracturingEffects()
-    if not destructionData.fracturingEffects then
-        destructionData.loadLists()
-    end
-    return destructionData.fracturingEffects
-end
-
----Effect paths the game uses as `destructionEffect` on baked nodes, prefixed with "none".
----@return string[]
-function destructionData.getDestructionEffects()
-    if not destructionData.destructionEffects then
-        destructionData.loadLists()
-    end
-    return destructionData.destructionEffects
 end
 
 ---Every audio metadata set seen on either destruction node type, "None" first, most used
@@ -363,8 +319,6 @@ function destructionData.reload()
     destructionData.physicalLevelEffects = nil
     destructionData.bakedDefaults = nil
     destructionData.fracturedMeshOptions = nil
-    destructionData.fracturingEffects = nil
-    destructionData.destructionEffects = nil
     destructionData.physicalAudioMetadata = nil
     destructionData.bakedAudioMetadata = nil
     destructionData.allAudioMetadata = nil

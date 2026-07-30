@@ -1284,4 +1284,65 @@ function miscUtils.matchesComponentPropertiesSearch(component, componentChanges,
     return false
 end
 
+---Coerces a value read back from surveyed data or a serialized payload to a boolean.
+---Survey values arrive as the raw strings the RED types printed, so "True" and "1" have to
+---read as true just like a real boolean or a non-zero number.
+---@param value any
+---@return boolean
+function miscUtils.toBoolean(value)
+    if type(value) == "boolean" then
+        return value
+    end
+    if type(value) == "number" then
+        return value ~= 0
+    end
+
+    local text = miscUtils.trimString(value or ""):lower()
+    return text == "true" or text == "1"
+end
+
+---Zero-based index of an enum member name inside its ordered member list.
+---Written for settings restored from surveyed data, where the stored value is the member
+---name and the class keeps the index the combo boxes use.
+---@param list string[] Ordered enum member names.
+---@param name any Member name to look up; `nil` yields the fallback.
+---@param fallback integer Returned when `name` is absent or unknown to the list.
+---@return integer
+function miscUtils.enumIndex(list, name, fallback)
+    if name == nil then
+        return fallback
+    end
+
+    local index = miscUtils.indexValue(list, name)
+    if type(index) == "number" and index > 0 then
+        return index - 1
+    end
+
+    return fallback
+end
+
+---Builds the option list of a resource dropdown: trimmed, de-duplicated case-insensitively,
+---sorted, and led by an empty entry standing for "none".
+---@param list any Array of paths or names; anything else yields just the empty entry.
+---@return string[]
+function miscUtils.toSelectableList(list)
+    local out = { "" }
+    if type(list) ~= "table" then
+        return out
+    end
+
+    local seen = {}
+    for _, path in ipairs(list) do
+        local text = miscUtils.trimString(path or "")
+        if text ~= "" and not seen[text:lower()] then
+            seen[text:lower()] = true
+            table.insert(out, text)
+        end
+    end
+
+    table.sort(out, function (a, b) return a:lower() < b:lower() end)
+
+    return out
+end
+
 return miscUtils

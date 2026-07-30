@@ -1414,14 +1414,20 @@ function mesh:export()
         meshAppearance = {
             ["$storage"] = "string",
             ["$value"] = app
-        },
-        castLocalShadows = self.shadowCastingModeEnum[self.castLocalShadows + 1],
-        castRayTracedGlobalShadows = self.shadowCastingModeEnum[self.castRayTracedGlobalShadows + 1],
-        castRayTracedLocalShadows = self.shadowCastingModeEnum[self.castRayTracedLocalShadows + 1],
-        castShadows = self.shadowCastingModeEnum[self.castShadows + 1],
-        occluderType = self.occluderTypes[self.occluderType + 1],
-        windImpulseEnabled = self.windImpulseEnabled and 1 or 0
+        }
     }
+
+    -- Shadow, occluder and wind properties are declared by worldMeshNode itself. A subclass
+    -- whose node derives straight from worldNode clears `hasMeshNodeFlags`, and then they
+    -- must not be written at all: the importer rejects properties the class does not have.
+    if self.hasMeshNodeFlags then
+        data.data.castLocalShadows = self.shadowCastingModeEnum[self.castLocalShadows + 1]
+        data.data.castRayTracedGlobalShadows = self.shadowCastingModeEnum[self.castRayTracedGlobalShadows + 1]
+        data.data.castRayTracedLocalShadows = self.shadowCastingModeEnum[self.castRayTracedLocalShadows + 1]
+        data.data.castShadows = self.shadowCastingModeEnum[self.castShadows + 1]
+        data.data.occluderType = self.occluderTypes[self.occluderType + 1]
+        data.data.windImpulseEnabled = self.windImpulseEnabled and 1 or 0
+    end
 
     return data
 end

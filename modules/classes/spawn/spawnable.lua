@@ -910,13 +910,27 @@ function spawnable:calculateStreamingValues(multiplier)
     return { primary = primary, secondary = secondary, uk10 = self.uk10, uk11 = self.uk11 }
 end
 
+---Keys that identify the class rather than the object, and so must never be restored from a
+---saved payload: the class already set them, and an object saved before a class was renamed
+---would otherwise keep displaying its old name forever. `modulePath` is what decides which
+---class gets instantiated in the first place, so by the time this runs it is already right.
+local classIdentityKeys = {
+    dataType = true,
+    modulePath = true,
+    node = true,
+    icon = true,
+    description = true,
+    previewNote = true,
+    spawnDataPath = true
+}
+
 ---Load data blob, position and rotation for spawning
 ---@param data table
 ---@param position Vector4
 ---@param rotation EulerAngles
 function spawnable:loadSpawnData(data, position, rotation)
     for key, value in pairs(data) do
-        if self[key] ~= nil then
+        if self[key] ~= nil and not classIdentityKeys[key] then
             self[key] = value
         end
     end

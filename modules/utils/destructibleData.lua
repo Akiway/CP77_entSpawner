@@ -10,7 +10,6 @@ local utils = require("modules/utils/utils")
 ---Everything is loaded lazily on first use, since only the Destructible Mesh type needs it.
 local destructibleData = {
     presetsPath = "data/static/destructible_filter_presets.json",
-    effectsPath = "data/static/destructible_effects.json",
     meshDefaultsPath = "data/static/destructible_mesh_defaults.json",
 
     -- Every .effect in the game, the same list the Effects spawnable browses. The surveyed
@@ -26,10 +25,6 @@ local destructibleData = {
     presets = nil,
     ---@type string[]?
     presetNames = nil,
-    ---@type string[]?
-    fracturingEffects = nil,
-    ---@type string[]?
-    idleEffects = nil,
     ---@type table?
     meshDefaults = nil
 }
@@ -45,10 +40,11 @@ destructibleData.fallbackMasks = {
 
 destructibleData.fallbackPreset = "Debris"
 
+---Key form used for the per mesh lookup tables: lower case, backslash separated.
 ---@param path string?
 ---@return string
 local function normalizePath(path)
-    return utils.trimString(path or ""):lower():gsub("/", "\\")
+    return utils.normalizePath(path, { separator = "backslash", lowercase = true })
 end
 
 ---@param value any
@@ -125,53 +121,6 @@ function destructibleData.getPresetMasks(name)
     return destructibleData.presets[name or ""] or destructibleData.fallbackMasks
 end
 
----@param list any
----@return string[]
-local function toSelectableList(list)
-    -- Leading empty entry is the "None" option of the dropdowns.
-    local out = { "" }
-    if type(list) ~= "table" then
-        return out
-    end
-
-    local seen = {}
-    for _, path in ipairs(list) do
-        local text = utils.trimString(path or "")
-        if text ~= "" and not seen[text:lower()] then
-            seen[text:lower()] = true
-            table.insert(out, text)
-        end
-    end
-
-    table.sort(out, function(a, b) return a:lower() < b:lower() end)
-    return out
-end
-
-function destructibleData.loadEffects()
-    local data = config.loadFile(destructibleData.effectsPath)
-
-    destructibleData.fracturingEffects = toSelectableList(type(data) == "table" and data.fracturing or nil)
-    destructibleData.idleEffects = toSelectableList(type(data) == "table" and data.idle or nil)
-end
-
----Effect paths the game uses as `fracturingEffect`, prefixed with the "none" entry.
----@return string[]
-function destructibleData.getFracturingEffects()
-    if not destructibleData.fracturingEffects then
-        destructibleData.loadEffects()
-    end
-    return destructibleData.fracturingEffects
-end
-
----Effect paths the game uses as `idleEffect`, prefixed with the "none" entry.
----@return string[]
-function destructibleData.getIdleEffects()
-    if not destructibleData.idleEffects then
-        destructibleData.loadEffects()
-    end
-    return destructibleData.idleEffects
-end
-
 ---Every .effect path in the game, prefixed with the "none" entry. Read with a guarded
 ---io.open rather than config.loadText, which raises when the file is missing.
 ---@return string[]
@@ -189,7 +138,7 @@ function destructibleData.getAllEffects()
         file:close()
     end
 
-    destructibleData.allEffects = toSelectableList(paths)
+    destructibleData.allEffects = utils.toSelectableList(paths)
     return destructibleData.allEffects
 end
 
@@ -239,8 +188,6 @@ end
 function destructibleData.reload()
     destructibleData.presets = nil
     destructibleData.presetNames = nil
-    destructibleData.fracturingEffects = nil
-    destructibleData.idleEffects = nil
     destructibleData.allEffects = nil
     destructibleData.meshDefaults = nil
 end
