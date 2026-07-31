@@ -2345,38 +2345,37 @@ local SPAWN_NEW_OPTIONS_POPIN_ID = "##spawnNewOptionsPopin"
 local function getSearchResultsSourceLabel()
     local variantLabel = modulePathToVariantLabel[spawnUI.getActiveSpawnList().modulePath] or ""
 
-    if spawnUI.filter == "" then
-        return variantLabel
-    end
-
     return string.format("%s (search: %s)", variantLabel, spawnUI.filter)
 end
 
----Draws the right-aligned controls of the search row: bulk favorite and tree toggle.
+---Draws the extra controls of the search row: bulk favorite and tree toggle.
 ---@param activeSpawnList table
 local function drawSpawnNewSearchRowControls(activeSpawnList)
-    -- Rightmost, so it sits in the same spot whether or not the list has a tree toggle.
-    style.sameLineWindowRight(25)
+    -- Only about the current results, so it is only offered while a search narrows them down.
+    -- Sits right after the search row's info icon.
+    if spawnUI.filter ~= "" then
+        ImGui.SameLine()
 
-    -- Dimmed rather than disabled, so the tooltip still explains what the button does.
-    local hasResults = #spawnUI.filteredList > 0
+        -- Dimmed rather than disabled, so the tooltip still explains what the button does.
+        local hasResults = #spawnUI.filteredList > 0
 
-    style.pushButtonNoBG(true)
-    style.pushStyleColor(not hasResults, ImGuiCol.Text, style.mutedColor)
-    if ImGui.Button(IconGlyphs.StarPlusOutline .. "##spawnNewFavoriteResults") and hasResults then
-        openBulkFavorite(spawnUI.filteredList, getSearchResultsSourceLabel())
+        style.pushButtonNoBG(true)
+        style.pushStyleColor(not hasResults, ImGuiCol.Text, style.mutedColor)
+        if ImGui.Button(IconGlyphs.StarPlusOutline .. "##spawnNewFavoriteResults") and hasResults then
+            openBulkFavorite(spawnUI.filteredList, getSearchResultsSourceLabel())
+        end
+        style.popStyleColor(not hasResults)
+        style.pushButtonNoBG(false)
+        style.tooltip(hasResults
+            and "Add every result to favorites, under the same tag"
+            or "No result to add to favorites")
     end
-    style.popStyleColor(not hasResults)
-    style.pushButtonNoBG(false)
-    style.tooltip(hasResults
-        and "Add every result to favorites, under the same tag"
-        or "No result to add to favorites")
 
     if not activeSpawnList.isPaths then
         return
     end
 
-    style.sameLineWindowRight(50)
+    style.sameLineWindowRight(25)
 
     local hierarchyTreeChanged
     settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
