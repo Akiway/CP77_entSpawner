@@ -268,6 +268,22 @@ function style.popStyleColor(state, count)
     ImGui.PopStyleColor(count or 1)
 end
 
+---Show a tooltip for an item whose hovered state was captured beforehand.
+---Needed whenever something else (a context popup) is drawn between the item and its tooltip,
+---as that leaves `ImGui.IsItemHovered` reporting the popup content instead of the item.
+---@param hovered boolean Hovered state captured right after the item was drawn.
+---@param text string Tooltip body text.
+function style.tooltipHovered(hovered, text)
+    if not hovered then return end
+
+    style.placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
+    ImGui.BeginTooltip()
+    ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
+    ImGui.Text(text)
+    ImGui.PopStyleColor()
+    ImGui.EndTooltip()
+end
+
 ---Show a tooltip for the currently hovered item.
 ---@param text string Tooltip body text.
 ---@param hoveredFlags number? Optional `ImGuiHoveredFlags` bitmask, e.g. `ImGuiHoveredFlags.AllowWhenDisabled`.
@@ -279,14 +295,7 @@ function style.tooltip(text, hoveredFlags)
         hovered = ImGui.IsItemHovered()
     end
 
-    if hovered then
-        style.placeTooltipNearCursor(text, 8, 8, ImGuiCond.Always)
-        ImGui.BeginTooltip()
-        ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
-        ImGui.Text(text)
-        ImGui.PopStyleColor()
-        ImGui.EndTooltip()
-    end
+    style.tooltipHovered(hovered, text)
     copySelectorValueOnMiddleClick(currentValue)
 end
 

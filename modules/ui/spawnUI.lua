@@ -2685,6 +2685,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
             data = data,
             targetParent = parent,
             clearLocks = true,
+            captureBaseTransform = "prefab",
             selectLoaded = not loadHidden,
             loadHidden = loadHidden,
             initialPosition = pos,
@@ -2712,6 +2713,8 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         data.visible = false
 
         new:load(data, true) -- Load without spawning
+        -- Captured before placement, so the reset actions restore what the prefab was saved with.
+        new:captureBaseTransform("prefab")
         new:setPosition(pos)
         new:setRotation(rot)
         new:setSilent(false)

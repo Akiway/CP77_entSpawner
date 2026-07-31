@@ -213,6 +213,12 @@ function meshCollider:getSize()
     return utils.getBoxSize(self.bBox, self.scale)
 end
 
+---Returns the unscaled dimensions of the collision mesh resource itself.
+---@return table
+function meshCollider:getBaseSize()
+    return utils.getBoxSize(self.bBox)
+end
+
 ---@protected
 ---@param finished boolean
 ---@param delta Vector4

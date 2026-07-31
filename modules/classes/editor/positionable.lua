@@ -16,8 +16,12 @@ local element = require("modules/classes/editor/element")
 ---@field transformExpanded boolean
 ---@field rotationRelative boolean
 ---@field hasScale boolean
----@field scaleLocked boolean
+---@field scaleLocked boolean Whether the scale axes are linked together, not a field lock
 ---@field rotationLocked boolean
+---@field positionLocked boolean
+---@field relativePositionLocked boolean
+---@field scaleFieldsLocked boolean
+---@field baseTransform baseTransform?
 ---@field relativeOffset table
 ---@field visualizerState boolean
 ---@field visualizerDirection string
@@ -32,6 +36,21 @@ local positionable = setmetatable({}, { __index = element })
 local TRANSFORM_FAST_COLOR = 0xFF0099FF
 local TRANSFORM_SLOW_COLOR = 0xFFB8B800
 local TRANSFORM_PRECISION_COLOR = 0xFFFF66B3
+
+---Transform values the element started out with, used by the reset actions on the section icons.
+---`scaleLocked` already means "axes linked", hence the odd name of the scale field lock.
+---@class baseTransform
+---@field rotation eulerLike?
+---@field scale vec3Like?
+---@field source string? Where the values came from, for example "prefab" or "original node"
+
+---Field lock flag backing each transform section icon.
+local TRANSFORM_SECTION_LOCKS = {
+	position = "positionLocked",
+	relative = "relativePositionLocked",
+	rotation = "rotationLocked",
+	scale = "scaleFieldsLocked"
+}
 
 ---@return Vector4?
 local function getPlayerOrDetachedCameraPosition()
@@ -151,6 +170,10 @@ function positionable:new(sUI)
 	o.hasScale = false
 	o.scaleLocked = true
 	o.rotationLocked = false
+	o.positionLocked = false
+	o.relativePositionLocked = false
+	o.scaleFieldsLocked = false
+	o.baseTransform = nil
 	o.relativeOffset = {
 		x = 0,
 		y = 0,
@@ -177,12 +200,18 @@ function positionable:new(sUI)
    	return o
 end
 
+---@param data table Serialized element data.
+---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function positionable:load(data, silent)
 	element.load(self, data, silent)
 	self.transformExpanded = data.transformExpanded
 	self.rotationRelative = data.rotationRelative
 	self.scaleLocked = data.scaleLocked
 	self.rotationLocked = data.rotationLocked
+	self.positionLocked = data.positionLocked == true
+	self.relativePositionLocked = data.relativePositionLocked == true
+	self.scaleFieldsLocked = data.scaleFieldsLocked == true
+	self.baseTransform = utils.deepcopy(data.baseTransform)
 	if self.rotationLocked == nil then self.rotationLocked = false end
 
 	for key, setting in pairs(data.randomizationSettings or {}) do
@@ -450,6 +479,96 @@ end
 
 function positionable:onEdited() end
 
+---Records where the element's transform started out, so the section icons can reset back to it.
+---Elements built from nothing keep no base transform at all and reset to identity instead.
+---@param rotation eulerLike? Base rotation, identity when omitted.
+---@param scale vec3Like? Base scale, uniform 1 when omitted.
+---@param source string? Origin shown in the reset action, for example "prefab".
+function positionable:setBaseTransform(rotation, scale, source)
+	local base = { source = source }
+
+	if rotation then
+		base.rotation = { roll = rotation.roll or 0, pitch = rotation.pitch or 0, yaw = rotation.yaw or 0 }
+	end
+	if scale then
+		base.scale = { x = scale.x or 1, y = scale.y or 1, z = scale.z or 1 }
+	end
+
+	self.baseTransform = base
+end
+
+---Takes the current transform as the base one. Called right after an element was built from a
+---source that defines its own transform (a prefab), before any placement offset is applied.
+---@param source string? Origin shown in the reset action.
+function positionable:captureBaseTransform(source)
+	self:setBaseTransform(self:getRotation(), self.hasScale and self:getScale() or nil, source)
+end
+
+---@return EulerAngles
+function positionable:getBaseRotation()
+	local base = self.baseTransform and self.baseTransform.rotation
+	if not base then
+		return EulerAngles.new(0, 0, 0)
+	end
+
+	return EulerAngles.new(base.roll or 0, base.pitch or 0, base.yaw or 0)
+end
+
+---@return vec3Like
+function positionable:getBaseScale()
+	local base = self.baseTransform and self.baseTransform.scale
+	if not base then
+		return { x = 1, y = 1, z = 1 }
+	end
+
+	return { x = base.x or 1, y = base.y or 1, z = base.z or 1 }
+end
+
+---@return string?
+function positionable:getBaseTransformSource()
+	local source = self.baseTransform and self.baseTransform.source
+	if type(source) ~= "string" or source == "" then
+		return nil
+	end
+
+	return source
+end
+
+---Restores the rotation the element started out with.
+function positionable:resetRotation()
+	if self.rotationLocked then return end
+
+	history.addAction(history.getElementChange(self))
+	self:setRotation(self:getBaseRotation())
+	self:onEdited()
+end
+
+---Restores the scale the element started out with.
+function positionable:resetScale()
+	if not self.hasScale or self.scaleFieldsLocked then return end
+
+	history.addAction(history.getElementChange(self))
+	self:setScale(self:getBaseScale(), true)
+	self:onEdited()
+end
+
+---@param section string One of the `TRANSFORM_SECTION_LOCKS` keys.
+---@return boolean
+function positionable:isTransformSectionLocked(section)
+	local lockField = TRANSFORM_SECTION_LOCKS[section]
+
+	return lockField ~= nil and self[lockField] == true
+end
+
+---@param section string One of the `TRANSFORM_SECTION_LOCKS` keys.
+function positionable:toggleTransformSectionLock(section)
+	local lockField = TRANSFORM_SECTION_LOCKS[section]
+	if not lockField then return end
+
+	history.addAction(history.getElementChange(self))
+	self[lockField] = not (self[lockField] == true)
+end
+
 local POSITION_COLOR = 0xFFFFFF80 -- light Yellow
 local ROTATION_COLOR = 0xFF80FFFF -- light Cyan
 local SCALE_COLOR = 0xFFFF80FF -- light Fuchsia
@@ -689,6 +808,143 @@ function positionable:drawCopyPaste(name, axis)
     end
 end
 
+---@param size vec3Like?
+---@return string?
+local function formatDimensions(size)
+    if type(size) ~= "table" then return nil end
+
+    local x, y, z = tonumber(size.x), tonumber(size.y), tonumber(size.z)
+    if not x or not y or not z then return nil end
+
+    return string.format("%.2f x %.2f x %.2f m", math.abs(x), math.abs(y), math.abs(z))
+end
+
+---Dimension lines shown in the Position tooltip.
+---Base dimensions only exist for asset backed spawnables, actual ones only differ from them
+---once the element carries a scale, so either line can be missing on its own.
+---@return string? baseLine
+---@return string? actualLine
+function positionable:getDimensionLines()
+    local spawnableRef = self.spawnable
+    if not spawnableRef then return nil, nil end
+
+    local baseSize = spawnableRef.getBaseSize and spawnableRef:getBaseSize() or nil
+    local baseLine = formatDimensions(baseSize)
+    if not self.hasScale then
+        return baseLine, nil
+    end
+
+    return baseLine, formatDimensions(spawnableRef:getSize())
+end
+
+---Builds the tooltip of a transform section icon out of its description and the actions it offers.
+---@param lines string[] Description lines shown first.
+---@param section string One of the `TRANSFORM_SECTION_LOCKS` keys.
+---@param hasReset boolean Whether the icon also offers the right click reset action.
+---@return string
+function positionable:buildTransformIconTooltip(lines, section, hasReset)
+    local tooltip = {}
+
+    for _, line in ipairs(lines) do
+        table.insert(tooltip, line)
+    end
+    table.insert(tooltip, "")
+
+    -- First description line names the section, so the action hints can point at it.
+    local title = lines[1] or "transform"
+    local locked = self:isTransformSectionLocked(section)
+    table.insert(tooltip, string.format("Left click: %s", locked and "Enable" or "Disable"))
+
+    if hasReset then
+        local source = self:getBaseTransformSource()
+        table.insert(tooltip, string.format("Right click: Reset to %s values", source or "base"))
+    end
+
+    return table.concat(tooltip, "\n")
+end
+
+---Draws the icon heading a transform section, handling its lock toggle and reset action.
+---@protected
+---@param icon string
+---@param color number
+---@param section string One of the `TRANSFORM_SECTION_LOCKS` keys.
+---@param tooltipLines string[] Description lines shown above the action hints.
+---@param reset {label: string, values: string, apply: function}? Right click reset action, when the section has one.
+---@param iconOpts table? Overrides forwarded to `style.drawIconLabelRow`, for callers laying out their own row.
+function positionable:drawTransformSectionIcon(icon, color, section, tooltipLines, reset, iconOpts)
+    local locked = self:isTransformSectionLocked(section)
+    local opts = { fieldX = ImGui.CalcTextSize(icon) + ImGui.GetStyle().ItemSpacing.x }
+
+    for key, value in pairs(iconOpts or {}) do
+        opts[key] = value
+    end
+    -- Muted while locked, matching how the fields it disables are drawn.
+    opts.iconColor = locked and style.mutedColor or color
+
+    style.drawIconLabelRow(icon, nil, opts)
+
+    -- Captured up front: the reset popup below leaves ImGui reporting its own content as the last item.
+    local hovered = ImGui.IsItemHovered()
+
+    if hovered and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+        self:toggleTransformSectionLock(section)
+    end
+
+    if reset then
+        local popupId = string.format("##resetTransformSection_%s_%s", tostring(self.id or 0), section)
+        if ImGui.BeginPopupContextItem(popupId, ImGuiPopupFlags.MouseButtonRight) then
+            ImGui.BeginDisabled(locked)
+            if ImGui.MenuItem(reset.label, reset.values) then
+                reset.apply()
+            end
+            ImGui.EndDisabled()
+            ImGui.EndPopup()
+        end
+    end
+
+    style.tooltipHovered(hovered, self:buildTransformIconTooltip(tooltipLines, section, reset ~= nil))
+end
+
+---@param section string Section name used in the action label.
+---@return string
+function positionable:getResetActionLabel(section)
+    local source = self:getBaseTransformSource()
+    if not source then
+        return "Reset " .. section
+    end
+
+    return string.format("Reset %s to %s", section, source)
+end
+
+---Rotation section icon. Also used by the group transform UI, which lays out its own row.
+---@protected
+---@param color number? Icon color, defaults to the element rotation color.
+---@param iconOpts table? Overrides forwarded to `style.drawIconLabelRow`.
+function positionable:drawRotationSectionIcon(color, iconOpts)
+    local base = self:getBaseRotation()
+
+    self:drawTransformSectionIcon(IconGlyphs.RotateOrbit, color or ROTATION_COLOR, "rotation", { "Rotation" }, {
+        label = self:getResetActionLabel("Rotation"),
+        values = string.format("%.2f, %.2f, %.2f", base.roll, base.pitch, base.yaw),
+        apply = function ()
+            self:resetRotation()
+        end
+    }, iconOpts)
+end
+
+---@protected
+function positionable:drawScaleSectionIcon()
+    local base = self:getBaseScale()
+
+    self:drawTransformSectionIcon(IconGlyphs.RulerSquare, SCALE_COLOR, "scale", { "Scale" }, {
+        label = self:getResetActionLabel("Scale"),
+        values = string.format("%.2f, %.2f, %.2f", base.x, base.y, base.z),
+        apply = function ()
+            self:resetScale()
+        end
+    })
+end
+
 ---@protected
 function positionable:drawProp(prop, name, axis, disableInput)
 	local steps = (axis == "roll" or axis == "pitch" or axis == "yaw") and settings.rotSteps or settings.posSteps
@@ -782,12 +1038,27 @@ function positionable:drawPosition(position, axes)
         return
     end
 
-	style.drawIconLabelRow(IconGlyphs.AxisArrow, nil, {iconColor = POSITION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.AxisArrow) + ImGui.GetStyle().ItemSpacing.x})
+    local tooltipLines = { "Position" }
+    local baseDimensions, actualDimensions = self:getDimensionLines()
+    if baseDimensions then
+        table.insert(tooltipLines, "Base dimensions: " .. baseDimensions)
+    end
+    if actualDimensions then
+        table.insert(tooltipLines, "Actual dimensions: " .. actualDimensions)
+    end
+    if baseDimensions or actualDimensions then
+        table.insert(tooltipLines, "")
+    end
+
+
+    self:drawTransformSectionIcon(IconGlyphs.AxisArrow, POSITION_COLOR, "position", tooltipLines)
 	ImGui.SameLine()
-	style.tooltip("Position")
 
 	ImGui.PushItemWidth(80 * style.viewSize)
+    local locked = self:isTransformSectionLocked("position")
     local drewAxis = false
+    ImGui.BeginDisabled(locked)
+	style.pushGreyedOut(locked)
 
     if showX then
         self:drawProp(position.x, "X", "x")
@@ -808,6 +1079,7 @@ function positionable:drawPosition(position, axes)
         self:drawProp(position.z, "Z", "z")
         ImGui.EndDisabled()
     end
+	style.popGreyedOut(locked)
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
@@ -822,6 +1094,7 @@ function positionable:drawPosition(position, axes)
     end
 	if ImGui.IsItemHovered() then style.setCursorRelative(5, 5) end
 	style.tooltip("Set to player position, or camera position when detached.")
+    ImGui.EndDisabled()
 
 	ImGui.SameLine()
     local teleportDisabledByEditor = editor.active == true
@@ -848,12 +1121,16 @@ function positionable:drawRelativePosition(axes)
         return
     end
 
-	style.drawIconLabelRow(IconGlyphs.AxisArrowInfo, nil, {iconColor = POSITION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.AxisArrow) + ImGui.GetStyle().ItemSpacing.x})
+    self:drawTransformSectionIcon(IconGlyphs.AxisArrowInfo, POSITION_COLOR, "relative", {
+        "Relative Position",
+        "Move the object along its local axes, based on its current rotation."
+    })
 	ImGui.SameLine()
-	style.tooltip("Relative Position\nMove the object along its local axes, based on its current rotation.")
 
     ImGui.PushItemWidth(80 * style.viewSize)
-	style.pushGreyedOut(not self.visible or self.hiddenByParent)
+    local locked = self:isTransformSectionLocked("relative")
+    ImGui.BeginDisabled(locked)
+	style.pushGreyedOut(locked or not self.visible or self.hiddenByParent)
     local drewAxis = false
 
     if showX then
@@ -875,7 +1152,8 @@ function positionable:drawRelativePosition(axes)
         self:drawProp(self.relativeOffset.z, "Rel Z", "relZ")
         ImGui.EndDisabled()
     end
-	style.popGreyedOut(not self.visible or self.hiddenByParent)
+	style.popGreyedOut(locked or not self.visible or self.hiddenByParent)
+    ImGui.EndDisabled()
     ImGui.PopItemWidth()
 end
 
@@ -907,9 +1185,8 @@ function positionable:drawRotation(rotation, axes)
         return
     end
 
-	style.drawIconLabelRow(IconGlyphs.RotateOrbit, nil, {iconColor = ROTATION_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.RotateOrbit) + ImGui.GetStyle().ItemSpacing.x})
+    self:drawRotationSectionIcon()
 	ImGui.SameLine()
-	style.tooltip("Rotation")
 
     ImGui.PushItemWidth(80 * style.viewSize)
 	local locked = self.rotationLocked
@@ -917,6 +1194,7 @@ function positionable:drawRotation(rotation, axes)
 
 	local finished = false
     local drewAxis = false
+    ImGui.BeginDisabled(locked)
 	style.pushGreyedOut(locked)
     if showRoll then
         finished = self:drawProp(rotation.roll, "Roll", "roll", shiftActive) or finished
@@ -939,6 +1217,7 @@ function positionable:drawRotation(rotation, axes)
         self:handleRightAngleChange("yaw", shiftActive and not finished)
     end
 	style.popGreyedOut(locked)
+    ImGui.EndDisabled()
     if drewAxis then
         ImGui.SameLine()
 
@@ -963,12 +1242,12 @@ function positionable:drawScale(scale, axes)
         return
     end
 
-	style.drawIconLabelRow(IconGlyphs.RulerSquare, nil, {iconColor = SCALE_COLOR, fieldX = ImGui.CalcTextSize(IconGlyphs.RulerSquare) + ImGui.GetStyle().ItemSpacing.x})
+    self:drawScaleSectionIcon()
 	ImGui.SameLine()
-	style.tooltip("Scale")
 
 	ImGui.PushItemWidth(80 * style.viewSize)
 
+    local locked = self:isTransformSectionLocked("scale")
     local drawnAxes = 0
     local function drawScaleAxis(value, name, axis)
         if drawnAxes > 0 then
@@ -978,6 +1257,8 @@ function positionable:drawScale(scale, axes)
         drawnAxes = drawnAxes + 1
     end
 
+    ImGui.BeginDisabled(locked)
+	style.pushGreyedOut(locked)
     if showX then
         drawScaleAxis(scale.x, "X", "scaleX")
     end
@@ -987,6 +1268,8 @@ function positionable:drawScale(scale, axes)
     if showZ then
         drawScaleAxis(scale.z, "Z", "scaleZ")
     end
+	style.popGreyedOut(locked)
+    ImGui.EndDisabled()
 
     if drawnAxes >= 2 then
         ImGui.SameLine()
@@ -1076,6 +1359,10 @@ function positionable:serialize()
 	data.rotationRelative = self.rotationRelative
 	data.scaleLocked = self.scaleLocked
 	data.rotationLocked = self.rotationLocked
+	data.positionLocked = self.positionLocked
+	data.relativePositionLocked = self.relativePositionLocked
+	data.scaleFieldsLocked = self.scaleFieldsLocked
+	data.baseTransform = utils.deepcopy(self.baseTransform)
 	data.randomizationSettings = utils.deepcopy(self.randomizationSettings)
 	data.pos = utils.fromVector(self:getPosition()) -- For savedUI
 	data.scatterConfig = self.scatterConfig:serialize()

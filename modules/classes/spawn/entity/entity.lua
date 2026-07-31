@@ -842,6 +842,12 @@ function entity:getSize()
     return { x = self.bBox.max.x - self.bBox.min.x, y = self.bBox.max.y - self.bBox.min.y, z = self.bBox.max.z - self.bBox.min.z }
 end
 
+---Entities carry no scale, so the template dimensions are also the actual ones.
+---@return table
+function entity:getBaseSize()
+    return self:getSize()
+end
+
 function entity:getBBox()
     return self.bBox
 end

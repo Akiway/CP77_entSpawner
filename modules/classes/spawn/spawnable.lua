@@ -797,6 +797,14 @@ function spawnable:getSize()
     return { x = 1, y = 1, z = 1 }
 end
 
+---Dimensions of the underlying asset, before any scale is applied.
+---Only asset backed spawnables (mesh, entity, ...) have one, everything whose size is defined by
+---its own parameters (fog, occluder, colliders, ...) returns nil.
+---@return table? {x, y, z}
+function spawnable:getBaseSize()
+    return nil
+end
+
 function spawnable:getBBox()
     local size = self:getSize()
     return {

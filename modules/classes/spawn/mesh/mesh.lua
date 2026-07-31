@@ -569,6 +569,12 @@ function mesh:getSize()
     return utils.getBoxSize(self.bBox, self.scale)
 end
 
+---Returns the unscaled dimensions of the mesh resource itself.
+---@return table
+function mesh:getBaseSize()
+    return utils.getBoxSize(self.bBox)
+end
+
 ---Returns the scaled local-space bounding box.
 ---@return table
 function mesh:getBBox()

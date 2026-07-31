@@ -747,6 +747,7 @@ function miscUtils.canMergeFavorites(a, b)
 		"visible",
 		"rotationRelative",
 		"scaleLocked",
+		"baseTransform",
 		"transformExpanded",
 		"primaryRange",
 		"secondaryRange",

@@ -45,6 +45,7 @@ local function createLoadState(previous)
         loadHidden = false,
         selectLoaded = false,
         clearLocks = false,
+        captureBaseTransform = nil,
         initialPosition = nil,
         initialRotation = nil,
         onFinished = nil,
@@ -75,6 +76,18 @@ local function enqueueBuildEntry(state, data, parent)
     state.buildTail = state.buildTail + 1
     state.buildQueue[state.buildTail] = { data = data, parent = parent }
     state.buildTotal = state.buildTotal + 1
+end
+
+---Records the transform an element was loaded with as its base one, so the transform reset actions
+---restore the source values instead of identity. Only requested for sources that define a transform
+---of their own, a prefab being the one that does.
+---@param state table
+---@param element element?
+local function captureBaseTransform(state, element)
+    if not state.captureBaseTransform then return end
+    if not element or not element.captureBaseTransform then return end
+
+    element:captureBaseTransform(state.captureBaseTransform)
 end
 
 local function logLoadError(phase, name, err)
@@ -286,6 +299,7 @@ local function processBuildChunk(timer)
             local modulePath = entry.data.modulePath or entry.parent:getModulePathByType(entry.data)
             new = require(modulePath):new(state.spawner.baseUI.spawnedUI)
             new:load(pipelineCommon.copyNodeDataWithoutChildren(entry.data, state.clearLocks), true)
+            captureBaseTransform(state, new)
             new:setParent(entry.parent)
         end)
         state.buildProcessed = state.buildProcessed + 1
@@ -387,6 +401,7 @@ end
 ---@field loadHidden boolean?
 ---@field selectLoaded boolean?
 ---@field clearLocks boolean?
+---@field captureBaseTransform string? Source name recorded as the base transform of every loaded element, for example "prefab".
 ---@field initialPosition Vector4?
 ---@field initialRotation EulerAngles?
 ---@field onFinished function?
@@ -411,6 +426,7 @@ function groupLoadManager.start(request)
     state.setAsSpawnNew = request.setAsSpawnNew == true and not state.loadHidden
     state.selectLoaded = request.selectLoaded == true
     state.clearLocks = request.clearLocks == true
+    state.captureBaseTransform = request.captureBaseTransform
     state.initialPosition = request.initialPosition
     state.initialRotation = request.initialRotation
     state.onFinished = request.onFinished
@@ -453,6 +469,7 @@ function groupLoadManager.start(request)
         local ok, err = pcall(function ()
             local loadedGroup = require(rootModulePath):new(request.spawner.baseUI.spawnedUI)
             loadedGroup:load(pipelineCommon.copyNodeDataWithoutChildren(rootData, current.clearLocks), true)
+            captureBaseTransform(current, loadedGroup)
             loadedGroup:setParent(current.targetParent)
             if current.loadHidden then
                 loadedGroup:setVisible(false, true)

@@ -45,12 +45,13 @@ local function getTransformPrefixSlotWidth()
     return maxWidth + ImGui.GetStyle().ItemSpacing.x
 end
 
-local function alignGroupRotationInputs()
+---@param instance positionableGroup
+local function alignGroupRotationInputs(instance)
     local startX = ImGui.GetCursorPosX()
     local targetX = startX + getTransformPrefixSlotWidth()
 
     ImGui.AlignTextToFramePadding()
-    style.styledText(IconGlyphs.RotateOrbit, GROUP_ROTATION_COLOR)
+    instance:drawRotationSectionIcon(GROUP_ROTATION_COLOR, { iconOffset = 0, fieldX = targetX })
     ImGui.SameLine()
 
     if ImGui.GetCursorPosX() < targetX then
@@ -735,9 +736,10 @@ function positionableGroup:drawRotation(rotation)
 		return finishedAxis
 	end
 
-    alignGroupRotationInputs()
+    alignGroupRotationInputs(self)
 	ImGui.PushItemWidth(80 * style.viewSize)
-	style.popGreyedOut(not locked)
+	ImGui.BeginDisabled(locked)
+	style.pushGreyedOut(locked)
     finished = drawLiveAngleFromStart(rotation.roll, "Roll", "roll")
 	self:handleRightAngleChange("roll", shiftActive and not finished)
     ImGui.SameLine()
@@ -755,6 +757,7 @@ function positionableGroup:drawRotation(rotation)
 	style.pushButtonNoBG(false)
 	style.tooltip("Set current group rotation as identity\nKeeps current rotation, but treats it as the new zero.")
 	style.popGreyedOut(locked)
+	ImGui.EndDisabled()
 	ImGui.SameLine()
 	style.mutedText(IconGlyphs.AlertOutline)
 	style.tooltip("Experimental Roll/Pitch\nUnreliable between -3.60° and 3.60°\nUse with caution")

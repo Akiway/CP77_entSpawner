@@ -1529,6 +1529,12 @@ local function spawnClone(node, definition)
         or node.nodeOrientation or node.entityOrientation or node.orientation) or nil
     local scale = node and (node.nodeScale or Vector4.new(1, 1, 1, 1)) or nil
 
+    -- The node in the world is what this clone is a copy of, so its transform is the one the
+    -- transform reset actions in the Spawned tab restore to.
+    if clone.setBaseTransform then
+        clone:setBaseTransform(gameUtils.toEulerAnglesSafe(rotation), toScaleVector(scale), "original node")
+    end
+
     local function applyCloneTransform()
         if not clone or not clone.parent then
             return
