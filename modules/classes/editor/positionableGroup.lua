@@ -36,27 +36,11 @@ local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
 local GROUP_ROTATION_COLOR = 0xFF80FFFF
 
----@return number
-local function getTransformPrefixSlotWidth()
-    local positionWidth = ImGui.CalcTextSize(IconGlyphs.AxisArrow or "")
-    local rotationWidth = ImGui.CalcTextSize(IconGlyphs.RotateOrbit or "")
-    local scaleWidth = ImGui.CalcTextSize(IconGlyphs.RulerSquare or "")
-    local maxWidth = math.max(positionWidth, rotationWidth, scaleWidth)
-    return maxWidth + ImGui.GetStyle().ItemSpacing.x
-end
-
+---Same icon + `SameLine()` prefix as every other transform row, so the fields line up.
 ---@param instance positionableGroup
 local function alignGroupRotationInputs(instance)
-    local startX = ImGui.GetCursorPosX()
-    local targetX = startX + getTransformPrefixSlotWidth()
-
-    ImGui.AlignTextToFramePadding()
-    instance:drawRotationSectionIcon(GROUP_ROTATION_COLOR, { iconOffset = 0, fieldX = targetX })
+    instance:drawRotationSectionIcon(GROUP_ROTATION_COLOR)
     ImGui.SameLine()
-
-    if ImGui.GetCursorPosX() < targetX then
-        ImGui.SetCursorPosX(targetX)
-    end
 end
 
 ---Group-local project defaults, which differ from the neutral `projectTag` module defaults.
