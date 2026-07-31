@@ -14,6 +14,7 @@
 --
 -------------------------------------------------------------------------------------------------------------------------------
 
+local about = require("modules/utils/about")
 local settings = require("modules/utils/settings")
 local builder = require("modules/utils/entityBuilder")
 local Cron = require("modules/utils/Cron")
@@ -32,6 +33,8 @@ local previewSyncManager = require("modules/utils/previewSyncManager")
 ---@field runtimeData {cetOpen: boolean, inGame: boolean, inMenu: boolean}
 ---@field baseUI baseUI
 ---@field player any
+---@field version string
+---@field about table
 spawner = {
     player = nil,
     runtimeData = {
@@ -39,6 +42,22 @@ spawner = {
         inGame = false,
         inMenu = false
     },
+
+    -- Public API for other mods, reached through GetMod("entSpawner"):
+    -- version / getVersion() for the mod version, about for the full metadata (author,
+    -- contributors, dependency descriptors), getDependencies() for their current state.
+    version = about.version,
+    about = about,
+
+    ---@return string
+    getVersion = function()
+        return about.version
+    end,
+
+    ---@return aboutDependencyStatus[]
+    getDependencies = function()
+        return about.getDependencies()
+    end,
 
     e = function(data)
         local red = require("modules/utils/redConverter")

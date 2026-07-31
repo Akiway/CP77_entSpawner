@@ -1,8 +1,6 @@
-local CodewareVersion = "1.18.0"
-local ArchiveXLVersion = "1.26.0"
-local ModVersion = "a.1.4.0-beta"
 local ignoreRequirements = false
 
+local about = require("modules/utils/about")
 local settings = require("modules/utils/settings")
 local gameUtils = require("modules/utils/gameUtils")
 local style = require("modules/ui/style")
@@ -279,20 +277,8 @@ function baseUI.init()
 
     if ignoreRequirements then return end
 
-    if not ArchiveXL then
-        table.insert(baseUI.requirementsIssues, "ArchiveXL is not installed")
-    elseif not ArchiveXL.Require(ArchiveXLVersion) then
-        table.insert(baseUI.requirementsIssues, "ArchiveXL version is outdated, please update to " .. ArchiveXLVersion)
-    end
-
-    if not Codeware then
-        table.insert(baseUI.requirementsIssues, "Codeware is not installed")
-    elseif not Codeware.Require(CodewareVersion) then
-        table.insert(baseUI.requirementsIssues, "Codeware version is outdated, please update to " .. CodewareVersion)
-    end
-
-    if not Game.GetScriptableServiceContainer():GetService("EntityBuilder") then
-        table.insert(baseUI.requirementsIssues, "Redscript part of the mod is not installed")
+    for _, issue in ipairs(about.getBlockingIssues()) do
+        table.insert(baseUI.requirementsIssues, issue)
     end
 end
 
@@ -300,7 +286,7 @@ function baseUI.draw(spawner)
     if not editor.camera then return end
 
     if #baseUI.requirementsIssues > 0 then
-        if ImGui.Begin(string.format("%s %s Error##wb-wui", settings.mainWindowName, ModVersion), ImGuiWindowFlags.AlwaysAutoResize) then
+        if ImGui.Begin(string.format("%s %s Error##wb-wui", settings.mainWindowName, about.version), ImGuiWindowFlags.AlwaysAutoResize) then
             style.mutedText(string.format("The following issues are preventing %s from running:", settings.mainWindowName))
 
             for _, issue in pairs(baseUI.requirementsIssues) do
@@ -357,7 +343,7 @@ function baseUI.draw(spawner)
 
     if wu.Begin(settings.mainWindowName, flags) then
         if not editorActive then
-            drawRightAlignedTitleBarVersion(settings.mainWindowName, ModVersion)
+            drawRightAlignedTitleBarVersion(settings.mainWindowName, about.version)
         end
 
         input.updateContext("main")

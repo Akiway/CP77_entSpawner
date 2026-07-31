@@ -1,4 +1,5 @@
 local style = require("modules/ui/style")
+local about = require("modules/utils/about")
 local settings = require("modules/utils/settings")
 local field = require("modules/utils/field")
 local cache = require("modules/utils/cache")
@@ -572,6 +573,234 @@ local function drawBindingsSection()
     ImGui.TreePop()
 end
 
+local aboutRowLabels = { "Version", "Author", "Contributors" }
+
+---Width of the label column of the About rows, so every value lines up.
+---@return number
+local function getAboutLabelWidth()
+    local width = 0
+
+    for _, label in ipairs(aboutRowLabels) do
+        width = math.max(width, (ImGui.CalcTextSize(label)))
+    end
+
+    return width + ImGui.GetStyle().ItemSpacing.x * 2
+end
+
+---@param label string
+---@param value string
+---@param labelWidth number
+---@param wrapped boolean? Wrap the value instead of letting it run past the window.
+local function drawAboutRow(label, value, labelWidth, wrapped)
+    local startX = ImGui.GetCursorPosX()
+
+    style.mutedText(label)
+    ImGui.SameLine(startX + labelWidth)
+
+    if wrapped then
+        ImGui.TextWrapped(value)
+    else
+        ImGui.Text(value)
+    end
+end
+
+local function drawAboutSection()
+    if not ImGui.TreeNodeEx("About", ImGuiTreeNodeFlags.SpanFullWidth) then
+        return
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    local labelWidth = getAboutLabelWidth()
+    style.styledText(about.name, style.highlightColor)
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    drawAboutRow("Version", about.version, labelWidth)
+    drawAboutRow("Author", about.author, labelWidth)
+    drawAboutRow("Contributors", table.concat(about.contributors, ", "), labelWidth, true)
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.sectionHeaderStart("Thanks")
+    style.styledTextWrapped(about.thanks, style.mutedColor)
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    ImGui.TreePop()
+end
+
+local dependencyStateDisplay = {
+    ok = { icon = IconGlyphs.CheckCircleOutline, label = "Installed" },
+    outdated = { icon = IconGlyphs.AlertCircleOutline, label = "Outdated" },
+    missing = { icon = IconGlyphs.CloseCircleOutline, label = "Not installed" },
+    unknown = { icon = IconGlyphs.HelpCircleOutline, label = "Could not be detected" }
+}
+
+-- Same red the other "this is broken" markers use, e.g. the missing mesh warning on AI spots.
+local dependencyErrorColor = 0xFF2525E5
+
+---@param status aboutDependencyStatus
+---@return number
+local function getDependencyColor(status)
+    if status.state == about.states.ok then
+        return style.successColor
+    end
+
+    if status.state == about.states.outdated then
+        return style.warnColor
+    end
+
+    -- A missing optional integration is a plain fact, only a missing requirement is an error.
+    if status.state == about.states.missing and status.required then
+        return dependencyErrorColor
+    end
+
+    return style.mutedColor
+end
+
+---@param status aboutDependencyStatus
+---@return string
+local function getDependencyStateText(status)
+    local display = dependencyStateDisplay[status.state] or dependencyStateDisplay.unknown
+    local text = display.label
+
+    if status.state == about.states.ok then
+        if status.detectedVersion then
+            text = text .. " (" .. status.detectedVersion .. ")"
+        end
+
+        return text
+    end
+
+    if status.detectedVersion then
+        text = text .. " (" .. status.detectedVersion .. ")"
+    end
+
+    if status.minVersion then
+        text = text .. " - requires " .. status.minVersion
+    end
+
+    return text
+end
+
+---Tooltip for prose long enough that the plain one-line tooltip would run off screen.
+---@param hovered boolean Hovered state captured right after the item was drawn.
+---@param text string
+local function drawWrappedTooltip(hovered, text)
+    if not hovered then return end
+
+    ImGui.BeginTooltip()
+    ImGui.PushStyleColor(ImGuiCol.Text, style.regularColor)
+    ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 340 * style.viewSize)
+    ImGui.TextUnformatted(text)
+    ImGui.PopTextWrapPos()
+    ImGui.PopStyleColor()
+    ImGui.EndTooltip()
+end
+
+---@param status aboutDependencyStatus
+local function drawDependencyRow(status)
+    local display = dependencyStateDisplay[status.state] or dependencyStateDisplay.unknown
+    local color = getDependencyColor(status)
+
+    ImGui.PushID(status.id)
+
+    -- Grouped so the whole row, not just the name, answers to the hover.
+    ImGui.BeginGroup()
+    style.styledText(display.icon, color)
+    ImGui.SameLine()
+    ImGui.Text(status.name)
+    ImGui.SameLine()
+    style.styledText(getDependencyStateText(status), color)
+
+    if status.state == about.states.unknown then
+        style.tooltip("This one has no Lua side of its own, so World Builder cannot check it directly.")
+    end
+    ImGui.EndGroup()
+
+    if status.satisfied then
+        -- Nothing to act on here, so what it brings stays out of the way until asked for.
+        drawWrappedTooltip(ImGui.IsItemHovered(), status.provides)
+        ImGui.PopID()
+        return
+    end
+
+    if status.url then
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        if ImGui.Button(IconGlyphs.ContentCopy) then
+            ImGui.SetClipboardText(status.url)
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Copied download link"))
+        end
+        style.pushButtonNoBG(false)
+        style.tooltip("Copy download link:\n" .. status.url)
+    end
+
+    ImGui.Indent(20 * style.viewSize)
+    style.styledTextWrapped(status.provides, style.mutedColor)
+    ImGui.Unindent(20 * style.viewSize)
+
+    ImGui.PopID()
+end
+
+---@param statuses aboutDependencyStatus[]
+local function drawDependenciesSummary(statuses)
+    local missingRequired = 0
+    local missingOptional = 0
+
+    for _, status in ipairs(statuses) do
+        if not status.satisfied then
+            if status.required then
+                missingRequired = missingRequired + 1
+            else
+                missingOptional = missingOptional + 1
+            end
+        end
+    end
+
+    if missingRequired > 0 then
+        style.styledTextWrapped(string.format("%d required %s missing or outdated.", missingRequired, missingRequired == 1 and "dependency is" or "dependencies are"), dependencyErrorColor)
+    elseif missingOptional > 0 then
+        style.styledTextWrapped("Everything required is installed, some optional integrations are not.", style.successColor)
+    else
+        style.styledTextWrapped("Everything is installed.", style.successColor)
+    end
+end
+
+local function drawDependenciesSection()
+    if not ImGui.TreeNodeEx("Dependencies", ImGuiTreeNodeFlags.SpanFullWidth) then
+        return
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    local statuses = about.getDependencies()
+    local required = {}
+    local optional = {}
+
+    for _, status in ipairs(statuses) do
+        table.insert(status.required and required or optional, status)
+    end
+
+    drawDependenciesSummary(statuses)
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.sectionHeaderStart("Required", "World Builder needs these to work, and refuses to start without most of them.")
+    for _, status in ipairs(required) do
+        drawDependencyRow(status)
+    end
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    style.sectionHeaderStart("Optional integrations", "Other mods World Builder makes use of when they are installed. Everything else keeps working without them.")
+    for _, status in ipairs(optional) do
+        drawDependencyRow(status)
+    end
+    style.sectionHeaderEnd()
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    ImGui.TreePop()
+end
+
 ---@param spawner spawner
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
@@ -965,6 +1194,9 @@ function settingsUI.draw(spawner)
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
+
+    drawAboutSection()
+    drawDependenciesSection()
 
     ImGui.PopItemWidth()
 end
