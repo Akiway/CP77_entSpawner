@@ -1511,6 +1511,41 @@ function bendedMesh:getPreviewFramesFromMatrices(matrices)
     return frames
 end
 
+---Rebuilds the editor path from a set of deformation matrices, inverting
+---`rebuildMatricesFromPath`. One matrix is one path point: its W column is the point itself, and
+---the twist of its up axis against the untwisted basis of the same forward direction is the
+---point's roll. Every rebuilt point comes back anchored, so the path algorithm leaves an
+---imported deformation exactly as it was authored.
+---@param matrices table Deformation matrices, in node order.
+---@param upAxisIndex integer? Up axis to read the twist against, `World Z` by default.
+---@return table pathPoints
+function bendedMesh.pathPointsFromMatrices(matrices, upAxisIndex)
+    local clampedUpAxisIndex = math.max(0, math.min(math.floor(toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
+    local upHint = getPathUpAxis(clampedUpAxisIndex)
+    local pathPoints = {}
+
+    for _, matrix in ipairs(matrices or {}) do
+        local frame = bendedMesh:matrixToPreviewFrame(matrix)
+        local _, _, untwistedUp = buildBasisFromForward(frame.forward, upHint)
+        local twist = cross(untwistedUp, frame.up)
+        local roll = math.deg(math.atan2(dot(twist, frame.forward), dot(untwistedUp, frame.up)))
+
+        if math.abs(roll) < 0.001 then
+            roll = 0
+        end
+
+        table.insert(pathPoints, {
+            x = frame.position.x,
+            y = frame.position.y,
+            z = frame.position.z,
+            roll = roll,
+            anchored = true
+        })
+    end
+
+    return pathPoints
+end
+
 function bendedMesh:getPathPreviewComponent(name, meshPath, appearance)
     local entity = self:getEntity()
     if not entity then

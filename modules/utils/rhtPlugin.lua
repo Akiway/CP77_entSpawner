@@ -218,6 +218,106 @@ local function readTriggerAreaData(node)
     }
 end
 
+---Data of a `worldBendedMeshNode`, in the shape the Bended Mesh spawnable loads. What makes the
+---node more than a static mesh is its deformation: one matrix per path point, which the
+---spawnable's own converter reads back into the path it edits. The deformed box comes across as
+---authored, even though the spawnable refits it to that path once the mesh bounds are known.
+---@param node any
+---@return table?
+local function readBendedMeshData(node)
+    local function toBool(value, defaultValue)
+        if type(value) == "boolean" then
+            return value
+        end
+
+        if value == nil then
+            return defaultValue
+        end
+
+        return tonumber((tostring(value):gsub("ULL", ""):gsub("LL", ""))) == 1
+    end
+
+    local function toName(value)
+        if type(value) == "string" then
+            return value
+        end
+
+        local name = safeGet(value, "value")
+        return type(name) == "string" and name or ""
+    end
+
+    local native = getNativeNode(node, "deformationData")
+
+    local meshPath = type(node and node.meshPath) == "string" and node.meshPath or ""
+    if meshPath == "" then
+        local hash = safeGet(safeGet(native, "mesh"), "hash")
+        if hash then
+            meshPath = ResRef.FromHash(hash):ToString()
+        end
+    end
+
+    if meshPath == "" then
+        return nil
+    end
+
+    local data = { spawnData = meshPath }
+
+    local appearance = toName(node and node.meshAppearance or safeGet(native, "meshAppearance"))
+    if appearance ~= "" and appearance ~= "None" then
+        data.app = appearance
+    end
+
+    if not native then
+        return data
+    end
+
+    -- A deformation that cannot be read must not cost the clone its mesh, so the path falls back
+    -- to the default the spawnable derives from the mesh itself.
+    local matrices = safeGet(native, "deformationData")
+    if type(matrices) == "table" and #matrices > 0 then
+        local rebuild = require("modules/classes/spawn/mesh/bendedMesh").pathPointsFromMatrices
+        local ok, pathPoints = pcall(rebuild, matrices)
+
+        if ok and type(pathPoints) == "table" and #pathPoints > 0 then
+            data.pathPoints = pathPoints
+        else
+            log("Could not rebuild the bended mesh path: " .. tostring(pathPoints))
+        end
+    end
+
+    local boxMin = safeGet(safeGet(native, "deformedBox"), "Min")
+    local boxMax = safeGet(safeGet(native, "deformedBox"), "Max")
+    if boxMin and boxMax then
+        data.deformedBox = {
+            min = { x = boxMin.x, y = boxMin.y, z = boxMin.z, w = 1 },
+            max = { x = boxMax.x, y = boxMax.y, z = boxMax.z, w = 1 }
+        }
+    end
+
+    data.isBendedRoad = toBool(safeGet(native, "isBendedRoad"), true)
+    data.removeFromRainMap = toBool(safeGet(native, "removeFromRainMap"), false)
+    data.version = tonumber((tostring(safeGet(native, "version")):gsub("ULL", ""):gsub("LL", ""))) or 0
+
+    -- Shadow modes keep the spawnable's own defaults when the node cannot be read, since index 0
+    -- is a meaningful setting of its own ("Default") rather than an absent value.
+    local castShadows = safeGet(native, "castShadows")
+    if castShadows ~= nil then
+        data.castShadows = getEnumIndex("shadowsShadowCastingMode", castShadows)
+    end
+
+    local castLocalShadows = safeGet(native, "castLocalShadows")
+    if castLocalShadows ~= nil then
+        data.castLocalShadows = getEnumIndex("shadowsShadowCastingMode", castLocalShadows)
+    end
+
+    local navmeshImpact = safeGet(safeGet(native, "navigationSetting"), "navmeshImpact")
+    if navmeshImpact ~= nil then
+        data.navigationImpact = getEnumIndex("NavGenNavmeshImpact", navmeshImpact)
+    end
+
+    return data
+end
+
 ---Definition of one area node type. Area nodes hold nothing but a polygon plus whatever their
 ---own kind adds, and the polygon is rebuilt separately (see `attachAreaOutline`) because
 ---entSpawner keeps it in a group of outline markers instead of on the node itself.
@@ -283,9 +383,9 @@ local TYPE_MAP = {
         replacer = true
     },
     ["worldBendedMeshNode"] = {
-        data = "meshPath",
+        dataRetrieval = readBendedMeshData,
         category = "Mesh",
-        sub = "Static Mesh",
+        sub = "Bended Mesh",
         replacer = true
     },
     ["worldStaticOccluderMeshNode"] = {
