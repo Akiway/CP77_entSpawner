@@ -165,6 +165,13 @@ function spawner:new()
 
     registerForEvent("onOverlayClose", function()
         self.runtimeData.cetOpen = false
+
+        -- Arrow distance scaling is driven from onDraw, which stops running here. Reset now so no
+        -- gizmo is left frozen at the size it had for a far-away camera. (editor.toggle does the same
+        -- on its own exit path, this covers closing the overlay without editor mode ever being on.)
+        if self.editor and self.editor.resetArrowScale then
+            self.editor.resetArrowScale()
+        end
     end)
 
     return self
