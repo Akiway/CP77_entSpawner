@@ -4,6 +4,10 @@ local utils = require("modules/utils/utils")
 local settings = require("modules/utils/settings")
 local input = require("modules/utils/input")
 local logger = require("modules/utils/logger")
+local previewControls = require("modules/utils/previewControls")
+
+-- Icon a category is created with, until it is given one of its own
+local DEFAULT_CATEGORY_ICON = "EmoticonOutline"
 
 ---@class prefabsUI
 ---@field spawnUI spawnUI?
@@ -26,9 +30,14 @@ local prefabsUI = {
 
     newItemCategory = "",
     newCategoryName = "New Category",
-    newCategoryIcon = "EmoticonOutline",
+    newCategoryIcon = DEFAULT_CATEGORY_ICON,
     newCategoryIconSearch = "",
     selectCategorySearch = "",
+    -- Create row of the category picker. Kept apart from the "Add Category" section above,
+    -- so the two never overwrite each other's half typed name.
+    selectCategoryNewName = "",
+    selectCategoryNewIcon = DEFAULT_CATEGORY_ICON,
+    selectCategoryNewIconSearch = "",
     tagAddFilter = "",
     tagFilterFilter = "",
     tagMergeFilter = "",
@@ -77,6 +86,10 @@ local function drawPrefabsOptions()
         settings.save()
     end
     style.tooltip("Preview the prefab when hovered. Is Experimental.\nSingle asset prefabs also follow the per-variant setting of the \"All\" sub-tab.")
+
+    ImGui.SameLine()
+    style.mutedText(IconGlyphs.InformationOutline)
+    style.tooltip(previewControls.getBindingsTooltip())
 
     prefabsUI.spawnUI.drawSpawnPosition()
 end
@@ -220,7 +233,7 @@ function prefabsUI.drawTagCombo(idScope, selections, searchValue, opts)
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
         previewLabel = style.getMultiSelectPreviewLabel(selections, opts.allLabel, "%d tags selected"),
-        searchHint = "Search tag...",
+        searchHint = IconGlyphs.Magnify .. " Search tag...",
         searchValue = searchValue,
         options = opts.options,
         selections = selections,
@@ -246,7 +259,7 @@ function prefabsUI.drawTagCombo(idScope, selections, searchValue, opts)
             settings.save()
         end,
         allowCreate = opts.allowCreate == true,
-        createHint = "New tag...",
+        createHint = IconGlyphs.Plus .. " New tag...",
         createValue = opts.createValue or "",
         createInputId = "##" .. idScope .. "Create",
         createButtonId = "##" .. idScope .. "CreateAdd",
@@ -422,10 +435,6 @@ function prefabsUI.drawCreatePrefabPopup()
             end
             item.name, _ = ImGui.InputTextWithHint("##name", "Name...", item.name, 100)
 
-            -- Select tags (staged only, no save)
-            style.fieldLabel("Tags")
-            _, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(item.tags, "createTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
-
             -- Select category
             style.fieldLabel("Category")
             local categoryName, changed = prefabsUI.drawSelectCategory(not noCategory and prefabsUI.createTargetCategoryName or "No Category")
@@ -435,6 +444,10 @@ function prefabsUI.drawCreatePrefabPopup()
                 targetCategory = prefabsUI.categories[categoryName]
                 noCategory = targetCategory == nil
             end
+
+            -- Select tags (staged only, no save)
+            style.fieldLabel("Tags")
+            _, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(item.tags, "createTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
 
             -- Detect a name collision within the target category (overwrite candidate)
             local existing = nil
@@ -545,6 +558,29 @@ function prefabsUI.getTagMergeAffectedCount(mergeTags, newTagName)
     return affected
 end
 
+---Creates a category and writes it to disk. Refuses names that are empty or already taken,
+---so no caller can end up with two categories answering to the same name.
+---@param name string
+---@param iconKey string? Icon glyph key, e.g. `EmoticonOutline`.
+---@return category? category nil when the name was refused.
+function prefabsUI.createCategory(name, iconKey)
+    name = utils.trimString(name or "")
+
+    if name == "" or prefabsUI.categories[name] then
+        return nil
+    end
+
+    local category = require("modules/classes/prefabs/category"):new(prefabsUI)
+    category:setName(name)
+    category.icon = tostring(iconKey or "")
+    category:generateFileName()
+    category:save()
+
+    prefabsUI.categories[name] = category
+
+    return category
+end
+
 function prefabsUI.drawAddCategory()
     prefabsUI.newCategoryIcon, prefabsUI.newCategoryIconSearch, _ = field.drawIconSelector("prefabsUI", prefabsUI.newCategoryIcon, prefabsUI.newCategoryIconSearch)
 
@@ -555,61 +591,112 @@ function prefabsUI.drawAddCategory()
 
     local categoryExists = prefabsUI.categories[prefabsUI.newCategoryName] ~= nil
     if style.drawNoBGConditionalButton(prefabsUI.newCategoryName ~= "", IconGlyphs.Plus, categoryExists) and not categoryExists then
-        local category = require("modules/classes/prefabs/category"):new(prefabsUI)
-        category:setName(prefabsUI.newCategoryName)
-        category.icon = prefabsUI.newCategoryIcon
-        category:generateFileName()
-        category:save()
-
-        prefabsUI.categories[prefabsUI.newCategoryName] = category
-        prefabsUI.newCategoryName = "New Category"
-        prefabsUI.newCategoryIcon = "EmoticonOutline"
+        if prefabsUI.createCategory(prefabsUI.newCategoryName, prefabsUI.newCategoryIcon) then
+            prefabsUI.newCategoryName = "New Category"
+            prefabsUI.newCategoryIcon = DEFAULT_CATEGORY_ICON
+        end
     end
     if categoryExists then
         style.tooltip("Category already exists.")
     end
 end
 
-function prefabsUI.drawSelectCategory(categoryName)
-    local changed = false
+---Label of one category in the selector: its icon, when it has a resolvable one, then its name.
+---Also used for values that name no category (the "No Category" placeholder, a merge target).
+---@param categoryName string
+---@return string
+local function getCategoryLabel(categoryName)
+    local category = prefabsUI.categories[categoryName]
+    local glyph = category and IconGlyphs[category.icon] or nil
 
-    style.setNextItemWidth(200)
-
-    if (ImGui.BeginCombo("##selectCategory", (prefabsUI.categories[categoryName] and (IconGlyphs[prefabsUI.categories[categoryName].icon] .. " ") or "") .. categoryName)) then
-        input.updateContext("main")
-
-        local interiorWidth = 225 - (2 * ImGui.GetStyle().FramePadding.x) - 30
-        style.setNextItemWidth(interiorWidth)
-        prefabsUI.selectCategorySearch, _ = ImGui.InputTextWithHint("##selectCategorySearch", "Category Name...", prefabsUI.selectCategorySearch, 100)
-        local x, _ = ImGui.GetItemRectSize()
-
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            prefabsUI.selectCategorySearch = ""
-        end
-        style.pushButtonNoBG(false)
-
-        local categories = utils.getKeys(prefabsUI.categories)
-        table.sort(categories)
-
-        local xButton, _ = ImGui.GetItemRectSize()
-        if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 115 * style.viewSize) then
-            for _, key in pairs(categories) do
-                if utils.safePatternMatch(key:lower(), prefabsUI.selectCategorySearch:lower()) and ImGui.Selectable(IconGlyphs[prefabsUI.categories[key].icon] .. " " .. key) then
-                    categoryName = key
-                    ImGui.CloseCurrentPopup()
-                    changed = true
-                end
-            end
-
-            ImGui.EndChild()
-        end
-
-        ImGui.EndCombo()
+    if not glyph then
+        return tostring(categoryName)
     end
 
-    return categoryName, changed
+    return glyph .. " " .. tostring(categoryName)
+end
+
+---Category picker, drawn with the same searchable combo as the tag selectors, in single
+---select mode. The selection map is rebuilt every frame from the passed name, so the
+---component stays the only owner of the picking logic.
+---A category can also be created from the popup, icon included, and is picked right away.
+---@param categoryName string Currently selected category, or a placeholder naming none.
+---@return string categoryName
+---@return boolean changed
+function prefabsUI.drawSelectCategory(categoryName)
+    categoryName = tostring(categoryName or "")
+
+    local categories = utils.getKeys(prefabsUI.categories)
+    table.sort(categories)
+
+    local selections = { [categoryName] = true }
+
+    -- The create input is only read back after the combo draws, so the conflict is resolved
+    -- against what was typed last frame. The button cannot be clicked the frame it is typed
+    -- in, and `createCategory` refuses a taken name anyway.
+    local pendingName = utils.trimString(prefabsUI.selectCategoryNewName or "")
+    local nameTaken = pendingName ~= "" and prefabsUI.categories[pendingName] ~= nil
+
+    local changed, nextSearch, nextCreateName, nextCreateIcon, nextCreateIconSearch = style.drawSearchableMultiSelectCombo({
+        comboId = "##selectCategory",
+        previewLabel = getCategoryLabel(categoryName),
+        singleSelect = true,
+        searchHint = IconGlyphs.Magnify .. " Search category...",
+        searchValue = prefabsUI.selectCategorySearch,
+        options = categories,
+        selections = selections,
+        comboWidth = 200 * style.viewSize,
+        searchWidth = 220 * style.viewSize,
+        emptyText = "No category available",
+        noMatchText = "No matching categories",
+        searchInputId = "##selectCategorySearch",
+        searchClearButtonId = "##selectCategorySearchClear",
+        optionIdPrefix = "##selectCategoryOption",
+        allowCreate = true,
+        createHint = IconGlyphs.Plus .. " New category...",
+        createValue = prefabsUI.selectCategoryNewName,
+        createInputId = "##selectCategoryCreate",
+        createButtonId = "##selectCategoryCreateAdd",
+        createIcon = prefabsUI.selectCategoryNewIcon,
+        createIconSearch = prefabsUI.selectCategoryNewIconSearch,
+        createIconPickerId = "selectCategoryCreate",
+        createDisabled = nameTaken,
+        createTooltip = nameTaken and "Category already exists." or "Create this category and select it",
+        onCreate = function (name, iconKey)
+            local created = prefabsUI.createCategory(name, iconKey)
+            if not created then return end
+
+            -- Creating from the picker is how the user names the category they are assigning to.
+            for key, _ in pairs(selections) do
+                selections[key] = nil
+            end
+            selections[created.name] = true
+        end,
+        getOptionLabel = function (option)
+            return getCategoryLabel(option)
+        end
+    })
+
+    -- The name is cleared by the component once it created something; the icon stays on the
+    -- last picked one, like the tag selectors do.
+    prefabsUI.selectCategorySearch = nextSearch
+    prefabsUI.selectCategoryNewName = nextCreateName
+    prefabsUI.selectCategoryNewIcon = nextCreateIcon
+    prefabsUI.selectCategoryNewIconSearch = nextCreateIconSearch
+
+    if not changed then
+        return categoryName, false
+    end
+
+    -- Only an existing category counts as a pick: a refused creation leaves the selection
+    -- where it was, and callers index `categories` with whatever comes back.
+    for key, isSelected in pairs(selections) do
+        if isSelected and prefabsUI.categories[key] and key ~= categoryName then
+            return key, true
+        end
+    end
+
+    return categoryName, false
 end
 
 ---Height of one list row, shared with any list reusing `prefabsUI.pushRow`.

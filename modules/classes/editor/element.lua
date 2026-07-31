@@ -1,5 +1,4 @@
 local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
 local history = require("modules/utils/history")
 local backup = require("modules/utils/backup")
 local logger = require("modules/utils/logger")
@@ -89,7 +88,7 @@ function element:new(sUI)
 	o.modulePath = "modules/classes/editor/element"
 	o.id = math.random(1, 1000000000)
 
-	o.headerOpen = settings.headerState
+	o.headerOpen = true
 	o.propertyHeaderStates = {}
 	o.selected = false
 	o.hovered = false
@@ -135,7 +134,7 @@ function element:load(data, silent)
 	self.propertyHeaderStates = data.propertyHeaderStates
 	if self.propertyHeaderStates == nil then self.propertyHeaderStates = {} end
 	if self.visible == nil then self.visible = true end
-	if self.headerOpen == nil then self.headerOpen = settings.headerState end
+	if self.headerOpen == nil then self.headerOpen = true end
 	if self.selected == nil then self.selected = false end
 	if self.hiddenByParent == nil then self.hiddenByParent = false end
 	if self.locked == nil then self.locked = false end

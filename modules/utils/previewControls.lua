@@ -308,6 +308,24 @@ function previewControls.getHintLines(appearanceCount)
     return lines
 end
 
+---Tooltip body listing every preview action with the key it is currently bound to.
+---Read from the bindings rather than hardcoded, so rebinding is reflected everywhere it is shown.
+---@return string
+function previewControls.getBindingsTooltip()
+    local bindings = previewControls.getBindings()
+    local lines = { "Keys available while a preview is showing:" }
+
+    for _, action in ipairs(previewControls.actions) do
+        table.insert(lines, string.format("- %s: %s", action.label, keys.getLabel(bindings[action.id])))
+    end
+
+    table.insert(lines, "")
+    table.insert(lines, "Moving the point of view stops the automatic turntable, stepping the appearance stops the automatic cycle.")
+    table.insert(lines, "They can be rebound in the \"Settings\" tab, under \"Bindings\".")
+
+    return table.concat(lines, "\n")
+end
+
 ---Appearance index the preview should show, given the one its automatic cycle last picked.
 ---@param cycleIndex integer Index the automatic cycle is at, 0 based.
 ---@param count integer Number of entries to wrap around, must be > 0.

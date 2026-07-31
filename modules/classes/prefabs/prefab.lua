@@ -3,6 +3,7 @@ local settings = require("modules/utils/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
 local prefabPreview = require("modules/utils/prefabPreview")
+local colorUtil = require("modules/utils/color")
 
 ---@class favorite
 ---@field name string
@@ -17,6 +18,9 @@ local favorite = {}
 local iconResolveCache = {}
 local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 local POSITIONABLE_GROUP_MODULE_PATH = "modules/classes/editor/positionableGroup"
+local LIGHT_MODULE_PATH = "light/light"
+-- Breathing room between a prefab name and its color swatch
+local COLOR_SWATCH_LEFT_MARGIN = 12
 
 ---@param data table?
 ---@return number?
@@ -218,6 +222,37 @@ function favorite:getAssetCount()
     return self.assetCount
 end
 
+---Color of the light this prefab holds, if it holds exactly one and it is a light.
+---Prefabs holding several assets have no single color to show.
+---@return number[]? rgb
+function favorite:getLightColor()
+    if type(self.data) ~= "table" or self.data.modulePath ~= SPAWNABLE_ELEMENT_MODULE_PATH then
+        return nil
+    end
+
+    local spawnable = self.data.spawnable
+    if type(spawnable) ~= "table" or spawnable.modulePath ~= LIGHT_MODULE_PATH then
+        return nil
+    end
+
+    return colorUtil.normalizeRGB(spawnable.color, { 1, 1, 1 })
+end
+
+---Draws the color swatch of a single asset light prefab, the way the "Spawned" tab marks lights.
+---Draws nothing for any other prefab, leaving the row layout untouched.
+function favorite:drawLightColorPreview()
+    local color = self:getLightColor()
+    if not color then return end
+
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetCursorPosX() + COLOR_SWATCH_LEFT_MARGIN * style.viewSize)
+    ImGui.AlignTextToFramePadding()
+    ImGui.SetNextItemAllowOverlap()
+
+    style.styledText(IconGlyphs.SquareRounded, colorUtil.packAABBGGRR(color, 1.0))
+    style.tooltip(colorUtil.formatPreviewTooltip(color))
+end
+
 ---@param assetCount number?
 function favorite:drawSideButtons(assetCount)
     -- Right side buttons
@@ -318,6 +353,8 @@ function favorite:draw(context)
 	ImGui.SetNextItemAllowOverlap()
     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 1 * style.viewSize)
 	ImGui.Text(self.name)
+
+	self:drawLightColorPreview()
 
 	ImGui.SameLine()
 	self:drawSideButtons(self:getAssetCount())

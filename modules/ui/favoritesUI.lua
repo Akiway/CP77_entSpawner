@@ -10,7 +10,10 @@ local prefabsUI = require("modules/ui/prefabsUI")
 
 local SPAWN_OPTIONS_POPIN_ID = "##assetFavoritesSpawnOptionsPopin"
 local IMPORT_POPUP_ID = "##assetFavoritesImport"
+local BULK_ADD_POPUP_ID = "##assetFavoritesBulkAdd"
 local NO_TAG_GROUP_KEY = "\1noTag"
+-- Past this, the favorites list becomes unwieldy; the popup says so before adding.
+local BULK_ADD_WARN_THRESHOLD = 500
 -- Breathing room between an asset name and its tag icons
 local TAG_ICONS_LEFT_MARGIN = 12
 -- Import codes grow with the number of favorites they carry, so the paste field
@@ -23,6 +26,9 @@ local IMPORT_CODE_MAX_LENGTH = 1024 * 256
 ---@class favoritesUI
 ---@field spawnUI spawnUI?
 ---@field tagFilterSearch string
+---@field filterNewTag string
+---@field filterNewTagIcon string
+---@field filterNewTagIconSearch string
 ---@field editTagSearch string
 ---@field editNewTag string
 ---@field editNewTagIcon string
@@ -35,10 +41,20 @@ local IMPORT_CODE_MAX_LENGTH = 1024 * 256
 ---@field tagEditIconSearch string
 ---@field importCode string
 ---@field importReport favoritesImportReport?
+---@field bulkRequest favoriteBulkAddRequest?
+---@field openBulkAddPopup boolean
+---@field bulkTags table<string, boolean>
+---@field bulkTagSearch string
+---@field bulkNewTag string
+---@field bulkNewTagIcon string
+---@field bulkNewTagIconSearch string
 local favoritesUI = {
     spawnUI = nil,
 
     tagFilterSearch = "",
+    filterNewTag = "",
+    filterNewTagIcon = assetFavorites.defaultTagIcon,
+    filterNewTagIconSearch = "",
     editTagSearch = "",
     editNewTag = "",
     editNewTagIcon = assetFavorites.defaultTagIcon,
@@ -53,7 +69,16 @@ local favoritesUI = {
     tagEditIconSearch = "",
 
     importCode = "",
-    importReport = nil
+    importReport = nil,
+
+    bulkRequest = nil,
+    openBulkAddPopup = false,
+    -- Kept between openings: favoriting several folders under one tag is the common case.
+    bulkTags = {},
+    bulkTagSearch = "",
+    bulkNewTag = "",
+    bulkNewTagIcon = assetFavorites.defaultTagIcon,
+    bulkNewTagIconSearch = ""
 }
 
 local moduleIconCache = {}
@@ -136,6 +161,22 @@ function favoritesUI.getTagsText(entry)
     return "Tags: " .. table.concat(tags, ", ")
 end
 
+---Whether the list is currently narrowed down, by search text or by tag filter.
+---@return boolean
+local function isFilterActive()
+    if tostring(settings.assetFavoritesFilter or "") ~= "" then
+        return true
+    end
+
+    for _, isSelected in pairs(settings.assetFavoritesFilterTags or {}) do
+        if isSelected then
+            return true
+        end
+    end
+
+    return false
+end
+
 ---@param entry assetFavoriteEntry
 ---@return boolean
 local function matchesFilters(entry)
@@ -203,10 +244,13 @@ local function buildTagGroups()
     end
 
     -- Tags nothing is tagged with stay listed, otherwise their settings popup
-    -- (rename / icon / delete) would be unreachable.
-    for _, tag in ipairs(assetFavorites.getTagNames()) do
-        if not groupsByKey[tag] and (tagUsage[tag] or 0) == 0 then
-            groupsByKey[tag] = createTagGroup(tag)
+    -- (rename / icon / delete) would be unreachable. While filtering they are only noise
+    -- though: a result list should hold nothing but results.
+    if not isFilterActive() then
+        for _, tag in ipairs(assetFavorites.getTagNames()) do
+            if not groupsByKey[tag] and (tagUsage[tag] or 0) == 0 then
+                groupsByKey[tag] = createTagGroup(tag)
+            end
         end
     end
 
@@ -297,11 +341,17 @@ local function drawImportPopup()
 
     style.popupTitle(IconGlyphs.Import, "Import Favorites")
 
-    style.mutedText("Paste a code exported from the settings of a tag.")
+    -- Lines are broken by hand: the popup is sized by the paste field below,
+    -- wrapped text would have nothing to wrap against on the first frame.
+    style.mutedText("To import shared favorites, paste the favorites code in the field below.")
+    ImGui.Spacing()
+    style.mutedText("Favorites you already have are kept as they are, they only\ngain the tags they are missing.")
+    ImGui.Spacing()
+    style.mutedText("To create a code of your own, press the " .. IconGlyphs.CogOutline .. " of a tag row\nand use \"" .. IconGlyphs.Export .. " Export favorites\".")
     ImGui.Spacing()
 
     style.setNextItemWidth(400)
-    favoritesUI.importCode = ImGui.InputTextWithHint("##assetFavoritesImportCode", "Favorites code...", favoritesUI.importCode, IMPORT_CODE_MAX_LENGTH)
+    favoritesUI.importCode = ImGui.InputTextWithHint("##assetFavoritesImportCode", "Paste the favorites code here...", favoritesUI.importCode, IMPORT_CODE_MAX_LENGTH)
 
     if style.drawNoBGConditionalButton(favoritesUI.importCode ~= "", IconGlyphs.Close .. "##assetFavoritesImportCodeClear") then
         favoritesUI.importCode = ""
@@ -310,6 +360,7 @@ local function drawImportPopup()
 
     ImGui.Spacing()
 
+    style.pushGreyedOut(favoritesUI.importCode == "")
     if ImGui.Button(IconGlyphs.Import .. " Import") then
         favoritesUI.importReport = favoritesImpex.import(favoritesUI.importCode)
 
@@ -318,7 +369,7 @@ local function drawImportPopup()
             favoritesUI.importCode = ""
         end
     end
-    style.tooltip("Adds the favorites of the code, and the tags they use.\nAssets already favorited only gain the tags they are missing.")
+    style.popGreyedOut(favoritesUI.importCode == "")
 
     local report = favoritesUI.importReport
     if report then
@@ -334,7 +385,7 @@ local function drawImportPopup()
             end
 
             style.mutedText(IconGlyphs.CheckboxMarkedCircleOutline .. " " .. summary)
-            style.tooltip("Skipped entries were either already favorited with those tags, or did not name an asset.")
+            style.tooltip("Added: assets the code brought into your favorites.\nUpdated: assets you already had, which gained tags from the code.\nSkipped: assets already favorited with those tags, or entries naming no asset.")
         end
     end
 
@@ -370,7 +421,7 @@ local function drawExpandCollapseRow()
         ImGui.OpenPopup(IMPORT_POPUP_ID)
     end
     style.pushButtonNoBG(false)
-    style.tooltip("Import favorites from a code")
+    style.tooltip("Import favorites")
 
     drawImportPopup()
 
@@ -410,7 +461,8 @@ end
 
 ---Draws the shared searchable tag multi-select combo, with icons per tag.
 ---When `opts.allowCreate` is set, the create row also carries an icon selector
----so a new tag is created with its icon in one go.
+---so a new tag is created with its icon in one go. A created tag is selected right
+---away, unless `opts.selectOnCreate` says otherwise.
 ---@param selections table<string, boolean>
 ---@param idScope string
 ---@param searchValue string
@@ -433,7 +485,7 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
         previewLabel = preview,
-        searchHint = "Search tag...",
+        searchHint = IconGlyphs.Magnify .. " Search tag...",
         searchValue = searchValue,
         options = assetFavorites.getTagNames(),
         selections = selections,
@@ -459,7 +511,7 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
             settings.save()
         end,
         allowCreate = opts.allowCreate == true,
-        createHint = "New tag...",
+        createHint = IconGlyphs.Plus .. " New tag...",
         createValue = opts.createValue or "",
         createInputId = "##" .. idScope .. "Create",
         createButtonId = "##" .. idScope .. "CreateAdd",
@@ -468,7 +520,10 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
         createIconPickerId = idScope .. "CreateIcon",
         onCreate = function (name, iconKey)
             assetFavorites.createTag(name, iconKey)
-            selections[name] = true
+
+            if opts.selectOnCreate ~= false then
+                selections[name] = true
+            end
         end,
         getOptionLabel = function (option)
             return assetFavorites.getTagGlyph(option) .. " " .. tostring(option)
@@ -527,7 +582,7 @@ function favoritesUI.drawContextMenuItem(modulePath, path, name, data, idSuffix)
 
     local isFavorite = assetFavorites.isFavorite(modulePath, path)
     local label, hiddenText = style.resolveActionLabelNoIconOnly(
-        IconGlyphs.StarBoxOutline,
+        isFavorite and IconGlyphs.StarMinusOutline or IconGlyphs.StarPlusOutline,
         isFavorite and "Remove from favorites" or "Add to favorites",
         "assetFavoriteToggle" .. tostring(idSuffix or ""),
         nil,
@@ -542,6 +597,138 @@ function favoritesUI.drawContextMenuItem(modulePath, path, name, data, idSuffix)
     end
 
     return clicked
+end
+
+---@class favoriteBulkAddRequest
+---@field modulePath string Spawnable module path every item belongs to
+---@field items assetFavoriteBulkItem[]
+---@field sourceLabel string Where the assets come from, shown in the popup
+---@field newCount number Items not favorited yet, resolved when the popup is staged
+
+---Stages the bulk "add to favorites" popup for a set of spawn list entries.
+---The popup itself is drawn by `favoritesUI.drawPopups`, so this works from any tab.
+---@param modulePath string?
+---@param items assetFavoriteBulkItem[]?
+---@param sourceLabel string?
+---@return boolean staged False when there is nothing to favorite.
+function favoritesUI.openBulkAdd(modulePath, items, sourceLabel)
+    if type(modulePath) ~= "string" or modulePath == "" or type(items) ~= "table" or #items == 0 then
+        return false
+    end
+
+    local newCount = 0
+    for _, item in ipairs(items) do
+        if not assetFavorites.isFavorite(modulePath, item.path) then
+            newCount = newCount + 1
+        end
+    end
+
+    -- The kept selection may name tags deleted since the last opening.
+    utils.pruneKeys(favoritesUI.bulkTags, utils.toKeySet(assetFavorites.getTagNames()))
+
+    favoritesUI.bulkRequest = {
+        modulePath = modulePath,
+        items = items,
+        sourceLabel = tostring(sourceLabel or ""),
+        newCount = newCount
+    }
+    favoritesUI.openBulkAddPopup = true
+    favoritesUI.bulkTagSearch = ""
+    favoritesUI.bulkNewTag = ""
+    favoritesUI.bulkNewTagIcon = assetFavorites.defaultTagIcon
+    favoritesUI.bulkNewTagIconSearch = ""
+
+    return true
+end
+
+---Runs the staged bulk add and reports what it did.
+---@param request favoriteBulkAddRequest
+local function applyBulkAdd(request)
+    local report = assetFavorites.addMany(request.modulePath, request.items, favoritesUI.bulkTags)
+
+    local summary = string.format("%d favorite(s) added", report.added)
+    if report.existing > 0 then
+        summary = summary .. string.format(", %d already favorited", report.existing)
+    end
+
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, summary))
+    logger:info(string.format(
+        "[%s] Bulk favorited \"%s\": %d added, %d already favorited, %d tagged, %d skipped",
+        settings.mainWindowName,
+        request.sourceLabel,
+        report.added,
+        report.existing,
+        report.tagged,
+        report.skipped
+    ))
+end
+
+---Popup used to favorite a whole set of assets at once, under a shared set of tags.
+local function drawBulkAddPopup()
+    local request = favoritesUI.bulkRequest
+    if not request then return end
+
+    if ImGui.IsPopupOpen(BULK_ADD_POPUP_ID) then
+        style.setCursorRelativeAppearing(-5, -5)
+    end
+
+    if ImGui.BeginPopup(BULK_ADD_POPUP_ID) then
+        input.updateContext("main")
+
+        style.popupTitle(IconGlyphs.StarPlusOutline, "Add to Favorites")
+
+        if request.sourceLabel ~= "" then
+            style.fieldLabel("Source")
+            ImGui.AlignTextToFramePadding()
+            ImGui.Text(request.sourceLabel)
+        end
+
+        style.mutedText(string.format("%d asset(s), of which %d not favorited yet", #request.items, request.newCount))
+
+        style.fieldLabel("Tags")
+        _, favoritesUI.bulkTagSearch, favoritesUI.bulkNewTag, favoritesUI.bulkNewTagIcon, favoritesUI.bulkNewTagIconSearch = drawTagSelectorCombo(
+            favoritesUI.bulkTags,
+            "assetFavoriteBulkTags",
+            favoritesUI.bulkTagSearch,
+            {
+                allowCreate = true,
+                createValue = favoritesUI.bulkNewTag,
+                createIcon = favoritesUI.bulkNewTagIcon,
+                createIconSearch = favoritesUI.bulkNewTagIconSearch,
+                showClearSelectionButton = true
+            }
+        )
+        style.tooltip("Every added asset gets these tags.\nAssets already favorited keep their own tags, and only gain the missing ones.")
+
+        if #request.items > BULK_ADD_WARN_THRESHOLD then
+            ImGui.Spacing()
+            style.styledText(IconGlyphs.AlertOutline .. " That is a lot of favorites at once.", style.warnColor)
+            style.tooltip("Narrow the search down first if you did not mean to favorite the whole list.")
+        end
+
+        ImGui.Separator()
+
+        if ImGui.Button(IconGlyphs.StarPlusOutline .. " Add to favorites") then
+            applyBulkAdd(request)
+            favoritesUI.bulkRequest = nil
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button(IconGlyphs.Cancel .. " Cancel") then
+            favoritesUI.bulkRequest = nil
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
+    elseif not favoritesUI.openBulkAddPopup then
+        favoritesUI.bulkRequest = nil
+    end
+
+    if favoritesUI.openBulkAddPopup then
+        favoritesUI.openBulkAddPopup = false
+        ImGui.OpenPopup(BULK_ADD_POPUP_ID)
+    end
 end
 
 ---Spawns one favorite, reusing the regular Spawn New pipeline.
@@ -619,7 +806,7 @@ local function drawEntryPopup()
         end
 
         ImGui.SameLine()
-        if style.dangerButton(IconGlyphs.StarBoxOutline .. " Remove from favorites") then
+        if style.dangerButton(IconGlyphs.StarMinusOutline .. " Remove from favorites") then
             favoritesUI.toggleFavorite(entry.modulePath, entry.path)
             favoritesUI.popupEntry = nil
             ImGui.CloseCurrentPopup()
@@ -814,6 +1001,7 @@ end
 function favoritesUI.drawPopups()
     drawEntryPopup()
     drawTagPopup()
+    drawBulkAddPopup()
 end
 
 ---Right aligned cog button of a list row (entry or tag group).
@@ -921,15 +1109,22 @@ local function drawEntry(entry, context)
     ImGui.PopID()
 end
 
+---Stages the tag settings popup for one tag.
+---The popup itself is drawn by `favoritesUI.drawPopups`.
+---@param tagName string
+local function openTagSettings(tagName)
+    favoritesUI.openTagPopup = true
+    favoritesUI.popupTagName = tagName
+    favoritesUI.tagEditName = tagName
+    favoritesUI.tagEditIconSearch = ""
+end
+
 ---@param group table
 local function drawGroupSideButtons(group)
     if group.isNoTag then return end
 
     drawRowCogButton(2 * (ImGui.GetFontSize() / 15), "Tag settings", function ()
-        favoritesUI.openTagPopup = true
-        favoritesUI.popupTagName = group.name
-        favoritesUI.tagEditName = group.name
-        favoritesUI.tagEditIconSearch = ""
+        openTagSettings(group.name)
     end)
 end
 
@@ -950,6 +1145,12 @@ local function drawGroup(group, context)
         open = newState
         setGroupOpen(group.key, open)
     end
+
+    -- Right click is a shortcut to the settings button of the row. The untagged group has none.
+    if not group.isNoTag and ImGui.IsItemClicked(ImGuiMouseButton.Right) then
+        openTagSettings(group.name)
+    end
+
     context.row = context.row + 1
 
     ImGui.SameLine()
@@ -969,7 +1170,11 @@ local function drawGroup(group, context)
     ImGui.SameLine()
     ImGui.AlignTextToFramePadding()
     ImGui.SetNextItemAllowOverlap()
-    ImGui.Text(string.format("%s (%d)", group.name, #group.entries))
+    ImGui.Text(group.name)
+
+    ImGui.SameLine()
+    ImGui.AlignTextToFramePadding()
+    style.mutedText(string.format("(%d)", #group.entries))
 
     ImGui.SameLine()
     drawGroupSideButtons(group)
@@ -1069,7 +1274,9 @@ function favoritesUI.draw()
 
     style.fieldLabel("Search Tags")
 
-    local tagsChanged, nextTagSearch = drawTagSelectorCombo(
+    -- A tag created here is left unselected on purpose: selecting a brand new tag as filter
+    -- would only empty the list. It is created so it can be assigned to favorites afterwards.
+    local tagsChanged, nextTagSearch, nextNewTag, nextNewTagIcon, nextNewTagIconSearch = drawTagSelectorCombo(
         settings.assetFavoritesFilterTags,
         "assetFavoritesSearchTags",
         favoritesUI.tagFilterSearch,
@@ -1078,10 +1285,18 @@ function favoritesUI.draw()
             comboWidth = 160,
             showAndFilterToggle = true,
             showClearSelectionButton = true,
-            unselectAllTooltip = "Unselect all tags (default behavior: show all)"
+            unselectAllTooltip = "Unselect all tags (default behavior: show all)",
+            allowCreate = true,
+            selectOnCreate = false,
+            createValue = favoritesUI.filterNewTag,
+            createIcon = favoritesUI.filterNewTagIcon,
+            createIconSearch = favoritesUI.filterNewTagIconSearch
         }
     )
     favoritesUI.tagFilterSearch = nextTagSearch
+    favoritesUI.filterNewTag = nextNewTag
+    favoritesUI.filterNewTagIcon = nextNewTagIcon
+    favoritesUI.filterNewTagIconSearch = nextNewTagIconSearch
     if tagsChanged then
         settings.save()
     end

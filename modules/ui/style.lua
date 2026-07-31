@@ -4,6 +4,7 @@ local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
 local utils = require("modules/utils/utils")
 local colorUtil = require("modules/utils/color")
+local input = require("modules/utils/input")
 local dragBeingEdited = false
 local maxLightChannelsWidth = nil
 local maxTriggerChannelsWidth = nil
@@ -1363,7 +1364,8 @@ function style.drawSearchFilterRow(id, value, opts)
 
     ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
     local changed
-    value, changed = ImGui.InputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
+    local defaultHint = IconGlyphs.Magnify .. " Search by name... (Supports pattern matching)"
+    value, changed = ImGui.InputTextWithHint(id, opts.hint or defaultHint, value, opts.maxLength or 100)
 
     local cleared = false
     if style.drawNoBGConditionalButton(value ~= "", IconGlyphs.Close .. id .. "Clear") then
@@ -1615,6 +1617,7 @@ end
 ---@field getOptionKey fun(option: table, idx: integer): string?
 ---@field getOptionLabel fun(option: table, idx: integer): string?
 ---@field matchesOption fun(option: table, searchValue: string, idx: integer): boolean?
+---@field singleSelect boolean? Only one option can be selected: options become rows, picking one replaces the selection and closes the popup.
 ---@field allowCreate boolean? Show an input + add button inside the popup to create a new option.
 ---@field createHint string? Hint text for the create input.
 ---@field createValue string? Current text of the create input (externalized state, returned as 3rd value).
@@ -1623,10 +1626,13 @@ end
 ---@field createIcon string? Icon key. When set, an icon selector is drawn before the create input.
 ---@field createIconSearch string? Search text of that icon selector (externalized state).
 ---@field createIconPickerId string? Unique ID for that icon selector.
+---@field createDisabled boolean? Greys the add button out and refuses the creation, e.g. on a name conflict.
+---@field createTooltip string? Tooltip of the add button, typically saying why it is refused.
 ---@field onCreate fun(name: string, iconKey: string?)? Called when the user confirms a new option; defaults to selecting the name.
 
 ---Draw a searchable multi-select combo with select-all / unselect-all controls.
 ---Selection state is externalized through `selections` where keys map to booleans.
+---With `singleSelect`, the same widget picks exactly one option instead.
 ---The caller owns visible label layout; this component renders only the combo widget by `comboId`.
 ---@param opts SearchableMultiSelectComboOpts
 ---@return boolean changed
@@ -1691,12 +1697,19 @@ function style.drawSearchableMultiSelectCombo(opts)
     local createIconSearch = tostring(opts.createIconSearch or "")
     local createIconPickerId = tostring(opts.createIconPickerId or (comboId .. "CreateIcon"))
     local onCreate = opts.onCreate
+    local createDisabled = opts.createDisabled == true
+    local createTooltip = tostring(opts.createTooltip or "")
+    local singleSelect = opts.singleSelect == true
 
     local changed = false
 
     ImGui.PushItemWidth(comboWidth)
     ImGui.SetNextWindowSizeConstraints(1, 1, 10000, maxPopupHeight)
     if ImGui.BeginCombo(comboId, previewLabel) then
+        -- The popup is its own window, so without this the main window counts as unhovered
+        -- and the viewport starts taking the clicks / keys meant for the search field.
+        input.updateContext("main")
+
         local options = staticOptions
         if type(getOptions) == "function" then
             options = getOptions()
@@ -1719,32 +1732,38 @@ function style.drawSearchableMultiSelectCombo(opts)
         end
 
         style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.ExpandAllOutline .. selectAllButtonId) then
-            for idx, option in ipairs(options) do
-                local optionKey = tostring(getOptionKey(option, idx) or "")
-                if optionKey ~= "" then
-                    selections[optionKey] = true
-                end
-            end
-            changed = true
-        end
-        if opts.selectAllTooltip then
-            style.tooltip(opts.selectAllTooltip)
-        end
 
-        ImGui.SameLine()
-        if ImGui.Button(IconGlyphs.CollapseAllOutline .. unselectAllButtonId) then
-            for optionKey, _ in pairs(selections) do
-                selections[optionKey] = nil
+        -- Bulk selection only means anything when several options can be held at once.
+        if not singleSelect then
+            if ImGui.Button(IconGlyphs.ExpandAllOutline .. selectAllButtonId) then
+                for idx, option in ipairs(options) do
+                    local optionKey = tostring(getOptionKey(option, idx) or "")
+                    if optionKey ~= "" then
+                        selections[optionKey] = true
+                    end
+                end
+                changed = true
             end
-            changed = true
-        end
-        if opts.unselectAllTooltip then
-            style.tooltip(opts.unselectAllTooltip)
+            if opts.selectAllTooltip then
+                style.tooltip(opts.selectAllTooltip)
+            end
+
+            ImGui.SameLine()
+            if ImGui.Button(IconGlyphs.CollapseAllOutline .. unselectAllButtonId) then
+                for optionKey, _ in pairs(selections) do
+                    selections[optionKey] = nil
+                end
+                changed = true
+            end
+            if opts.unselectAllTooltip then
+                style.tooltip(opts.unselectAllTooltip)
+            end
         end
 
         if showAndFilterToggle then
-            ImGui.SameLine()
+            if not singleSelect then
+                ImGui.SameLine()
+            end
             local nextAndFilterState, andFilterChanged = style.toggleButton(andFilterIcon, andFilterState)
             if andFilterChanged then
                 andFilterState = nextAndFilterState
@@ -1777,7 +1796,14 @@ function style.drawSearchableMultiSelectCombo(opts)
             ImGui.SetNextItemWidth(createInputWidth)
             createValue, _ = ImGui.InputTextWithHint(createInputId, createHint, createValue, 100)
 
-            if style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId) then
+            local createClicked = style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId, createDisabled)
+
+            -- Only requested when the button was actually drawn, so it never lands on the input.
+            if createValue ~= "" and createTooltip ~= "" then
+                style.tooltip(createTooltip)
+            end
+
+            if createClicked and not createDisabled then
                 if type(onCreate) == "function" then
                     onCreate(createValue, createIcon)
                 else
@@ -1801,14 +1827,32 @@ function style.drawSearchableMultiSelectCombo(opts)
                     local optionKey = tostring(getOptionKey(option, idx) or "")
                     if optionKey ~= "" then
                         local optionLabel = tostring(getOptionLabel(option, idx) or optionKey)
-                        local checked, toggled = ImGui.Checkbox(optionLabel .. optionIdPrefix .. tostring(idx), selections[optionKey] == true)
-                        if toggled then
-                            if checked then
-                                selections[optionKey] = true
-                            else
-                                selections[optionKey] = nil
+                        local isSelected = selections[optionKey] == true
+
+                        if singleSelect then
+                            -- `Selectable` returns the state it was flipped to, so any difference
+                            -- means the row was clicked, including re-picking the current option.
+                            if ImGui.Selectable(optionLabel .. optionIdPrefix .. tostring(idx), isSelected) ~= isSelected then
+                                if not isSelected then
+                                    for selectedKey, _ in pairs(selections) do
+                                        selections[selectedKey] = nil
+                                    end
+                                    selections[optionKey] = true
+                                    changed = true
+                                end
+
+                                ImGui.CloseCurrentPopup()
                             end
-                            changed = true
+                        else
+                            local checked, toggled = ImGui.Checkbox(optionLabel .. optionIdPrefix .. tostring(idx), isSelected)
+                            if toggled then
+                                if checked then
+                                    selections[optionKey] = true
+                                else
+                                    selections[optionKey] = nil
+                                end
+                                changed = true
+                            end
                         end
                     end
                 end

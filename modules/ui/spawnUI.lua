@@ -1824,6 +1824,35 @@ local function drawFavoriteRowMarker(modulePath, path)
     style.tooltip("Marked as favorite\n" .. spawnUI.favoritesUI.getTagsText(favorite))
 end
 
+---Turns spawn list entries into the items the favorites system stores.
+---Mirrors what the per-row context menu passes for a single entry.
+---@param entries table[]
+---@return assetFavoriteBulkItem[]
+local function buildFavoriteItems(entries)
+    local items = {}
+
+    for _, entry in ipairs(entries) do
+        table.insert(items, {
+            path = entry.name,
+            name = entry.fileName or utils.getFileName(entry.name),
+            data = entry.data
+        })
+    end
+
+    return items
+end
+
+---Opens the bulk favorite popup for a set of entries of the active list.
+---@param entries table[]
+---@param sourceLabel string
+local function openBulkFavorite(entries, sourceLabel)
+    local activeSpawnList = spawnUI.getActiveSpawnList()
+
+    -- Keyed by the browser's module path, like the per-row favorite action: a variant
+    -- hosting several spawnable classes stores all of its assets under the host.
+    spawnUI.favoritesUI.openBulkAdd(activeSpawnList.modulePath, buildFavoriteItems(entries), sourceLabel)
+end
+
 ---Draws one interactive search-result row.
 ---Used by both the classic flat list and the hierarchy tree leaves.
 ---@param entry table
@@ -2066,6 +2095,54 @@ local function resolveHierarchyRows(hierarchyRoot)
     return rows
 end
 
+---Collects the entries of one hierarchy folder and of every folder below it.
+---The tree only ever holds filtered results, so a narrowed search narrows this too.
+---@param node table
+---@param collected table[]?
+---@return table[] entries
+local function collectHierarchyNodeEntries(node, collected)
+    collected = collected or {}
+
+    for _, leaf in ipairs(node.entries) do
+        table.insert(collected, leaf.entry)
+    end
+
+    for _, childKey in ipairs(node.childOrder) do
+        collectHierarchyNodeEntries(node.children[childKey], collected)
+    end
+
+    return collected
+end
+
+---Draws the context menu of one folder row of the hierarchy tree.
+---@param node table
+local function drawHierarchyFolderContextMenu(node)
+    -- Folder rows are drawn flat, without a per-row ID scope, so the popup ID has to
+    -- carry the folder key itself. A shared ID would reopen on every folder at once.
+    local popupId = "##spawnResultFolderContext:" .. node.key
+
+    if not ImGui.BeginPopupContextItem(popupId, ImGuiPopupFlags.MouseButtonRight) then
+        return
+    end
+
+    local label, hiddenText = style.resolveActionLabelNoIconOnly(
+        IconGlyphs.StarPlusOutline,
+        "Add content to favorites",
+        "spawnNewFolderFavorite",
+        nil,
+        true
+    )
+
+    local clicked = ImGui.MenuItem(label)
+    style.tooltipActionLabel(hiddenText, "Favorite every asset of this folder and its sub folders.\nOnly the results matching the current search are added.")
+
+    if clicked then
+        openBulkFavorite(collectHierarchyNodeEntries(node), node.label)
+    end
+
+    ImGui.EndPopup()
+end
+
 ---Draws one folder row, applying and reading back its open state.
 ---@param node table
 ---@param isOpen boolean
@@ -2086,6 +2163,9 @@ local function drawHierarchyFolderRow(node, isOpen)
     if open then
         ImGui.TreePop()
     end
+
+    -- Drawn outside the tree scope, so the popup ID does not depend on the open state.
+    drawHierarchyFolderContextMenu(node)
 
     if not toggled then
         return
@@ -2248,6 +2328,10 @@ function spawnUI.drawOptions()
             style.mutedText(IconGlyphs.AxisArrowInfo)
             style.tooltip("Asset gets previewed at the same position it would spawn in")
         end
+
+        ImGui.SameLine()
+        style.mutedText(IconGlyphs.InformationOutline)
+        style.tooltip(previewControls.getBindingsTooltip())
     end
 
     spawnUI.drawSpawnPosition()
@@ -2255,14 +2339,44 @@ end
 
 local SPAWN_NEW_OPTIONS_POPIN_ID = "##spawnNewOptionsPopin"
 
----Draws the right-aligned hierarchy tree toggle of the search row.
+---Describes the current results in the bulk favorite popup, so it is clear what
+---the button is about to add.
+---@return string
+local function getSearchResultsSourceLabel()
+    local variantLabel = modulePathToVariantLabel[spawnUI.getActiveSpawnList().modulePath] or ""
+
+    if spawnUI.filter == "" then
+        return variantLabel
+    end
+
+    return string.format("%s (search: %s)", variantLabel, spawnUI.filter)
+end
+
+---Draws the right-aligned controls of the search row: bulk favorite and tree toggle.
 ---@param activeSpawnList table
 local function drawSpawnNewSearchRowControls(activeSpawnList)
+    -- Rightmost, so it sits in the same spot whether or not the list has a tree toggle.
+    style.sameLineWindowRight(25)
+
+    -- Dimmed rather than disabled, so the tooltip still explains what the button does.
+    local hasResults = #spawnUI.filteredList > 0
+
+    style.pushButtonNoBG(true)
+    style.pushStyleColor(not hasResults, ImGuiCol.Text, style.mutedColor)
+    if ImGui.Button(IconGlyphs.StarPlusOutline .. "##spawnNewFavoriteResults") and hasResults then
+        openBulkFavorite(spawnUI.filteredList, getSearchResultsSourceLabel())
+    end
+    style.popStyleColor(not hasResults)
+    style.pushButtonNoBG(false)
+    style.tooltip(hasResults
+        and "Add every result to favorites, under the same tag"
+        or "No result to add to favorites")
+
     if not activeSpawnList.isPaths then
         return
     end
 
-    style.sameLineWindowRight(25)
+    style.sameLineWindowRight(50)
 
     local hierarchyTreeChanged
     settings.spawnUIHierarchyTree, hierarchyTreeChanged = style.toggleButton(
@@ -2426,7 +2540,7 @@ function spawnUI.draw()
     groupLoadManager.drawProgress(style)
 
     local tabs = {
-        { icon = IconGlyphs.TextBoxSearchOutline, label = "All", id = "spawnUITabAll", draw = spawnUI.drawAll },
+        { icon = IconGlyphs.TextBoxSearchOutline, label = "Asset Browser", id = "spawnUITabAll", draw = spawnUI.drawAll },
         { icon = IconGlyphs.Group, label = "Prefabs", id = "spawnUITabPrefabs", draw = function () spawnUI.prefabsUI.draw() end },
         { icon = IconGlyphs.StarBoxMultipleOutline, label = "Favorites", id = "spawnUITabAssetFavorites", draw = function () spawnUI.favoritesUI.draw() end }
     }

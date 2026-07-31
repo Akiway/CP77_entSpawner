@@ -273,6 +273,69 @@ function assetFavorites.add(modulePath, path, name, data)
     return entry
 end
 
+---@class assetFavoriteBulkItem
+---@field path string Spawn list entry key
+---@field name string? Display name
+---@field data table? Spawn data of the referenced list entry
+
+---@class assetFavoriteBulkReport
+---@field added number Assets that were not favorited yet
+---@field existing number Assets that already were favorites
+---@field tagged number Favorites that gained at least one of the tags
+---@field skipped number Items naming no asset
+
+---Marks several assets as favorite in one pass, giving every one of them the same tags.
+---Existing favorites are kept as they are and only gain the tags they are missing.
+---The whole operation is collapsed into a single file write.
+---@param modulePath string
+---@param items assetFavoriteBulkItem[]
+---@param tags table<string, boolean>? Tags assigned to every item
+---@return assetFavoriteBulkReport
+function assetFavorites.addMany(modulePath, items, tags)
+    local report = { added = 0, existing = 0, tagged = 0, skipped = 0 }
+    local tagNames = serializeTags(tags)
+
+    assetFavorites.runBatch(function ()
+        for _, tagName in ipairs(tagNames) do
+            registerTag(tagName)
+        end
+
+        for _, item in ipairs(items or {}) do
+            local wasFavorite = assetFavorites.isFavorite(modulePath, item.path)
+            local entry = assetFavorites.add(modulePath, item.path, item.name, item.data)
+
+            if not entry then
+                report.skipped = report.skipped + 1
+            else
+                if wasFavorite then
+                    report.existing = report.existing + 1
+                else
+                    report.added = report.added + 1
+                end
+
+                local gainedTag = false
+                for _, tagName in ipairs(tagNames) do
+                    if not entry.tags[tagName] then
+                        entry.tags[tagName] = true
+                        gainedTag = true
+                    end
+                end
+
+                if gainedTag then
+                    report.tagged = report.tagged + 1
+                end
+            end
+        end
+
+        -- Tags are registered even when every asset was already favorited with them.
+        if report.added > 0 or report.tagged > 0 or #tagNames > 0 then
+            assetFavorites.save()
+        end
+    end)
+
+    return report
+end
+
 ---@param modulePath string?
 ---@param path string?
 ---@return boolean removed

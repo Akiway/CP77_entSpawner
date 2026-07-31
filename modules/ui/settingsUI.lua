@@ -868,9 +868,6 @@ function settingsUI.draw(spawner)
     end
 
     if ImGui.TreeNodeEx("Misc", ImGuiTreeNodeFlags.SpanFullWidth) then
-        settings.headerState, changed = ImGui.Checkbox("Close collapsible headers by default", settings.headerState)
-        if changed then settings.save() end
-
         settings.deleteConfirm, changed = ImGui.Checkbox("Show confirm to delete saved group popup", settings.deleteConfirm)
         if changed then settings.save() end
 

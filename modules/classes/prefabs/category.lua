@@ -35,6 +35,24 @@ local function asBool(value)
 	return value == true
 end
 
+---Whether the prefabs list is currently narrowed down, by search text or by tag filter.
+---An empty category is worth keeping visible while browsing (it is the only way to reach its
+---settings), but only adds noise to a list of search results.
+---@return boolean
+local function isPrefabsFilterActive()
+	if tostring(settings.favoritesFilter or "") ~= "" then
+		return true
+	end
+
+	for _, isSelected in pairs(settings.filterTags or {}) do
+		if isSelected then
+			return true
+		end
+	end
+
+	return false
+end
+
 ---@return table
 local function getAllGroupingStates()
 	if type(settings.favoritesGroupingState) ~= "table" then
@@ -370,13 +388,31 @@ function category:getAssetFavoriteTarget(favorite)
 	}
 end
 
----How many prefabs of this category can be turned into asset favorites.
+---The prefabs a conversion acts on: the ones the list currently shows.
+---Converting the whole category while it is narrowed down by a search or a tag filter would
+---favorite assets the user cannot even see in it, so the filters are honored here too.
+---@return favorite[] candidates
+---@return boolean filtered Whether the filters left part of the category out.
+function category:getAssetFavoriteConversionCandidates()
+	if not isPrefabsFilterActive() then
+		return self.favorites, false
+	end
+
+	local visible = self:getFilteredFavorites()
+
+	return visible, #visible < #self.favorites
+end
+
+---How many of the currently visible prefabs of this category can be turned into asset favorites.
 ---@return number convertible Single asset prefabs that can be favorited
 ---@return number alreadyFavorite How many of those are favorited already
+---@return number considered Prefabs the conversion would look at
+---@return boolean filtered Whether the filters left part of the category out
 function category:getAssetFavoriteConversionStats()
 	local convertible, alreadyFavorite = 0, 0
+	local candidates, filtered = self:getAssetFavoriteConversionCandidates()
 
-	for _, favorite in pairs(self.favorites) do
+	for _, favorite in pairs(candidates) do
 		local target = self:getAssetFavoriteTarget(favorite)
 
 		if target then
@@ -388,10 +424,10 @@ function category:getAssetFavoriteConversionStats()
 		end
 	end
 
-	return convertible, alreadyFavorite
+	return convertible, alreadyFavorite, #candidates, filtered
 end
 
----Adds every single asset prefab of this category to the asset favorites.
+---Adds the single asset prefabs this category currently shows to the asset favorites.
 ---The prefabs themselves are kept: this copies the asset references over, it does not move them.
 ---Each favorite is tagged with the category name, plus the tags of its prefab, so the
 ---category layout survives in the tag grouped favorites list.
@@ -402,6 +438,7 @@ function category:convertToAssetFavorites()
 	local added, updated, skipped = 0, 0, 0
 	local categoryTag = utils.trimString(self.name or "")
 	local spawnListIndexes = {}
+	local candidates, filtered = self:getAssetFavoriteConversionCandidates()
 
 	-- One disk write for the whole category, instead of one per favorite and per tag.
 	assetFavorites.runBatch(function ()
@@ -409,7 +446,7 @@ function category:convertToAssetFavorites()
 			assetFavorites.createTag(categoryTag, self.icon)
 		end
 
-		for _, favorite in pairs(self.favorites) do
+		for _, favorite in pairs(candidates) do
 			local target = self:getAssetFavoriteTarget(favorite)
 			local existing = target and assetFavorites.get(target.modulePath, target.path) or nil
 			local entry = existing
@@ -452,32 +489,44 @@ function category:convertToAssetFavorites()
 		end
 	end)
 
-	logger:info(string.format("[%s] Converted category \"%s\" to favorites: %d added, %d updated, %d skipped.", settings.mainWindowName, self.name, added, updated, skipped))
+	logger:info(string.format(
+		"[%s] Converted %s of category \"%s\" to favorites: %d added, %d updated, %d skipped.",
+		settings.mainWindowName,
+		filtered and string.format("the %d prefab(s) matching the filters", #candidates) or string.format("all %d prefab(s)", #candidates),
+		self.name, added, updated, skipped
+	))
 
 	return added, updated, skipped
 end
 
 ---Draws the "convert this category to asset favorites" row of the settings popup.
 function category:drawConvertToFavorites()
-	local convertible, alreadyFavorite = self:getAssetFavoriteConversionStats()
+	local convertible, alreadyFavorite, considered, filtered = self:getAssetFavoriteConversionStats()
 	local canConvert = convertible > 0
 
 	style.mutedText("To favorites:")
 	ImGui.SameLine()
 
 	style.pushGreyedOut(not canConvert)
-	local clicked = ImGui.Button(IconGlyphs.StarBoxOutline .. " Convert")
+	-- Label says which prefabs are about to be taken, the count of the tooltip alone is
+	-- easy to miss when the list is narrowed down.
+	local clicked = ImGui.Button(IconGlyphs.StarBoxOutline .. (filtered and " Convert shown" or " Convert"))
 	style.popGreyedOut(not canConvert)
 
 	if canConvert then
+		local scope = filtered
+			and string.format("Adds single asset prefabs of this category to the favorites (%d filtered of %d).\n", considered, #self.favorites)
+			or "Adds single asset prefabs of this category to the favorites.\n"
+
 		style.tooltip(string.format(
-			"Adds every single asset prefab of this category to the favorites.\n" ..
-			"%d of the %d prefabs hold a single asset (%d already favorited).\n" ..
+			"%s%d of them hold a single asset (%d already favorited).\n\n" ..
 			"Prefabs holding several assets are skipped: a favorite only bookmarks one asset, without any configuration.\n" ..
-			"Each favorite is tagged with the category name, and with the tags of its prefab.\n" ..
+			"Each favorite is tagged with the category name, and with the tags of its prefab.\n\n" ..
 			"The prefabs themselves are kept.",
-			convertible, #self.favorites, alreadyFavorite
+			scope, convertible, alreadyFavorite
 		))
+	elseif filtered then
+		style.tooltip("No prefab left visible by the current filters holds a single favoritable asset.\nFavorites only bookmark assets of the \"All\" sub-tab, without any configuration.")
 	else
 		style.tooltip("No prefab of this category holds a single favoritable asset.\nFavorites only bookmark assets of the \"All\" sub-tab, without any configuration.")
 	end
@@ -727,7 +776,7 @@ end
 function category:draw(context)
 	local filtered = self:getFilteredEntries()
 
-	if #filtered == 0 and not (#self.favorites == 0) then
+	if #filtered == 0 and (#self.favorites > 0 or isPrefabsFilterActive()) then
 		return
 	end
 
@@ -742,6 +791,12 @@ function category:draw(context)
 	if self.headerOpen ~= newState then
 		self.headerOpen = newState
 	end
+
+	-- Right click is a shortcut to the settings button of the row. Tag sub-groups have none.
+	if not self.isVirtualGroup and ImGui.IsItemClicked(ImGuiMouseButton.Right) then
+		self.openPopup = true
+	end
+
 	context.row = context.row + 1
 
 	ImGui.SameLine()
@@ -760,7 +815,13 @@ function category:draw(context)
 	ImGui.SameLine()
 	ImGui.AlignTextToFramePadding()
 	ImGui.SetNextItemAllowOverlap()
-	ImGui.Text(self.name .. ((self.isVirtualGroup and not self.grouped) and (" (" .. #filtered .. ")") or ""))
+	ImGui.Text(self.name)
+
+	if self.isVirtualGroup and not self.grouped then
+		ImGui.SameLine()
+		ImGui.AlignTextToFramePadding()
+		style.mutedText("(" .. #filtered .. ")")
+	end
 
 	ImGui.SameLine()
 	self:drawSideButtons()

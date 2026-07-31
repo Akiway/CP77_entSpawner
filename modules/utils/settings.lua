@@ -10,7 +10,6 @@ local config = require("modules/utils/config")
 ---@field public rotationShiftClickStep number
 ---@field public applyRotationWhenDropped boolean Default "Apply Rotation When Dropped" state for newly created elements.
 ---@field public despawnOnReload boolean
----@field public headerState boolean
 ---@field public deleteConfirm boolean
 ---@field public moveCloneToParent integer
 ---@field public spawnUIOnlyNames boolean
@@ -100,7 +99,6 @@ local settingsData = {
     rotationShiftClickStep = 90,
     applyRotationWhenDropped = true,
     despawnOnReload = true,
-    headerState = true,
     deleteConfirm = true,
     moveCloneToParent = 2,
     spawnUIOnlyNames = false,
@@ -216,6 +214,7 @@ function settingsFNs.load()
 
     data = config.loadFile("data/config.json")
     data.tabSizes = nil
+    data.headerState = nil
     for k, v in pairs(data) do
         settingsData[k] = v
     end
