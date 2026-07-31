@@ -263,7 +263,7 @@ function meshCollider:draw()
     if noPreview then
         ImGui.SameLine()
         style.styledText(IconGlyphs.AlertOutline, 0xFF0000FF)
-        style.tooltip("Preview disabled due to missing scc_collision.archive\nIf you wish to have collision mesh previews, please download the optional \"Collision Mesh Preview\" archive and install it.")
+        style.tooltip("Preview disabled due to missing scc_collision.archive\nIf you wish to have collision mesh previews, please download the optional \"Collision Mesh Preview\" archive from either the World Builder page on Nexus or GitHub, and install it.")
     end
 
     colliderBase.draw(self)
