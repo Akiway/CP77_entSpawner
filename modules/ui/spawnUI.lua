@@ -174,6 +174,8 @@ local AMM = nil
 ---@field flashlightSuppressionCaptured boolean
 ---@field flashlightSuppressionPreviousOverride number?
 ---@field entryFilterStateByModule table<string, table<string, {selections: table<string, boolean>, search: string}>>
+---@field pendingFilterUpdate boolean
+---@field pendingFilterUpdateAt number
 ---@field filteredHierarchyTree table?
 ---@field hierarchyOpenStateByKey table<string, boolean>
 ---@field hierarchyRows hierarchyRow[]?
@@ -210,6 +212,8 @@ spawnUI = {
     flashlightSuppressionCaptured = false,
     flashlightSuppressionPreviousOverride = nil,
     entryFilterStateByModule = {},
+    pendingFilterUpdate = false,
+    pendingFilterUpdateAt = 0,
     filteredHierarchyTree = nil,
     hierarchyOpenStateByKey = {},
     hierarchyRows = nil,
@@ -1149,6 +1153,9 @@ end
 
 ---Regenerate the filteredList based on the active filter and the currently selected active spawn list
 function spawnUI.updateFilter()
+    -- Always the full pass, so any debounced request is now satisfied.
+    spawnUI.pendingFilterUpdate = false
+
     local activeSpawnList = spawnUI.getActiveSpawnList()
     local orderedData = getOrderedSpawnListData(activeSpawnList)
     local activeFilters = {}
@@ -1197,6 +1204,36 @@ function spawnUI.updateFilter()
     -- Built lazily by `resolveHierarchyRoot`, so the flat view never pays for it.
     spawnUI.filteredHierarchyTree = nil
     spawnUI.invalidateHierarchyRows()
+end
+
+-- `updateFilter` rescans every entry of the active list (the mesh list alone is ~47k paths),
+-- which is far too much to run on the frame a keystroke lands: ImGui grows key down-durations
+-- by the raw frame delta, so one frame longer than the key repeat delay (0.275s) makes a single
+-- physical Ctrl+V or Delete read as pressed twice inside the search field. Coalescing the rescan
+-- onto a later frame keeps the edit frame cheap, and collapses held-key bursts into one pass.
+local FILTER_UPDATE_DEBOUNCE = 0.15
+
+---Requests a re-filter after the debounce delay, restarting it if one is already pending.
+---Use for the search text; discrete changes (filter toggles, variant switches) stay immediate.
+function spawnUI.requestFilterUpdate()
+    spawnUI.pendingFilterUpdate = true
+    spawnUI.pendingFilterUpdateAt = ImGui.GetTime() + FILTER_UPDATE_DEBOUNCE
+end
+
+---Runs a debounced re-filter right away. No-op when nothing is pending.
+---Call before anything that consumes `filteredList` outside the results list itself.
+function spawnUI.flushPendingFilterUpdate()
+    if not spawnUI.pendingFilterUpdate then return end
+
+    spawnUI.updateFilter()
+end
+
+---Applies a pending re-filter once its delay has elapsed. Called once per drawn frame.
+local function tickPendingFilterUpdate()
+    if not spawnUI.pendingFilterUpdate then return end
+    if ImGui.GetTime() < spawnUI.pendingFilterUpdateAt then return end
+
+    spawnUI.updateFilter()
 end
 
 ---Draws one filter as an inline checkbox row (fixed option set).
@@ -2362,6 +2399,8 @@ local function drawSpawnNewSearchRowControls(activeSpawnList)
         style.pushButtonNoBG(true)
         style.pushStyleColor(not hasResults, ImGuiCol.Text, style.mutedColor)
         if ImGui.Button(IconGlyphs.StarPlusOutline .. "##spawnNewFavoriteResults") and hasResults then
+            -- Never bulk-add off a list that a debounced edit has not been applied to yet.
+            spawnUI.flushPendingFilterUpdate()
             openBulkFavorite(spawnUI.filteredList, getSearchResultsSourceLabel())
         end
         style.popStyleColor(not hasResults)
@@ -2447,6 +2486,9 @@ end
 
 ---Draws the full "All" tab, including filters, list, and quick actions.
 function spawnUI.drawAll()
+    -- Before anything reads `filteredList`, so the whole frame sees one consistent list.
+    tickPendingFilterUpdate()
+
     spawnUI.drawTargetGroupSelector()
     spawnUI.drawOptionsButton("##spawnNewOptionsButton", SPAWN_NEW_OPTIONS_POPIN_ID, spawnUI.drawOptions)
 
@@ -2491,9 +2533,13 @@ function spawnUI.drawAll()
 
     local filterChanged, filterCleared
     spawnUI.filter, filterChanged, filterCleared = style.drawSearchFilterRow("##Filter", spawnUI.filter, { maxLength = 500 })
-    if filterChanged or filterCleared then
+    if filterCleared then
+        -- A one-off click, and the empty filter takes the cheap path, so keep it instant.
         saveSpawnUIFilterIfChanged()
         spawnUI.updateFilter()
+    elseif filterChanged then
+        saveSpawnUIFilterIfChanged()
+        spawnUI.requestFilterUpdate()
     end
 
     local activeSpawnList = spawnUI.getActiveSpawnList()
