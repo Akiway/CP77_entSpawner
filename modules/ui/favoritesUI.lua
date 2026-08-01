@@ -20,6 +20,12 @@ local TAG_ICONS_LEFT_MARGIN = 12
 -- needs far more room than the regular name / search inputs
 local IMPORT_CODE_MAX_LENGTH = 1024 * 256
 
+-- Asset preview hover tracking. A favorite is listed once per tag it carries, so the
+-- same entry is drawn by several rows in one frame: whether its preview should stop
+-- can only be decided once every row had its say, not from a single non hovered one.
+local hoveredPreviewEntry = nil
+local previewEntry = nil
+
 ---Spawn New > Favorites sub-tab.
 ---Favorites are bookmarks to assets of the "All" sub-tab, organized with tags.
 ---They never carry any configuration, unlike prefabs.
@@ -1058,12 +1064,11 @@ local function drawEntry(entry, context)
         ImGui.EndPopup()
     end
 
-    -- Asset preview, using the spawn list the favorite belongs to
+    -- Asset preview, using the spawn list the favorite belongs to.
+    -- Stopping it is left to `drawMain`, once every row of the entry has been drawn.
     if spawnList and ImGui.IsItemHovered() and settings.assetPreviewEnabled[entry.modulePath] then
+        hoveredPreviewEntry = entry
         spawnUI.handleAssetPreviewHovered(entry, false, spawnList)
-    elseif spawnUI.hoveredEntry == entry and (spawnUI.previewInstance or spawnUI.previewTimer) then
-        spawnUI.hoveredEntry = nil
-        spawnUI.stopActiveAssetPreview()
     end
 
     context.row = context.row + 1
@@ -1196,6 +1201,8 @@ end
 function favoritesUI.drawMain()
     local groups = buildTagGroups()
 
+    hoveredPreviewEntry = nil
+
     local hasVisibleEntry = false
     for _, group in ipairs(groups) do
         if #group.entries > 0 then
@@ -1220,6 +1227,20 @@ function favoritesUI.drawMain()
             end
         end
     )
+
+    -- The mouse left every row the previewed favorite is listed on
+    if hoveredPreviewEntry then
+        previewEntry = hoveredPreviewEntry
+    elseif previewEntry then
+        local spawnUI = favoritesUI.spawnUI
+
+        if spawnUI.hoveredEntry == previewEntry and (spawnUI.previewInstance or spawnUI.previewTimer) then
+            spawnUI.hoveredEntry = nil
+            spawnUI.stopActiveAssetPreview()
+        end
+
+        previewEntry = nil
+    end
 end
 
 ---Draws the target group selector plus the options button, on one line.
