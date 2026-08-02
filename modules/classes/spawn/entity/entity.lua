@@ -16,6 +16,7 @@ local appearanceHelper = require("modules/utils/appearanceHelper")
 local logger = require("modules/utils/logger")
 local colorUtil = require("modules/utils/color")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
+local tweakDb = require("modules/utils/tweakDbUtils")
 
 local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
@@ -1818,6 +1819,71 @@ function entity:drawLocalizationStringPreview(value, cursorPos)
     style.tooltip(localized)
 end
 
+---Draws one read only value cell of the record details section.
+---@param text string Displayed text
+---@param tooltip string Tooltip text
+---@param copyValue string Value copied on middle click
+local function drawRecordValue(text, tooltip, copyValue)
+    ImGui.Text(text)
+    style.tooltip(tooltip)
+
+    if ImGui.IsItemHovered() and ImGui.IsItemClicked(ImGuiMouseButton.Middle) then
+        ImGui.SetClipboardText(copyValue)
+    end
+end
+
+---Draws a read only, foldable view of the live TweakDB record a TweakDBID property points at.
+---Nothing is drawn when the value does not resolve to a record.
+---@private
+---@param componentID number
+---@param path table
+---@param recordID any Current TweakDBID value
+function entity:drawRecordDetails(componentID, path, recordID)
+    local info = tweakDb.resolveRecord(recordID)
+    if not info then return end
+
+    local id = "##recordDetails" .. componentID .. table.concat(path)
+
+    ImGui.SetCursorPosX(ImGui.GetCursorPosX() + ImGui.GetStyle().IndentSpacing)
+    local open = ImGui.TreeNodeEx(IconGlyphs.Database .. " Record Details | " .. info.className .. id, ImGuiTreeNodeFlags.SpanFullWidth)
+    style.tooltip(info.id .. "\n" .. info.className .. "\n\nLive TweakDB data, read only.\nMiddle click a value to copy it.")
+
+    if not open then return end
+
+    local flats = tweakDb.getRecordFlats(recordID)
+
+    if not flats or #flats == 0 then
+        style.mutedText("No data found for this record")
+    else
+        local labels = {}
+        for _, flat in ipairs(flats) do
+            table.insert(labels, flat.name)
+        end
+
+        local valuePos = ImGui.GetCursorPosX() + utils.getTextMaxWidth(labels) + 2 * ImGui.GetStyle().ItemSpacing.x
+
+        for _, flat in ipairs(flats) do
+            local tooltip = flat.raw
+            if flat.localized then
+                tooltip = tooltip .. "\n" .. IconGlyphs.Translate .. " " .. flat.localized
+            end
+
+            style.mutedText(flat.name)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(valuePos)
+            drawRecordValue(flat.text, tooltip, flat.raw)
+
+            -- Array entries get one row each, so long entries stay readable
+            for _, item in ipairs(flat.items or {}) do
+                ImGui.SetCursorPosX(valuePos)
+                drawRecordValue(item, item, item)
+            end
+        end
+    end
+
+    ImGui.TreePop()
+end
+
 function entity:drawStringProp(componentID, key, data, path, type, width, max)
     key = tostring(key)
 
@@ -2048,6 +2114,9 @@ function entity:drawTableProp(componentID, key, data, path, max, modified, prope
         if info.typeName == "CName" then
             local cursorPos = ImGui.GetCursorPosX() + max + 2 * ImGui.GetStyle().ItemSpacing.x
             self:drawLocKeyPreview(componentID, path, value, cursorPos)
+        else
+            -- Use the committed value, so nothing is resolved while the field is being typed in
+            self:drawRecordDetails(componentID, path, data["$value"])
         end
 
         if finishedEditing then
