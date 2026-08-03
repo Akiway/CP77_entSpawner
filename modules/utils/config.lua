@@ -169,6 +169,92 @@ local function recoverSwapFile(path)
     os.rename(swapPath, path)
 end
 
+-- Public aliases of the crash-safe write primitives, for callers that stream their own bytes into a
+-- `.tmp` file instead of handing a table to `config.saveFile` (see the persistence pipeline).
+-- The locals above stay in use internally so existing call sites keep their direct upvalue access.
+
+---Writes text content to a file in one pass. Returns `success, err`.
+config.writeAll = writeAll
+
+---Promotes a temporary file to a final path, with `.swap` fallback and rollback. Returns `success, err`.
+config.promoteTempFile = replaceFile
+
+---Recovers from an interrupted swap-based replacement at a path.
+config.recoverSwapFile = recoverSwapFile
+
+---Closes a file handle, ignoring any error.
+---A close can throw on a handle whose write already failed, and every caller here is already on an
+---error path or about to drop the handle anyway.
+---@param file file*? Handle to close. `nil` is a no-op.
+function config.closeFileQuietly(file)
+    if not file then return end
+    pcall(file.close, file)
+end
+
+---Opens the temporary file for a crash-safe streamed write.
+---
+---The counterpart of `config.promoteTempFile`: callers that stream their own bytes (rather than
+---handing a table to `config.saveFile`) write here first and promote on success, so an interrupted
+---write can never leave the real file truncated. Any leftover `.swap` from a previous interrupted
+---promotion is recovered first, and a stale `.tmp` is cleared.
+---@param path string Final destination path.
+---@return file*? file Open write handle, or `nil` when it could not be opened.
+---@return string tmpPath The temporary path, whether or not the open succeeded.
+---@return string? err Error text when the open failed.
+function config.beginAtomicWrite(path)
+    local tmpPath = path .. ".tmp"
+
+    recoverSwapFile(path)
+    os.remove(tmpPath)
+
+    local file, err = io.open(tmpPath, "w")
+    if not file then
+        return nil, tmpPath, tostring(err)
+    end
+
+    return file, tmpPath, nil
+end
+
+---Throws away an in-progress streamed write. The destination file is left exactly as it was.
+---@param file file*?
+---@param tmpPath string?
+function config.abortAtomicWrite(file, tmpPath)
+    config.closeFileQuietly(file)
+
+    if tmpPath then
+        os.remove(tmpPath)
+    end
+end
+
+---Cleans up write artifacts left behind by an interrupted save (typically a game crash mid-write).
+---Deletes orphaned `.tmp` files and completes any pending `.swap` replacement. `config.loadFile`
+---recovers `.swap` per file as it reads, but nothing ever removed stale `.tmp` files.
+---@param directory string Directory to sweep, without a trailing slash.
+---@return integer removed Number of stale temp files deleted.
+function config.sweepTempFiles(directory)
+    local ok, entries = pcall(dir, directory)
+    if not ok or type(entries) ~= "table" then
+        return 0
+    end
+
+    local removed = 0
+
+    for _, entry in pairs(entries) do
+        local name = entry.name
+        if type(name) == "string" then
+            if name:sub(-4) == ".tmp" then
+                if os.remove(directory .. "/" .. name) then
+                    removed = removed + 1
+                end
+            elseif name:sub(-5) == ".swap" then
+                recoverSwapFile(directory .. "/" .. name:sub(1, -6))
+            end
+        end
+    end
+
+    return removed
+end
+
 ---Creates a JSON config file only when it does not already exist.
 ---@param path string Destination JSON path.
 ---@param data table<string, any> Default payload used when creating the file.
@@ -260,9 +346,11 @@ end
 ---@param value any
 ---@param out string[]
 ---@param seen table<table, boolean>
+---@param skipKeys table<string, boolean>? Object keys to omit. Applies to `value` itself only, never
+---to nested tables, so a filtered field name cannot accidentally strip an unrelated nested key.
 ---@return boolean ok
 ---@return string? err
-local function encodeStableJSONValue(value, out, seen)
+local function encodeStableJSONValue(value, out, seen, skipKeys)
     local valueType = type(value)
 
     if valueType == "nil" then
@@ -325,7 +413,9 @@ local function encodeStableJSONValue(value, out, seen)
             return false, "unsupported_object_key_type:" .. type(key)
         end
 
-        table.insert(keys, key)
+        if not (skipKeys and skipKeys[key]) then
+            table.insert(keys, key)
+        end
     end
 
     table.sort(keys)
@@ -364,6 +454,27 @@ local function encodeStableJSON(value)
 
     return table.concat(out)
 end
+
+-- Public aliases of the canonical encoder. Anything that writes a file entSpawner will later compare
+-- against MUST go through these rather than reimplementing the format: a single divergence in key
+-- ordering, float formatting or string escaping would make identical data hash as different.
+
+---Appends the stable-JSON encoding of `value` to `out`.
+---@param value any
+---@param out string[] Caller-owned piece list, appended to in place.
+---@param seen table<table, boolean>? Cycle-detection set; a fresh table is used when omitted.
+---@param skipKeys table<string, boolean>? Object keys to omit from `value` itself (not nested tables).
+---@return boolean ok
+---@return string? err
+function config.encodeStableValueInto(value, out, seen, skipKeys)
+    return encodeStableJSONValue(value, out, seen or {}, skipKeys)
+end
+
+---Escapes one Lua string as a JSON string literal.
+config.encodeJSONString = encodeJSONString
+
+---Encodes a Lua value to stable JSON output. Returns `nil, err` for unsupported structures.
+config.encodeStableJSON = encodeStableJSON
 
 ---Encodes JSON with a stable encoder first, then falls back to the runtime JSON module.
 ---@param value any

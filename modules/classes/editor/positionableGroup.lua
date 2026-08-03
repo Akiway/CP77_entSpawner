@@ -8,6 +8,7 @@ local editor = require("modules/utils/editor/editor")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 local previewSyncManager = require("modules/utils/previewSyncManager")
 local previewTimeline = require("modules/ui/previewTimeline")
+local saveState = require("modules/utils/saveState")
 
 local element = require("modules/classes/editor/element")
 local positionable = require("modules/classes/editor/positionable")
@@ -263,6 +264,72 @@ local function drawRootProjectTagSelector(instance)
     end
 end
 
+---Save-button glyphs per tracked state. Listed as `iconVariants` so the row reserves the widest of
+---them and does not reflow when the state changes.
+local SAVE_STATE_ICONS = {
+	new = IconGlyphs.ContentSavePlusOutline,
+	clean = IconGlyphs.ContentSaveCheckOutline,
+	edited = IconGlyphs.ContentSaveAlertOutline,
+	saving = IconGlyphs.ContentSaveCogOutline,
+	error = IconGlyphs.ContentSaveAlertOutline
+}
+
+local SAVE_STATE_COLORS = {
+	clean = { 0.45, 0.65, 0.45, 1.0 },
+	edited = { 0.90, 0.65, 0.25, 1.0 },
+	saving = { 0.45, 0.70, 0.90, 1.0 },
+	error = { 0.85, 0.30, 0.30, 1.0 }
+}
+
+---Renders the per-group save button from tracked state instead of a fixed glyph.
+---@param instance element
+---@return string icon
+---@return number[]? color
+---@return string tooltip
+local function getSaveButtonDisplay(instance)
+	local record = saveState.getRecordFor(instance)
+	local state = record and record.state or "new"
+	local icon = SAVE_STATE_ICONS[state] or IconGlyphs.ContentSaveOutline
+
+	local tooltip
+	if state == "clean" then
+		tooltip = string.format("Saved to \"%s\"\nNo unsaved changes", tostring(record.projectFile))
+	elseif state == "edited" then
+		tooltip = string.format("Unsaved changes\nSaves to \"%s\"", tostring(record.projectFile))
+	elseif state == "saving" then
+		tooltip = "Saving..."
+	elseif state == "error" then
+		tooltip = "Save problem: " .. tostring(record and record.lastError or "unknown")
+	elseif record and record.duplicateOf then
+		tooltip = string.format(
+			"Second copy of \"%s\"\nAuto-save leaves this one alone so it cannot overwrite the original.\nSaving it manually takes over that file.",
+			record.duplicateOf)
+	else
+		tooltip = "Never saved\nSaving creates a new project file"
+	end
+
+	-- Renaming deliberately does not repoint an auto-saving group at a new file, so say where it
+	-- actually goes when that differs from the name on screen.
+	if record and record.projectFile and record.projectFile ~= (instance.name .. ".json") then
+		tooltip = tooltip .. string.format("\n(still writes to \"%s\" until saved manually)", record.projectFile)
+	end
+
+	return icon, SAVE_STATE_COLORS[state], tooltip
+end
+
+---Row save button. Goes through the frame-budgeted pipeline rather than blocking, and falls back to
+---a synchronous save if the pipeline will not take it.
+---@param instance element
+local function queueSave(instance)
+	local sUI = instance.sUI
+	if sUI and sUI.saveRootGroup then
+		sUI.saveRootGroup(instance)
+		return
+	end
+
+	instance:save(true)
+end
+
 function positionableGroup:new(sUI)
 	local o = positionable.new(self, sUI)
 
@@ -282,17 +349,19 @@ function positionableGroup:new(sUI)
 	o.autoCenterCacheMin = nil
 	o.autoCenterCacheMax = nil
 	o.autoCenterCacheCenter = nil
+	o.autoCenterCacheLeafCount = nil
+	o.autoCenterCacheBounded = nil
 	o.class = utils.combine(o.class, { "positionableGroup" })
-	local function isRootGroup(instance)
-		return instance.parent ~= nil and instance.parent:isRoot(true)
-	end
 	o.quickOperations = {
 		[IconGlyphs.ContentSaveOutline] = {
-			operation = positionableGroup.save,
-			condition = isRootGroup,
+			operation = queueSave,
+			-- Called as `condition(element)`, which is exactly the method's own signature.
+			condition = element.isRootChild,
 			tooltip = "Save root group",
 			allowWhenLocked = true,
-			disableWhenEmpty = true
+			disableWhenEmpty = true,
+			getDisplay = getSaveButtonDisplay,
+			iconVariants = SAVE_STATE_ICONS
 		}
 	}
 	o.supportsSaving = true
@@ -360,8 +429,9 @@ function positionableGroup:load(data, silent)
 	element.bumpWireframeEpoch(self)
 end
 
-function positionableGroup:serialize()
-	local data = positionable.serialize(self)
+---@param ctx serializeContext?
+function positionableGroup:serialize(ctx)
+	local data = positionable.serialize(self, ctx)
 
 	self.origin = self.origin or self:getPosition()
 	self.rotation = self.rotation or EulerAngles.new(0, 0, 0)
@@ -390,6 +460,8 @@ function positionableGroup:invalidateAutoCenterCache(propagate)
 	self.autoCenterCacheMin = nil
 	self.autoCenterCacheMax = nil
 	self.autoCenterCacheCenter = nil
+	self.autoCenterCacheLeafCount = nil
+	self.autoCenterCacheBounded = nil
 
 	if propagate and self.parent and utils.isA(self.parent, "positionableGroup") then
 		self.parent:invalidateAutoCenterCache(true)
@@ -399,12 +471,16 @@ end
 ---@param entry element
 ---@param min Vector4
 ---@param max Vector4
-local function accumulateWorldMinMax(entry, min, max)
+---@param state {leafs: integer, bounded: boolean} Accumulator: how many unlocked leafs were seen, and
+---whether any of them actually contributed bounds.
+local function accumulateWorldMinMax(entry, min, max, state)
 	if entry:isLocked() then
 		return
 	end
 
 	if utils.isA(entry, "spawnableElement") then
+		state.leafs = state.leafs + 1
+
 		local entrySize = entry:getSize()
 		local entryPos = entry:getCenter()
 
@@ -419,14 +495,40 @@ local function accumulateWorldMinMax(entry, min, max)
 			max.x = math.max(max.x, entryMax.x)
 			max.y = math.max(max.y, entryMax.y)
 			max.z = math.max(max.z, entryMax.z)
+
+			state.bounded = true
 		end
 
 		return
 	end
 
 	if utils.isA(entry, "positionableGroup") then
+		-- A group that already knows its own bounds is folded in wholesale instead of re-walking it.
+		-- getWorldMinMax already trusts this cache for the group it is called on, so trusting it one
+		-- level up adds no new assumption -- it just stops every ancestor from re-walking the same
+		-- subtree, which is what made a full-tree serialize O(n * depth).
+		if entry.autoCenterCacheValid and entry.autoCenterCacheLeafCount ~= nil then
+			state.leafs = state.leafs + entry.autoCenterCacheLeafCount
+
+			if entry.autoCenterCacheBounded and entry.autoCenterCacheMin and entry.autoCenterCacheMax then
+				local entryMin = entry.autoCenterCacheMin
+				local entryMax = entry.autoCenterCacheMax
+
+				min.x = math.min(min.x, entryMin.x)
+				min.y = math.min(min.y, entryMin.y)
+				min.z = math.min(min.z, entryMin.z)
+				max.x = math.max(max.x, entryMax.x)
+				max.y = math.max(max.y, entryMax.y)
+				max.z = math.max(max.z, entryMax.z)
+
+				state.bounded = true
+			end
+
+			return
+		end
+
 		for _, child in pairs(entry.childs) do
-			accumulateWorldMinMax(child, min, max)
+			accumulateWorldMinMax(child, min, max, state)
 		end
 	end
 end
@@ -522,7 +624,7 @@ function positionableGroup:drawGeneralProperties()
 end
 
 function positionableGroup:getExtraGroupedProperties()
-    if self.parent == nil or not self.parent:isRoot(true) then
+    if not self:isRootChild() then
         return {}
     end
 
@@ -553,22 +655,27 @@ function positionableGroup:getWorldMinMax()
 	local min = Vector4.new(math.huge, math.huge, math.huge, 0)
 	local max = Vector4.new(-math.huge, -math.huge, -math.huge, 0)
 
-	local leafs = self:getPositionableLeafs()
+	-- One walk. This used to call getPositionableLeafs() purely to test for emptiness, which walked
+	-- the whole subtree and allocated a table of every leaf, and then walked it a second time to
+	-- accumulate. The leaf count now falls out of the accumulation itself.
+	local state = { leafs = 0, bounded = false }
 
-	if #leafs == 0 then
+	for _, entry in pairs(self.childs) do
+		accumulateWorldMinMax(entry, min, max, state)
+	end
+
+	if state.leafs == 0 then
 		local fallback = getFallbackOrigin()
 		self.autoCenterCacheMin = fallback
 		self.autoCenterCacheMax = fallback
 		self.autoCenterCacheCenter = fallback
+		self.autoCenterCacheLeafCount = 0
+		self.autoCenterCacheBounded = false
 		self.autoCenterCacheValid = true
 		return self.autoCenterCacheMin, self.autoCenterCacheMax
 	end
 
-	for _, entry in pairs(self.childs) do
-		accumulateWorldMinMax(entry, min, max)
-	end
-
-	if min.x == math.huge then
+	if not state.bounded then
 		min = Vector4.new(0, 0, 0, 0)
 		max = Vector4.new(0, 0, 0, 0)
 	end
@@ -576,6 +683,8 @@ function positionableGroup:getWorldMinMax()
 	self.autoCenterCacheMin = min
 	self.autoCenterCacheMax = max
 	self.autoCenterCacheCenter = utils.addVector(utils.multVector(utils.subVector(max, min), 0.5), min)
+	self.autoCenterCacheLeafCount = state.leafs
+	self.autoCenterCacheBounded = state.bounded
 	self.autoCenterCacheValid = true
 
 	return min, max
@@ -684,6 +793,7 @@ function positionableGroup:drawRotation(rotation)
 		if changed and not history.propBeingEdited then
 			history.addAction(history.getElementChange(self))
 			history.propBeingEdited = true
+			history.lastEditedElement = self
 		end
 
 		if changed then

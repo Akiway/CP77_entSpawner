@@ -3,6 +3,7 @@ local config = require("modules/utils/config")
 local amm = require("modules/utils/ammUtils")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local logger = require("modules/utils/logger")
+local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 
 local groupAMMImportManager = {}
 local AMM_IMPORT_REPORT_SAMPLE_LIMIT = math.huge
@@ -539,6 +540,8 @@ function groupAMMImportManager.start(request)
     if groupAMMImportManager.state.active then return false end
     if amm.importing then return false end
     if not request or not request.savedUI then return false end
+
+    sessionSnapshot.consume("imported AMM presets")
 
     local runtime = createImportState(groupAMMImportManager.state)
     runtime.active = true

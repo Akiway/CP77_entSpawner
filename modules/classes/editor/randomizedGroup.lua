@@ -237,8 +237,9 @@ function randomizedGroup:drawGroupRandomization()
 	end
 end
 
-function randomizedGroup:serialize()
-	local data = positionableGroup.serialize(self)
+---@param ctx serializeContext?
+function randomizedGroup:serialize(ctx)
+	local data = positionableGroup.serialize(self, ctx)
 
 	data.seed = self.seed
 	data.randomizationRule = self.randomizationRule

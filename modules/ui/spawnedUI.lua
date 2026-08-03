@@ -9,6 +9,10 @@ local registry = require("modules/utils/nodeRefRegistry")
 local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
+local saveState = require("modules/utils/saveState")
+local persistenceManager = require("modules/utils/pipeline/persistenceManager")
+local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
+local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
 
 local wu
 
@@ -847,38 +851,118 @@ function spawnedUI.isNameEditActive()
     return hasActiveNameEdit()
 end
 
-function spawnedUI.saveAllRootGroups()
-    if not hasRootChildren() then return end
+---@param seconds number
+---@return string
+local function formatDuration(seconds)
+    if seconds < 60 then
+        return string.format("%ds", math.floor(seconds))
+    end
 
-    local saved = 0
-    local failed = 0
-    local updatedInExport = 0
+    return string.format("%dm %02ds", math.floor(seconds / 60), math.floor(seconds % 60))
+end
 
-    for _, entry in pairs(spawnedUI.paths) do
-        if utils.isA(entry.ref, "positionableGroup") and entry.ref.supportsSaving and entry.ref.parent ~= nil and entry.ref.parent:isRoot(true) then
-            local synced = entry.ref:save(false)
-            if synced ~= nil then
-                updatedInExport = updatedInExport + (synced or 0)
-                saved = saved + 1
-            else
-                failed = failed + 1
+---Tooltip for the auto-save toggle: what it does now, and when it next runs.
+---@return string
+function spawnedUI.getAutoSaveTooltip()
+    if settings.autoSaveEnabled ~= true then
+        return "Auto-save is off\nOnly groups that were already saved once are ever auto-saved;\nnew groups always need an explicit save."
+    end
+
+    local lines = {
+        string.format("Auto-save is on (every %s)", formatDuration(math.max(30, (settings.autoSaveIntervalMinutes or 5) * 60))),
+        "Only saved projects are written; new groups are left alone."
+    }
+
+    local progress = persistenceManager.getProgressLabel()
+    if progress then
+        lines[#lines + 1] = progress
+    else
+        lines[#lines + 1] = "Next check in " .. formatDuration(persistenceManager.secondsUntilNextPass())
+    end
+
+    if persistenceManager.lastAutoSaveName then
+        lines[#lines + 1] = string.format("Last: \"%s\" %s ago",
+            persistenceManager.lastAutoSaveName,
+            formatDuration(os.clock() - (persistenceManager.lastAutoSaveAt or 0)))
+    end
+
+    return table.concat(lines, "\n")
+end
+
+---Compact save state for the toolbar: what is happening now, or how much is unsaved.
+---@return string? label nil when there is nothing worth saying.
+function spawnedUI.getSaveStatusLabel()
+    local progress = persistenceManager.getProgressLabel()
+    if progress then
+        return progress
+    end
+
+    local unsaved, unnamed = 0, 0
+
+    for _, child in ipairs(spawnedUI.root.childs) do
+        if saveState.isSavableRootGroup(child) then
+            local record = saveState.getRecord(child)
+            if record.state == "edited" or record.state == "error" then
+                unsaved = unsaved + 1
+            elseif record.state == "new" then
+                unnamed = unnamed + 1
             end
         end
     end
 
-    local msg = string.format("Saved %s root group%s", saved, saved == 1 and "" or "s")
-    if failed > 0 then
-        msg = msg .. string.format(", %s failed", failed)
-    end
-    if updatedInExport > 0 then
-        msg = msg .. string.format(" and updated %s export list entr%s", updatedInExport, updatedInExport == 1 and "y" or "ies")
+    if unsaved == 0 and unnamed == 0 then
+        return nil
     end
 
-    local toastType = ImGui.ToastType.Success
-    if failed > 0 and ImGui.ToastType and ImGui.ToastType.Error then
-        toastType = ImGui.ToastType.Error
+    local parts = {}
+    if unsaved > 0 then
+        parts[#parts + 1] = string.format("%d unsaved", unsaved)
     end
-    ImGui.ShowToast(ImGui.Toast.new(toastType, 2500, msg))
+    if unnamed > 0 then
+        parts[#parts + 1] = string.format("%d never saved", unnamed)
+    end
+
+    -- Say when the next pass is due. Without this the only feedback between enabling auto-save and
+    -- the first write is silence, which reads exactly like a broken feature.
+    if unsaved > 0 and settings.autoSaveEnabled then
+        local blocked, reason = persistenceManager.isBlocked()
+        if blocked then
+            parts[#parts + 1] = "waiting (" .. tostring(reason) .. ")"
+        else
+            parts[#parts + 1] = "auto-save in " .. formatDuration(persistenceManager.secondsUntilNextPass())
+        end
+    end
+
+    return table.concat(parts, " | ")
+end
+
+---Saves one root group.
+---
+---Queued onto the persistence pipeline, which builds and writes a few milliseconds per frame instead
+---of blocking until done -- on a large project the synchronous path froze the game for seconds. The
+---pipeline also reuses the cached JSON of untouched nodes, so a save costs roughly what changed.
+---
+---Falls back to the synchronous path if the pipeline declines the group: a save the user asked for
+---must happen, even if that means a pause.
+---@param rootGroup element
+---@return boolean queued False when it was saved synchronously instead.
+function spawnedUI.saveRootGroup(rootGroup)
+    if persistenceManager.enqueueManualSave(rootGroup) then
+        return true
+    end
+
+    rootGroup:save(true)
+    return false
+end
+
+function spawnedUI.saveAllRootGroups()
+    if not hasRootChildren() then return end
+
+    for _, entry in pairs(spawnedUI.paths) do
+        if saveState.isSavableRootGroup(entry.ref) then
+            spawnedUI.saveRootGroup(entry.ref)
+        end
+    end
 end
 
 function spawnedUI.registerHotkeys()
@@ -1302,6 +1386,8 @@ function spawnedUI.paste(elements, element)
         return pasted
     end
 
+    sessionSnapshot.consume("pasted elements")
+
     local parent = spawnedUI.root
     local index = #parent.childs + 1
 
@@ -1352,7 +1438,7 @@ function spawnedUI.moveToParent(isMulti, element)
         local elements = {}
         for _, entry in ipairs(roots) do
             local ref = entry.ref
-            if not ref:isLocked() and ref.parent ~= nil and not ref.parent:isRoot(true) then
+            if not ref:isLocked() and ref.parent ~= nil and not ref:isRootChild() then
                 table.insert(elements, ref)
             end
         end
@@ -1378,7 +1464,7 @@ function spawnedUI.moveToParent(isMulti, element)
 
         local insert = history.getInsert(elements)
         history.addAction(history.getMove(remove, insert))
-    elseif element and not element:isLocked() and element.parent ~= nil and not element.parent:isRoot(true) then
+    elseif element and not element:isLocked() and element.parent ~= nil and not element:isRootChild() then
         spawnedUI.unselectAll()
 
         local parent = element.parent
@@ -1554,7 +1640,7 @@ function spawnedUI.drawContextMenu(element, path)
         local isMulti = #spawnedUI.selectedPaths > 1 and element.selected
         local isLocked = element:isLocked()
         local canPaste = hasValidClipboardElements(spawnedUI.clipboard)
-        local isDirectRootChild = element.parent ~= nil and element.parent:isRoot(true)
+        local isDirectRootChild = element:isRootChild()
         local activeSpawnUI = spawnedUI.spawner.baseUI.spawnUI
         local isSpawnTarget = activeSpawnUI.getSpawnTargetParent() == element
         local isEmptyGroup = utils.isA(element, "positionableGroup") and #element.childs == 0
@@ -1766,7 +1852,15 @@ function spawnedUI.getSideButtonsWidth(element)
 
     for icon, data in pairs(element.quickOperations) do
         if data.condition(element) then
-            totalX = totalX + getButtonWidth(icon) + ImGui.GetStyle().ItemSpacing.x
+            -- Reserve the widest glyph the operation can show, not just the current one, so a state
+            -- change does not shift the whole row.
+            local width = getButtonWidth(icon)
+            if data.iconVariants then
+                for _, variant in pairs(data.iconVariants) do
+                    width = math.max(width, getButtonWidth(variant))
+                end
+            end
+            totalX = totalX + width + ImGui.GetStyle().ItemSpacing.x
         end
     end
 
@@ -2406,15 +2500,36 @@ function spawnedUI.drawSideButtons(element, rowHovered)
             if data.disableWhenEmpty and utils.isA(element, "positionableGroup") and next(element.childs) == nil then
                 disableQuickOp = true
             end
+
+            -- An operation may render itself from live state instead of the fixed table key, which is
+            -- how the save button reflects whether the group is modified, saving, or already saved.
+            local displayIcon = icon
+            local tooltip = data.tooltip
+            local color = nil
+            if data.getDisplay then
+                local ok, resolvedIcon, resolvedColor, resolvedTooltip = pcall(data.getDisplay, element)
+                if ok and resolvedIcon then
+                    displayIcon = resolvedIcon
+                    color = resolvedColor
+                    tooltip = resolvedTooltip or tooltip
+                end
+            end
+
             ImGui.BeginDisabled(disableQuickOp)
             ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
-            if ImGui.Button(icon) then
+            if color then
+                ImGui.PushStyleColor(ImGuiCol.Text, color[1], color[2], color[3], color[4])
+            end
+            if ImGui.Button(displayIcon .. "##quickOp" .. icon) then
                 data.operation(element)
+            end
+            if color then
+                ImGui.PopStyleColor()
             end
             ImGui.PopStyleVar()
             ImGui.EndDisabled()
-            if data.tooltip then
-                style.tooltip(data.tooltip)
+            if tooltip then
+                style.tooltip(tooltip)
             end
             ImGui.SameLine()
         end
@@ -3212,6 +3327,7 @@ function spawnedUI.drawTop()
 
     ImGui.SameLine()
     if ImGui.Button("Add group") then
+        sessionSnapshot.consume("added a group")
         local group = require("modules/classes/editor/positionableGroup"):new(spawnedUI)
         local selectedType = spawnedUI.groupTypes[spawnedUI.newGroupTypeIndex]
 
@@ -3224,6 +3340,55 @@ function spawnedUI.drawTop()
         group.name = spawnedUI.newGroupName
         group:setParent(spawnedUI.spawner.baseUI.spawnUI.getSpawnTargetParent())
         history.addAction(history.getInsert({ group }))
+    end
+
+    local hasHierarchy = hasRootChildren()
+
+    -- Saving row. Kept on a line of its own because the status text next to it grows and shrinks
+    -- ("2 unsaved | auto-save in 4m 12s", "Saving \"X\"... 340 KB"), which on a shared row would keep
+    -- shoving the hierarchy actions sideways.
+    style.pushButtonNoBG(true)
+
+    ImGui.BeginDisabled(not hasHierarchy)
+    if ImGui.Button(IconGlyphs.ContentSaveAllOutline) then
+        spawnedUI.saveAllRootGroups()
+    end
+    style.tooltip("Save all root groups")
+    ImGui.EndDisabled()
+
+    ImGui.SameLine()
+    -- Not gated on hasHierarchy: this is a setting, and it stays meaningful with an empty tab.
+    local nextAutoSave, autoSaveToggled = style.toggleButton(IconGlyphs.TimerRefreshOutline, settings.autoSaveEnabled == true)
+    if autoSaveToggled then
+        settings.autoSaveEnabled = nextAutoSave
+        settings.save()
+    end
+    style.tooltip(spawnedUI.getAutoSaveTooltip())
+
+    -- Offered only until the user starts working: restoring on top of a session already in progress
+    -- would mix two sessions. Still reachable afterwards from the Projects tab.
+    --
+    -- Deliberately not gated on hasHierarchy: an empty Spawned tab is precisely when restoring a
+    -- previous session is most useful.
+    if sessionSnapshot.canOffer() then
+        ImGui.SameLine()
+        if ImGui.Button(IconGlyphs.BackupRestore) then
+            sessionRestorePopup.requestOpen()
+        end
+        local snapshotIndex = sessionSnapshot.available
+        style.tooltip(string.format(
+            "Restore previous session\n\n%d root item%s from %s.\nThis disappears once you start spawning; it stays available in the Projects tab.",
+            #snapshotIndex.entries,
+            #snapshotIndex.entries == 1 and "" or "s",
+            tostring(snapshotIndex.savedAt)))
+    end
+
+    style.pushButtonNoBG(false)
+
+    local saveStatus = spawnedUI.getSaveStatusLabel()
+    if saveStatus then
+        ImGui.SameLine()
+        style.mutedText(saveStatus)
     end
 
     -- Hierarchy actions
@@ -3255,8 +3420,7 @@ function spawnedUI.drawTop()
     end
 
     style.pushButtonNoBG(true)
-    
-    local hasHierarchy = hasRootChildren()
+
     local rightHierarchyActionIcons = {
         IconGlyphs.AxisArrow,
         IconGlyphs.MapMarkerPlusOutline,
@@ -3278,12 +3442,6 @@ function spawnedUI.drawTop()
 
     ImGui.SameLine()
     ImGui.BeginDisabled(not hasHierarchy)
-    if ImGui.Button(IconGlyphs.ContentSaveAllOutline) then
-        spawnedUI.saveAllRootGroups()
-    end
-    style.tooltip("Save all root groups")
-    
-    ImGui.SameLine()
     if ImGui.Button(IconGlyphs.CollapseAllOutline) then
         for _, child in pairs(spawnedUI.root.childs) do
             child:setHeaderStateRecursive(false)

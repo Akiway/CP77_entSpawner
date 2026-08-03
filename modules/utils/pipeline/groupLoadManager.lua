@@ -4,6 +4,7 @@ local history = require("modules/utils/history")
 local settings = require("modules/utils/settings")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local logger = require("modules/utils/logger")
+local saveState = require("modules/utils/saveState")
 
 local groupLoadManager = {}
 local FAST_LOAD_BUDGET_MS = 20
@@ -131,6 +132,28 @@ local function queueToast(kind, duration, text)
     pipelineCommon.queueToast(groupLoadManager.pendingToasts, kind, duration, text)
 end
 
+---Change tracking is suppressed for the whole load: a group being built from a file matches that file
+---by definition, and the thousands of addChild/load calls involved are not user edits.
+---
+---A load spans many ticks, so this cannot be a scoped push/pop -- it is held on the state and must be
+---released on every exit path (finish, cancel, and the build error path). saveState's watchdog is the
+---backstop if one is ever missed.
+---@param state table
+local function acquireSuppress(state)
+    if state and not state.suppressHeld then
+        state.suppressHeld = true
+        saveState.pushSuppress()
+    end
+end
+
+---@param state table
+local function releaseSuppress(state)
+    if state and state.suppressHeld then
+        state.suppressHeld = false
+        saveState.popSuppress()
+    end
+end
+
 local function finishQueuedGroupLoad()
     local state = groupLoadManager.state
     if not state.active or not state.group then return end
@@ -146,10 +169,21 @@ local function finishQueuedGroupLoad()
     local selectLoaded = state.selectLoaded
     local spawner = state.spawner
     local onFinished = state.onFinished
+    local projectFile = state.projectFile
+    local suppressHistory = state.suppressHistory
 
+    -- Bind before releasing suppression, so the group is already known to be a faithful copy of its
+    -- file by the time anything can mark it modified.
+    if projectFile then
+        saveState.markLoadedFromDisk(loadedGroup, projectFile)
+    end
+
+    releaseSuppress(state)
     groupLoadManager.state = createLoadState(state)
 
-    history.addAction(history.getInsert({ loadedGroup }))
+    if not suppressHistory then
+        history.addAction(history.getInsert({ loadedGroup }))
+    end
     spawner.baseUI.spawnedUI.cachePaths()
 
     if selectLoaded then
@@ -405,6 +439,11 @@ end
 ---@field initialPosition Vector4?
 ---@field initialRotation EulerAngles?
 ---@field onFinished function?
+---@field projectFile string? File name in `data/objects/` this group was loaded from. Binds the group
+---to that file for auto-save, and marks it as matching disk. Omit for anything not loaded from a
+---saved project (favorites, prefabs, session blobs).
+---@field suppressHistory boolean? Skip the insert action on finish. Used when restoring several
+---groups at once, where one history entry per group would be noise.
 ---@field chunkSize number?
 ---@field buildChunkSize number?
 ---@field enqueueChunkSize number?
@@ -430,6 +469,10 @@ function groupLoadManager.start(request)
     state.initialPosition = request.initialPosition
     state.initialRotation = request.initialRotation
     state.onFinished = request.onFinished
+    state.projectFile = request.projectFile
+    state.suppressHistory = request.suppressHistory == true
+
+    acquireSuppress(state)
 
     if request.chunkSize and request.chunkSize > 0 then
         state.chunkSize = request.chunkSize
@@ -503,6 +546,7 @@ function groupLoadManager.start(request)
             logLoadError("build", current.groupName, err)
             removePartiallyLoadedGroup(current)
             queueToast("warning", 5000, string.format("Failed loading \"%s\": %s", current.groupName, tostring(err)))
+            releaseSuppress(current)
             groupLoadManager.state = createLoadState(current)
         end
     end)
@@ -533,6 +577,7 @@ function groupLoadManager.cancel(reason, suppressToast)
         queueToast("warning", 3500, string.format("Cancelled loading \"%s\"%s", getLoadName(state), reason and (" (" .. reason .. ")") or ""))
     end
 
+    releaseSuppress(state)
     groupLoadManager.state = createLoadState(state)
     return true
 end

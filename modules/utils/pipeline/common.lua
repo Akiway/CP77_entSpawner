@@ -1,6 +1,11 @@
 local utils = require("modules/utils/utils")
+local settings = require("modules/utils/settings")
 
 local pipelineCommon = {}
+
+---Fragments written between clock checks. Reading the clock per fragment costs more than the write
+---does on small fragments, and overshooting by a few hundred of them is far below one frame.
+local FRAGMENTS_PER_CHECK = 256
 
 ---@alias pipelineToastKind "info"|"warning"|"error"|"success"|string
 
@@ -32,6 +37,76 @@ local pipelineCommon = {}
 ---@return number milliseconds
 function pipelineCommon.nowMs()
     return os.clock() * 1000
+end
+
+---How much wall clock a frame-budgeted pipeline step may spend, from the user setting.
+---@return number milliseconds Clamped to a range that stays invisible but still makes progress.
+function pipelineCommon.budgetMs()
+    return math.max(0.5, math.min(tonumber(settings.persistenceBudgetMs) or 4, 16))
+end
+
+---`os.clock` value at which the current step must stop.
+---@param milliseconds number? Overrides the configured budget.
+---@return number deadline
+function pipelineCommon.frameDeadline(milliseconds)
+    return os.clock() + (milliseconds or pipelineCommon.budgetMs()) / 1000
+end
+
+---Budget left before a deadline, for passing on to a nested budgeted step.
+---Never returns zero: a step that is handed no budget at all cannot make progress, so it would spin
+---across frames without ever finishing.
+---@param deadline number
+---@return number milliseconds
+function pipelineCommon.remainingMs(deadline)
+    return math.max(0.5, (deadline - os.clock()) * 1000)
+end
+
+---Streams string fragments into an open file until the iterator runs dry or the deadline passes.
+---
+---Both the auto-save writer and the session snapshot push a rope (see `saveState.ropeIterator`) of a
+---potentially multi-megabyte document through this, a slice per frame, so the document never has to
+---exist as a single string.
+---@param nextFragment fun(): string? Iterator yielding the next fragment, `nil` when exhausted.
+---@param file file* Open write handle.
+---@param deadline number `os.clock` value at which to pause.
+---@param fragmentsPerCheck integer? Fragments between clock checks.
+---@return "done"|"running"|"failed" status
+---@return integer written Bytes written by this call, including those of a run that then failed.
+---@return string? err Error text when the status is `"failed"`.
+function pipelineCommon.streamFragments(nextFragment, file, deadline, fragmentsPerCheck)
+    local limit = fragmentsPerCheck or FRAGMENTS_PER_CHECK
+    local written = 0
+    local exhausted = false
+
+    -- One pcall around the whole chunk rather than one per fragment: a closure per fragment meant
+    -- allocating hundreds of thousands of them for a large document, which cost more than the writing.
+    -- `written` is an upvalue, so a partial run is still reported when a write throws.
+    local ok, err = pcall(function()
+        local sinceCheck = 0
+
+        while true do
+            local fragment = nextFragment()
+            if fragment == nil then
+                exhausted = true
+                return
+            end
+
+            file:write(fragment)
+            written = written + #fragment
+
+            sinceCheck = sinceCheck + 1
+            if sinceCheck >= limit then
+                sinceCheck = 0
+                if os.clock() >= deadline then return end
+            end
+        end
+    end)
+
+    if not ok then
+        return "failed", written, tostring(err)
+    end
+
+    return exhausted and "done" or "running", written, nil
 end
 
 ---Clones a serialized node table while dropping its `childs` field.

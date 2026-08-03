@@ -134,8 +134,9 @@ function scatteredGroup:load(data, silent)
 	end
 end
 
-function scatteredGroup:serialize()
-	local data = positionableGroup.serialize(self)
+---@param ctx serializeContext?
+function scatteredGroup:serialize(ctx)
+	local data = positionableGroup.serialize(self, ctx)
 
 	data.seed = self.seed
 	data.snapToGround = self.snapToGround

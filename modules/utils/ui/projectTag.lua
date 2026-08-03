@@ -83,7 +83,7 @@ function projectTag.getRootGroupTag(element)
         return nil
     end
 
-    if element.parent == nil or not element.parent:isRoot(true) then
+    if not element:isRootChild() then
         return nil
     end
 

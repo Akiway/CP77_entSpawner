@@ -7,6 +7,7 @@ local history = require("modules/utils/history")
 local editor = require("modules/utils/editor/editor")
 local Cron = require("modules/utils/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
+local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local logger = require("modules/utils/logger")
@@ -2689,6 +2690,9 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
     options = options or {}
     local loadHidden = isFavorite and options.loadHidden == true
+
+    -- Spawning is the clearest signal that this is a fresh session, so the recovery banner goes away.
+    sessionSnapshot.consume("spawned an asset")
 
     spawnUI.lastSpawnedClass = class
     spawnUI.lastSpawnedEntry = entry

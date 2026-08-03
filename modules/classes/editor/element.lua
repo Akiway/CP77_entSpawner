@@ -2,6 +2,7 @@ local utils = require("modules/utils/utils")
 local history = require("modules/utils/history")
 local backup = require("modules/utils/backup")
 local logger = require("modules/utils/logger")
+local saveState = require("modules/utils/saveState")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
@@ -32,7 +33,13 @@ local logger = require("modules/utils/logger")
 ---@field selected boolean
 ---@field lockedRename boolean
 ---@field lockedRemove boolean
+---@field __jsonCache table? Cached canonical JSON for this node, owned by `saveState`. Never serialized.
 element = {}
+
+---Options threaded through `serialize` by the incremental persistence walk.
+---@class serializeContext
+---@field shallow boolean? Omit `childs`/`elementCount`; the caller emits them itself.
+---@field copyVolatile boolean? Deep-copy UI-state tables normally shared by reference.
 
 ---Invalidates the cached viewport wireframes owned by the element's spawned UI, when it has one.
 ---@param instance element? Element whose `sUI` should refresh its wireframe cache.
@@ -152,6 +159,10 @@ function element:load(data, silent)
 			new:setParent(self)
 		end
 	end
+
+	-- Covers undo/redo swaps and clipboard pastes, which replace an element's whole state in place.
+	-- A no-op while loading from disk, where suppression is held and the tree matches the file.
+	saveState.markDirty(self)
 end
 
 ---Checks if there is another child which is not entry, with the same name
@@ -188,6 +199,7 @@ function element:rename(name)
 	self.newName = self.name
 
 	history.addAction(history.getRename(oldState, oldPath, self:getPath(), self.id))
+	saveState.markDirty(self)
 	invalidateSUI(self, true)
 end
 
@@ -200,12 +212,14 @@ function element:addChild(new, index)
 	table.insert(self.childs, index, new)
 	new:setHiddenByParent(not self.visible or self.hiddenByParent)
 	new:setLockedByParent(self.locked or self.lockedByParent)
+	saveState.markDirty(self)
 	invalidateSUI(self, true)
 	invalidateAutoCenter(self)
 end
 
 function element:removeChild(child)
 	utils.removeItem(self.childs, child)
+	saveState.markDirty(self)
 	invalidateSUI(self, true)
 	invalidateAutoCenter(self)
 end
@@ -249,6 +263,13 @@ function element:isRoot(realRoot)
 	return self.parent:isRoot(true)
 end
 
+---Checks if the element sits directly under the real root, i.e. is one of the top-level entries of
+---the Spawned tab. Unlike `isRoot(false)` this is safe to call on the real root itself.
+---@return boolean
+function element:isRootChild()
+	return self.parent ~= nil and self.parent:isRoot(true)
+end
+
 ---Returns the visual root parent of the element
 ---@return element
 function element:getRootParent()
@@ -284,7 +305,7 @@ end
 function element:isParentOrSelfSelected()
 	if self.selected then return true end
 
-	if self.parent and not self.parent:isRoot(true) then
+	if self.parent and not self:isRootChild() then
 		return self.parent:isParentOrSelfSelected()
 	end
 
@@ -498,6 +519,9 @@ function element:setVisible(state, fromRecursive)
 	if not fromRecursive then
 		history.addAction(history.getElementChange(self))
 	end
+	-- Not gated on fromRecursive: setVisibleRecursive changes `visible` on every descendant, and each
+	-- of those is real content. The ancestor walk early-exits, so marking a whole subtree stays cheap.
+	saveState.markDirty(self)
 	self.visible = state
 
 	if self.hiddenByParent then return end
@@ -532,6 +556,8 @@ function element:setLocked(state, fromRecursive)
 	if not fromRecursive then
 		history.addAction(history.getElementChange(self))
 	end
+	-- See setVisible: setLockedRecursive changes `locked` on every descendant.
+	saveState.markDirty(self)
 	self.locked = state
 	if state then
 		self:setSelected(false)
@@ -603,12 +629,24 @@ function element:getPath()
 	return self.parent:getPath() .. "/" .. self.name
 end
 
-function element:serialize()
+---Serializes this element and, unless told otherwise, its whole subtree.
+---@param ctx serializeContext? Optional context used by the incremental persistence walk.
+---When omitted (all pre-existing callers) behaviour is unchanged.
+function element:serialize(ctx)
+	local propertyHeaderStates = self.propertyHeaderStates
+	if ctx and ctx.copyVolatile then
+		-- This table is normally handed out by reference, and element:load re-binds that same object,
+		-- so one table can be reachable from several history snapshots and a live element at once --
+		-- while drawProperties writes into it every frame the inspector is open. The persistence walk
+		-- needs a stable snapshot, so it asks for a copy; nothing else pays for it.
+		propertyHeaderStates = utils.deepcopy(propertyHeaderStates)
+	end
+
 	local data = {
 		name = self.name,
 		modulePath = self.modulePath,
 		headerOpen = self.headerOpen,
-		propertyHeaderStates = self.propertyHeaderStates,
+		propertyHeaderStates = propertyHeaderStates,
 		visible = self.visible,
 		hiddenByParent = self.hiddenByParent,
 		locked = self.locked,
@@ -618,10 +656,18 @@ function element:serialize()
 		isUsingSpawnables = true,
 		childs = {}
 	}
+
+	if ctx and ctx.shallow then
+		-- The persistence walk emits childs/elementCount itself, so it can splice in cached output
+		-- for subtrees that have not changed.
+		data.childs = nil
+		return data
+	end
+
 	local elementCount = 0
 
 	for _, child in pairs(self.childs) do
-		local childData = child:serialize()
+		local childData = child:serialize(ctx)
 		table.insert(data.childs, childData)
 
 		if utils.isSerializedSpawnableStrict(childData) then
@@ -638,6 +684,20 @@ function element:serialize()
 	return data
 end
 
+---Reports a failed save to the user.
+---
+---`ImGui.ToastType.Error` is not present in every CET build, so it is probed rather than assumed --
+---and the probe has to come before the table is indexed, or the fallback itself throws.
+---@param message string
+local function showSaveErrorToast(message)
+	local toastType = 0
+	if ImGui.ToastType then
+		toastType = ImGui.ToastType.Error or ImGui.ToastType.Success or 0
+	end
+
+	ImGui.ShowToast(ImGui.Toast.new(toastType, 5000, message))
+end
+
 ---@param showToast boolean?
 function element:save(showToast)
 	showToast = showToast ~= false
@@ -652,11 +712,7 @@ function element:save(showToast)
 		logger:error("[Element] " .. errMsg)
 
 		if showToast then
-			local toastType = ImGui.ToastType.Success
-			if ImGui.ToastType and ImGui.ToastType.Error then
-				toastType = ImGui.ToastType.Error
-			end
-			ImGui.ShowToast(ImGui.Toast.new(toastType, 5000, errMsg))
+			showSaveErrorToast(errMsg)
 		end
 
 		return nil
@@ -671,7 +727,10 @@ function element:save(showToast)
 	local fileName = self.fileName .. ".json"
 	local targetPath = "data/objects/" .. fileName
 	local hadBackup = backup.backupObjectBeforeSave(fileName)
-	local saved, saveErr = config.saveFile(targetPath, data)
+	-- data.lastEditedAt is refreshed above on every save, so the canonical-content comparison in
+	-- config.saveFile can never match. Skipping it avoids a pointless read + decode + re-encode of
+	-- the existing file (multi-second on large groups) before a write that always happens anyway.
+	local saved, saveErr = config.saveFile(targetPath, data, { skipExistingComparison = true })
 	if not saved then
 		if hadBackup then
 			backup.restoreObjectBackup("on_save", fileName)
@@ -681,11 +740,7 @@ function element:save(showToast)
 		logger:error("[Element] " .. errMsg)
 
 		if showToast then
-			local toastType = ImGui.ToastType.Success
-			if ImGui.ToastType and ImGui.ToastType.Error then
-				toastType = ImGui.ToastType.Error
-			end
-			ImGui.ShowToast(ImGui.Toast.new(toastType, 5000, errMsg))
+			showSaveErrorToast(errMsg)
 		end
 
 		return nil
@@ -700,9 +755,19 @@ function element:save(showToast)
 		end
 	end
 
-	if utils.isA(self, "positionableGroup") and self.supportsSaving and self.parent ~= nil and self.parent:isRoot(true) then
-		if baseUI and baseUI.exportUI and baseUI.exportUI.syncGroup then
-			updatedInExport = baseUI.exportUI.syncGroup(self.name) or 0
+	if saveState.isSavableRootGroup(self) then
+		-- This group now is its file. Binds it so auto-save knows what it may overwrite, and clears
+		-- the modified state; the baseline hash is adopted by the next persistence pass rather than
+		-- being computed here, where it would add a full-tree walk to every save.
+		saveState.markManuallySaved(self, fileName)
+
+		if baseUI and baseUI.exportUI then
+			-- Pass the data we just wrote: syncGroup would re-read and decode the file from disk.
+			if baseUI.exportUI.syncGroupFromData then
+				updatedInExport = baseUI.exportUI.syncGroupFromData(self.name, data) or 0
+			elseif baseUI.exportUI.syncGroup then
+				updatedInExport = baseUI.exportUI.syncGroup(self.name) or 0
+			end
 		end
 
 		if showToast then

@@ -427,8 +427,9 @@ function spawnableElement:updateRandomization()
 	end
 end
 
-function spawnableElement:serialize()
-	local data = positionable.serialize(self)
+---@param ctx serializeContext?
+function spawnableElement:serialize(ctx)
+	local data = positionable.serialize(self, ctx)
 	data.spawnable = self.spawnable:save()
 
 	return data

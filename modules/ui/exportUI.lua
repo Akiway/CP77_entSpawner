@@ -1301,12 +1301,13 @@ function exportUI.removeGroupByName(name)
     return removed
 end
 
----Sync group data in export list from saved group file
+---Sync group data in export list from an already in-memory group blob
 ---Keeps export-specific settings (streaming/category/level/refs) while refreshing center + variants
+---Only `pos`/`origin` and the top level of `childs` are read, so a shallow summary is enough
 ---@param name string
+---@param blob table? Serialized group data, or a summary carrying `pos`/`origin` and top-level `childs`
 ---@return integer
-function exportUI.syncGroup(name)
-    local blob = loadSavedGroupBlob(name)
+function exportUI.syncGroupFromData(name, blob)
     if not blob then return 0 end
 
     local updated = 0
@@ -1320,6 +1321,15 @@ function exportUI.syncGroup(name)
     end
 
     return updated
+end
+
+---Sync group data in export list from saved group file
+---Prefer `exportUI.syncGroupFromData` when the data is already in memory: this variant re-reads and
+---decodes the file from disk, which is expensive for large groups.
+---@param name string
+---@return integer
+function exportUI.syncGroup(name)
+    return exportUI.syncGroupFromData(name, loadSavedGroupBlob(name))
 end
 
 function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)

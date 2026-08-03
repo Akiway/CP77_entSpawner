@@ -16,10 +16,16 @@
 
 local about = require("modules/utils/about")
 local settings = require("modules/utils/settings")
+local config = require("modules/utils/config")
+local backup = require("modules/utils/backup")
+local logger = require("modules/utils/logger")
+local saveState = require("modules/utils/saveState")
 local builder = require("modules/utils/entityBuilder")
 local Cron = require("modules/utils/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupExportManager = require("modules/utils/pipeline/groupExportManager")
+local persistenceManager = require("modules/utils/pipeline/persistenceManager")
+local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local cache = require("modules/utils/cache")
 local style = require("modules/ui/style")
 local history = require("modules/utils/history")
@@ -84,6 +90,15 @@ function spawner:new()
         cache.load()
         cache.generateRecordsList()
 
+        -- Validate the backup folder tree (the sandbox cannot create it, so a missing folder has to
+        -- surface in the log rather than silently failing at the first save), and clear any write
+        -- artifacts a crash mid-save left behind.
+        backup.init()
+        local sweptTemp = config.sweepTempFiles("data/objects")
+        if sweptTemp > 0 then
+            logger:info("[Spawner] Removed " .. tostring(sweptTemp) .. " stale temp file(s) from data/objects")
+        end
+
         self.baseUI.init()
         self.baseUI.savedUI.spawner = self
         self.baseUI.savedUI.backwardComp()
@@ -100,6 +115,9 @@ function spawner:new()
 
         self.baseUI.exportUI.init(self)
         history.spawnedUI = self.baseUI.spawnedUI
+        saveState.spawnedUI = self.baseUI.spawnedUI
+        -- Reads only the snapshot's index line, so this stays cheap no matter how big the payload is.
+        sessionSnapshot.init()
         registry.init(self)
 
         self.editor.init(self)
@@ -116,16 +134,34 @@ function spawner:new()
             self.runtimeData.inMenu = isInMenu
         end)
 
+        -- fromRecursive = true on both: visibility still propagates to every child
+        -- (element:setVisible only gates the history action on it). Passing false made
+        -- each session start/end snapshot the entire tree via history.getElementChange on
+        -- the real root, and truncate the redo tail.
+        -- Engine-driven visibility, not a user edit: suppressed so entering or leaving a game does not
+        -- mark every loaded project as modified.
+        local function setRootVisible(state)
+            saveState.pushSuppress()
+            local ok, err = pcall(function()
+                self.baseUI.spawnedUI.root:setVisible(state, true)
+            end)
+            saveState.popSuppress()
+
+            if not ok then
+                logger:error("[Spawner] Failed to apply root visibility: " .. tostring(err))
+            end
+        end
+
         self.GameUI.OnSessionStart(function()
             self.runtimeData.inGame = true
             previewSyncManager.reset()
-            self.baseUI.spawnedUI.root:setVisible(true, false)
+            setRootVisible(true)
             preview.addHUD()
         end)
 
         self.GameUI.OnSessionEnd(function()
             self.runtimeData.inGame = false
-            self.baseUI.spawnedUI.root:setVisible(false, false)
+            setRootVisible(false)
             preview.elements = {}
             previewSyncManager.reset()
         end)
@@ -146,12 +182,21 @@ function spawner:new()
             previewSyncManager.update(dt)
         end
 
+        -- Deliberately outside the guard above: this is pure Lua over already-cached state, and it is
+        -- time-based. Gating it on "in game and not in a menu" would stop the auto-save clock exactly
+        -- while someone is tabbed out, which is when a crash is most likely to cost work.
+        persistenceManager.update(dt)
+
         if self.editor.camera then
             self.editor.camera.deltaTime = dt
         end
     end)
 
     registerForEvent("onShutdown", function ()
+        -- Explicit saves are queued onto a frame-budgeted pipeline, so a reload can arrive while some
+        -- are still waiting. Finish them here rather than dropping work the user asked to save.
+        persistenceManager.flushPendingManualSaves()
+
         if settings.despawnOnReload then
             self.baseUI.spawnedUI.root:remove()
         end

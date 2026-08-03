@@ -1,5 +1,6 @@
 local utils = require("modules/utils/utils")
 local logger = require("modules/utils/logger")
+local saveState = require("modules/utils/saveState")
 
 local maxHistory = 999
 local maxPendingRequests = 16
@@ -13,6 +14,11 @@ local history = {
     actions = {},
     spawnedUI = nil,
     propBeingEdited = false,
+    ---Element whose property is mid-drag. A drag pushes one history action on the first frame and
+    ---then keeps mutating for as long as the user holds the control, so change tracking needs to know
+    ---who to re-check once `propBeingEdited` drops back to false.
+    ---@type element?
+    lastEditedElement = nil,
     pending = {},
     active = nil,
     frameBudgetMs = 2.5
@@ -278,6 +284,18 @@ function history.getComposite(actions)
     local action = {}
     local state = nil
 
+    -- Union of what the nested actions touch. getMultiSelectChange and getElementChanges both funnel
+    -- through here, so tagging getElementChange plus this covers every element-change path.
+    local dirtyElements = {}
+    for _, nested in ipairs(actions) do
+        if nested.dirtyElements then
+            for _, element in ipairs(nested.dirtyElements) do
+                dirtyElements[#dirtyElements + 1] = element
+            end
+        end
+    end
+    action.dirtyElements = dirtyElements
+
     action.undo = function()
         for i = #actions, 1, -1 do
             actions[i].undo()
@@ -540,6 +558,10 @@ function history.getElementChange(element)
     action.data = element:serialize()
     action.path = element:getPath()
     action.id = element.id
+    -- Property edits on a spawnable (light intensity, mesh path, ...) mutate fields directly and have
+    -- no element-level hook; this is the only place that knows which element they touched, so the
+    -- change tracker learns about them from here.
+    action.dirtyElements = { element }
 
     local function swap()
         local target = resolveElementByPath(action.path, false, action.id, true)
@@ -795,6 +817,7 @@ end
 ---@param action table History action to append.
 function history.addAction(action)
     clearExecutionQueue()
+    saveState.onHistoryAction(action)
 
     if history.index < #history.actions then
         for i = history.index + 1, #history.actions do
@@ -919,6 +942,14 @@ local function finishActiveAction(success)
 
     history.active = nil
     history.propBeingEdited = false
+
+    -- Undo/redo mutate the tree just as much as the forward action did, and re-dirty a different set
+    -- (undoing an insert removes an element, undoing a rename changes a path), so re-run the same
+    -- tracking rather than trying to invert it.
+    if success then
+        saveState.onHistoryAction(action)
+    end
+
     rebuildCache(true)
 end
 

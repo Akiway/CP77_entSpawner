@@ -12,7 +12,10 @@ local ammImportReportPopup = require("modules/utils/ui/ammImportReportPopup")
 local ammImportPresetPopup = require("modules/utils/ui/ammImportPresetPopup")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
+local pipelineCommon = require("modules/utils/pipeline/common")
 local backup = require("modules/utils/backup")
+local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
+local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
 local logger = require("modules/utils/logger")
 
 local PROJECT_NEUTRAL_KEY = "__no_project__"
@@ -40,21 +43,28 @@ savedUI = {
     projectSectionIconSearch = {},
     groupProjectCreateState = {},
     groupProjectIconSearch = {},
-    pendingGroupProjectPopupId = nil
+    pendingGroupProjectPopupId = nil,
+    ---File names whose cached entry still renders correctly but whose `childs` tree is older than the
+    ---file, because auto-save wrote it without holding the document in memory. See `getEntryData`.
+    stalePayloads = {}
 }
 
 ---@param group table
 ---@param spawner spawner
 ---@param loadHidden boolean?
-function savedUI.startQueuedGroupLoad(group, spawner, loadHidden)
+---@param fileName string? File in `data/objects/` this group comes from. Binds it for auto-save.
+function savedUI.startQueuedGroupLoad(group, spawner, loadHidden, fileName)
     local hidden = loadHidden == true
+
+    sessionSnapshot.consume("loaded a project")
 
     groupLoadManager.start({
         spawner = spawner,
         data = group,
         targetParent = spawner.baseUI.spawnedUI.root,
         setAsSpawnNew = settings.setLoadedGroupAsSpawnNew and not hidden,
-        loadHidden = hidden
+        loadHidden = hidden,
+        projectFile = fileName
     })
 end
 
@@ -181,6 +191,8 @@ function savedUI.refreshEntry(fileName, data)
     end
 
     if data ~= nil then
+        savedUI.stalePayloads[fileName] = nil
+
         if validateSavedEntry(fileName, data) then
             savedUI.files[fileName] = data
             return true
@@ -189,6 +201,8 @@ function savedUI.refreshEntry(fileName, data)
         savedUI.files[fileName] = nil
         return false
     end
+
+    savedUI.stalePayloads[fileName] = nil
 
     local fullPath = "data/objects/" .. fileName
     if not config.fileExists(fullPath) then
@@ -201,12 +215,111 @@ function savedUI.refreshEntry(fileName, data)
     return savedUI.files[fileName] ~= nil
 end
 
-local function getToastType(kind)
-    if kind == "error" and ImGui.ToastType and ImGui.ToastType.Error then
-        return ImGui.ToastType.Error
+---Patches the cached entry for a file that was just rewritten, using only the top-level facts this
+---tab displays, and flags the entry's tree as no longer matching the file.
+---
+---`refreshEntry` needs the entire decoded document, and passing `nil` makes it re-read from disk --
+---either is unacceptable for auto-save, which streams the document straight to the file and never
+---holds it in memory. The fields below are everything the Projects tab renders for a collapsed entry;
+---`childs` is left untouched and therefore stale, hence the flag. See `savedUI.getEntryData`.
+---@param fileName string
+---@param summary table `{ name, elementCount, lastEditedAt, pos, project, childs }`
+---@return boolean updated
+function savedUI.refreshEntryShallow(fileName, summary)
+    if type(fileName) ~= "string" or fileName == "" or type(summary) ~= "table" then
+        return false
     end
 
-    return ImGui.ToastType.Success
+    local entry = savedUI.files[fileName]
+    if not entry then
+        -- Not cached yet (or previously invalid): fall back to a normal read so the tab still updates.
+        return savedUI.refreshEntry(fileName, nil)
+    end
+
+    entry.name = summary.name or entry.name
+    entry.lastEditedAt = summary.lastEditedAt or entry.lastEditedAt
+    entry.elementCount = summary.elementCount or entry.elementCount
+    entry.project = summary.project
+    if summary.pos then
+        entry.pos = summary.pos
+    end
+
+    savedUI.stalePayloads[fileName] = true
+
+    return true
+end
+
+---Returns a cached entry that is safe to use as *content*, re-reading it from disk when auto-save has
+---moved past what is in memory.
+---
+---`savedUI.files` serves two jobs: it backs what this tab renders, and it is the source both for
+---loading a project into the Spawned tab and for writing one back (rename, project tag). Auto-save
+---never materialises the whole document -- it streams the rope straight into the file -- so it can
+---only patch the display fields. Anything that needs the actual tree has to come through here, or it
+---would load a version older than the file, or worse, save that older version back over it.
+---
+---Re-reading is only paid for files auto-save has actually touched, and only when something asks for
+---their contents.
+---@param fileName string
+---@return table? entry
+function savedUI.getEntryData(fileName)
+    if type(fileName) ~= "string" or fileName == "" then
+        return nil
+    end
+
+    if savedUI.stalePayloads[fileName] then
+        savedUI.stalePayloads[fileName] = nil
+
+        local entry = savedUI.files[fileName]
+        local fresh = config.loadFile("data/objects/" .. fileName)
+
+        if entry and type(fresh) == "table" and fresh.name then
+            -- Refreshed in place rather than swapped: this tab hands entries around by reference
+            -- (drawGroup receives one as an argument), so replacing the table would leave the caller
+            -- holding a detached copy for the rest of the frame.
+            --
+            -- `newName` is the live rename field, not file content, and it lives on this same table.
+            -- Wiping it here left the rename handler concatenating a nil the moment it refreshed an
+            -- auto-saved entry, so it is carried across.
+            local editedName = entry.newName
+
+            for key in pairs(entry) do
+                entry[key] = nil
+            end
+            for key, value in pairs(fresh) do
+                entry[key] = value
+            end
+
+            entry.newName = editedName or entry.name
+        else
+            loadSavedEntry(fileName)
+        end
+    end
+
+    return savedUI.files[fileName]
+end
+
+---Permanent way back into the previous session's backup.
+---
+---The banner in the Spawned tab disappears as soon as work starts, which is right for the common
+---case but strands anyone who accidentally spawns one prop before restoring. This one never
+---disappears. It always targets the run before this one -- the snapshot the current run is building
+---only becomes reachable after a restart.
+function savedUI.drawSessionRestoreEntry()
+    if not config.fileExists(sessionSnapshot.previousPath) then
+        return
+    end
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+
+    local restoreBlocked = sessionRestorePopup.isBlocked()
+    style.pushGreyedOut(restoreBlocked)
+    if ImGui.Button(IconGlyphs.BackupRestore .. " Restore previous session##savedUIRestoreSession")
+        and not restoreBlocked then
+        sessionRestorePopup.requestOpen()
+    end
+    style.popGreyedOut(restoreBlocked)
+    style.tooltip("Pick what to bring back from the session before this one.\nRestored items are added alongside what is already open; nothing on disk is overwritten.")
 end
 
 ---@param source "on_save"|"on_game_load"
@@ -216,9 +329,9 @@ local function queueBackupRestore(source, fileName)
 
     if backup.restoreObjectBackup(source, fileName) then
         savedUI.pendingReload = true
-        ImGui.ShowToast(ImGui.Toast.new(getToastType("success"), 5000, string.format("Restored \"%s\" from %s", fileName, sourceLabel)))
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("success"), 5000, string.format("Restored \"%s\" from %s", fileName, sourceLabel)))
     else
-        ImGui.ShowToast(ImGui.Toast.new(getToastType("error"), 5000, string.format("Failed to restore \"%s\" from %s", fileName, sourceLabel)))
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 5000, string.format("Failed to restore \"%s\" from %s", fileName, sourceLabel)))
     end
 end
 
@@ -291,6 +404,7 @@ local function syncSavedFileCaches()
         if not existing[fileName] then
             savedUI.files[fileName] = nil
             savedUI.groupOpenState[fileName] = nil
+            savedUI.stalePayloads[fileName] = nil
         end
     end
 
@@ -355,6 +469,8 @@ local function saveSavedEntry(fileName, data, updateTimestamp)
     if ok then
         savedUI.files[fileName] = data
         savedUI.invalidFiles[fileName] = nil
+        -- The file is now exactly this table again, so whatever auto-save had written is superseded.
+        savedUI.stalePayloads[fileName] = nil
     end
 
     return ok
@@ -366,6 +482,10 @@ end
 ---@param showToast boolean?
 ---@return boolean
 local function assignProjectToGroup(fileName, group, project, showToast)
+    -- This writes the whole cached entry back to disk, so it must not be holding a tree that
+    -- auto-save has already moved past -- that would silently revert the saved content.
+    savedUI.getEntryData(fileName)
+
     local existing = getGroupProject(group)
     local nextProject = projectTagUtil.normalizeProject(project)
 
@@ -389,7 +509,7 @@ local function assignProjectToGroup(fileName, group, project, showToast)
         local target = nextProject and ("project \"" .. nextProject.name .. "\"") or "No Project"
         ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Assigned \"%s\" to %s", group.name, target)))
     elseif not saved and showToast then
-        ImGui.ShowToast(ImGui.Toast.new(getToastType("error"), 4000, string.format("Failed to update project for \"%s\"", group.name)))
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 4000, string.format("Failed to update project for \"%s\"", group.name)))
     end
 
     return saved
@@ -433,7 +553,7 @@ local function applyProjectToSectionGroups(key, groups, project, showToast)
             ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 3000, string.format("Moved %d group%s to %s", applied, applied == 1 and "" or "s", PROJECT_NEUTRAL_LABEL)))
         end
     else
-        ImGui.ShowToast(ImGui.Toast.new(getToastType("error"), 4000, string.format("Project update incomplete (%d updated, %d failed)", applied, failures)))
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 4000, string.format("Project update incomplete (%d updated, %d failed)", applied, failures)))
     end
 end
 
@@ -1086,6 +1206,8 @@ function savedUI.draw(spawner)
     style.tooltip("Reload saved groups from disk.")
     style.pushButtonNoBG(false)
 
+    savedUI.drawSessionRestoreEntry()
+
     style.spacedSeparator()
 
     groupLoadManager.drawProgress(style)
@@ -1262,8 +1384,13 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
         ImGui.PopItemWidth()
 
         if ImGui.IsItemDeactivatedAfterEdit() then
+            -- Refresh before the rename rewrites the file from this table: auto-save may have written
+            -- a newer tree that only exists on disk, and saving the cached one would undo it.
+            savedUI.getEntryData(fileName)
+
             savedUI.files[fileName] = nil
             savedUI.invalidFiles[fileName] = nil
+            savedUI.stalePayloads[fileName] = nil
 
             local newFileName = group.newName .. ".json"
             local previousOpen = savedUI.groupOpenState[fileName]
@@ -1287,7 +1414,7 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
         local groupLoadActive = groupLoadManager.isActive() or groupAMMImportManager.isActive()
         style.pushGreyedOut(groupLoadActive)
         if ImGui.Button("Load") and not groupLoadActive then
-            savedUI.startQueuedGroupLoad(group, spawner)
+            savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, false, fileName)
         end
         if groupLoadActive then
             style.tooltip("Loading is disabled while another pipeline operation is active")
@@ -1297,7 +1424,7 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
 
         ImGui.SameLine()
         if ImGui.Button("Load as Hidden") and not groupLoadActive then
-            savedUI.startQueuedGroupLoad(group, spawner, true)
+            savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, true, fileName)
         end
         if groupLoadActive then
             style.tooltip("Loading is disabled while another pipeline operation is active")
@@ -1479,6 +1606,7 @@ end
 function savedUI.reload()
     savedUI.files = {}
     savedUI.invalidFiles = {}
+    savedUI.stalePayloads = {}
     savedUI.pendingReload = false
     savedUI.projectSectionOpenState = {}
     savedUI.projectSectionRestoreOpenState = {}

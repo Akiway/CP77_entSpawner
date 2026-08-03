@@ -8,6 +8,8 @@ local editor = require("modules/utils/editor/editor")
 local input = require("modules/utils/input")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
+local persistenceManager = require("modules/utils/pipeline/persistenceManager")
+local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
 local history = require("modules/utils/history")
 
 local wu
@@ -349,6 +351,9 @@ function baseUI.draw(spawner)
         input.updateContext("main")
         groupLoadManager.drawToasts()
         groupAMMImportManager.drawToasts()
+        persistenceManager.drawToasts()
+        -- Drawn from here rather than a tab, so it stays usable whichever tab is open.
+        sessionRestorePopup.draw(spawner)
 
         if not editorActive then
             baseUI.mainWindowPosition = { ImGui.GetWindowPos() }

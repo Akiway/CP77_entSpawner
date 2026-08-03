@@ -982,6 +982,7 @@ function positionable:drawProp(prop, name, axis, disableInput)
 	if changed and not history.propBeingEdited then
 		history.addAction(history.getElementChange(self))
 		history.propBeingEdited = true
+		history.lastEditedElement = self
 	end
     if changed or finished then
 		if axis == "x" then
@@ -1352,8 +1353,9 @@ function positionable:dropToSurface(grouped, direction, excludeDict)
 
 end
 
-function positionable:serialize()
-	local data = element.serialize(self)
+---@param ctx serializeContext?
+function positionable:serialize(ctx)
+	local data = element.serialize(self, ctx)
 
 	data.transformExpanded = self.transformExpanded
 	data.rotationRelative = self.rotationRelative

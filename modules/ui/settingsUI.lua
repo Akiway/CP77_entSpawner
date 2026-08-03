@@ -11,6 +11,9 @@ local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local previewControls = require("modules/utils/previewControls")
 local keys = require("modules/utils/keys")
 local input = require("modules/utils/input")
+local saveState = require("modules/utils/saveState")
+local logger = require("modules/utils/logger")
+local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 
 local colliderColors = { "Red", "Green", "Blue" }
 local streamingPresetLabels = { "Interior", "Street", "District", "Landscape", "To the Moon" }
@@ -30,6 +33,43 @@ local actionLabelDisplayModeOptions = {
 local wireframeColorStyleTooltipText = "Global projected wireframe color style used by streaming distance and streaming box overlays."
 
 local settingsUI = {}
+
+---Runs the full save-encoder diagnostic over every loaded root group.
+---
+---Deliberately synchronous and deliberately not on any automatic path: it rebuilds each group twice
+---and encodes it a third time through `config.saveFile`'s encoder, which is exactly what auto-save
+---exists to avoid doing. It answers the one question the budgeted per-save check cannot: whether the
+---incremental encoder still agrees byte for byte with the one a manual save uses.
+---@param spawner spawner
+function settingsUI.runSaveVerification(spawner)
+    local root = spawner and spawner.baseUI and spawner.baseUI.spawnedUI and spawner.baseUI.spawnedUI.root
+    if not root then
+        settingsUI.lastVerificationResult = "No hierarchy loaded"
+        return
+    end
+
+    local checked, failed = 0, 0
+
+    for _, child in ipairs(root.childs) do
+        checked = checked + 1
+        local ok, detail = saveState.verify(child)
+
+        if ok then
+            logger:info(string.format("[Verify] \"%s\" OK (%s)", child.name, detail))
+        else
+            failed = failed + 1
+            logger:error(string.format("[Verify] \"%s\" FAILED: %s", child.name, detail))
+        end
+    end
+
+    if checked == 0 then
+        settingsUI.lastVerificationResult = "Nothing to verify"
+    elseif failed == 0 then
+        settingsUI.lastVerificationResult = string.format("%d/%d groups verified OK", checked, checked)
+    else
+        settingsUI.lastVerificationResult = string.format("%d of %d groups FAILED - see entSpawner.log", failed, checked)
+    end
+end
 
 local function drawWireframePreviewTextBold(drawList, position, color, size, text, scale)
     local content = tostring(text)
@@ -1123,6 +1163,41 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
+    if ImGui.TreeNodeEx("Saving & Recovery", ImGuiTreeNodeFlags.SpanFullWidth) then
+        style.sectionHeaderStart("AUTO-SAVE")
+
+        settings.autoSaveEnabled, changed = ImGui.Checkbox("Enable auto-save", settings.autoSaveEnabled)
+        if changed then settings.save() end
+        style.tooltip("Periodically writes modified root groups back to their project file in \"data/objects\".\n\nOnly groups that have already been saved once are affected - a brand new group is never\nwritten anywhere until you save it yourself.\n\nWork is spread across frames and nothing is written when the content has not changed,\nso this does not interrupt editing.")
+
+        ImGui.BeginDisabled(not settings.autoSaveEnabled)
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.autoSaveIntervalMinutes, changed = ImGui.SliderFloat("Auto-save every", settings.autoSaveIntervalMinutes, 0.5, 60.0, "%.1f min")
+        if changed then
+            settings.autoSaveIntervalMinutes = math.max(0.5, math.min(settings.autoSaveIntervalMinutes, 60.0))
+            settings.save()
+        end
+        style.tooltip("How long to wait between auto-save passes.")
+
+        settings.autoSaveShowToasts, changed = ImGui.Checkbox("Show a notification on auto-save", settings.autoSaveShowToasts)
+        if changed then settings.save() end
+
+        ImGui.EndDisabled()
+
+        style.sectionHeaderEnd()
+
+        style.sectionHeaderStart("SESSION RECOVERY")
+
+        settings.sessionRestoreEnabled, changed = ImGui.Checkbox("Keep a session backup", settings.sessionRestoreEnabled)
+        if changed then settings.save() end
+        style.tooltip("Keeps a single recovery file describing everything in the Spawned tab, so a game crash\ndoes not lose work in progress.\n\nWorks whether or not auto-save is enabled, and covers unsaved groups too.\nRestore it from the button in the Spawned tab, or from the Projects tab.")
+
+        style.sectionHeaderEnd(true)
+
+        ImGui.TreePop()
+    end
+
     rht.drawSettings()
     
     if ImGui.TreeNodeEx("Debug", ImGuiTreeNodeFlags.SpanFullWidth) then
@@ -1189,6 +1264,75 @@ function settingsUI.draw(spawner)
             perf.reset()
         end
         ImGui.EndDisabled()
+        style.sectionHeaderEnd()
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("SAVING", "Advanced tuning for auto-save and session recovery. The defaults suit every project size;\nonly change these if you are diagnosing a problem.")
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.persistenceBudgetMs, changed = ImGui.SliderFloat("Save time budget", settings.persistenceBudgetMs, 1.0, 16.0, "%.1f ms/frame")
+        if changed then
+            settings.persistenceBudgetMs = math.max(1.0, math.min(settings.persistenceBudgetMs, 16.0))
+            settings.save()
+        end
+        style.tooltip("How much of each frame the save pipeline may use. Higher finishes large projects sooner\nbut is more likely to be noticeable.")
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.autoSaveQuietSeconds, changed = ImGui.SliderFloat("Idle before saving", settings.autoSaveQuietSeconds, 0.5, 10.0, "%.1f s")
+        if changed then
+            settings.autoSaveQuietSeconds = math.max(0.5, math.min(settings.autoSaveQuietSeconds, 10.0))
+            settings.save()
+        end
+        style.tooltip("How long a group must sit untouched before it is processed, so a save never starts in the\nmiddle of a burst of edits.")
+
+        settings.autoSaveVerifyEvery, changed = ImGui.InputInt("Verify every N saves", math.floor(settings.autoSaveVerifyEvery or 10), 1)
+        if changed then
+            settings.autoSaveVerifyEvery = math.max(0, math.min(settings.autoSaveVerifyEvery, 100))
+            settings.save()
+        end
+        style.tooltip("Periodically rebuilds a group from scratch and compares it against the cached result, to\nprove the cache is still correct. Small groups are always verified. 0 disables it.")
+
+        settings.autoSaveCacheEnabled, changed = ImGui.Checkbox("Reuse cached node data", settings.autoSaveCacheEnabled)
+        if changed then settings.save() end
+        style.tooltip("Keeps the encoded JSON of each unchanged node so a save only rebuilds what you edited.\nTurning this off makes every save rebuild the whole project - much slower, but a useful\nfallback if you suspect the cache.")
+
+        ImGui.Dummy(0, 4 * style.viewSize)
+        style.mutedText(persistenceManager.describeState())
+
+        local root = spawner and spawner.baseUI and spawner.baseUI.spawnedUI and spawner.baseUI.spawnedUI.root
+        for _, child in ipairs(root and root.childs or {}) do
+            local record = saveState.getRecord(child)
+            style.mutedText(string.format("  %s - %s%s%s",
+                child.name,
+                record.state,
+                record.projectFile and (" -> " .. record.projectFile) or " (no file)",
+                record.dirty and ", needs check" or ""))
+        end
+
+        ImGui.Dummy(0, 4 * style.viewSize)
+
+        local autoSaveOff = settings.autoSaveEnabled ~= true
+        style.pushGreyedOut(autoSaveOff)
+        if ImGui.Button("Run auto-save now") and not autoSaveOff then
+            persistenceManager.runNow()
+        end
+        style.popGreyedOut(autoSaveOff)
+        if autoSaveOff then
+            style.tooltip("Enable auto-save first. No passes run while it is off.")
+        else
+            style.tooltip("Skips the wait until the next scheduled pass. Everything else still applies:\nonly modified groups that already have a project file are written.")
+        end
+
+        ImGui.SameLine()
+        if ImGui.Button("Verify loaded groups") then
+            settingsUI.runSaveVerification(spawner)
+        end
+        style.tooltip("Rebuilds every loaded root group from scratch and compares the result, byte for byte,\nagainst what a manual save would write. Reports to the log.\n\nThis one blocks for a moment on large projects - it is a diagnostic, not something\nauto-save does.")
+
+        if settingsUI.lastVerificationResult then
+            style.mutedText(settingsUI.lastVerificationResult)
+        end
+
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 4 * style.viewSize)

@@ -89,6 +89,14 @@ local config = require("modules/utils/config")
 ---@field public defaultStreamingPreset integer Default streaming distance preset index (0 = Interior) for new spawnables.
 ---@field public defaultExportFormat integer Default export XL format (0 = JSON, 1 = YAML).
 ---@field public previewBindings table<string, string> ImGuiKey names bound to the asset preview controls, keyed by action id. Empty until first resolved from the game language.
+---@field public autoSaveEnabled boolean Periodically write modified root groups back to their project file.
+---@field public autoSaveIntervalMinutes number Minutes between auto-save passes.
+---@field public autoSaveShowToasts boolean Show a toast when a group is auto-saved.
+---@field public sessionRestoreEnabled boolean Keep a crash-recovery snapshot of the Spawned tab.
+---@field public autoSaveQuietSeconds number Idle time required after the last edit before a group is processed.
+---@field public persistenceBudgetMs number Per-frame time budget for the persistence pipeline.
+---@field public autoSaveVerifyEvery integer Verify every Nth auto-save against a cache-free rebuild (0 = never).
+---@field public autoSaveCacheEnabled boolean Reuse cached per-node JSON. Disable to fall back to full rebuilds.
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -180,6 +188,17 @@ local settingsData = {
     -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
     defaultStreamingPreset = 0, -- Interior
     defaultExportFormat = 0, -- JSON
+
+    -- Saving & recovery
+    autoSaveEnabled = false,
+    autoSaveIntervalMinutes = 5,
+    autoSaveShowToasts = true,
+    sessionRestoreEnabled = true,
+    -- Advanced (Debug section)
+    autoSaveQuietSeconds = 2,
+    persistenceBudgetMs = 4,
+    autoSaveVerifyEvery = 10,
+    autoSaveCacheEnabled = true,
 
     -- Resolved from the game language on first use, see previewControls.getBindings
     previewBindings = {},
