@@ -1309,10 +1309,11 @@ function light:draw()
         ImGui.SameLine()
 
         local teleportDisabledByEditor = self.object and self.object.sUI and self.object.sUI.spawner.editor.active == true or false
+        local teleportDisabled = teleportDisabledByEditor or self.cameraFollowEnabled == true
         if style.warnButton(IconGlyphs.RunFast .. "##lightTeleportCameraAligned", {
             tooltip = "Teleport player so camera position and look direction match this light.",
-            disabled = teleportDisabledByEditor,
-            disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
+            disabled = teleportDisabled,
+            disabledTooltip = teleportDisabledByEditor and "Teleportation disabled while in 3D-Editor mode" or "Disable Follow Camera to teleport to this light"
         }) then
             self:teleportPlayerToLightCameraAligned()
         end
