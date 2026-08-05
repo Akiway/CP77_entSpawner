@@ -6,6 +6,7 @@ local Cron = require("modules/utils/Cron")
 local intersection = require("modules/utils/editor/intersection")
 local history = require("modules/utils/history")
 local style = require("modules/ui/style")
+local saveState = require("modules/utils/saveState")
 
 local element = require("modules/classes/editor/element")
 local positionable = require("modules/classes/editor/positionable")
@@ -224,6 +225,11 @@ function spawnableElement:setPosition(position)
     self.spawnable.position = position
     self.spawnable:update()
     invalidateParentAutoCenter(self)
+    -- Transforms are mutated straight through these setters, with no property-level hook anywhere.
+    -- Marking here rather than leaving it to whoever pushed the history action is what keeps a group
+    -- operation -- which moves every leaf but names a single element in its action -- from writing
+    -- the previous save's transforms back out of cache.
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 
@@ -231,6 +237,7 @@ function spawnableElement:setPositionDelta(delta)
     self.spawnable.position = utils.addVector(self.spawnable.position, delta)
     self.spawnable:update()
     invalidateParentAutoCenter(self)
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 
@@ -240,6 +247,7 @@ function spawnableElement:setRotation(rotation)
     self.spawnable.rotation = rotation
     self.spawnable:update()
     invalidateParentAutoCenter(self)
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 
@@ -254,6 +262,7 @@ function spawnableElement:setRotationDelta(delta)
 
     self.spawnable:update()
     invalidateParentAutoCenter(self)
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 
@@ -281,6 +290,7 @@ function spawnableElement:setScaleDelta(delta, finished)
 
     self.spawnable:updateScale(finished, delta)
     invalidateParentAutoCenter(self)
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 
@@ -299,6 +309,7 @@ function spawnableElement:setScale(scale, finished)
 
     self.spawnable:updateScale(finished, delta)
     invalidateParentAutoCenter(self)
+    saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end
 

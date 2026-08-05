@@ -542,6 +542,41 @@ function saveState.markDirty(element)
     end
 end
 
+---Marks an element, its whole subtree, and every ancestor.
+---
+---For operations that change every descendant at once. A group transform rewrites the position and
+---rotation of every leaf under it, so marking only the group would rebuild the group's own node and
+---then splice its children straight back in from cache -- the file would carry the new group rotation
+---over the previous save's child transforms.
+---
+---The downward walk cannot early-exit on an already-invalid node the way `markDirty`'s upward one
+---can: invalidity propagates towards the root, never away from it, so an invalid node says nothing
+---about its children. It is a plain flag write per node, against callers that already touch every
+---leaf, so it costs nothing next to the transform itself.
+---@param element element?
+function saveState.markSubtreeDirty(element)
+    if not element or saveState.suppressDepth > 0 then return end
+
+    -- First, and never the other way around: `markDirty` walks *up* and stops at the first node that
+    -- is already invalid, so invalidating this element beforehand would make it break immediately and
+    -- leave every ancestor cached. It also does all the record bookkeeping (dirty, quiet window,
+    -- baseline), which the walk below deliberately does not repeat per node.
+    saveState.markDirty(element)
+
+    local function invalidate(node)
+        for _, child in ipairs(node.childs) do
+            local cache = child.__jsonCache
+            if cache then
+                cache.valid = false
+            end
+
+            invalidate(child)
+        end
+    end
+
+    invalidate(element)
+end
+
 ---Marks every element in a list.
 ---@param elements element[]?
 function saveState.markDirtyMany(elements)

@@ -1572,6 +1572,8 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
 
     -- Two projects may legitimately be called the same thing now, so the row says which file it is.
     ImGui.SameLine()
+    ImGui.Dummy(8 * style.viewSize, 0)
+    ImGui.SameLine()
     style.mutedText(fileName)
     style.tooltip("Project file (unique id)")
 

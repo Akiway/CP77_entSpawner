@@ -702,6 +702,8 @@ function positionableGroup:setOriginToCenter()
 		self.origin = self:getCenter()
 	end
 	self.originInitialized = true
+	-- Only this node's own fields change, so the subtree keeps its caches.
+	saveState.markDirty(self)
 	element.bumpWireframeEpoch(self)
 end
 
@@ -709,6 +711,7 @@ function positionableGroup:setOrigin(v)
 	self.origin = v
 	self.originMode = "manual"
 	self.originInitialized = true
+	saveState.markDirty(self)
 	element.bumpWireframeEpoch(self)
 end
 
@@ -747,6 +750,9 @@ function positionableGroup:setPositionDelta(delta)
 	for _, entry in pairs(leafs) do
 		entry:setPositionDelta(delta)
 	end
+
+	-- Covers this node's own `origin`, and the descendants a locked entry kept `leafs` from reaching.
+	saveState.markSubtreeDirty(self)
 end
 
 function positionableGroup:drawRotation(rotation)
@@ -868,6 +874,8 @@ function positionableGroup:setIdentity(rotation)
 	self.rotationUIDragValue.pitch = nil
 	self.rotation = EulerAngles.new(roll, pitch, yaw)
 	self.rotationQuat = self.rotation:ToQuat()
+	-- Re-labels this group's frame without touching a single child transform.
+	saveState.markDirty(self)
 	element.bumpWireframeEpoch(self)
 end
 
@@ -910,6 +918,8 @@ function positionableGroup:applyRotationDrag(stepQuat, targetQuat, targetEuler)
 		local newPosition = utils.addVector(state.position, stepQuat:Transform(data.startRelativePosition))
 		data.entry:setPosition(newPosition)
 	end
+
+	saveState.markSubtreeDirty(self)
 end
 
 function positionableGroup:endRotationDrag()
@@ -939,6 +949,8 @@ function positionableGroup:setRotation(rotation)
 		local newPosition = utils.addVector(pos, deltaQuat:Transform(relativePosition))
 		entry:setPosition(newPosition)
 	end
+
+	saveState.markSubtreeDirty(self)
 end
 
 function positionableGroup:getRotation()
@@ -988,6 +1000,8 @@ function positionableGroup:setRotationDelta(delta)
 		local newPosition = utils.addVector(pos, deltaQuat:Transform(relativePosition))
 		entry:setPosition(newPosition)
 	end
+
+	saveState.markSubtreeDirty(self)
 end
 
 function positionableGroup:onEdited()
