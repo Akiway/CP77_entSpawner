@@ -133,8 +133,6 @@ function sessionSnapshot.init()
 
     if index and type(index.entries) == "table" and #index.entries > 0 then
         sessionSnapshot.available = index
-        logger:info(string.format("[Session] Previous session from %s with %d root item(s) available to restore",
-            tostring(index.savedAt), #index.entries))
     else
         sessionSnapshot.available = nil
     end
@@ -152,10 +150,6 @@ function sessionSnapshot.consume(reason)
     if sessionSnapshot.consumed then return end
 
     sessionSnapshot.consumed = true
-
-    if sessionSnapshot.available then
-        logger:info("[Session] Recovery banner dismissed (" .. tostring(reason or "new session") .. ")")
-    end
 end
 
 --------------------------------------------------------------------------------------------------

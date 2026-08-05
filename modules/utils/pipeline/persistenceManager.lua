@@ -401,7 +401,7 @@ local function finishVerify(job)
         return
     end
 
-    logger:error(string.format(
+    logger:warn(string.format(
         "[Persistence] Cache check failed for \"%s\": cached hash %s, rebuilt %s. Writing the rebuilt data.",
         job.root.name, tostring(cachedHash), tostring(fresh and fresh.contentHash)))
 

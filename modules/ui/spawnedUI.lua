@@ -915,12 +915,6 @@ function spawnedUI.getSaveStatusLabel()
     end
 
     local parts = {}
-    if unsaved > 0 then
-        parts[#parts + 1] = string.format("%d unsaved", unsaved)
-    end
-    if unnamed > 0 then
-        parts[#parts + 1] = string.format("%d never saved", unnamed)
-    end
 
     -- Say when the next pass is due. Without this the only feedback between enabling auto-save and
     -- the first write is silence, which reads exactly like a broken feature.
@@ -929,8 +923,15 @@ function spawnedUI.getSaveStatusLabel()
         if blocked then
             parts[#parts + 1] = "waiting (" .. tostring(reason) .. ")"
         else
-            parts[#parts + 1] = "auto-save in " .. formatDuration(persistenceManager.secondsUntilNextPass())
+            parts[#parts + 1] = formatDuration(persistenceManager.secondsUntilNextPass())
         end
+    end
+    
+    if unsaved > 0 then
+        parts[#parts + 1] = string.format("%d unsaved", unsaved)
+    end
+    if unnamed > 0 then
+        parts[#parts + 1] = string.format("%d never saved", unnamed)
     end
 
     return table.concat(parts, " | ")

@@ -139,7 +139,6 @@ local function startNextQueued(spawner)
     end
 
     if type(data) ~= "table" then
-        logger:warn("[Session] Nothing to restore for \"" .. tostring(entry.name) .. "\"")
         startNextQueued(spawner)
         return
     end
