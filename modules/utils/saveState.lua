@@ -40,9 +40,13 @@ local saveState = {
 ---are still written to disk, so reopening a project restores the way it looked -- but they must not
 ---count as content changes.
 ---
----`headerOpen` is flipped across the entire tree by the Fold/Expand All buttons and `selected` by
----every click, neither of which goes through history; `propertyHeaderStates` is rewritten every frame
----an inspector is open. Without this filter, merely looking at a project would mark it modified.
+---`headerOpen` is flipped across the entire tree by the Fold/Expand All buttons, which does not go
+---through history; `propertyHeaderStates` is rewritten every frame an inspector is open. Without this
+---filter, merely looking at a project would mark it modified.
+---
+---`selected` and `hovered` are no longer serialized at all -- selection is live editor state, and
+---restoring it on load left parts of a freshly opened project already selected. They stay listed so
+---the filter still holds for any data that predates that change.
 ---
 ---`hiddenByParent` and `lockedByParent` are pure derived state: `element:load` restores them, but
 ---`addChild` immediately overwrites both from the actual parent. Excluding them also means a

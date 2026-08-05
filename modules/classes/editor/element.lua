@@ -126,7 +126,7 @@ function element:getModulePathByType(data)
 end
 
 ---Loads the data from a given table, containing the same data as exported during save()
----@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, selected : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
+---@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
 ---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function element:load(data, silent)
 	while self.childs[1] do -- Ensure any children get removed, important for undoing spawnables so that they despawn
@@ -139,7 +139,6 @@ function element:load(data, silent)
 	self.modulePath = data.modulePath
 	self.headerOpen = data.headerOpen
 	self.visible = data.visible
-	self.selected = data.selected
 	self.hiddenByParent = data.hiddenByParent
 	self.locked = data.locked
 	self.lockedByParent = data.lockedByParent
@@ -147,11 +146,17 @@ function element:load(data, silent)
 	if self.propertyHeaderStates == nil then self.propertyHeaderStates = {} end
 	if self.visible == nil then self.visible = true end
 	if self.headerOpen == nil then self.headerOpen = true end
-	if self.selected == nil then self.selected = false end
 	if self.hiddenByParent == nil then self.hiddenByParent = false end
 	if self.locked == nil then self.locked = false end
 	if self.lockedByParent == nil then self.lockedByParent = false end
-	if self:isLocked() then self.selected = false end
+
+	-- Never taken from `data`: selection is live editor state, not something an element carries with
+	-- it. It used to be serialized, so a project saved with part of its tree selected came back with
+	-- those rows already selected -- and since selectedPaths drives delete, drag and the gizmo, the
+	-- next action would silently include them. Files written back then still contain the field; it is
+	-- ignored rather than migrated. Assigned unconditionally because load also replaces the state of
+	-- an element that is already in the tree (undo/redo, clipboard paste).
+	self.selected = false
 
 	self.modulePath = self.modulePath or self:getModulePathByType(data)
 
@@ -698,7 +703,6 @@ function element:serialize(ctx)
 		locked = self.locked,
 		lockedByParent = self.lockedByParent,
 		expandable = self.expandable,
-		selected = self.selected,
 		isUsingSpawnables = true,
 		childs = {}
 	}
