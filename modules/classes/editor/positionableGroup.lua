@@ -305,13 +305,7 @@ local function getSaveButtonDisplay(instance)
 			"Second copy of \"%s\"\nAuto-save leaves this one alone so it cannot overwrite the original.\nSaving it manually takes over that file.",
 			record.duplicateOf)
 	else
-		tooltip = "Never saved\nSaving creates a new project file"
-	end
-
-	-- Renaming deliberately does not repoint an auto-saving group at a new file, so say where it
-	-- actually goes when that differs from the name on screen.
-	if record and record.projectFile and record.projectFile ~= (instance.name .. ".json") then
-		tooltip = tooltip .. string.format("\n(still writes to \"%s\" until saved manually)", record.projectFile)
+		tooltip = "Not linked to a project file\nSaving creates one, named after this group"
 	end
 
 	return icon, SAVE_STATE_COLORS[state], tooltip

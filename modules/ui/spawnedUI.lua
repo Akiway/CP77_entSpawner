@@ -10,6 +10,10 @@ local perf = require("modules/utils/perf")
 local colorUtil = require("modules/utils/color")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 local saveState = require("modules/utils/saveState")
+-- Named `elementClass` because two dozen functions in this file take a parameter called
+-- `element`, which would shadow it.
+local elementClass = require("modules/classes/editor/element")
+local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
@@ -1335,6 +1339,20 @@ function spawnedUI.handleDrag(element, indentX)
                 end
                 local insert = history.getInsert(roots)
                 history.addAction(history.getMove(remove, insert))
+            else
+                -- The cursor already said no while hovering, but a refused drop with no explanation
+                -- reads as the drag having missed. Only linked projects get a message; every other
+                -- rejection (dropping a group into itself) is self-evident.
+                local prospectiveParent = reorderMode and element.parent or element
+                local blocked = {}
+
+                for _, entry in ipairs(spawnedUI.getRoots(spawnedUI.selectedPaths)) do
+                    if entry.ref:wouldUnlinkFromProject(prospectiveParent) then
+                        blocked[#blocked + 1] = entry
+                    end
+                end
+
+                spawnedUI.warnIfLinkedProjects(blocked)
             end
         end
     elseif itemHovered and spawnedUI.draggingSelected then
@@ -1516,6 +1534,14 @@ end
 ---@param isMulti boolean
 ---@param element element?
 function spawnedUI.moveToNewGroup(isMulti, element)
+    -- Checked before anything is created: the new group would otherwise be inserted and then left
+    -- behind empty when the move is refused.
+    if isMulti then
+        if spawnedUI.warnIfLinkedProjects(spawnedUI.getRoots(spawnedUI.selectedPaths)) then return end
+    elseif element and spawnedUI.warnIfLinkedProjects({ element }) then
+        return
+    end
+
     local group = require("modules/classes/editor/positionableGroup"):new(spawnedUI)
     group.name = "New Group"
 
@@ -1631,6 +1657,69 @@ function spawnedUI.drawAssetFavoriteMenuItem(element)
     )
 end
 
+---Draws the two project-link actions, at the very top of the context menu because they decide what
+---every save below them will do.
+---
+---A group either owns a project file or does not, so only one of them is ever offered.
+---@protected
+---@param element element
+function spawnedUI.drawProjectLinkMenuItems(element)
+    if not saveState.isSavableRootGroup(element) then
+        return
+    end
+
+    if element.projectUID then
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariantOff, "Unlink from project file")) then
+            local previous = saveState.unbindProjectFile(element)
+
+            if previous then
+                ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 4000,
+                    string.format("\"%s\" no longer writes to \"%s\"", element.name, previous)))
+            end
+        end
+        style.tooltip("Keep the group, but stop it from writing to its project file.\nThe saved project itself is left untouched.")
+    else
+        if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.ContentSaveMoveOutline, "Save as existing project...")) then
+            projectLinkPopup.requestLink(element)
+        end
+        style.tooltip("Pick a saved project for this group to replace and be linked to.")
+    end
+
+    ImGui.Separator()
+end
+
+---Refuses an action that would take a linked project out of the root level, and says why.
+---@protected
+---@param elements element[] Elements about to be moved.
+---@return boolean blocked
+function spawnedUI.warnIfLinkedProjects(elements)
+    local blocked = {}
+
+    for _, entry in ipairs(elements) do
+        local ref = entry.ref or entry
+        if ref and ref.projectUID then
+            blocked[#blocked + 1] = ref.name
+        end
+    end
+
+    if #blocked == 0 then
+        return false
+    end
+
+    local subject = #blocked == 1
+        and string.format("\"%s\"", blocked[1])
+        or string.format("%d groups", #blocked)
+
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 5000, string.format(
+        "%s %s linked to a project file and must stay at root level.\nUnlink %s first to nest %s.",
+        subject,
+        #blocked == 1 and "is" or "are",
+        #blocked == 1 and "it" or "them",
+        #blocked == 1 and "it" or "them")))
+
+    return true
+end
+
 ---@protected
 ---@param element element
 function spawnedUI.drawContextMenu(element, path)
@@ -1651,7 +1740,19 @@ function spawnedUI.drawContextMenu(element, path)
             ImGui.SameLine()
             style.mutedText("(Locked)")
         end
+
+        -- The uID is what the Projects tab, auto-save and "Restore previous save" all address this
+        -- group by, and it is deliberately no longer derivable from the name shown above it.
+        if not isMulti and element.projectUID then
+            style.mutedText(element.projectUID)
+            style.tooltip("Project file this group is linked to")
+        end
+
         ImGui.Separator()
+
+        if not isMulti then
+            spawnedUI.drawProjectLinkMenuItems(element)
+        end
 
         ImGui.BeginDisabled(isLocked)
         if not element.lockedRemove and ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DeleteOutline, "Delete"), "DEL") then
@@ -2323,6 +2424,17 @@ function spawnedUI.getStateIcons(element)
     end
 
     if utils.isA(element, "positionableGroup") then
+        -- Which file a group belongs to is no longer readable from its name, so linked projects say
+        -- so on the row itself. Muted and tooltip-only: it is context, not a control.
+        if element.projectUID then
+            addStateIcon(
+                stateIcons,
+                IconGlyphs.ContentSaveSettingsOutline,
+                string.format("Linked to project file \"%s\"", element.projectUID),
+                style.mutedColor
+            )
+        end
+
         local selectedGroupRef = spawnedUI.stateIconSelectedGroupRef
         if not selectedGroupRef then
             local spawnUI = spawnedUI.spawner and spawnedUI.spawner.baseUI and spawnedUI.spawner.baseUI.spawnUI or nil
@@ -3304,10 +3416,9 @@ function spawnedUI.drawTop()
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
+    -- Left as typed: group names are free-form now, and are only cleaned up (of path separators)
+    -- when the group is actually created.
     spawnedUI.newGroupName, changed = ImGui.InputTextWithHint('##newG', 'New group name...', spawnedUI.newGroupName, 100)
-    if changed then
-        spawnedUI.newGroupName = utils.createFileName(spawnedUI.newGroupName)
-    end
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
@@ -3338,7 +3449,8 @@ function spawnedUI.drawTop()
             group = require("modules/classes/editor/scatteredGroup"):new(spawnedUI)
         end
 
-        group.name = spawnedUI.newGroupName
+        local cleanedName = elementClass.sanitizeDisplayName(spawnedUI.newGroupName)
+        group.name = cleanedName ~= "" and cleanedName or "New Group"
         group:setParent(spawnedUI.spawner.baseUI.spawnUI.getSpawnTargetParent())
         history.addAction(history.getInsert({ group }))
     end

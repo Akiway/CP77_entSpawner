@@ -688,6 +688,59 @@ function backup.getObjectBackupInfo(source, fileName)
     return exists, timestamp
 end
 
+---Moves the backups of one object file to a new file name.
+---
+---Backups are addressed by file name, so a project file renamed in the Projects tab would otherwise
+---lose access to its own history: "Restore previous save" would go quiet, and the orphaned copies
+---would still answer for whatever new project later took the old name.
+---@param oldFileName string Object file name including extension.
+---@param newFileName string New object file name including extension.
+---@return integer moved Number of backup namespaces that had a copy to move.
+function backup.renameObjectBackups(oldFileName, newFileName)
+    if oldFileName == newFileName then
+        return 0
+    end
+
+    ensureMetadata()
+
+    local moved = 0
+
+    for _, source in ipairs({ "on_save", "on_game_load" }) do
+        local sourcePath = backup.getObjectBackupPath(source, oldFileName)
+
+        if config.fileExists(sourcePath) then
+            local targetPath = backup.getObjectBackupPath(source, newFileName)
+
+            if ensureParentDir(targetPath) and copyFile(sourcePath, targetPath) then
+                os.remove(sourcePath)
+                moved = moved + 1
+            else
+                logger:error("[Backup] Could not move backup to " .. targetPath)
+            end
+        end
+
+        local namespace = backup.metadata[source]
+        if type(namespace) == "table" then
+            local oldKey = normalizePath(getObjectsRelativePath(oldFileName))
+            local entry = namespace[oldKey]
+
+            if entry ~= nil then
+                namespace[normalizePath(getObjectsRelativePath(newFileName))] = entry
+                namespace[oldKey] = nil
+            end
+        end
+
+        backup.invalidateInfoCache(source, oldFileName)
+        backup.invalidateInfoCache(source, newFileName)
+    end
+
+    if moved > 0 then
+        saveMetadata()
+    end
+
+    return moved
+end
+
 ---Restores one object file from a selected backup namespace.
 ---@param source BackupSource Backup namespace to restore from.
 ---@param fileName string Object file name including extension.

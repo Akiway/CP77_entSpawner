@@ -169,8 +169,11 @@ function saveState.getRecord(rootChild)
         saveState.records[id] = record
     end
 
-    -- Refreshed on every access so the record follows the current object for this id.
+    -- Refreshed on every access so the record follows the current object for this id. The uID is
+    -- re-stamped along with it: delete-then-undo hands back a brand new element object that knows
+    -- nothing about the binding this record still holds.
     record.ref = rootChild
+    rootChild.projectUID = record.projectFile
 
     return record
 end
@@ -229,12 +232,30 @@ function saveState.isSavableRootGroup(element)
         and element.parent:isRoot(true)
 end
 
+---Mirrors the binding onto the element itself, as `projectUID`.
+---
+---The record is the authority -- it survives delete-then-undo, which rebuilds the element object --
+---but everything that draws a group (hierarchy rows, context menu, Projects tab sync) needs the id
+---without reaching into this module's tables, and a live element is what those hold.
+---
+---Never serialized: the file name *is* the id, so storing it inside the file would only create a
+---second copy to keep in sync, and copies/prefabs of a linked group would inherit a claim on a file
+---they are not.
+---@param record table
+---@param projectUID string?
+local function mirrorProjectUID(record, projectUID)
+    if record.ref then
+        record.ref.projectUID = projectUID
+    end
+end
+
 ---Drops a record's binding to its project file, leaving it looking like a group that was never saved.
 ---@param record table
 local function releaseClaim(record)
     record.projectFile = nil
     record.lastSavedContentHash = nil
     record.state = "new"
+    mirrorProjectUID(record, nil)
 end
 
 ---Finds a record still present in the tree that is bound to a file.
@@ -282,12 +303,11 @@ local function adoptFileBaseline(record)
     record.state = "clean"
 end
 
----Binds a root group to the project file auto-save is allowed to overwrite.
+---Binds a root group to the project file auto-save is allowed to overwrite, i.e. gives it its uID.
 ---
----Deliberately not derived from `element.fileName`: `element:load` sets that on every node it touches,
----including pasted clipboard trees, so a copy would inherit the original's file. Only a load from
----`data/objects/` and a successful manual save may bind. Renaming does **not** rebind -- auto-save
----keeps writing the file the group was loaded from until the user saves explicitly.
+---Only a load from `data/objects/`, a successful manual save, or an explicit link action may bind.
+---Renaming a group never rebinds: the name is display text, the file name is the identity, and the
+---two stopped being the same thing on purpose.
 ---@param rootChild element
 ---@param projectFile string? File name including extension, or `nil` to unbind.
 ---@return boolean ok False when a group already in the tree holds that file.
@@ -304,6 +324,7 @@ function saveState.bindProjectFile(rootChild, projectFile)
             record.projectFile = nil
             record.state = "new"
             record.duplicateOf = projectFile
+            mirrorProjectUID(record, nil)
             logger:info(string.format(
                 "[SaveState] \"%s\" is already open as \"%s\"; the new copy is left unbound from auto-save",
                 projectFile, tostring(claimant.ref and claimant.ref.name)))
@@ -319,6 +340,7 @@ function saveState.bindProjectFile(rootChild, projectFile)
 
     record.projectFile = projectFile
     record.duplicateOf = nil
+    mirrorProjectUID(record, projectFile)
     if record.state == "error" then
         record.lastError = nil
     end
@@ -327,6 +349,105 @@ function saveState.bindProjectFile(rootChild, projectFile)
     end
 
     return true
+end
+
+---Breaks the link between a live root group and its project file, without touching the file.
+---
+---The group keeps its content and its name and goes back to behaving like one that was never saved:
+---auto-save leaves it alone, and saving it asks for a file name again. The project stays in the
+---Projects tab, now owned by nobody.
+---@param rootChild element
+---@return string? previousUID The file it was linked to, when it was linked at all.
+function saveState.unbindProjectFile(rootChild)
+    local record = saveState.getRecord(rootChild)
+    local previous = record.projectFile
+
+    if not previous then
+        return nil
+    end
+
+    releaseClaim(record)
+    record.duplicateOf = nil
+    record.needsBaseline = false
+    record.dirty = true
+
+    logger:info(string.format("[SaveState] \"%s\" was unlinked from \"%s\"", tostring(rootChild.name), previous))
+
+    return previous
+end
+
+---Points a root group at a project file it does not match yet.
+---
+---Unlike `markLoadedFromDisk` and `markManuallySaved`, which both mean "the tree and the file agree",
+---this is the "take this file over" case: the group is deliberately left flagged as modified, because
+---the file still holds someone else's content until the save that follows actually runs.
+---@param rootChild element
+---@param projectFile string File name including extension. May not exist yet.
+---@return boolean ok False when a group already in the tree holds that file.
+function saveState.linkToProjectFile(rootChild, projectFile)
+    if not saveState.bindProjectFile(rootChild, projectFile) then
+        return false
+    end
+
+    local record = saveState.getRecord(rootChild)
+    record.needsBaseline = false
+    record.lastSavedContentHash = nil
+    record.dirty = true
+    record.state = "edited"
+
+    return true
+end
+
+---@param element element?
+---@return string? projectUID
+function saveState.getProjectUID(element)
+    local record = saveState.getRecordFor(element)
+    return record and record.projectFile or nil
+end
+
+---Finds the live root group that owns a project file.
+---@param projectUID string File name including extension.
+---@return element? rootChild
+function saveState.findRootChildByUID(projectUID)
+    if type(projectUID) ~= "string" or projectUID == "" then
+        return nil
+    end
+
+    local sUI = saveState.spawnedUI
+    if not sUI or not sUI.root then return nil end
+
+    for _, child in ipairs(sUI.root.childs) do
+        local record = saveState.records[child.id]
+        if record and record.projectFile == projectUID and record.ref == child then
+            return child
+        end
+    end
+
+    return nil
+end
+
+---Moves a binding to a new file name, for when the file itself is renamed on disk.
+---
+---The group is still the same project and still matches what is now stored under the new name, so
+---nothing about its modified state changes -- only the id it points at.
+---@param oldProjectUID string
+---@param newProjectUID string
+---@return element? rootChild The live group that was retargeted, if any.
+function saveState.retargetProjectUID(oldProjectUID, newProjectUID)
+    local rootChild = saveState.findRootChildByUID(oldProjectUID)
+
+    for _, other in pairs(saveState.records) do
+        if other.projectFile == oldProjectUID then
+            other.projectFile = newProjectUID
+            mirrorProjectUID(other, newProjectUID)
+        end
+
+        if other.duplicateOf == oldProjectUID then
+            other.duplicateOf = newProjectUID
+        end
+    end
+
+    return rootChild
 end
 
 ---Marks a root group as matching its file on disk.
@@ -353,6 +474,7 @@ function saveState.markManuallySaved(rootChild, projectFile)
 
     local record = saveState.getRecord(rootChild)
     record.projectFile = projectFile
+    mirrorProjectUID(record, projectFile)
     -- Cleared because this group now owns the file outright: it was refused a binding earlier only
     -- because someone else held it, and that is no longer true.
     record.duplicateOf = nil

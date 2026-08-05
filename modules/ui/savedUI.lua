@@ -16,6 +16,9 @@ local pipelineCommon = require("modules/utils/pipeline/common")
 local backup = require("modules/utils/backup")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
+local saveState = require("modules/utils/saveState")
+local projectFiles = require("modules/utils/projectFiles")
+local element = require("modules/classes/editor/element")
 local logger = require("modules/utils/logger")
 
 local PROJECT_NEUTRAL_KEY = "__no_project__"
@@ -44,6 +47,13 @@ savedUI = {
     groupProjectCreateState = {},
     groupProjectIconSearch = {},
     pendingGroupProjectPopupId = nil,
+    ---Live text of the "Group name" and "File name" fields, keyed by file name.
+    ---
+    ---Kept here rather than on the cached entry: the entry table is the file's content, which
+    ---auto-save refreshes underneath the UI, and edit state living on it used to survive those
+    ---refreshes and end up showing a name the file no longer had.
+    ---@type table<string, {name: string, fileName: string, error: string?}>
+    entryEditState = {},
     ---File names whose cached entry still renders correctly but whose `childs` tree is older than the
     ---file, because auto-save wrote it without holding the document in memory. See `getEntryData`.
     stalePayloads = {}
@@ -443,13 +453,20 @@ end
 
 ---@param filter string
 ---@param data table
+---@param fileName string?
 ---@return boolean
-local function matchesSavedFilter(filter, data)
+local function matchesSavedFilter(filter, data, fileName)
     if not data or type(data.name) ~= "string" then
         return false
     end
 
-    return data.name:lower():match(filter:lower()) ~= nil
+    if utils.matchSearch(data.name, filter) then
+        return true
+    end
+
+    -- Searchable by file name too: it is the id users are given everywhere else (tooltips, the
+    -- context menu, backups), so it has to be a way back to the entry.
+    return fileName ~= nil and utils.matchSearch(fileName, filter)
 end
 
 ---@param fileName string
@@ -680,17 +697,20 @@ local function buildProjectSections(filteredGroups)
     return sections
 end
 
-local function removeFromExportListIfPresent(data)
+---@param fileName string Project uID of the entry being deleted.
+---@param data table
+---@return integer removed
+local function removeFromExportListIfPresent(fileName, data)
     if not utils.isSerializedGroupStrict(data) then
         return 0
     end
 
     local baseUI = savedUI.spawner and savedUI.spawner.baseUI
-    if not baseUI or not baseUI.exportUI or not baseUI.exportUI.removeGroupByName then
+    if not baseUI or not baseUI.exportUI or not baseUI.exportUI.removeGroupByFile then
         return 0
     end
 
-    return baseUI.exportUI.removeGroupByName(data.name)
+    return baseUI.exportUI.removeGroupByFile(fileName)
 end
 
 local function showDeletedGroupToast(data, removedFromExport)
@@ -776,6 +796,129 @@ function savedUI.importAMMPresets(selectedPresetFiles)
         savedUI = savedUI,
         selectedPresetFiles = selectedPresetFiles
     })
+end
+
+---Returns the live edit state of one entry's name fields, seeded from what is on disk.
+---@param fileName string
+---@param data table
+---@return {name: string, fileName: string, error: string?}
+local function getEntryEditState(fileName, data)
+    local state = savedUI.entryEditState[fileName]
+
+    if not state then
+        state = {
+            name = tostring(data.name or ""),
+            fileName = projectFiles.stripExtension(fileName)
+        }
+        savedUI.entryEditState[fileName] = state
+    end
+
+    return state
+end
+
+---Moves the per-file UI state of an entry to a new file name, so a rename does not reset how the
+---entry was folded or which popup it had open.
+---@param oldFileName string
+---@param newFileName string
+local function moveEntryUIState(oldFileName, newFileName)
+    for _, map in ipairs({
+        savedUI.files,
+        savedUI.groupOpenState,
+        savedUI.stalePayloads,
+        savedUI.invalidFiles,
+        savedUI.entryEditState,
+        savedUI.groupProjectCreateState,
+        savedUI.groupProjectIconSearch
+    }) do
+        map[newFileName] = map[oldFileName]
+        map[oldFileName] = nil
+    end
+end
+
+---Renames the group inside a project file, without touching the file itself.
+---@param fileName string
+---@param data table Cached entry, refreshed by the caller.
+---@param newName string
+---@return boolean ok
+local function renameSavedGroup(fileName, data, newName)
+    local cleaned = element.sanitizeDisplayName(newName)
+    if cleaned == "" or cleaned == data.name then
+        return false
+    end
+
+    local previousName = data.name
+    data.name = cleaned
+
+    if not saveSavedEntry(fileName, data, true) then
+        data.name = previousName
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 4000,
+            string.format("Failed to rename \"%s\"", tostring(previousName))))
+        return false
+    end
+
+    local baseUI = savedUI.spawner and savedUI.spawner.baseUI
+    if baseUI and baseUI.exportUI and baseUI.exportUI.renameGroupByFile then
+        -- The export list shows the group's name, and the exported sector names are derived from it.
+        baseUI.exportUI.renameGroupByFile(fileName, cleaned)
+    end
+
+    -- A project open in the Spawned tab is the same project: renaming it here has to reach the live
+    -- group too, or the next save would write the old name straight back over this one.
+    --
+    -- Through `rename` rather than by assignment, so it goes through the same rules as renaming in
+    -- the hierarchy: sibling-unique names (root names have to stay distinct -- the session snapshot
+    -- keys its payload by them), cache invalidation, and an undo entry.
+    local spawned = saveState.findRootChildByUID(fileName)
+    if spawned and spawned.name ~= cleaned then
+        spawned:rename(cleaned)
+    end
+
+    return true
+end
+
+---Renames the file a project lives in, keeping the group's own name as it is.
+---@param fileName string Current file name including extension.
+---@param newBaseName string File name typed by the user, without extension.
+---@return string? newFileName The new file name, when the rename went through.
+---@return string? error
+local function renameSavedFile(fileName, newBaseName)
+    local newFileName = projectFiles.withExtension(projectFiles.stripExtension(newBaseName))
+
+    if newFileName == fileName then
+        return nil
+    end
+
+    local valid, err = projectFiles.validateFileName(newFileName, fileName)
+    if not valid then
+        return nil, err
+    end
+
+    -- Anything auto-save wrote but this tab has not read yet has to be picked up before the file
+    -- moves, or the cached entry would be attached to the new name while holding older content.
+    savedUI.getEntryData(fileName)
+
+    local renamed, renameErr = projectFiles.rename(fileName, newFileName)
+    if not renamed then
+        return nil, renameErr
+    end
+
+    moveEntryUIState(fileName, newFileName)
+
+    -- The uID *is* the file name, so the live group has to follow it. Its content is unaffected --
+    -- the same bytes simply live under a new name now.
+    local spawned = saveState.retargetProjectUID(fileName, newFileName)
+    if spawned then
+        logger:info(string.format("[SavedUI] \"%s\" now writes to \"%s\"", tostring(spawned.name), newFileName))
+    end
+
+    local baseUI = savedUI.spawner and savedUI.spawner.baseUI
+    if baseUI and baseUI.exportUI and baseUI.exportUI.retargetGroupFile then
+        baseUI.exportUI.retargetGroupFile(fileName, newFileName)
+    end
+
+    backup.invalidateInfoCache()
+
+    return newFileName
 end
 
 ---@param fileName string
@@ -972,7 +1115,7 @@ local function drawProjectSectionActions(section, spawner, projectMap, buttonTex
 
         exportUI.projectName = section.project.name
         for _, entry in ipairs(projectGroups) do
-            exportUI.addGroup(entry.data.name)
+            exportUI.addGroup(entry.data.name, entry.fileName)
         end
 
         spawner.baseUI.selectTab("export")
@@ -1100,7 +1243,7 @@ end
 
 function savedUI.draw(spawner)
     if not savedUI.maxTextWidth then
-        savedUI.maxTextWidth = utils.getTextMaxWidth({"File name", "Project", "Position"}) + 6 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        savedUI.maxTextWidth = utils.getTextMaxWidth({"Group name", "File name", "Project", "Position"}) + 6 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
@@ -1277,14 +1420,14 @@ function savedUI.draw(spawner)
 
     local filteredGroups = {}
     for _, entry in ipairs(allGroups) do
-        if matchesSavedFilter(savedUI.filter, entry.data) then
+        if matchesSavedFilter(savedUI.filter, entry.data, entry.fileName) then
             table.insert(filteredGroups, entry)
         end
     end
 
     local filteredObjects = {}
     for _, entry in ipairs(allObjects) do
-        if matchesSavedFilter(savedUI.filter, entry.data) then
+        if matchesSavedFilter(savedUI.filter, entry.data, entry.fileName) then
             table.insert(filteredObjects, entry)
         end
     end
@@ -1343,9 +1486,78 @@ function savedUI.draw(spawner)
     savedUI.handlePopUp()
 end
 
----@param group table
----@param spawner spawner
+---Draws the "Group name" and "File name" rows of one saved entry.
+---
+---Two fields because they are two different things: the name is what the group is called wherever it
+---appears, the file name is the project's identity -- what auto-save writes to, what a spawned copy
+---is linked to, and what backups are filed under. Editing either one leaves the other alone.
+---@param data table Cached entry for `fileName`.
 ---@param fileName string
+---@return string fileName Possibly renamed, for the rest of the frame.
+function savedUI.drawEntryNameFields(data, fileName)
+    local state = getEntryEditState(fileName, data)
+
+    -- Re-seeded whenever the file changed underneath us (auto-save, a save from the Spawned tab), but
+    -- never while the field has focus, or typing would fight the refresh. Not re-seeding at all is
+    -- what let the old single field drift away from the entry it belonged to.
+    if not state.nameFocused and state.name ~= data.name then
+        state.name = tostring(data.name or "")
+    end
+
+    style.mutedText("Group name")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(savedUI.maxTextWidth)
+    ImGui.PushItemWidth(180 * style.viewSize)
+    state.name = ImGui.InputTextWithHint("##groupName" .. fileName, "Group name...", state.name, 100)
+    ImGui.PopItemWidth()
+    state.nameFocused = ImGui.IsItemActive()
+    style.tooltip("Name of the group itself, shown here and in the Spawned tab.\nDoes not affect which file it is saved in.")
+
+    if ImGui.IsItemDeactivatedAfterEdit() then
+        -- Refreshed first: auto-save may have written a newer tree that only exists on disk, and
+        -- writing the cached one back would undo it.
+        savedUI.getEntryData(fileName)
+
+        if not renameSavedGroup(fileName, data, state.name) then
+            state.name = tostring(data.name or "")
+        end
+    end
+
+    style.mutedText("File name")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(savedUI.maxTextWidth)
+    ImGui.PushItemWidth(180 * style.viewSize)
+    state.fileName = ImGui.InputTextWithHint("##fileName" .. fileName, "File name...", state.fileName, 100)
+    ImGui.PopItemWidth()
+    style.tooltip("File this project is stored in, and the id everything else refers to it by.\nRenaming it keeps any spawned copy linked.")
+
+    local renameCommitted = ImGui.IsItemDeactivatedAfterEdit()
+
+    -- Muted, and after the field: the extension is fixed, so it reads as part of the name being
+    -- edited rather than something to type.
+    ImGui.SameLine()
+    style.mutedText(projectFiles.extension)
+
+    if renameCommitted then
+        local newFileName, err = renameSavedFile(fileName, state.fileName)
+
+        if newFileName then
+            fileName = newFileName
+            state.error = nil
+        else
+            state.error = err
+            state.fileName = projectFiles.stripExtension(fileName)
+        end
+    end
+
+    if state.error then
+        ImGui.SetCursorPosX(savedUI.maxTextWidth)
+        style.styledText(state.error, style.warnColor, 0.9)
+    end
+
+    return fileName
+end
+
 ---@param projectMap table<string, table>?
 ---@param projectOptions table[]?
 function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
@@ -1357,6 +1569,18 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
 
     local open = ImGui.TreeNodeEx(group.name .. "##savedGroupNode:" .. fileName)
     savedUI.groupOpenState[fileName] = open
+
+    -- Two projects may legitimately be called the same thing now, so the row says which file it is.
+    ImGui.SameLine()
+    style.mutedText(fileName)
+    style.tooltip("Project file (unique id)")
+
+    local openedAs = saveState.findRootChildByUID(fileName)
+    if openedAs then
+        ImGui.SameLine()
+        style.mutedText(IconGlyphs.ContentSaveSettingsOutline)
+        style.tooltip(string.format("Open in the Spawned tab as \"%s\"", tostring(openedAs.name)))
+    end
 
     local countText = tostring(getSavedGroupElementCount(group))
     local textWidth, _ = ImGui.CalcTextSize(countText)
@@ -1374,35 +1598,7 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
         end
         local posString = ("X=%.1f Y=%.1f Z=%.1f, Distance: %.1f"):format(group.pos.x, group.pos.y, group.pos.z, ToVector4(group.pos):Distance(pPos))
 
-        if group.newName == nil then group.newName = group.name end
-
-        style.mutedText("File name")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(savedUI.maxTextWidth)
-        ImGui.PushItemWidth(180 * style.viewSize)
-        group.newName = ImGui.InputTextWithHint('##Name', 'Name...', group.newName, 100)
-        ImGui.PopItemWidth()
-
-        if ImGui.IsItemDeactivatedAfterEdit() then
-            -- Refresh before the rename rewrites the file from this table: auto-save may have written
-            -- a newer tree that only exists on disk, and saving the cached one would undo it.
-            savedUI.getEntryData(fileName)
-
-            savedUI.files[fileName] = nil
-            savedUI.invalidFiles[fileName] = nil
-            savedUI.stalePayloads[fileName] = nil
-
-            local newFileName = group.newName .. ".json"
-            local previousOpen = savedUI.groupOpenState[fileName]
-            os.rename("data/objects/" .. fileName, "data/objects/" .. newFileName)
-            group.name = group.newName
-            group.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
-            config.saveFile("data/objects/" .. newFileName, group)
-            savedUI.files[newFileName] = group
-            savedUI.groupOpenState[newFileName] = previousOpen
-            savedUI.groupOpenState[fileName] = nil
-            fileName = newFileName
-        end
+        fileName = savedUI.drawEntryNameFields(group, fileName)
 
         drawGroupProjectAssignment(group, fileName, projectMap or {}, projectOptions or {})
 
@@ -1445,12 +1641,12 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
 
         ImGui.SameLine()
         if ImGui.Button("Add to Export") then
-            spawner.baseUI.exportUI.addGroup(group.name)
+            spawner.baseUI.exportUI.addGroup(group.name, fileName)
         end
         
         ImGui.SameLine()
         if style.dangerButton(IconGlyphs.DeleteOutline) then
-            savedUI.deleteData(group)
+            savedUI.deleteData(fileName, group)
         end
 	    style.tooltip("Delete group")
 
@@ -1474,24 +1670,7 @@ function savedUI.drawObject(obj, spawner, fileName)
         end
         local posString = ("X=%.1f Y=%.1f Z=%.1f, Distance: %.1f"):format(obj.spawnable.position.x, obj.spawnable.position.y, obj.spawnable.position.z, ToVector4(obj.spawnable.position):Distance(pPos))
 
-        if obj.newName == nil then obj.newName = obj.name end
-
-        ImGui.SetNextItemWidth(180 * style.viewSize)
-        obj.newName = ImGui.InputTextWithHint('##Name', 'Name...', obj.newName, 100)
-        ImGui.PopItemWidth()
-
-        if ImGui.IsItemDeactivatedAfterEdit() then
-            savedUI.files[fileName] = nil
-            savedUI.invalidFiles[fileName] = nil
-
-            local newFileName = obj.newName .. ".json"
-            os.rename("data/objects/" .. fileName, "data/objects/" .. newFileName)
-            obj.name = obj.newName
-            obj.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
-            config.saveFile("data/objects/" .. newFileName, obj)
-            savedUI.files[newFileName] = obj
-            fileName = newFileName
-        end
+        fileName = savedUI.drawEntryNameFields(obj, fileName)
 
         ImGui.PushID("objectBackup" .. fileName)
         drawBackupRestoreActions(fileName)
@@ -1524,15 +1703,15 @@ function savedUI.drawObject(obj, spawner, fileName)
         local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
         if style.warnButton(IconGlyphs.RunFast, {
             disabled = teleportDisabledByEditor,
-            tooltip = "Teleport player to group",
+            tooltip = "Teleport player to object",
             disabledTooltip = TELEPORT_DISABLED_EDITOR_TOOLTIP
         }) then
-            gameUtils.teleportPlayer(utils.getVector(group.pos))
+            gameUtils.teleportPlayer(utils.getVector(obj.spawnable.position))
         end
         
         ImGui.SameLine()
         if ImGui.Button("Delete") then
-            savedUI.deleteData(obj)
+            savedUI.deleteData(fileName, obj)
         end
 
         ImGui.TreePop()
@@ -1540,19 +1719,40 @@ function savedUI.drawObject(obj, spawner, fileName)
     end
 end
 
-function savedUI.deleteData(data)
+---Deletes one saved entry from disk.
+---
+---Addressed by file name rather than by the group's name: the two stopped being the same thing, and
+---deleting by name would either miss the file or hit whichever project happens to be named that.
+---@param fileName string File name including extension.
+---@param data table Cached entry, used for the notifications only.
+local function removeSavedEntry(fileName, data)
+    os.remove(projectFiles.getPath(fileName))
+    savedUI.files[fileName] = nil
+    savedUI.invalidFiles[fileName] = nil
+    savedUI.groupOpenState[fileName] = nil
+    savedUI.stalePayloads[fileName] = nil
+    savedUI.entryEditState[fileName] = nil
+
+    -- The group may still be open in the Spawned tab; its file is gone, so it is no longer a project
+    -- and saving it has to ask for a new file rather than silently recreating this one.
+    local spawned = saveState.findRootChildByUID(fileName)
+    if spawned then
+        saveState.unbindProjectFile(spawned)
+    end
+
+    local removedFromExport = removeFromExportListIfPresent(fileName, data)
+    showDeletedGroupToast(data, removedFromExport)
+end
+
+---@param fileName string File name including extension.
+---@param data table Cached entry.
+function savedUI.deleteData(fileName, data)
     if settings.deleteConfirm then
         savedUI.popup = true
-        savedUI.deleteFile = data
+        savedUI.deleteFile = { fileName = fileName, data = data }
         savedUI.popupDontAskAgain = not settings.deleteConfirm
     else
-        os.remove("data/objects/" .. data.name .. ".json")
-        savedUI.files[data.name .. ".json"] = nil
-        savedUI.invalidFiles[data.name .. ".json"] = nil
-        savedUI.groupOpenState[data.name .. ".json"] = nil
-
-        local removedFromExport = removeFromExportListIfPresent(data)
-        showDeletedGroupToast(data, removedFromExport)
+        removeSavedEntry(fileName, data)
     end
 end
 
@@ -1560,8 +1760,10 @@ function savedUI.handlePopUp()
     if savedUI.popup then
         ImGui.OpenPopup("Delete Data?")
         if ImGui.BeginPopupModal("Delete Data?", true, ImGuiWindowFlags.AlwaysAutoResize) then
-            local targetName = savedUI.deleteFile and savedUI.deleteFile.name or "Unknown"
+            local pending = savedUI.deleteFile
+            local targetName = pending and pending.data and pending.data.name or "Unknown"
             ImGui.Text("Delete \"" .. targetName .. "\"?")
+            style.mutedText(pending and pending.fileName or "")
             style.mutedText("This action cannot be undone.")
             ImGui.Dummy(0, 8 * style.viewSize)
             savedUI.popupDontAskAgain = ImGui.Checkbox("Don't ask again", savedUI.popupDontAskAgain)
@@ -1580,18 +1782,13 @@ function savedUI.handlePopUp()
                 -- Store user preference
                 settings.deleteConfirm = not savedUI.popupDontAskAgain
                 settings.save()
-                -- Delete the file
-                os.remove("data/objects/" .. savedUI.deleteFile.name .. ".json")
-                savedUI.files[savedUI.deleteFile.name .. ".json"] = nil
-                savedUI.invalidFiles[savedUI.deleteFile.name .. ".json"] = nil
-                savedUI.groupOpenState[savedUI.deleteFile.name .. ".json"] = nil
 
-                local removedFromExport = removeFromExportListIfPresent(savedUI.deleteFile)
-                showDeletedGroupToast(savedUI.deleteFile, removedFromExport)
+                if pending then
+                    removeSavedEntry(pending.fileName, pending.data)
+                end
 
                 savedUI.deleteFile = nil
                 savedUI.popup = false
-                savedUI.deleteFile = nil
             end
             ImGui.EndPopup()
         end
@@ -1615,6 +1812,7 @@ function savedUI.reload()
     savedUI.projectSectionIconSearch = {}
     savedUI.groupProjectCreateState = {}
     savedUI.groupProjectIconSearch = {}
+    savedUI.entryEditState = {}
     savedUI.pendingGroupProjectPopupId = nil
     ammImportPresetPopup.reset()
     backup.invalidateInfoCache()

@@ -339,6 +339,15 @@ function miscUtils.distanceVector(from, to)
     return math.sqrt((to.x - from.x)^2 + (to.y - from.y)^2 + (to.z - from.z)^2)
 end
 
+---Escapes every Lua pattern magic character, so text can be matched literally.
+---Needed wherever free-form user text (element names, and therefore hierarchy paths) ends up inside
+---a pattern: a group called "Zone (2)" would otherwise be read as a capture.
+---@param text string?
+---@return string
+function miscUtils.escapePattern(text)
+    return (tostring(text or ""):gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%1"))
+end
+
 ---Sanitizes text so it can be safely used as a file name.
 ---@param name string
 ---@return string

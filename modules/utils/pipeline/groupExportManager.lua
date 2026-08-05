@@ -769,7 +769,9 @@ beginNextGroup = function (runtime)
         return
     end
 
-    local path = "data/objects/" .. group.name .. ".json"
+    -- The project file, not the group's name: since the two were split, a renamed group would
+    -- otherwise look like a missing project and be skipped.
+    local path = "data/objects/" .. (group.fileName or (tostring(group.name) .. ".json"))
     if not config.fileExists(path) then
         queueToast("warning", 3500, string.format("Skipped missing group \"%s\"", tostring(group.name)))
         advanceGroup(runtime, false)
@@ -1025,6 +1027,7 @@ function groupExportManager.start(request)
     for _, group in ipairs(request.groups) do
         local mappedGroup = {
             name = group.name,
+            fileName = group.fileName,
             category = group.category,
             level = group.level,
             streamingX = group.streamingX,

@@ -3,12 +3,15 @@ local history = require("modules/utils/history")
 local backup = require("modules/utils/backup")
 local logger = require("modules/utils/logger")
 local saveState = require("modules/utils/saveState")
+local projectFiles = require("modules/utils/projectFiles")
+local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
----@field name string
+---@field name string Free-form display name. Unique among siblings, but not tied to any file.
 ---@field newName string
----@field fileName string
+---@field projectUID string? For a root group bound to a saved project: its file name in
+---`data/objects/`, which is that project's unique id. Mirrored from `saveState`, never serialized.
 ---@field parent element
 ---@field childs element[]
 ---@field modulePath string
@@ -75,7 +78,8 @@ function element:new(sUI)
 
 	o.name = "New Element"
 	o.newName = nil
-	o.fileName = ""
+	-- Only ever set by saveState, on root groups that own a project file.
+	o.projectUID = nil
 
 	o.parent = nil
     o.childs = {}
@@ -129,7 +133,8 @@ function element:load(data, silent)
 		self.childs[1]:remove()
 	end
 
-	self.fileName = data.name
+	-- Only the name: what file this came from is the caller's business (a load from `data/objects/`
+	-- binds the uID through saveState), and a clipboard paste must not inherit one at all.
 	self.name = data.name
 	self.modulePath = data.modulePath
 	self.headerOpen = data.headerOpen
@@ -185,16 +190,34 @@ local function generateUniqueName(entry, childs)
 	end
 end
 
----Update file name to new given
+---Cleans up a display name.
+---
+---Names are free-form, like prefab categories and project tags: spaces, apostrophes and punctuation
+---all survive. The one exception is the path separator, because `getPath` joins names with `/` and
+---the whole selection/history layer addresses elements by that path -- a name containing one would
+---split into segments that match nothing.
+---@param name string
+---@return string
+function element.sanitizeDisplayName(name)
+	local cleaned = tostring(name or ""):gsub("[/\\]", "_")
+	cleaned = cleaned:match("^%s*(.-)%s*$")
+
+	return cleaned
+end
+
+---Update the display name to the given one. Does not affect which file the element saves to.
 ---@param name string
 function element:rename(name)
 	if self.lockedRename then return end
 	if self:isLocked() then return end
 
+	local cleaned = element.sanitizeDisplayName(name)
+	if cleaned == "" then return end
+
 	local oldPath = self:getPath()
 	local oldState = self:serialize()
 
-	self.name = utils.createFileName(name)
+	self.name = cleaned
 	generateUniqueName(self, self.parent.childs)
 	self.newName = self.name
 
@@ -282,16 +305,39 @@ function element:getRootParent()
 	return self.parent:getRootParent()
 end
 
+---Whether the element would still be a root child after being moved under `newParent`.
+---
+---A project's identity is its file, and only a direct child of the real root is a project. Letting a
+---linked group become someone's child would leave a file that nothing owns and a subtree that
+---auto-save writes as part of a different project, so it is refused rather than silently unlinked.
+---@param newParent element? Prospective parent.
+---@return boolean
+function element:wouldUnlinkFromProject(newParent)
+	if self.projectUID == nil then return false end
+	if newParent == nil then return false end
+
+	return not newParent:isRoot(true)
+end
+
 ---Base condition ensuring the target is not contained in a source
 ---@param paths {path : string, ref : element}[]
----@param hasToBeExpandable boolean Whether the element has to be expandable or not
+---@param hasToBeExpandable boolean Whether the element has to be expandable or not, i.e. whether the
+---sources would be dropped *into* this element rather than reordered next to it.
 ---@return boolean
 function element:isValidDropTarget(paths, hasToBeExpandable)
 	if not hasToBeExpandable or self.expandable then
 		local ownPath = self:getPath()
+		-- Dropping onto an element nests into it; reordering puts the sources beside it instead.
+		local prospectiveParent = hasToBeExpandable and self or self.parent
 
 		for _, path in pairs(paths) do
-			if ownPath:match("^" .. path.path .. "/") then
+			-- Escaped: names are free-form, so a group called "Zone (2)" or "50% cover" would
+			-- otherwise be read as a pattern and match the wrong subtree, or nothing at all.
+			if ownPath:match("^" .. utils.escapePattern(path.path) .. "/") then
+				return false
+			end
+
+			if path.ref and path.ref:wouldUnlinkFromProject(prospectiveParent) then
 				return false
 			end
 		end
@@ -699,7 +745,10 @@ local function showSaveErrorToast(message)
 end
 
 ---@param showToast boolean?
-function element:save(showToast)
+---@param opts {autoResolveName : boolean?}? `autoResolveName` makes a first save that collides with
+---an existing project file pick the next free name instead of asking. For batch callers (the AMM
+---import) that have no user in front of them.
+function element:save(showToast, opts)
 	showToast = showToast ~= false
 	local updatedInExport = 0
 
@@ -720,12 +769,27 @@ function element:save(showToast)
 
 	data.lastEditedAt = os.date("%Y-%m-%d %H:%M:%S")
 
-	if self.fileName ~= self.name then
-		self.fileName = self.name
+	-- The name on screen only ever decides the *first* file name; after that the uID is the target,
+	-- so renaming a group cannot orphan its project or overwrite someone else's.
+	local fileName, suggestion, takenBy = projectFiles.resolveSaveTarget(self.projectUID, self.name)
+	if not fileName then
+		if not (opts and opts.autoResolveName) then
+			-- The popup only takes root groups. Anything else that lands here has nowhere to go, so
+			-- say so rather than failing silently.
+			if not projectLinkPopup.requestConflict(self, suggestion, takenBy) and showToast then
+				showSaveErrorToast(string.format("\"%s\" already exists, and \"%s\" cannot be linked to a project file",
+					tostring(takenBy), tostring(self.name)))
+			end
+
+			return nil
+		end
+
+		fileName = suggestion
+		logger:info(string.format("[Element] \"%s\" was saved as \"%s\"; \"%s\" was already taken",
+			tostring(self.name), tostring(fileName), tostring(takenBy)))
 	end
 
-	local fileName = self.fileName .. ".json"
-	local targetPath = "data/objects/" .. fileName
+	local targetPath = projectFiles.getPath(fileName)
 	local hadBackup = backup.backupObjectBeforeSave(fileName)
 	-- data.lastEditedAt is refreshed above on every save, so the canonical-content comparison in
 	-- config.saveFile can never match. Skipping it avoids a pointless read + decode + re-encode of
@@ -762,11 +826,13 @@ function element:save(showToast)
 		saveState.markManuallySaved(self, fileName)
 
 		if baseUI and baseUI.exportUI then
+			-- Addressed by uID, not name: the export list follows the file, so a renamed group keeps
+			-- its export entry and two same-named projects stay apart.
 			-- Pass the data we just wrote: syncGroup would re-read and decode the file from disk.
 			if baseUI.exportUI.syncGroupFromData then
-				updatedInExport = baseUI.exportUI.syncGroupFromData(self.name, data) or 0
+				updatedInExport = baseUI.exportUI.syncGroupFromData(fileName, data) or 0
 			elseif baseUI.exportUI.syncGroup then
-				updatedInExport = baseUI.exportUI.syncGroup(self.name) or 0
+				updatedInExport = baseUI.exportUI.syncGroup(fileName) or 0
 			end
 		end
 

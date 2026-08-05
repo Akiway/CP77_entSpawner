@@ -5,6 +5,8 @@ local settings = require("modules/utils/settings")
 local saveState = require("modules/utils/saveState")
 local backup = require("modules/utils/backup")
 local history = require("modules/utils/history")
+local projectFiles = require("modules/utils/projectFiles")
+local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupExportManager = require("modules/utils/pipeline/groupExportManager")
@@ -187,16 +189,24 @@ end
 local function openWriteTarget(job)
     local record = job.record
 
-    -- A manual save may be the group's first, so it falls back to naming the file after the group,
-    -- exactly as element:save does. Automatic saves only ever touch a file they were already bound to.
+    -- Automatic saves only ever touch the file the group is already bound to. A manual save may be
+    -- the group's first, in which case the name on screen picks the file name -- once, and only when
+    -- nothing else already answers to it; otherwise the user is asked rather than guessed at.
     local fileName = record.projectFile
     if not fileName and job.manual then
-        fileName = job.root.name .. ".json"
+        local resolved, suggestion, takenBy = projectFiles.resolveSaveTarget(nil, job.root.name)
+
+        if not resolved then
+            job.nameConflict = { suggestion = suggestion, takenBy = takenBy }
+            return false
+        end
+
+        fileName = resolved
     end
     if not fileName then return false end
 
     job.fileName = fileName
-    job.targetPath = "data/objects/" .. fileName
+    job.targetPath = projectFiles.getPath(fileName)
 
     -- Only for explicit saves: this is what "Restore previous save" in the Projects tab rolls back to,
     -- so it has to mean "before the last save the user made", not "before some timer fired".
@@ -335,7 +345,7 @@ local function finishWrite(job)
             pcall(baseUI.savedUI.refreshEntryShallow, job.fileName, summary)
         end
         if baseUI.exportUI and baseUI.exportUI.syncGroupFromData then
-            local ok, synced = pcall(baseUI.exportUI.syncGroupFromData, job.root.name, summary)
+            local ok, synced = pcall(baseUI.exportUI.syncGroupFromData, job.fileName, summary)
             if ok then
                 updatedInExport = synced or 0
             end
@@ -611,6 +621,21 @@ local function stepJob(job, dt)
 
     if job.phase == "openWrite" then
         if not openWriteTarget(job) then
+            if job.nameConflict then
+                -- Not an error: the group has simply never been saved and the file name its name
+                -- points at belongs to someone else. Hand it to the user instead of picking for
+                -- them, and leave the group exactly as it was.
+                job.record.state = "new"
+                projectLinkPopup.requestConflict(job.root, job.nameConflict.suggestion, job.nameConflict.takenBy)
+
+                if job.manual then
+                    persistenceManager.manualBatch.total = math.max(0, persistenceManager.manualBatch.total - 1)
+                end
+
+                persistenceManager.job = nil
+                return
+            end
+
             job.record.state = "error"
             persistenceManager.stats.failed = persistenceManager.stats.failed + 1
             -- Counted so the batch summary reports it. Deliberately not retried: a path that cannot
@@ -739,7 +764,9 @@ function persistenceManager.flushPendingManualSaves()
     for _, rootChild in ipairs(pending) do
         if saveState.isSavableRootGroup(rootChild) then
             -- showToast = false: this runs outside any draw event, where ImGui must not be touched.
-            local ok, err = pcall(rootChild.save, rootChild, false)
+            -- autoResolveName: there is nobody left to answer a file name conflict, and writing the
+            -- group to the next free name beats dropping a save the user already asked for.
+            local ok, err = pcall(rootChild.save, rootChild, false, { autoResolveName = true })
             if not ok then
                 logger:error("[Persistence] Shutdown save of \"" .. tostring(rootChild.name) .. "\" failed: " .. tostring(err))
             end

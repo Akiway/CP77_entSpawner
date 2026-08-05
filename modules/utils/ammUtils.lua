@@ -447,7 +447,9 @@ function amm.importSinglePreset(data, spawnedUI, options)
         end
 
         local saved, saveErr = pcall(function ()
-            root:save()
+            -- Batch import: a preset whose name already belongs to a project takes the next free
+            -- file name rather than stopping the run on a modal, or overwriting that project.
+            root:save(true, { autoResolveName = true })
         end)
 
         if saved then

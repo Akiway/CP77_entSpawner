@@ -77,7 +77,10 @@ function exportUI.init(spawner)
 
             if data.groups then
                 for key, group in pairs(data.groups) do
-                    if not config.fileExists("data/objects/" .. group.name .. ".json") then
+                    -- Templates predate the name/file split, so entries without a uID still fall
+                    -- back to the name; see exportUI.resolveGroupFileName.
+                    local fileName = group.fileName or (tostring(group.name or "") .. ".json")
+                    if not config.fileExists("data/objects/" .. fileName) then
                         data.groups[key] = nil
                     end
                 end
@@ -119,12 +122,44 @@ local function drawVariantsTooltip()
     style.tooltip("All objects placed within the root of the group will be part of the default variant\nLeave variant name empty (or set it to \"default\") to treat it as default/non-variant")
 end
 
----@param name string
----@return table?
-local function loadSavedGroupBlob(name)
-    if not name then return nil end
+---Resolves which project file an export entry refers to.
+---
+---Entries carry the uID (`fileName`) since project files stopped being named after their group.
+---Older entries -- saved templates, lists from before the split -- only have the name, which used to
+---be the same thing, so that remains the fallback.
+---@param group table? Export list entry, or `{ name = ... }`.
+---@return string? fileName
+function exportUI.resolveGroupFileName(group)
+    if type(group) ~= "table" then return nil end
 
-    local path = "data/objects/" .. name .. ".json"
+    if type(group.fileName) == "string" and group.fileName ~= "" then
+        return group.fileName
+    end
+
+    local name = group.name
+    if type(name) ~= "string" or name == "" then return nil end
+
+    local savedUI = exportUI.spawner and exportUI.spawner.baseUI and exportUI.spawner.baseUI.savedUI or nil
+    local files = savedUI and savedUI.files or nil
+
+    if type(files) == "table" then
+        for fileName, data in pairs(files) do
+            if type(data) == "table" and data.name == name then
+                return fileName
+            end
+        end
+    end
+
+    return name .. ".json"
+end
+
+---@param group table|string Export list entry, or a plain file name.
+---@return table?
+local function loadSavedGroupBlob(group)
+    local fileName = type(group) == "string" and group or exportUI.resolveGroupFileName(group)
+    if not fileName then return nil end
+
+    local path = "data/objects/" .. fileName
     if not config.fileExists(path) then
         return nil
     end
@@ -295,7 +330,14 @@ function exportUI.drawGroups()
             ImGui.BeginGroup()
 
             local nodeFlags = ImGuiTreeNodeFlags.SpanFullWidth
-            if ImGui.TreeNodeEx(group.name, nodeFlags) then
+            local groupOpen = ImGui.TreeNodeEx(group.name .. "##exportGroup" .. key, nodeFlags)
+
+            -- Which project an entry points at is no longer implied by its name, and two entries may
+            -- legitimately share one, so the row says which file it came from.
+            ImGui.SameLine()
+            style.mutedText(tostring(exportUI.resolveGroupFileName(group) or "?"))
+
+            if groupOpen then
                 ImGui.PopStyleColor()
                 ImGui.PopStyleVar()
 
@@ -433,7 +475,7 @@ function exportUI.drawGroups()
                     ImGui.SameLine()
                     ImGui.SetCursorPosX(streamingPropertiesWidth)
                     if ImGui.Button("Auto") then
-                        local blob = config.loadFile("data/objects/" .. group.name .. ".json")
+                        local blob = loadSavedGroupBlob(group)
                         local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
                         g:load(blob, true)
 
@@ -549,18 +591,22 @@ function exportUI.drawGroups()
 end
 
 function exportUI.loadTemplate(data)
-    local existingNames = {}
+    -- Keyed by uID rather than name: a template listing two projects that happen to share a name has
+    -- to bring in both, and re-loading a template must not duplicate what is already listed.
+    local existingFiles = {}
     for _, existing in ipairs(exportUI.groups) do
-        if existing.name then
-            existingNames[existing.name] = true
+        local fileName = exportUI.resolveGroupFileName(existing)
+        if fileName then
+            existingFiles[fileName] = true
         end
     end
 
     for _, group in pairs(data.groups or {}) do
-        local blob = loadSavedGroupBlob(group.name)
+        local blob = loadSavedGroupBlob(group)
         if blob then
             local mapped = {
                 name = group.name,
+                fileName = exportUI.resolveGroupFileName(group),
                 category = group.category or 1,
                 level = group.level or 1,
                 visualizeStreamingBox = group.visualizeStreamingBox == true,
@@ -574,9 +620,9 @@ function exportUI.loadTemplate(data)
                 variantData = buildVariantDataFromBlob(blob, group.variantData)
             }
 
-            if not existingNames[mapped.name] then
+            if mapped.fileName and not existingFiles[mapped.fileName] then
                 table.insert(exportUI.groups, mapped)
-                existingNames[mapped.name] = true
+                existingFiles[mapped.fileName] = true
             end
         end
     end
@@ -1257,13 +1303,22 @@ function exportUI.draw()
     style.sectionHeaderEnd(true)
 end
 
-function exportUI.addGroup(name)
+---Adds a saved project to the export list.
+---@param name string Group name, used as the label and in the exported sector names.
+---@param fileName string? The project's uID. Resolved from the name when omitted, for callers that
+---only know the label (older templates, the settings UI).
+function exportUI.addGroup(name, fileName)
+    fileName = fileName or exportUI.resolveGroupFileName({ name = name })
+
     for _, data in pairs(exportUI.groups) do
-        if data.name == name then return end
+        -- Matched on the uID: two projects may now be called the same thing, and adding one must not
+        -- be mistaken for the other already being in the list.
+        if exportUI.resolveGroupFileName(data) == fileName then return end
     end
 
     local data = {
         name = name,
+        fileName = fileName,
         category = 1,
         level = 1,
         visualizeStreamingBox = false,
@@ -1278,11 +1333,27 @@ function exportUI.addGroup(name)
     }
 
     table.insert(exportUI.groups, data)
-    local blob = loadSavedGroupBlob(name)
+    local blob = loadSavedGroupBlob(data)
     if not blob then return end
 
     data.variantData = buildVariantDataFromBlob(blob, nil)
     data.center = resolveGroupCenter(blob, nil)
+end
+
+---Removes export list entries pointing at one project file.
+---@param fileName string Project uID, i.e. its file name including extension.
+---@return integer
+function exportUI.removeGroupByFile(fileName)
+    local removed = 0
+
+    for i = #exportUI.groups, 1, -1 do
+        if exportUI.resolveGroupFileName(exportUI.groups[i]) == fileName then
+            table.remove(exportUI.groups, i)
+            removed = removed + 1
+        end
+    end
+
+    return removed
 end
 
 ---Remove groups from export list by group name
@@ -1301,19 +1372,54 @@ function exportUI.removeGroupByName(name)
     return removed
 end
 
+---Points export list entries at a renamed project file, so the list survives a rename in the
+---Projects tab.
+---@param oldFileName string
+---@param newFileName string
+---@return integer
+function exportUI.retargetGroupFile(oldFileName, newFileName)
+    local updated = 0
+
+    for _, group in ipairs(exportUI.groups) do
+        if exportUI.resolveGroupFileName(group) == oldFileName then
+            group.fileName = newFileName
+            updated = updated + 1
+        end
+    end
+
+    return updated
+end
+
+---Relabels export list entries after the group inside a project was renamed.
+---@param fileName string Project uID.
+---@param newName string
+---@return integer
+function exportUI.renameGroupByFile(fileName, newName)
+    local updated = 0
+
+    for _, group in ipairs(exportUI.groups) do
+        if exportUI.resolveGroupFileName(group) == fileName and group.name ~= newName then
+            group.name = newName
+            updated = updated + 1
+        end
+    end
+
+    return updated
+end
+
 ---Sync group data in export list from an already in-memory group blob
 ---Keeps export-specific settings (streaming/category/level/refs) while refreshing center + variants
 ---Only `pos`/`origin` and the top level of `childs` are read, so a shallow summary is enough
----@param name string
+---@param fileName string Project uID. A plain group name still works for legacy entries.
 ---@param blob table? Serialized group data, or a summary carrying `pos`/`origin` and top-level `childs`
 ---@return integer
-function exportUI.syncGroupFromData(name, blob)
+function exportUI.syncGroupFromData(fileName, blob)
     if not blob then return 0 end
 
     local updated = 0
 
     for _, group in ipairs(exportUI.groups) do
-        if group.name == name then
+        if exportUI.resolveGroupFileName(group) == fileName or group.name == fileName then
             group.variantData = buildVariantDataFromBlob(blob, group.variantData)
             group.center = resolveGroupCenter(blob, group.center)
             updated = updated + 1
@@ -1326,10 +1432,10 @@ end
 ---Sync group data in export list from saved group file
 ---Prefer `exportUI.syncGroupFromData` when the data is already in memory: this variant re-reads and
 ---decodes the file from disk, which is expensive for large groups.
----@param name string
+---@param fileName string Project uID.
 ---@return integer
-function exportUI.syncGroup(name)
-    return exportUI.syncGroupFromData(name, loadSavedGroupBlob(name))
+function exportUI.syncGroup(fileName)
+    return exportUI.syncGroupFromData(fileName, loadSavedGroupBlob(fileName))
 end
 
 function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)
@@ -1684,9 +1790,8 @@ local function shouldExportNode(node)
 end
 
 function exportUI.exportGroup(group)
-    if not config.fileExists("data/objects/" .. group.name .. ".json") then return end
-
-    local data = config.loadFile("data/objects/" .. group.name .. ".json")
+    local data = loadSavedGroupBlob(group)
+    if not data then return end
 
     local g = require("modules/classes/editor/positionableGroup"):new(exportUI.spawner.baseUI.spawnedUI)
     g:load(data, true)
