@@ -16,6 +16,11 @@ local LIGHT_TYPE_POINT = 0
 local LIGHT_TYPE_SPOT = 1
 local LIGHT_TYPE_AREA = 2
 
+local AREA_SHAPE_SPHERE = 0
+local AREA_SHAPE_CAPSULE = 1
+
+local SHADOW_SOFTNESS_MODE_DEFAULT = 2
+
 local PREVIEW_COLOR_SPOT = "blue"
 local PREVIEW_COLOR_SPOT_INNER = "yellow"
 local PREVIEW_COLOR_DEFAULT = "yellow"
@@ -55,12 +60,17 @@ local PREVIEW_SIZE_CONFIG = {
 ---@field private lightTypeNames table
 ---@field private lightTypeIcons table
 ---@field private lightTypeLabels table
+---@field private unit integer
 ---@field private temperature number
 ---@field private scaleVolFog number
+---@field private scaleGI number
+---@field private scaleEnvProbes number
 ---@field private useInParticles boolean
 ---@field private useInTransparents boolean
 ---@field private ev number
 ---@field private shadowAngle number
+---@field private shadowRadius number
+---@field private shadowSoftnessMode integer
 ---@field private shadowFadeDistance number
 ---@field private shadowFadeRange number
 ---@field private contactShadows number
@@ -70,6 +80,10 @@ local PREVIEW_SIZE_CONFIG = {
 ---@field private maxFlickerPropertiesWidth number
 ---@field private maxMiscPropertiesWidth number
 ---@field private spotCapsule boolean
+---@field private areaShape integer
+---@field private areaTwoSided boolean
+---@field private areaRectSideA number
+---@field private areaRectSideB number
 ---@field private softness number
 ---@field private attenuation number
 ---@field private clampAttenuation boolean
@@ -80,6 +94,11 @@ local PREVIEW_SIZE_CONFIG = {
 ---@field private sourceRadius number
 ---@field private directional boolean
 ---@field private lightChannels table
+---@field private lightGroup integer
+---@field private envColorGroup integer
+---@field private colorGroupSaturation number
+---@field private portalAngleCutoff number
+---@field private allowDistantLight boolean
 ---@field private rayTracedShadowsPlatform integer
 ---@field private rayTracingLightSourceRadius number
 ---@field private rayTracingContactShadowRange number
@@ -91,7 +110,14 @@ local PREVIEW_SIZE_CONFIG = {
 ---@field private iesProfileSearch string
 ---@field private rayTracedShadowsPlatforms table
 ---@field private pathTracingLightUsageTypes table
+---@field private lightUnitTypes table
+---@field private areaShapeTypes table
+---@field private shadowSoftnessModes table
+---@field private lightGroupTypes table
+---@field private envColorGroupTypes table
 ---@field private maxRayPathTracingPropertiesWidth number
+---@field private maxGroupPropertiesWidth number
+---@field private maxAreaPropertiesWidth number
 ---@field private radiusPreviewed boolean
 ---@field private colorHexText string
 ---@field private colorHexEditing boolean
@@ -151,17 +177,28 @@ function light:new()
         o.lightTypeIcons[typeOption.index] = typeOption.icon
         o.lightTypeLabels[typeOption.index] = typeOption.label
     end
+    -- Defaults below match the engine defaults of worldStaticLightNode / entLightComponent, so
+    -- setting them explicitly does not change how a light looks compared to leaving them untouched.
+    o.unit = 0
     o.temperature = -1
     o.scaleVolFog = 0
+    o.scaleGI = 100
+    o.scaleEnvProbes = 100
     o.useInParticles = true
     o.useInTransparents = true
     o.ev = 0
     o.shadowAngle = -1
+    o.shadowRadius = -1
+    o.shadowSoftnessMode = SHADOW_SOFTNESS_MODE_DEFAULT
     o.shadowFadeDistance = 10
     o.shadowFadeRange = 5
     o.contactShadows = 0
     o.contactShadowsTypes = utils.enumTable("rendContactShadowReciever")
     o.spotCapsule = false
+    o.areaShape = AREA_SHAPE_CAPSULE
+    o.areaTwoSided = true
+    o.areaRectSideA = 1
+    o.areaRectSideB = 1
     o.softness = 2
     o.attenuation = 0
     o.attenuationTypes = utils.enumTable("rendLightAttenuation")
@@ -172,6 +209,13 @@ function light:new()
     o.sourceRadius = 0.05
     o.directional = false
     o.lightChannels = { true, true, true, true, true, true, true, true, true, false, false, false }
+    o.lightGroup = 0
+    o.envColorGroup = 0
+    o.colorGroupSaturation = 100
+    o.portalAngleCutoff = 0
+    -- Engine default is `true`, but every light exported by WB so far shipped with distant lights
+    -- disabled, so keeping `false` avoids silently changing already saved objects on re-export.
+    o.allowDistantLight = false
     o.rayTracedShadowsPlatform = 0
     o.rayTracingLightSourceRadius = 0
     o.rayTracingContactShadowRange = 0
@@ -183,12 +227,19 @@ function light:new()
     o.iesProfileSearch = ""
     o.rayTracedShadowsPlatforms = utils.enumTable("rendRayTracedShadowsPlatform")
     o.pathTracingLightUsageTypes = utils.enumTable("rendEPathTracingLightUsage")
+    o.lightUnitTypes = utils.enumTable("ELightUnit")
+    o.areaShapeTypes = utils.enumTable("EAreaLightShape")
+    o.shadowSoftnessModes = utils.enumTable("ELightShadowSoftnessMode")
+    o.lightGroupTypes = utils.enumTable("rendLightGroup")
+    o.envColorGroupTypes = utils.enumTable("EEnvColorGroup")
 
     o.maxBasePropertiesWidth = nil
     o.maxShadowPropertiesWidth = nil
     o.maxFlickerPropertiesWidth = nil
     o.maxMiscPropertiesWidth = nil
     o.maxRayPathTracingPropertiesWidth = nil
+    o.maxGroupPropertiesWidth = nil
+    o.maxAreaPropertiesWidth = nil
 
     o.previewColor = "yellow"
     o.previewed = true
@@ -259,6 +310,14 @@ function light:getPreviewSpec()
                     meshAppearance = PREVIEW_COLOR_SPOT_INNER,
                     size = innerPrismSize
                 }
+            }
+        end
+
+        if self.areaShape == AREA_SHAPE_SPHERE then
+            return {
+                shape = "sphere",
+                color = PREVIEW_COLOR_DEFAULT,
+                size = { x = pointAreaBaseSize, y = pointAreaBaseSize, z = pointAreaBaseSize }
             }
         end
 
@@ -679,6 +738,10 @@ function light:loadSpawnData(data, position, rotation)
     self.roughnessBias = math.min(math.max(math.floor(self.roughnessBias), -127), 127) -- Fix for incorrect clamping before
     self.scaleVolFog = math.floor(self.scaleVolFog)
     self.sceneSpecularScale = math.floor(self.sceneSpecularScale)
+    self.scaleGI = math.floor(self.scaleGI)
+    self.scaleEnvProbes = math.floor(self.scaleEnvProbes)
+    self.colorGroupSaturation = math.floor(self.colorGroupSaturation)
+    self.portalAngleCutoff = math.floor(self.portalAngleCutoff)
     self:updateLightTypeIcon()
     self:updatePreviewShape()
     self.colorHexText = colorUtil.formatHexRGB(self.color)
@@ -750,18 +813,27 @@ function light:onAssemble(entity)
     component.autoHideDistance = self.autoHideDistance
     component:SetFlickerParams(self.flickerStrength, self.flickerPeriod, self.flickerOffset)
     component.type = Enum.new("ELightType", self.lightType)
+    component.unit = Enum.new("ELightUnit", self.unit)
     component.enableLocalShadows = self.localShadows
     component.enableLocalShadowsForceStaticsOnly = self.localShadowsForceStaticsOnly
     component.temperature = self.temperature
     component.scaleVolFog = self.scaleVolFog
+    component.scaleGI = self.scaleGI
+    component.scaleEnvProbes = self.scaleEnvProbes
     component.useInParticles = self.useInParticles
     component.useInTransparents = self.useInTransparents
     component.EV = self.ev
     component.shadowAngle = self.shadowAngle
+    component.shadowRadius = self.shadowRadius
+    component.shadowSoftnessMode = Enum.new("ELightShadowSoftnessMode", self.shadowSoftnessMode)
     component.shadowFadeDistance = self.shadowFadeDistance
     component.shadowFadeRange = self.shadowFadeRange
     component.contactShadows = Enum.new("rendContactShadowReciever", self.contactShadows)
     component.spotCapsule = self.spotCapsule
+    component.areaShape = Enum.new("EAreaLightShape", self.areaShape)
+    component.areaTwoSided = self.areaTwoSided
+    component.areaRectSideA = self.areaRectSideA
+    component.areaRectSideB = self.areaRectSideB
     component.softness = self.softness
     component.attenuation = Enum.new("rendLightAttenuation", self.attenuation)
     component.clampAttenuation = self.clampAttenuation
@@ -770,6 +842,11 @@ function light:onAssemble(entity)
     component.roughnessBias = self.roughnessBias
     component.sourceRadius = self.sourceRadius
     component.directional = self.directional
+    component.group = Enum.new("rendLightGroup", self.lightGroup)
+    component.envColorGroup = Enum.new("EEnvColorGroup", self.envColorGroup)
+    component.colorGroupSaturation = self.colorGroupSaturation
+    component.portalAngleCutoff = self.portalAngleCutoff
+    component.allowDistantLight = self.allowDistantLight
     component.rayTracedShadowsPlatform = Enum.new("rendRayTracedShadowsPlatform", self.rayTracedShadowsPlatform)
     component.rayTracingLightSourceRadius = self.rayTracingLightSourceRadius
     component.rayTracingContactShadowRange = self.rayTracingContactShadowRange
@@ -780,6 +857,11 @@ function light:onAssemble(entity)
     if self.iesProfile and self.iesProfile ~= "" then
         component.iesProfile = ResRef.FromString(self.iesProfile)
     end
+
+    -- `lightChannel` is a bitfield, so it needs a BitField/Enum instance instead of the boolean array
+    pcall(function ()
+        component.lightChannel = lcHelper.getBitField(self.lightChannels)
+    end)
 
     entity:AddComponent(component)
     self:updateArrowVisibilityForCameraFollow(entity)
@@ -810,16 +892,25 @@ function light:save()
     data.flickerPeriod = self.flickerPeriod
     data.flickerOffset = self.flickerOffset
     data.lightType = self.lightType
+    data.unit = self.unit
     data.temperature = self.temperature
     data.scaleVolFog = self.scaleVolFog
+    data.scaleGI = self.scaleGI
+    data.scaleEnvProbes = self.scaleEnvProbes
     data.useInParticles = self.useInParticles
     data.useInTransparents = self.useInTransparents
     data.ev = self.ev
     data.shadowAngle = self.shadowAngle
+    data.shadowRadius = self.shadowRadius
+    data.shadowSoftnessMode = self.shadowSoftnessMode
     data.shadowFadeDistance = self.shadowFadeDistance
     data.shadowFadeRange = self.shadowFadeRange
     data.contactShadows = self.contactShadows
     data.spotCapsule = self.spotCapsule
+    data.areaShape = self.areaShape
+    data.areaTwoSided = self.areaTwoSided
+    data.areaRectSideA = self.areaRectSideA
+    data.areaRectSideB = self.areaRectSideB
     data.softness = self.softness
     data.attenuation = self.attenuation
     data.clampAttenuation = self.clampAttenuation
@@ -830,6 +921,11 @@ function light:save()
     data.localShadowsForceStaticsOnly = self.localShadowsForceStaticsOnly
     data.sourceRadius = self.sourceRadius
     data.directional = self.directional
+    data.lightGroup = self.lightGroup
+    data.envColorGroup = self.envColorGroup
+    data.colorGroupSaturation = self.colorGroupSaturation
+    data.portalAngleCutoff = self.portalAngleCutoff
+    data.allowDistantLight = self.allowDistantLight
     data.rayTracedShadowsPlatform = self.rayTracedShadowsPlatform
     data.rayTracingLightSourceRadius = self.rayTracingLightSourceRadius
     data.rayTracingContactShadowRange = self.rayTracingContactShadowRange
@@ -1060,7 +1156,7 @@ function light:draw()
         if changed then
             self:updateScale()
         end
-        
+
         style.drawIconLabelRow(IconGlyphs.CircleHalfFull, "Spot Capsule", { fieldX = self.maxBasePropertiesWidth })
         ImGui.SameLine()
         self.spotCapsule, changed = style.trackedCheckbox(self.object, "##spotCapsule", self.spotCapsule)
@@ -1324,7 +1420,7 @@ function light:draw()
     -- Other Settings
     if ImGui.TreeNodeEx("Shadow Settings") then
         if not self.maxShadowPropertiesWidth then
-            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Local Shadows (Statics Only)", "Shadow Angle", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+            self.maxShadowPropertiesWidth = utils.getTextMaxWidth({ "Contact Shadows", "Local Shadows", "Local Shadows (Statics Only)", "Shadow Angle", "Shadow Radius", "Shadow Softness Mode", "Shadow Fade Distance", "Shadow Fade Range" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
 
         style.mutedText("Contact Shadows")
@@ -1353,7 +1449,21 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
         self.shadowAngle, _, finished = style.trackedDragFloat(self.object, "##shadowAngle", self.shadowAngle, 0.01, -1, 9999, "%.2f", 75)
+        style.tooltip("-1 lets the engine derive the angle from the light itself")
         self:updateFull(finished)
+
+        style.mutedText("Shadow Radius")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        self.shadowRadius, _, finished = style.trackedDragFloat(self.object, "##shadowRadius", self.shadowRadius, 0.01, -1, 9999, "%.2f", 75)
+        style.tooltip("Radius of the shadow casting source\n-1 lets the engine derive it from the light itself")
+        self:updateFull(finished)
+
+        style.mutedText("Shadow Softness Mode")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxShadowPropertiesWidth)
+        self.shadowSoftnessMode, changed = style.trackedCombo(self.object, "##shadowSoftnessMode", self.shadowSoftnessMode, self.shadowSoftnessModes, 130)
+        self:updateFull(changed)
 
         style.mutedText("Shadow Fade Distance")
         ImGui.SameLine()
@@ -1401,10 +1511,95 @@ function light:draw()
         ImGui.TreePop()
     end
 
+    if ImGui.TreeNodeEx("Group Settings") then
+        if not self.maxGroupPropertiesWidth then
+            self.maxGroupPropertiesWidth = utils.getTextMaxWidth({ "Light Group", "Env. Color Group", "Color Group Saturation" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        end
+
+        style.mutedText("Light Group")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxGroupPropertiesWidth)
+        self.lightGroup, changed = style.trackedCombo(self.object, "##lightGroup", self.lightGroup, self.lightGroupTypes, 130, {
+            tooltip = "Render group this light belongs to, used to toggle sets of lights together"
+        })
+        self:updateFull(changed)
+
+        style.mutedText("Env. Color Group")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxGroupPropertiesWidth)
+        self.envColorGroup, changed = style.trackedCombo(self.object, "##envColorGroup", self.envColorGroup, self.envColorGroupTypes, 130, {
+            tooltip = "Environment color group, letting the weather/environment system tint this light"
+        })
+        self:updateFull(changed)
+
+        style.mutedText("Color Group Saturation")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxGroupPropertiesWidth)
+        self.colorGroupSaturation, _, finished = style.trackedSliderInt(self.object, "##colorGroupSaturation", self.colorGroupSaturation, 0, 255, 110)
+        style.tooltip("How strongly the environment color group tints this light")
+        self:updateFull(finished)
+
+        ImGui.TreePop()
+    end
+
+    -- Emitter geometry only the Area light type makes use of, the main panel keeps the two
+    -- properties that get adjusted often (Capsule Length and Spot Capsule).
+    if self.lightType == LIGHT_TYPE_AREA and ImGui.TreeNodeEx("Area Settings") then
+        if not self.maxAreaPropertiesWidth then
+            self.maxAreaPropertiesWidth = utils.getTextMaxWidth({ "Area Shape", "Two Sided", "Rect Side A", "Rect Side B" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        end
+
+        style.mutedText("Area Shape")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxAreaPropertiesWidth)
+        self.areaShape, changed = style.trackedCombo(self.object, "##areaShape", self.areaShape, self.areaShapeTypes, 130, {
+            tooltip = "Shape of the emitting surface\nCapsule uses Capsule Length and Source Radius\nSphere uses only Source Radius"
+        })
+        self:updateFull(changed)
+
+        style.mutedText("Two Sided")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxAreaPropertiesWidth)
+        self.areaTwoSided, changed = style.trackedCheckbox(self.object, "##areaTwoSided", self.areaTwoSided)
+        style.tooltip("Emit light from both sides of the area light instead of the facing side only")
+        self:updateFull(changed)
+
+        style.mutedText("Rect Side A")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxAreaPropertiesWidth)
+        self.areaRectSideA, _, finished = style.trackedDragFloat(self.object, "##areaRectSideA", self.areaRectSideA, 0.05, 0, 9999, "%.2fm", 75)
+        style.tooltip("Width of the rectangular emitter")
+        self:updateFull(finished)
+
+        style.mutedText("Rect Side B")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxAreaPropertiesWidth)
+        self.areaRectSideB, _, finished = style.trackedDragFloat(self.object, "##areaRectSideB", self.areaRectSideB, 0.05, 0, 9999, "%.2fm", 75)
+        style.tooltip("Height of the rectangular emitter")
+        self:updateFull(finished)
+
+        ImGui.TreePop()
+    end
+
     if ImGui.TreeNodeEx("Misc. Settings") then
         if not self.maxMiscPropertiesWidth then
-            self.maxMiscPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Auto Hide Distance", "EV", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+            self.maxMiscPropertiesWidth = utils.getTextMaxWidth({ "Directional", "Use in particles", "Use in transparents", "Scale Vol. Fog", "Scale GI", "Scale Env. Probes", "Auto Hide Distance", "EV", "Intensity Unit", "Temperature", "Attenuation Mode", "Clamp Attenuation", "Specular Scale", "Scene Diffuse", "Roughness Bias", "Source Radius", "Portal Angle Cutoff", "Allow Distant Light" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
         end
+
+        style.mutedText("Intensity Unit")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.unit, changed = style.trackedCombo(self.object, "##unit", self.unit, self.lightUnitTypes, 110, {
+            tooltip = "Unit the intensity value is interpreted in"
+        })
+        self:updateFull(changed)
+
+        style.mutedText("Temperature")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.temperature, _, finished = style.trackedDragFloat(self.object, "##temperature", self.temperature, 10, -1, 20000, "%.0fK", 110)
+        style.tooltip("Color temperature in Kelvin, tinting the light color\n-1 disables it and uses the light color as is")
+        self:updateFull(finished)
 
         style.mutedText("Use in particles")
         ImGui.SameLine()
@@ -1422,6 +1617,20 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.scaleVolFog, _, finished = style.trackedSliderInt(self.object, "##scaleVolFog", self.scaleVolFog, 0, 255, 110)
+        self:updateFull(finished)
+
+        style.mutedText("Scale GI")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.scaleGI, _, finished = style.trackedSliderInt(self.object, "##scaleGI", self.scaleGI, 0, 255, 110)
+        style.tooltip("Scales how much this light contributes to global illumination")
+        self:updateFull(finished)
+
+        style.mutedText("Scale Env. Probes")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.scaleEnvProbes, _, finished = style.trackedSliderInt(self.object, "##scaleEnvProbes", self.scaleEnvProbes, 0, 255, 110)
+        style.tooltip("Scales how much this light contributes to environment probes")
         self:updateFull(finished)
 
         style.mutedText("Scene Diffuse")
@@ -1480,6 +1689,20 @@ function light:draw()
         ImGui.SameLine()
         ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
         self.directional, changed = style.trackedCheckbox(self.object, "##directional", self.directional)
+        self:updateFull(changed)
+
+        style.mutedText("Portal Angle Cutoff")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.portalAngleCutoff, _, finished = style.trackedSliderInt(self.object, "##portalAngleCutoff", self.portalAngleCutoff, 0, 255, 110)
+        style.tooltip("Angle at which the light stops shining through portals")
+        self:updateFull(finished)
+
+        style.mutedText("Allow Distant Light")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxMiscPropertiesWidth)
+        self.allowDistantLight, changed = style.trackedCheckbox(self.object, "##allowDistantLight", self.allowDistantLight)
+        style.tooltip("Let this light be picked up by the distant lights system\nwhich keeps it visible past the auto hide distance")
         self:updateFull(changed)
 
         ImGui.TreePop()
@@ -1645,17 +1868,31 @@ function light:export()
         outerAngle = self.outerAngle,
         radius = self.radius,
         type = self.lightTypeNames[self.lightType + 1],
-        allowDistantLight = 0,
+        unit = self.lightUnitTypes[self.unit + 1],
+        temperature = self.temperature,
+        allowDistantLight = self.allowDistantLight and 1 or 0,
         lightChannel = utils.buildBitfieldString(self.lightChannels, style.lightChannelEnum),
+        group = self.lightGroupTypes[self.lightGroup + 1],
+        envColorGroup = self.envColorGroupTypes[self.envColorGroup + 1],
+        colorGroupSaturation = self.colorGroupSaturation,
+        portalAngleCutoff = self.portalAngleCutoff,
         scaleVolFog = self.scaleVolFog,
+        scaleGI = self.scaleGI,
+        scaleEnvProbes = self.scaleEnvProbes,
         useInParticles = self.useInParticles and 1 or 0,
         useInTransparents = self.useInTransparents and 1 or 0,
         EV = self.ev,
         shadowAngle = self.shadowAngle,
+        shadowRadius = self.shadowRadius,
+        shadowSoftnessMode = self.shadowSoftnessModes[self.shadowSoftnessMode + 1],
         shadowFadeDistance = self.shadowFadeDistance,
         shadowFadeRange = self.shadowFadeRange,
         contactShadows = self.contactShadowsTypes[self.contactShadows + 1],
         spotCapsule = self.spotCapsule and 1 or 0,
+        areaShape = self.areaShapeTypes[self.areaShape + 1],
+        areaTwoSided = self.areaTwoSided and 1 or 0,
+        areaRectSideA = self.areaRectSideA,
+        areaRectSideB = self.areaRectSideB,
         softness = self.softness,
         attenuation = self.attenuationTypes[self.attenuation + 1],
         clampAttenuation = self.clampAttenuation and 1 or 0,

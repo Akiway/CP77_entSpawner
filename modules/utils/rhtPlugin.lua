@@ -609,7 +609,21 @@ local TYPE_MAP = {
                 sourceRadius = safeGet(native, "sourceRadius", 0.05),
                 softness = safeGet(native, "softness", 2),
                 spotCapsule = toBool(safeGet(native, "spotCapsule", false)),
-                lightChannels = getLightChannels(safeGet(native, "lightChannel", nil))
+                lightChannels = getLightChannels(safeGet(native, "lightChannel", nil)),
+                unit = getEnumIndex("ELightUnit", safeGet(native, "unit", 0)),
+                scaleGI = safeGet(native, "scaleGI", 100),
+                scaleEnvProbes = safeGet(native, "scaleEnvProbes", 100),
+                shadowRadius = safeGet(native, "shadowRadius", -1),
+                shadowSoftnessMode = getEnumIndex("ELightShadowSoftnessMode", safeGet(native, "shadowSoftnessMode", 2)),
+                areaShape = getEnumIndex("EAreaLightShape", safeGet(native, "areaShape", 1)),
+                areaTwoSided = toBool(safeGet(native, "areaTwoSided", true)),
+                areaRectSideA = safeGet(native, "areaRectSideA", 1),
+                areaRectSideB = safeGet(native, "areaRectSideB", 1),
+                lightGroup = getEnumIndex("rendLightGroup", safeGet(native, "group", 0)),
+                envColorGroup = getEnumIndex("EEnvColorGroup", safeGet(native, "envColorGroup", 0)),
+                colorGroupSaturation = safeGet(native, "colorGroupSaturation", 100),
+                portalAngleCutoff = safeGet(native, "portalAngleCutoff", 0),
+                allowDistantLight = toBool(safeGet(native, "allowDistantLight", false))
             }
 
             if color then

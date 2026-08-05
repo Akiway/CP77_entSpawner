@@ -109,14 +109,27 @@ local lightComponentNewUIKeys = {
     enableLocalShadows = true,
     enableLocalShadowsForceStaticsOnly = true,
     shadowAngle = true,
+    shadowRadius = true,
+    shadowSoftnessMode = true,
     shadowFadeDistance = true,
     shadowFadeRange = true,
     flicker = true,
     lightChannel = true,
     iesProfile = true,
+    areaShape = true,
+    areaTwoSided = true,
+    areaRectSideA = true,
+    areaRectSideB = true,
+    group = true,
+    envColorGroup = true,
+    colorGroupSaturation = true,
+    unit = true,
+    temperature = true,
     useInParticles = true,
     useInTransparents = true,
     scaleVolFog = true,
+    scaleGI = true,
+    scaleEnvProbes = true,
     sceneDiffuse = true,
     sceneSpecularScale = true,
     roughnessBias = true,
@@ -126,6 +139,8 @@ local lightComponentNewUIKeys = {
     attenuation = true,
     clampAttenuation = true,
     directional = true,
+    portalAngleCutoff = true,
+    allowDistantLight = true,
     rayTracedShadowsPlatform = true,
     rayTracingLightSourceRadius = true,
     rayTracingContactShadowRange = true,
@@ -592,11 +607,16 @@ function lightComponentUI.install(entity)
         local modified = isLightComponentPathModified(component, componentChanges, path)
         drawLightComponentLabelRow(label, opts.max, modified)
 
+        local currentValue = getLightComponentValue(component, componentChanges, path)
+        if currentValue == nil and opts.default ~= nil then
+            currentValue = opts.default
+        end
+
         style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
         local newValue, changed = style.trackedCheckbox(
             self.object,
             getLightComponentWidgetID(componentID, path),
-            toLightComponentBool(getLightComponentValue(component, componentChanges, path)),
+            toLightComponentBool(currentValue),
             opts.disabled
         )
         self:drawLightComponentReset(componentID, path, opts.typeName or "Bool")
@@ -646,6 +666,13 @@ function lightComponentUI.install(entity)
             selected = 0
         end
 
+        -- The combo draws its own tooltip, so helper text has to be appended to the type name
+        -- instead of being drawn as a second tooltip window on top of it.
+        local tooltipText = enumName
+        if opts.tooltip then
+            tooltipText = tooltipText .. "\n\n" .. opts.tooltip
+        end
+
         style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
         local newSelected, changed = style.trackedCombo(
             self.object,
@@ -653,7 +680,7 @@ function lightComponentUI.install(entity)
             selected,
             values,
             opts.width or 130,
-            { tooltip = enumName }
+            { tooltip = tooltipText }
         )
         self:drawLightComponentReset(componentID, path, enumName)
         style.popStyleColor(modified)
@@ -994,6 +1021,8 @@ function lightComponentUI.install(entity)
             { path = { "enableLocalShadows" }, label = "Local Shadows" },
             { path = { "enableLocalShadowsForceStaticsOnly" }, label = "Local Shadows (Statics Only)" },
             { path = { "shadowAngle" }, label = "Shadow Angle" },
+            { path = { "shadowRadius" }, label = "Shadow Radius" },
+            { path = { "shadowSoftnessMode" }, label = "Shadow Softness Mode" },
             { path = { "shadowFadeDistance" }, label = "Shadow Fade Distance" },
             { path = { "shadowFadeRange" }, label = "Shadow Fade Range" }
         }
@@ -1007,6 +1036,8 @@ function lightComponentUI.install(entity)
                 "Local Shadows",
                 "Local Shadows (Statics Only)",
                 "Shadow Angle",
+                "Shadow Radius",
+                "Shadow Softness Mode",
                 "Shadow Fade Distance",
                 "Shadow Fade Range"
             }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
@@ -1028,7 +1059,23 @@ function lightComponentUI.install(entity)
                 min = -1,
                 maxValue = 9999,
                 format = "%.2f",
-                width = 75
+                width = 75,
+                default = -1,
+                tooltip = "-1 lets the engine derive the angle from the light itself"
+            }, propertySearch)
+            self:drawLightComponentFloatRow(componentID, component, componentChanges, { "shadowRadius" }, "Shadow Radius", {
+                max = max,
+                step = 0.01,
+                min = -1,
+                maxValue = 9999,
+                format = "%.2f",
+                width = 75,
+                default = -1,
+                tooltip = "Radius of the shadow casting source\n-1 lets the engine derive it from the light itself"
+            }, propertySearch)
+            self:drawLightComponentEnumRow(componentID, component, componentChanges, { "shadowSoftnessMode" }, "Shadow Softness Mode", "ELightShadowSoftnessMode", {
+                max = max,
+                width = 130
             }, propertySearch)
             self:drawLightComponentFloatRow(componentID, component, componentChanges, { "shadowFadeDistance" }, "Shadow Fade Distance", {
                 max = max,
@@ -1132,11 +1179,128 @@ function lightComponentUI.install(entity)
     ---@param component table
     ---@param componentChanges table?
     ---@param propertySearch string?
+    function entity:drawLightComponentGroupSection(componentID, component, componentChanges, propertySearch)
+        local fields = {
+            { path = { "group" }, label = "Light Group" },
+            { path = { "envColorGroup" }, label = "Env. Color Group" },
+            { path = { "colorGroupSaturation" }, label = "Color Group Saturation" }
+        }
+        if not shouldDrawAnyLightComponentField(component, componentChanges, fields, propertySearch) then
+            return
+        end
+
+        if drawLightComponentSectionHeader("Group Settings", self:isAnyLightComponentFieldModified(componentID, component, componentChanges, fields)) then
+            local max = utils.getTextMaxWidth({
+                "Light Group",
+                "Env. Color Group",
+                "Color Group Saturation"
+            }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+
+            self:drawLightComponentEnumRow(componentID, component, componentChanges, { "group" }, "Light Group", "rendLightGroup", {
+                max = max,
+                width = 130,
+                tooltip = "Render group this light belongs to, used to toggle sets of lights together"
+            }, propertySearch)
+            self:drawLightComponentEnumRow(componentID, component, componentChanges, { "envColorGroup" }, "Env. Color Group", "EEnvColorGroup", {
+                max = max,
+                width = 130,
+                tooltip = "Environment color group, letting the weather/environment system tint this light"
+            }, propertySearch)
+            self:drawLightComponentIntRow(componentID, component, componentChanges, { "colorGroupSaturation" }, "Color Group Saturation", {
+                max = max,
+                min = 0,
+                maxValue = 255,
+                width = 110,
+                typeName = "Uint8",
+                default = 100,
+                tooltip = "How strongly the environment color group tints this light"
+            }, propertySearch)
+
+            ImGui.TreePop()
+        end
+    end
+
+    ---Emitter geometry only the Area light type makes use of, the primary block keeps the two
+    ---properties that get adjusted often (Capsule Length and Spot Capsule).
+    ---@param componentID string|number
+    ---@param component table
+    ---@param componentChanges table?
+    ---@param propertySearch string?
+    function entity:drawLightComponentAreaSection(componentID, component, componentChanges, propertySearch)
+        -- Hidden for the other light types, which ignore these properties anyway, but still
+        -- reachable through the property search so a stored value never becomes uneditable.
+        local searchActive = type(propertySearch) == "string" and propertySearch ~= ""
+        local lightType = normalizeLightComponentType(getLightComponentValue(component, componentChanges, { "type" }))
+        if lightType ~= LIGHT_COMPONENT_TYPE_AREA and not searchActive then
+            return
+        end
+
+        local fields = {
+            { path = { "areaShape" }, label = "Area Shape" },
+            { path = { "areaTwoSided" }, label = "Two Sided" },
+            { path = { "areaRectSideA" }, label = "Rect Side A" },
+            { path = { "areaRectSideB" }, label = "Rect Side B" }
+        }
+        if not shouldDrawAnyLightComponentField(component, componentChanges, fields, propertySearch) then
+            return
+        end
+
+        if drawLightComponentSectionHeader("Area Settings", self:isAnyLightComponentFieldModified(componentID, component, componentChanges, fields)) then
+            local max = utils.getTextMaxWidth({
+                "Area Shape",
+                "Two Sided",
+                "Rect Side A",
+                "Rect Side B"
+            }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+
+            self:drawLightComponentEnumRow(componentID, component, componentChanges, { "areaShape" }, "Area Shape", "EAreaLightShape", {
+                max = max,
+                width = 130,
+                tooltip = "Shape of the emitting surface\nCapsule uses Capsule Length and Source Radius\nSphere uses only Source Radius"
+            }, propertySearch)
+            self:drawLightComponentBoolRow(componentID, component, componentChanges, { "areaTwoSided" }, "Two Sided", {
+                max = max,
+                default = true,
+                tooltip = "Emit light from both sides of the area light instead of the facing side only"
+            }, propertySearch)
+            self:drawLightComponentFloatRow(componentID, component, componentChanges, { "areaRectSideA" }, "Rect Side A", {
+                max = max,
+                step = 0.05,
+                min = 0,
+                maxValue = 9999,
+                format = "%.2fm",
+                width = 75,
+                default = 1,
+                tooltip = "Width of the rectangular emitter"
+            }, propertySearch)
+            self:drawLightComponentFloatRow(componentID, component, componentChanges, { "areaRectSideB" }, "Rect Side B", {
+                max = max,
+                step = 0.05,
+                min = 0,
+                maxValue = 9999,
+                format = "%.2fm",
+                width = 75,
+                default = 1,
+                tooltip = "Height of the rectangular emitter"
+            }, propertySearch)
+
+            ImGui.TreePop()
+        end
+    end
+
+    ---@param componentID string|number
+    ---@param component table
+    ---@param componentChanges table?
+    ---@param propertySearch string?
     function entity:drawLightComponentMiscSection(componentID, component, componentChanges, propertySearch)
         local fields = {
+            { path = { "unit" }, label = "Intensity Unit" },
+            { path = { "temperature" }, label = "Temperature" },
             { path = { "useInParticles" }, label = "Use in particles" },
             { path = { "useInTransparents" }, label = "Use in transparents" },
             { path = { "scaleVolFog" }, label = "Scale Vol. Fog" },
+            { path = { "scaleGI" }, label = "Scale GI" },
+            { path = { "scaleEnvProbes" }, label = "Scale Env. Probes" },
             { path = { "sceneDiffuse" }, label = "Scene Diffuse" },
             { path = { "sceneSpecularScale" }, label = "Specular Scale" },
             { path = { "roughnessBias" }, label = "Roughness Bias" },
@@ -1145,7 +1309,9 @@ function lightComponentUI.install(entity)
             { path = { "EV" }, label = "EV" },
             { path = { "attenuation" }, label = "Attenuation Mode" },
             { path = { "clampAttenuation" }, label = "Clamp Attenuation" },
-            { path = { "directional" }, label = "Directional" }
+            { path = { "directional" }, label = "Directional" },
+            { path = { "portalAngleCutoff" }, label = "Portal Angle Cutoff" },
+            { path = { "allowDistantLight" }, label = "Allow Distant Light" }
         }
         if not shouldDrawAnyLightComponentField(component, componentChanges, fields, propertySearch) then
             return
@@ -1157,16 +1323,37 @@ function lightComponentUI.install(entity)
                 "Use in particles",
                 "Use in transparents",
                 "Scale Vol. Fog",
+                "Scale GI",
+                "Scale Env. Probes",
                 "Auto Hide Distance",
                 "EV",
+                "Intensity Unit",
+                "Temperature",
                 "Attenuation Mode",
                 "Clamp Attenuation",
                 "Specular Scale",
                 "Scene Diffuse",
                 "Roughness Bias",
-                "Source Radius"
+                "Source Radius",
+                "Portal Angle Cutoff",
+                "Allow Distant Light"
             }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
 
+            self:drawLightComponentEnumRow(componentID, component, componentChanges, { "unit" }, "Intensity Unit", "ELightUnit", {
+                max = max,
+                width = 130,
+                tooltip = "Unit the intensity value is interpreted in"
+            }, propertySearch)
+            self:drawLightComponentFloatRow(componentID, component, componentChanges, { "temperature" }, "Temperature", {
+                max = max,
+                step = 10,
+                min = -1,
+                maxValue = 20000,
+                format = "%.0fK",
+                width = 110,
+                default = -1,
+                tooltip = "Color temperature in Kelvin, tinting the light color\n-1 disables it and uses the light color as is"
+            }, propertySearch)
             self:drawLightComponentBoolRow(componentID, component, componentChanges, { "useInParticles" }, "Use in particles", {
                 max = max
             }, propertySearch)
@@ -1179,6 +1366,24 @@ function lightComponentUI.install(entity)
                 maxValue = 255,
                 width = 110,
                 typeName = "Uint8"
+            }, propertySearch)
+            self:drawLightComponentIntRow(componentID, component, componentChanges, { "scaleGI" }, "Scale GI", {
+                max = max,
+                min = 0,
+                maxValue = 255,
+                width = 110,
+                typeName = "Uint8",
+                default = 100,
+                tooltip = "Scales how much this light contributes to global illumination"
+            }, propertySearch)
+            self:drawLightComponentIntRow(componentID, component, componentChanges, { "scaleEnvProbes" }, "Scale Env. Probes", {
+                max = max,
+                min = 0,
+                maxValue = 255,
+                width = 110,
+                typeName = "Uint8",
+                default = 100,
+                tooltip = "Scales how much this light contributes to environment probes"
             }, propertySearch)
             self:drawLightComponentBoolRow(componentID, component, componentChanges, { "sceneDiffuse" }, "Scene Diffuse", {
                 max = max
@@ -1230,6 +1435,19 @@ function lightComponentUI.install(entity)
             }, propertySearch)
             self:drawLightComponentBoolRow(componentID, component, componentChanges, { "directional" }, "Directional", {
                 max = max
+            }, propertySearch)
+            self:drawLightComponentIntRow(componentID, component, componentChanges, { "portalAngleCutoff" }, "Portal Angle Cutoff", {
+                max = max,
+                min = 0,
+                maxValue = 255,
+                width = 110,
+                typeName = "Uint8",
+                tooltip = "Angle at which the light stops shining through portals"
+            }, propertySearch)
+            self:drawLightComponentBoolRow(componentID, component, componentChanges, { "allowDistantLight" }, "Allow Distant Light", {
+                max = max,
+                default = true,
+                tooltip = "Let this light be picked up by the distant lights system\nwhich keeps it visible past the auto hide distance"
             }, propertySearch)
 
             ImGui.TreePop()
@@ -1354,6 +1572,8 @@ function lightComponentUI.install(entity)
         self:drawLightComponentShadowSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentFlickerSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentChannelsSection(componentID, component, componentChanges, propertySearch)
+        self:drawLightComponentGroupSection(componentID, component, componentChanges, propertySearch)
+        self:drawLightComponentAreaSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentMiscSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentRayPathTracingSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentOtherSection(componentID, component, componentChanges, propertySearch)
