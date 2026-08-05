@@ -329,17 +329,12 @@ function saveState.bindProjectFile(rootChild, projectFile)
             record.state = "new"
             record.duplicateOf = projectFile
             mirrorProjectUID(record, nil)
-            logger:info(string.format(
-                "[SaveState] \"%s\" is already open as \"%s\"; the new copy is left unbound from auto-save",
-                projectFile, tostring(claimant.ref and claimant.ref.name)))
             return false
         end
 
         -- Anything still holding this path is gone from the tree, so its claim is meaningless.
         -- Releasing it keeps a removed-then-reloaded group from being locked out of its own file.
-        if releaseOtherClaims(projectFile, record.id) > 0 then
-            logger:info("[SaveState] Released a stale claim on \"" .. projectFile .. "\"")
-        end
+        releaseOtherClaims(projectFile, record.id)
     end
 
     record.projectFile = projectFile
@@ -374,8 +369,6 @@ function saveState.unbindProjectFile(rootChild)
     record.duplicateOf = nil
     record.needsBaseline = false
     record.dirty = true
-
-    logger:info(string.format("[SaveState] \"%s\" was unlinked from \"%s\"", tostring(rootChild.name), previous))
 
     return previous
 end
