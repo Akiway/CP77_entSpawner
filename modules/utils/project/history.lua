@@ -72,6 +72,99 @@ local function findElementByIdRecursive(node, id)
     return nil
 end
 
+---Capture the runtime IDs of an element's descendants, keyed by path relative to it.
+---`serialize` carries no IDs, so a subtree rebuilt by `processUndoEntry` would otherwise come back
+---with fresh random ones and become unreachable to every ID-based lookup, selection included.
+---@param instance element Root of the subtree to capture.
+---@return table<string, number> ids
+local function captureSubtreeIds(instance)
+    local ids = {}
+
+    local function walk(node, prefix)
+        for _, child in ipairs(node.childs or {}) do
+            local path = prefix .. "/" .. tostring(child.name)
+            ids[path] = child.id
+            walk(child, path)
+        end
+    end
+
+    walk(instance, "")
+
+    return ids
+end
+
+---Re-apply IDs captured by `captureSubtreeIds` to a rebuilt subtree.
+---@param instance element Root of the rebuilt subtree.
+---@param ids table<string, number>? Snapshot to apply.
+local function applySubtreeIds(instance, ids)
+    if not ids then
+        return
+    end
+
+    local function walk(node, prefix)
+        for _, child in ipairs(node.childs or {}) do
+            local path = prefix .. "/" .. tostring(child.name)
+            if ids[path] then
+                child.id = ids[path]
+            end
+            walk(child, path)
+        end
+    end
+
+    walk(instance, "")
+end
+
+---Snapshot which elements are currently selected, by runtime ID.
+---@return number[] ids
+local function captureSelection()
+    local ids = {}
+
+    if not history.spawnedUI or not history.spawnedUI.root then
+        return ids
+    end
+
+    local function walk(node)
+        for _, child in ipairs(node.childs or {}) do
+            if child.selected then
+                ids[#ids + 1] = child.id
+            end
+            walk(child)
+        end
+    end
+
+    walk(history.spawnedUI.root)
+
+    return ids
+end
+
+---Re-select elements that were selected before an action ran. Purely additive: an element the action
+---itself selected is left alone, and IDs that no longer exist are dropped.
+---@param ids number[]? Snapshot from `captureSelection`.
+local function restoreSelection(ids)
+    if not ids or #ids == 0 or not history.spawnedUI or not history.spawnedUI.root then
+        return
+    end
+
+    local wanted = {}
+    for _, id in ipairs(ids) do
+        wanted[id] = true
+    end
+
+    local function walk(node)
+        for _, child in ipairs(node.childs or {}) do
+            if wanted[child.id] and not child.selected then
+                local ok, err = pcall(child.setSelected, child, true)
+                if not ok then
+                    logActionError("Selection restore failed", err)
+                end
+            end
+            walk(child)
+        end
+    end
+
+    walk(history.spawnedUI.root)
+end
+
 ---Resolve an element by path by walking the in-memory tree.
 ---@param path string Absolute spawned UI path.
 ---@return element? found
@@ -700,6 +793,7 @@ function history.getRemove(elements)
                 parentId = element.parent.id,
                 path = element:getPath(),
                 id = element.id,
+                childIds = captureSubtreeIds(element),
                 data = element:serialize()
             })
         end
@@ -743,6 +837,7 @@ function history.getRemove(elements)
             local new = require(elementData.data.modulePath):new(history.spawnedUI)
             new:load(elementData.data)
             new.id = elementData.id -- Preserve runtime identity so later history steps can resolve by id.
+            applySubtreeIds(new, elementData.childIds) -- Same, for everything below it.
             local insertAt = elementData.index ~= -1 and elementData.index or nil
             new:setParent(parent, insertAt)
         end
@@ -894,7 +989,10 @@ local function beginNextPendingAction()
             history.active = {
                 mode = mode,
                 action = action,
-                failed = false
+                failed = false,
+                -- Structural actions rebuild elements instead of mutating them, so the selection has
+                -- to be re-applied by ID once the tree settles.
+                selection = captureSelection()
             }
 
             if action.begin then
@@ -924,6 +1022,7 @@ local function finishActiveAction(success)
 
     local mode = history.active.mode
     local action = history.active.action
+    local selection = history.active.selection
 
     if action and action.finish then
         local ok, err = pcall(action.finish, mode)
@@ -950,6 +1049,7 @@ local function finishActiveAction(success)
         saveState.onHistoryAction(action)
     end
 
+    restoreSelection(selection) -- Before the rebuild, so the refreshed cache sees the flags.
     rebuildCache(true)
 end
 
@@ -1035,11 +1135,13 @@ function history.undo()
     end
 
     local action = history.actions[history.index]
+    local selection = captureSelection()
     local success = runActionImmediate(action, "undo")
     if success then
         history.index = history.index - 1
     end
     history.propBeingEdited = false
+    restoreSelection(selection)
     rebuildCache(true)
 end
 
@@ -1053,11 +1155,13 @@ function history.redo()
     end
 
     local action = history.actions[history.index + 1]
+    local selection = captureSelection()
     local success = runActionImmediate(action, "redo")
     if success then
         history.index = history.index + 1
     end
     history.propBeingEdited = false
+    restoreSelection(selection)
     rebuildCache(true)
 end
 

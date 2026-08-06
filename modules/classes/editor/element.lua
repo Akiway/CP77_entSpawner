@@ -117,6 +117,56 @@ function element:new(sUI)
    	return setmetatable(o, self)
 end
 
+---Capture which descendants are currently selected, keyed by their path relative to `instance`.
+---Used to carry live selection across a `load` that tears down and rebuilds the subtree.
+---@param instance element
+---@return table<string, boolean>? selection nil when nothing in the subtree is selected
+local function captureSubtreeSelection(instance)
+	local selection = nil
+
+	local function walk(node, prefix)
+		for _, child in pairs(node.childs) do
+			local path = prefix .. "/" .. tostring(child.name)
+
+			if child.selected then
+				selection = selection or {}
+				selection[path] = true
+			end
+
+			walk(child, path)
+		end
+	end
+
+	walk(instance, "")
+
+	return selection
+end
+
+---Re-apply a snapshot taken by `captureSubtreeSelection` to a rebuilt subtree. Descendants that no
+---longer sit at the same relative path are simply dropped from the selection.
+---@param instance element
+---@param selection table<string, boolean>?
+local function restoreSubtreeSelection(instance, selection)
+	if not selection then return end
+
+	local function walk(node, prefix)
+		for _, child in pairs(node.childs) do
+			local path = prefix .. "/" .. tostring(child.name)
+
+			-- Raw flag rather than `setSelected`: subclasses react to selection by touching their
+			-- spawnable, which does not exist yet this far into a load. `spawnableElement` re-applies
+			-- the visual state from this flag once its entity is attached.
+			if selection[path] and not child:isLocked() then
+				child.selected = true
+			end
+
+			walk(child, path)
+		end
+	end
+
+	walk(instance, "")
+end
+
 function element:getModulePathByType(data)
 	if data.type == "group" then
 		return "modules/classes/editor/positionableGroup"
@@ -129,6 +179,12 @@ end
 ---@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
 ---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function element:load(data, silent)
+	-- Selection is live editor state, never read from `data`. It still has to survive the rebuild
+	-- below, because `load` also re-applies to elements already in the tree (undo/redo, clipboard
+	-- paste) and dropping the user's selection there is pure data loss.
+	local wasSelected = self.selected
+	local subtreeSelection = captureSubtreeSelection(self)
+
 	while self.childs[1] do -- Ensure any children get removed, important for undoing spawnables so that they despawn
 		self.childs[1]:remove()
 	end
@@ -150,10 +206,10 @@ function element:load(data, silent)
 	if self.locked == nil then self.locked = false end
 	if self.lockedByParent == nil then self.lockedByParent = false end
 
-	-- Never taken from `data`: selection is live editor state. Old files still contain the field, it is
-	-- ignored rather than migrated. Unconditional, since load also re-applies to elements already in
-	-- the tree (undo/redo, clipboard paste).
-	self.selected = false
+	-- Never taken from `data`: old files still contain the field, it is ignored rather than migrated.
+	-- A fresh element carries `false` in from `new`, so a load from disk still starts unselected.
+	-- The lock check mirrors `setSelected`: data that locks the element also drops the selection.
+	self.selected = wasSelected and not self:isLocked()
 
 	self.modulePath = self.modulePath or self:getModulePathByType(data)
 
@@ -166,6 +222,8 @@ function element:load(data, silent)
 			new:setParent(self)
 		end
 	end
+
+	restoreSubtreeSelection(self, subtreeSelection)
 
 	-- Covers undo/redo swaps and clipboard pastes, which replace an element's whole state in place.
 	-- A no-op while loading from disk, where suppression is held and the tree matches the file.
