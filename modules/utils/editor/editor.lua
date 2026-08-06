@@ -1680,11 +1680,8 @@ local function getElevatorDoorMarkerThemeColors(index)
     return colorByDoor[index] or style.successColor, 0xFFDCD8D1
 end
 
----Draws numbered elevator door helper markers for the currently selected lift.
----Pipeline:
----1. Resolve selected lift and eligibility.
----2. Resolve family layout and optional family-specific side rotation.
----3. Project world markers with color-coded badges for doors 1..3.
+---Draws numbered elevator door helper markers for the currently selected lift: resolves the lift and
+---its family layout (including any family-specific side rotation), then projects color-coded badges.
 local function drawElevatorDoorHelpers()
     local context = resolveSelectedLiftDoorHelperContext()
     if not context then

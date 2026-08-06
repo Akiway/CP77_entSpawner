@@ -17,6 +17,7 @@ local logger = require("modules/utils/logger")
 local colorUtil = require("modules/utils/color")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 local tweakDb = require("modules/utils/tweakDbUtils")
+local saveState = require("modules/utils/saveState")
 
 local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
@@ -522,6 +523,11 @@ function entity:loadInstanceData(entity, forceLoadDefault)
             end
         end
     end
+
+    -- `defaultComponentData` is serialized, and `save` drops any `instanceDataChanges` entry that has
+    -- no matching default -- so a node whose JSON was cached before the entity finished assembling
+    -- holds this entity with its instance data stripped, and nothing else would ever invalidate it.
+    saveState.markDirty(self.object)
 end
 
 local function fixInstanceData(data, parent)
@@ -616,6 +622,11 @@ function entity:onAssemble(entRef)
             end
         end
     end
+
+    -- Assembly is asynchronous and rewrites serialized state: `instanceDataChanges` (fixed up in
+    -- place above), `defaultComponentData`, and `deviceClassName`. Marked here as well as inside
+    -- `loadInstanceData`, which returns early when there is nothing to apply.
+    saveState.markDirty(self.object)
 
     self:updateDeviceSecondaryIcon()
 

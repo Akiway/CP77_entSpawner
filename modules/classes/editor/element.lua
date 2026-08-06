@@ -150,12 +150,9 @@ function element:load(data, silent)
 	if self.locked == nil then self.locked = false end
 	if self.lockedByParent == nil then self.lockedByParent = false end
 
-	-- Never taken from `data`: selection is live editor state, not something an element carries with
-	-- it. It used to be serialized, so a project saved with part of its tree selected came back with
-	-- those rows already selected -- and since selectedPaths drives delete, drag and the gizmo, the
-	-- next action would silently include them. Files written back then still contain the field; it is
-	-- ignored rather than migrated. Assigned unconditionally because load also replaces the state of
-	-- an element that is already in the tree (undo/redo, clipboard paste).
+	-- Never taken from `data`: selection is live editor state. Old files still contain the field, it is
+	-- ignored rather than migrated. Unconditional, since load also re-applies to elements already in
+	-- the tree (undo/redo, clipboard paste).
 	self.selected = false
 
 	self.modulePath = self.modulePath or self:getModulePathByType(data)
@@ -686,10 +683,8 @@ end
 function element:serialize(ctx)
 	local propertyHeaderStates = self.propertyHeaderStates
 	if ctx and ctx.copyVolatile then
-		-- This table is normally handed out by reference, and element:load re-binds that same object,
-		-- so one table can be reachable from several history snapshots and a live element at once --
-		-- while drawProperties writes into it every frame the inspector is open. The persistence walk
-		-- needs a stable snapshot, so it asks for a copy; nothing else pays for it.
+		-- Normally handed out by reference, and drawProperties writes into it every frame the
+		-- inspector is open. The persistence walk needs a stable snapshot, so it asks for a copy.
 		propertyHeaderStates = utils.deepcopy(propertyHeaderStates)
 	end
 

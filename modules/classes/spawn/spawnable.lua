@@ -131,10 +131,9 @@ function spawnable:new()
     o.isAssetPreview = false
     o.assetPreviewLensDistortion = false
 
-    -- Spawn New metadata, read by spawnUI so it never has to special-case module paths.
-    -- `collapseSpawnList` replaces the loaded list with a single generic entry, whose label
-    -- is `collapsedSpawnListLabel`; `entryFilter` opts the list into one of spawnUI's
-    -- per-entry filters; `previewSuppressedComponents` are disabled while an asset preview runs.
+    -- Spawn New metadata, read by spawnUI. `collapseSpawnList` collapses the list to one generic
+    -- entry labelled `collapsedSpawnListLabel`; `entryFilter` picks one of spawnUI's per-entry
+    -- filters; `previewSuppressedComponents` are disabled while an asset preview runs.
     o.collapseSpawnList = false
     o.collapsedSpawnListLabel = nil
     o.entryFilter = nil
@@ -300,11 +299,9 @@ function spawnable:despawn()
 end
 
 function spawnable:respawn()
-    -- If a spawn is still in flight, the in-flight entity has no live ID to despawn
-    -- yet and spawn() would no-op (returns false while spawning). Doing despawn()+spawn()
-    -- here would only set the despawning flag, so onAttached despawns the entity and,
-    -- with no queued respawn, nothing ever brings it back. Queue the respawn so it runs
-    -- from onAttached once the current spawn finishes.
+    -- A spawn still in flight has no live ID to despawn and spawn() no-ops while spawning, so
+    -- despawn()+spawn() here would tear the entity down with nothing to bring it back. Queue
+    -- instead, and onAttached runs it once the current spawn finishes.
     if self.spawning then
         self.queueRespawn = true
         return
@@ -511,9 +508,12 @@ function spawnable:getProperties()
                 style.mutedText("Distance Preset")
                 ImGui.SameLine()
                 ImGui.SetCursorPosX(self.streamingPropertyWidth)
-                ImGui.SetNextItemWidth(140 * style.viewSize)
-                self.streamingPresetIndex = ImGui.Combo("##streamingDistancePreset", self.streamingPresetIndex, streamingPresetLabels, #streamingPresetLabels)
-                style.comboValueTooltip(self.streamingPresetIndex, streamingPresetLabels, "Quickly set Streaming Distance to a common value.\n- Interior | 100: Small rooms and indoor props loaded only when close.\n- Street | 400: Regular city assets visible from nearby streets.\n- District | 1000: Medium-large city chunks visible across a wider district area.\n- Landscape | 5000: Large outdoor landmarks visible from far away.\n- To the Moon | infinite: Keep visible from anywhere; use only for very important assets.")
+                -- Tracked, not a raw Combo: the index is serialized (see `save`), so an untracked write
+                -- would leave the node's cached JSON stale. Tooltip goes through the combo itself to
+                -- avoid stacking a second tooltip on the same item.
+                self.streamingPresetIndex, _ = style.trackedCombo(self.object, "##streamingDistancePreset", self.streamingPresetIndex, streamingPresetLabels, 140, {
+                    tooltip = "Quickly set Streaming Distance to a common value.\n- Interior | 100: Small rooms and indoor props loaded only when close.\n- Street | 400: Regular city assets visible from nearby streets.\n- District | 1000: Medium-large city chunks visible across a wider district area.\n- Landscape | 5000: Large outdoor landmarks visible from far away.\n- To the Moon | infinite: Keep visible from anywhere; use only for very important assets."
+                })
                 ImGui.SameLine()
                 if ImGui.Button("Apply##streamingDistancePreset") then
                     history.addAction(history.getElementChange(self.object))
@@ -555,7 +555,7 @@ function spawnable:getProperties()
                 style.mutedText("Custom Reference Point")
                 ImGui.SameLine()
                 ImGui.SetCursorPosX(self.streamingPropertyWidth)
-                self.streamingRefPointOverride, _ = ImGui.Checkbox("##streamingRefPointOverride", self.streamingRefPointOverride)
+                self.streamingRefPointOverride, _ = style.trackedCheckbox(self.object, "##streamingRefPointOverride", self.streamingRefPointOverride)
                 style.tooltip("When enabled, streaming distance uses the custom point below.\nWhen disabled, it uses node's position.\nUse this if you want this asset to be visible from a specific, distant location.")
 
                 if self.streamingRefPointOverride then
@@ -954,10 +954,8 @@ function spawnable:loadSpawnData(data, position, rotation)
     end
     self.streamingPresetIndex = math.min(presetIndex, #streamingPresetLabels - 1)
 
-    -- Freshly spawned assets have no serialized primaryRange, so fall back to the
-    -- value of the configured default distance preset. This keeps the numeric
-    -- Streaming Distance in sync with the preset selector. Saved/loaded assets
-    -- carry their own primaryRange and are left untouched.
+    -- Freshly spawned assets have no serialized primaryRange, so fall back to the default preset's
+    -- value to keep Streaming Distance in sync with the selector. Saved assets carry their own.
     local presetRange = streamingPresetValues[self.streamingPresetIndex + 1]
     self.primaryRange = data.primaryRange or presetRange or self.primaryRange or 100
 

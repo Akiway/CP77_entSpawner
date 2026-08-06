@@ -527,11 +527,9 @@ function saveState.markDirty(element)
     -- counter would mean editing any group could starve a large one that takes several seconds.
     record.mutationCounter = (record.mutationCounter or 0) + 1
 
-    -- Critical: a pending baseline means "whatever this hashes to is already what the file contains",
-    -- which stops the pass after a load or a manual save from pointlessly rewriting an identical
-    -- file. The moment anything is actually edited that stops being true, so the claim has to be
-    -- dropped here. Leaving it set made the first pass after every load adopt the user's unsaved
-    -- edits as the on-disk state and skip the write entirely.
+    -- A pending baseline claims "this already matches the file", which stops the pass after a load
+    -- or manual save from rewriting an identical file. An edit makes that untrue, so it must be
+    -- dropped here or the next pass would adopt unsaved edits as the on-disk state and skip writing.
     record.needsBaseline = false
 
     if record.state == "clean" then
@@ -554,10 +552,9 @@ end
 function saveState.markSubtreeDirty(element)
     if not element or saveState.suppressDepth > 0 then return end
 
-    -- First, and never the other way around: `markDirty` walks *up* and stops at the first node that
-    -- is already invalid, so invalidating this element beforehand would make it break immediately and
-    -- leave every ancestor cached. It also does all the record bookkeeping (dirty, quiet window,
-    -- baseline), which the walk below deliberately does not repeat per node.
+    -- First, never the other way around: `markDirty` walks up and stops at the first already-invalid
+    -- node, so invalidating this element beforehand would leave every ancestor cached. It also does
+    -- the record bookkeeping (dirty, quiet window, baseline) the walk below does not repeat.
     saveState.markDirty(element)
 
     local function invalidate(node)
@@ -776,10 +773,9 @@ function saveState.beginBuild(root, options)
         result = nil,
         nodesVisited = 0,
         ignoreCache = options.ignoreCache or false,
-        -- Extra top-level fields merged into the root object only, e.g. `lastEditedAt`. They are kept
-        -- out of the content hash (a fresh timestamp must not read as a content change) and out of the
-        -- root's cache entry, so the next build re-emits them instead of writing a stale value. Only
-        -- the root node is affected; every child rope stays cached.
+        -- Extra top-level fields merged into the root object only, e.g. `lastEditedAt`. Kept out of
+        -- the content hash (a fresh timestamp is not a content change) and out of the root's cache
+        -- entry, so the next build re-emits them. Child ropes stay cached.
         extraRootFields = options.extraRootFields
     }
 end
@@ -831,14 +827,10 @@ function saveState.stepBuild(job, budgetMs)
                 frame.state = "emit"
             end
         else
-            -- Serialize bottom-up, i.e. only once every child has been visited.
-            --
-            -- positionable:serialize reads self:getPosition(), which for an auto-centered group walks
-            -- its subtree for a bounding box. Doing that top-down would make the very first step of a
-            -- large project a full-tree walk in a single frame. Bottom-up, every descendant group has
-            -- already cached its own bounds, so the walk folds them in and costs O(direct children).
-            -- Manual-origin groups never call getWorldMinMax themselves, so warm them explicitly or
-            -- an ancestor would have to re-walk them.
+            -- Serialize bottom-up: positionable:serialize reads getPosition(), which walks the
+            -- subtree for auto-centered groups. Top-down that would be a full-tree walk in one
+            -- frame; bottom-up every descendant is already cached, so each step is O(children).
+            -- Manual-origin groups never call getWorldMinMax themselves, so warm them explicitly.
             if node.getWorldMinMax and not node.autoCenterCacheValid then
                 pcall(node.getWorldMinMax, node)
             end

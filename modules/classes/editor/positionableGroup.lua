@@ -373,10 +373,8 @@ end
 function positionableGroup:load(data, silent)
 	positionable.load(self, data, silent)
 
-	-- Backward compatibility:
-	-- Legacy data may only have `pos` (and often 0,0,0 for nested groups).
-	-- Prefer explicit origin when present, otherwise fallback to legacy pos
-	-- only when it is meaningful, or auto-center when it is zero.
+	-- Backward compatibility: legacy data may only have `pos` (often 0,0,0 for nested groups).
+	-- Prefer an explicit origin, else legacy pos when meaningful, else auto-center.
 	local legacyPos = data.pos
 	local hasLegacyPos = legacyPos ~= nil
 	local legacyPosIsZero = true
@@ -497,10 +495,8 @@ local function accumulateWorldMinMax(entry, min, max, state)
 	end
 
 	if utils.isA(entry, "positionableGroup") then
-		-- A group that already knows its own bounds is folded in wholesale instead of re-walking it.
-		-- getWorldMinMax already trusts this cache for the group it is called on, so trusting it one
-		-- level up adds no new assumption -- it just stops every ancestor from re-walking the same
-		-- subtree, which is what made a full-tree serialize O(n * depth).
+		-- A group that already knows its own bounds is folded in wholesale instead of re-walking it,
+		-- which keeps a full-tree serialize from costing O(n * depth).
 		if entry.autoCenterCacheValid and entry.autoCenterCacheLeafCount ~= nil then
 			state.leafs = state.leafs + entry.autoCenterCacheLeafCount
 

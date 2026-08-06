@@ -98,10 +98,8 @@ local function startNextQueued(spawner)
         sessionRestorePopup.payload = nil
 
         if restored > 0 then
-            -- Queued, not shown. Every call after the first arrives through groupLoadManager's
-            -- onFinished, which runs from onUpdate -- and ImGui may only be touched from onDraw.
-            -- Calling it here threw "Tried to call ImGui from invalid event!", surfacing as a C++
-            -- exception in the load manager's finish step.
+            -- Queued, not shown: every call after the first arrives through groupLoadManager's
+            -- onFinished, which runs from onUpdate, and ImGui may only be touched from onDraw.
             pipelineCommon.queueToast(sessionRestorePopup.pendingToasts, "success", 3000,
                 string.format("Restored %d item%s from the last session", restored, restored == 1 and "" or "s"))
         end

@@ -739,12 +739,15 @@ function field.advancedTrackedFloat(element, text, value, options)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-    if finished then
-        dragBeingEdited = false
-    end
+    -- Push first, close out after: a value committed with Enter reports `changed` and `finished` on
+    -- the same frame, so clearing first would leave the flag stuck set, silencing history and change
+    -- tracking for every later edit. Same reasoning as `style.trackWidgetEdit`.
     if changed and element and not dragBeingEdited then
         history.addAction(history.getElementChange(element))
         dragBeingEdited = true
+    end
+    if finished then
+        dragBeingEdited = false
     end
 
     if not loop then

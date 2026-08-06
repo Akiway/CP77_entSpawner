@@ -213,10 +213,9 @@ local function collectEntries()
     for _, child in ipairs(sUI.root.childs) do
         if isRestorable(child) then
             local record = saveState.getRecord(child)
-            -- `state` rather than `dirty`: dirty is a "needs re-checking" hint that only an auto-save
-            -- pass clears, so using it meant every group became a full blob whenever auto-save was
-            -- off -- including ones freshly loaded and never touched. `state` is maintained
-            -- synchronously by markDirty and is exactly "does this still match its file".
+            -- `state`, not `dirty`: dirty is a "needs re-checking" hint only an auto-save pass
+            -- clears, so with auto-save off every group would become a full blob. `state` is
+            -- maintained synchronously and means exactly "does this still match its file".
             local upToDate = record.projectFile ~= nil and record.state == "clean"
 
             entries[#entries + 1] = {

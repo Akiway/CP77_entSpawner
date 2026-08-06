@@ -239,10 +239,9 @@ about.dependencies = {
         provides = "Opens up every geometry cache entry to the whole map, so mesh colliders keep their collision wherever they are placed instead of only near the sector their shape came from.\nIt is required if you want to use Collision Meshes. If you create a mod with them, your users will also require this mod.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/29096",
         check = function()
-            -- It has no Lua API, so it is looked for through the two halves it registers: the
-            -- .reds service hooking the cache load, and the native class the dll adds to the
-            -- RTTI. Either one answering is taken as installed, so a lookup behaving differently
-            -- than expected cannot report a working install as missing.
+            -- No Lua API, so it is detected through the two halves it registers: the .reds service
+            -- and the native RTTI class. Either one answering counts as installed, so an unexpected
+            -- lookup result cannot report a working install as missing.
             if hasNativeClass("UnlimitedGeometryCacheStreamingNative")
                 or hasScriptableService("UnlimitedGeometryCacheStreamingService") then
                 return about.states.ok

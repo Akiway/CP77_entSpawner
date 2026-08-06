@@ -484,10 +484,9 @@ function spawnUI.loadSpawnData(spawner)
                 entryFilter = variantInstance.entryFilter
             }
 
-            -- A variant may host several spawnable classes in one browser, when the classes
-            -- cover different world nodes over asset sets that do not overlap. Every entry
-            -- then carries the module that spawns it, and an entry filter lets the user
-            -- narrow the list down to one node type.
+            -- A variant may host several spawnable classes in one browser, when they cover different
+            -- world nodes over non-overlapping asset sets. Every entry then carries the module that
+            -- spawns it, and an entry filter narrows the list to one node type.
             if variant.sources then
                 spawnList.data = mergeHostedSpawnSources(spawnList, variant.sources)
                 spawnList.info = buildHostedSpawnInfo(spawnList)
@@ -1207,11 +1206,9 @@ function spawnUI.updateFilter()
     spawnUI.invalidateHierarchyRows()
 end
 
--- `updateFilter` rescans every entry of the active list (the mesh list alone is ~47k paths),
--- which is far too much to run on the frame a keystroke lands: ImGui grows key down-durations
--- by the raw frame delta, so one frame longer than the key repeat delay (0.275s) makes a single
--- physical Ctrl+V or Delete read as pressed twice inside the search field. Coalescing the rescan
--- onto a later frame keeps the edit frame cheap, and collapses held-key bursts into one pass.
+-- `updateFilter` rescans every entry of the active list (~47k paths for meshes). Running that on
+-- the keystroke frame stretches the frame past ImGui's key repeat delay (0.275s), making one
+-- physical Ctrl+V or Delete read as two. Deferring keeps the edit frame cheap and coalesces bursts.
 local FILTER_UPDATE_DEBOUNCE = 0.15
 
 ---Requests a re-filter after the debounce delay, restarting it if one is already pending.

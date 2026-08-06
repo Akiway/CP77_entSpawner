@@ -6,6 +6,32 @@ local utils = require("modules/utils/utils")
 local colorUtil = require("modules/utils/color")
 local input = require("modules/utils/input")
 local dragBeingEdited = false
+
+---Records one history action per widget interaction, for every tracked widget in this module.
+---
+---The order is the whole point. A value typed into a drag field and committed with Enter reports
+---`changed` and `finished` on the *same* frame, so clearing the flag before the changed branch let
+---that frame re-arm it with nothing left to clear it. `dragBeingEdited` is shared by every tracked
+---widget, so once it stuck, no widget pushed a history action again until some other field happened
+---to deactivate -- and since a property edit's only dirty-marking hook is that history action, those
+---edits also stopped reaching the save file.
+---
+---Pushing first and closing out afterwards is correct for both shapes: a multi-frame drag arms on its
+---first changed frame and disarms on release, and a single-frame commit arms and disarms in one go.
+---@param element table? Element to snapshot. Without one there is nothing to record.
+---@param changed boolean Whether the widget reported a value change this frame.
+---@param finished boolean Whether the widget was deactivated after an edit this frame.
+local function trackWidgetEdit(element, changed, finished)
+    if changed and element and not dragBeingEdited then
+        history.addAction(history.getElementChange(element))
+        dragBeingEdited = true
+    end
+
+    if finished then
+        dragBeingEdited = false
+    end
+end
+
 local maxLightChannelsWidth = nil
 local maxTriggerChannelsWidth = nil
 local DEFAULT_TAB_INACTIVE_BG = colorUtil.packAABBGGRR({ 0.08, 0.15, 0.26 }, 0.85)
@@ -883,13 +909,7 @@ function style.trackedDragFloat(element, text, value, step, min, max, format, wi
     local newValue, changed = ImGui.DragFloat(text, value, step, min, max, format)
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-	if finished then
-		dragBeingEdited = false
-	end
-	if changed and element and not dragBeingEdited then
-		history.addAction(history.getElementChange(element))
-		dragBeingEdited = true
-	end
+	trackWidgetEdit(element, changed, finished)
 
     newValue = math.max(newValue, min)
     newValue = math.min(newValue, max)
@@ -913,13 +933,7 @@ function style.trackedDragInt(element, text, value, min, max, width)
     local newValue, changed = ImGui.DragFloat(text, value, 1, min, max, "%.0f")
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-	if finished then
-		dragBeingEdited = false
-	end
-	if changed and not dragBeingEdited then
-		history.addAction(history.getElementChange(element))
-		dragBeingEdited = true
-	end
+	trackWidgetEdit(element, changed, finished)
 
     newValue = math.floor(newValue)
     newValue = math.max(newValue, min)
@@ -951,13 +965,7 @@ function style.trackedSliderInt(element, text, value, min, max, width)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-    if finished then
-        dragBeingEdited = false
-    end
-    if changed and not dragBeingEdited then
-        history.addAction(history.getElementChange(element))
-        dragBeingEdited = true
-    end
+    trackWidgetEdit(element, changed, finished)
 
     newValue = math.floor(newValue)
     newValue = math.max(newValue, min)
@@ -989,13 +997,7 @@ function style.trackedSliderFloat(element, text, value, min, max, format, width)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-    if finished then
-        dragBeingEdited = false
-    end
-    if changed and not dragBeingEdited then
-        history.addAction(history.getElementChange(element))
-        dragBeingEdited = true
-    end
+    trackWidgetEdit(element, changed, finished)
 
     newValue = math.max(newValue, min)
     newValue = math.min(newValue, max)
@@ -1023,13 +1025,7 @@ function style.trackedIntInput(element, text, value, min, max, width, step, fast
     local newValue, changed = ImGui.InputInt(text, value, step, fastStep)
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-	if finished then
-		dragBeingEdited = false
-	end
-	if changed and not dragBeingEdited then
-		history.addAction(history.getElementChange(element))
-		dragBeingEdited = true
-	end
+	trackWidgetEdit(element, changed, finished)
 
     newValue = math.max(newValue, min)
     newValue = math.min(newValue, max)
@@ -1203,13 +1199,7 @@ function style.trackedColor(element, name, color, width, flags)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-	if finished then
-		dragBeingEdited = false
-	end
-	if changed and element and not dragBeingEdited then
-		history.addAction(history.getElementChange(element))
-		dragBeingEdited = true
-	end
+	trackWidgetEdit(element, changed, finished)
 
     return newValue, changed, finished
 end
@@ -1234,13 +1224,7 @@ function style.trackedColorPicker(element, name, color, flags)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-    if finished then
-        dragBeingEdited = false
-    end
-    if changed and element and not dragBeingEdited then
-        history.addAction(history.getElementChange(element))
-        dragBeingEdited = true
-    end
+    trackWidgetEdit(element, changed, finished)
 
     return newValue, changed, finished
 end
@@ -1270,13 +1254,7 @@ function style.trackedColorAlpha(element, name, color, width, flags)
     end
 
     local finished = ImGui.IsItemDeactivatedAfterEdit()
-    if finished then
-        dragBeingEdited = false
-    end
-    if changed and element and not dragBeingEdited then
-        history.addAction(history.getElementChange(element))
-        dragBeingEdited = true
-    end
+    trackWidgetEdit(element, changed, finished)
 
     return newValue, changed, finished
 end
@@ -1304,12 +1282,8 @@ function style.trackedTextField(element, text, value, hint, width)
 	local finished = ImGui.IsItemDeactivatedAfterEdit()
 	if finished then
         newValue = utils.stripNonASCII(newValue)
-		dragBeingEdited = false
 	end
-	if changed and element and not dragBeingEdited then
-		history.addAction(history.getElementChange(element))
-		dragBeingEdited = true
-	end
+	trackWidgetEdit(element, changed, finished)
 
     return newValue, changed, finished
 end

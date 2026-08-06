@@ -225,10 +225,8 @@ function spawnableElement:setPosition(position)
     self.spawnable.position = position
     self.spawnable:update()
     invalidateParentAutoCenter(self)
-    -- Transforms are mutated straight through these setters, with no property-level hook anywhere.
-    -- Marking here rather than leaving it to whoever pushed the history action is what keeps a group
-    -- operation -- which moves every leaf but names a single element in its action -- from writing
-    -- the previous save's transforms back out of cache.
+    -- Marked here, not by whoever pushed the history action: a group operation moves every leaf but
+    -- names only one element in its action, so the rest would keep stale cached transforms.
     saveState.markDirty(self)
     element.bumpWireframeEpoch(self)
 end

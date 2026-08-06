@@ -12,10 +12,9 @@ local destructibleData = {
     presetsPath = "data/static/destructible_filter_presets.json",
     meshDefaultsPath = "data/static/destructible_mesh_defaults.json",
 
-    -- Every .effect in the game, the same list the Effects spawnable browses. The surveyed
-    -- lists are strict subsets of it, so offering all of them costs nothing and lets any
-    -- effect be used on any destruction node instead of only the ones CDPR happened to pair
-    -- with that node type. Shared by all three destruction spawnables.
+    -- Every .effect in the game, the same list the Effects spawnable browses. The surveyed lists are
+    -- strict subsets, so offering all of them lets any effect be used on any destruction node.
+    -- Shared by all three destruction spawnables.
     allEffectsPath = "data/spawnables/visual/effects/paths_effect.txt",
 
     ---@type string[]?

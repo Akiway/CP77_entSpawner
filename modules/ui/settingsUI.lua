@@ -1285,7 +1285,7 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("How long a group must sit untouched before it is processed, so a save never starts in the\nmiddle of a burst of edits.")
 
-        settings.autoSaveVerifyEvery, changed = ImGui.InputInt("Verify every N saves", math.floor(settings.autoSaveVerifyEvery or 10), 1)
+        settings.autoSaveVerifyEvery, changed = ImGui.InputInt("Verify every N saves", math.floor(settings.autoSaveVerifyEvery or 4), 1)
         if changed then
             settings.autoSaveVerifyEvery = math.max(0, math.min(settings.autoSaveVerifyEvery, 100))
             settings.save()

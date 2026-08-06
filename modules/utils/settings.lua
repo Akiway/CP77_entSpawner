@@ -197,7 +197,7 @@ local settingsData = {
     -- Advanced (Debug section)
     autoSaveQuietSeconds = 2,
     persistenceBudgetMs = 4,
-    autoSaveVerifyEvery = 10,
+    autoSaveVerifyEvery = 4,
     autoSaveCacheEnabled = true,
 
     -- Resolved from the game language on first use, see previewControls.getBindings

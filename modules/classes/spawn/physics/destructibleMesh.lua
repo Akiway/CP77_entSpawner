@@ -48,12 +48,9 @@ local constantExport = {
     occluderAutohideDistanceScale = 255 -- 98.01%
 }
 
----Node type groups this class is browsed under, when it shares a browser with the other
----destruction classes. Every mesh carrying destruction data is offered, but the game itself
----only ever placed a fraction of them on this node, and only those have surveyed settings to
----pre-fill; the rest start from generic defaults. Both groups spawn the same world node, so
----the split only decides what is browsed together.
----The first entry is the group of meshes the game configures.
+---Node type groups this class is browsed under when it shares a browser with the other destruction
+---classes. Both spawn the same world node; the split only separates the meshes the game actually
+---placed here (first entry, with surveyed settings to pre-fill) from the rest, which use defaults.
 destructibleMesh.nodeTypeGroups = {
     { label = "Instanced Destructible Mesh", icon = IconGlyphs.GlassFragile },
     { label = "Instanced Destructible Mesh (Generic)", icon = IconGlyphs.DatabaseOffOutline }

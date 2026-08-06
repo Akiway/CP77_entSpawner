@@ -148,10 +148,8 @@ function prefabsUI.updateCategoryName(oldName, newName)
     prefabsUI.categories[oldName] = nil
 end
 
--- `getAllTags` walks every category x favorite x tag and is queried several times
--- within a single draw pass. The result is memoized for the duration of that pass
--- only: each draw entry point (the tab body and each popup) drops it first, so the
--- cache can never outlive a mutation.
+-- `getAllTags` walks every category x favorite x tag and is queried several times per draw pass.
+-- Memoized for that pass only: each draw entry point drops it first, so it can never go stale.
 local allTagsCache = nil
 
 ---Drops the memoized tag list. Called when entering a draw pass, and after any

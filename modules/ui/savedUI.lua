@@ -284,13 +284,9 @@ function savedUI.getEntryData(fileName)
         local fresh = config.loadFile("data/objects/" .. fileName)
 
         if entry and type(fresh) == "table" and fresh.name then
-            -- Refreshed in place rather than swapped: this tab hands entries around by reference
-            -- (drawGroup receives one as an argument), so replacing the table would leave the caller
-            -- holding a detached copy for the rest of the frame.
-            --
-            -- `newName` is the live rename field, not file content, and it lives on this same table.
-            -- Wiping it here left the rename handler concatenating a nil the moment it refreshed an
-            -- auto-saved entry, so it is carried across.
+            -- Refreshed in place, not swapped: entries are handed around by reference, so replacing
+            -- the table would leave callers holding a detached copy. `newName` is the live rename
+            -- field rather than file content, so it is carried across instead of wiped.
             local editedName = entry.newName
 
             for key in pairs(entry) do
@@ -862,12 +858,9 @@ local function renameSavedGroup(fileName, data, newName)
         baseUI.exportUI.renameGroupByFile(fileName, cleaned)
     end
 
-    -- A project open in the Spawned tab is the same project: renaming it here has to reach the live
-    -- group too, or the next save would write the old name straight back over this one.
-    --
-    -- Through `rename` rather than by assignment, so it goes through the same rules as renaming in
-    -- the hierarchy: sibling-unique names (root names have to stay distinct -- the session snapshot
-    -- keys its payload by them), cache invalidation, and an undo entry.
+    -- A project open in the Spawned tab is the same project, so the rename has to reach the live
+    -- group or the next save writes the old name back. Through `rename`, to get the same rules as
+    -- renaming in the hierarchy: sibling-unique names, cache invalidation, and an undo entry.
     local spawned = saveState.findRootChildByUID(fileName)
     if spawned and spawned.name ~= cleaned then
         spawned:rename(cleaned)

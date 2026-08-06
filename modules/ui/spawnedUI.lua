@@ -129,12 +129,9 @@ local HIERARCHY_PICK_ELIGIBLE_HOVER = 0xAA50FF50
 local HIERARCHY_PICK_ELIGIBLE_ACTIVE = 0xCC50FF50
 local HIERARCHY_REORDER_PREVIEW_SHADOW = 0x88000000
 local MAX_STICKY_PARENT_ROWS = 5
--- How many consecutive frames a new sticky-row count must be observed before it's
--- committed to spawnedUI.stickyRowCountById (which resizes the scrollable child next
--- frame). Resizing that child changes its own scrollbar geometry, which can perturb
--- ImGui's scroll offset while the user is actively dragging the scrollbar thumb; requiring
--- a stable reading first (and never committing at all while a mouse button is held, see
--- below) prevents that resize from feeding back into the very position that triggered it.
+-- Consecutive frames a new sticky-row count must hold before being committed to
+-- spawnedUI.stickyRowCountById, which resizes the scrollable child. Resizing perturbs the scroll
+-- offset, so requiring a stable reading stops the resize from feeding back into its own trigger.
 local STICKY_RESERVE_CONFIRM_FRAMES = 2
 
 ---@param index number
@@ -3076,10 +3073,9 @@ function spawnedUI.drawHierarchy(options)
     local tableId = options.tableId or "##hierarchyTable"
     local firstVisibleIndex = math.min(#entries, spawnedUI.hierarchyFirstVisibleIndexById[childId] or 1)
 
-    -- Sticky rows are pinned above the scrollable content rather than drawn over it, so the
-    -- scrollable child needs to be shrunk (and pushed down) by however many rows were pinned.
-    -- The count for *this* frame is only known after we've scrolled the table below, so we seed
-    -- the reserved space from last frame's result (one-frame lag, self-corrects immediately after).
+    -- Sticky rows are pinned above the scrollable content, so the child has to be shrunk by however
+    -- many were pinned. This frame's count is only known after scrolling the table below, so seed
+    -- from last frame's result (one-frame lag, self-correcting).
     local maxStickyRows = settings.stickyRowsEnabled and math.min(MAX_STICKY_PARENT_ROWS, math.max(0, totalRows - 1)) or 0
     local reservedStickyRows = math.min(spawnedUI.stickyRowCountById[childId] or 0, maxStickyRows)
     local reservedHeight = reservedStickyRows * rowHeight
@@ -3183,10 +3179,8 @@ function spawnedUI.drawHierarchy(options)
 
     local stickyEntries = collectStickyParentEntries(entries, firstVisibleIndex, maxStickyRows)
 
-    -- Commit the reservation used for *next* frame's layout, but only once it's settled.
-    -- While a mouse button is held (e.g. dragging the scrollbar thumb) we don't touch it at
-    -- all, since resizing mid-drag is exactly what can make the scroll offset (and thus this
-    -- very count) flip-flop from frame to frame.
+    -- Commit the reservation for next frame's layout, but only once settled. Never while a mouse
+    -- button is held: resizing mid-drag makes the scroll offset, and this count, flip-flop.
     if not ImGui.IsMouseDown(ImGuiMouseButton.Left) then
         local rawStickyCount = #stickyEntries
         local pending = spawnedUI.stickyRowPendingById[childId]
@@ -3478,11 +3472,9 @@ function spawnedUI.drawTop()
     end
     style.tooltip(spawnedUI.getAutoSaveTooltip())
 
-    -- Offered only until the user starts working: restoring on top of a session already in progress
-    -- would mix two sessions. Still reachable afterwards from the Projects tab.
-    --
-    -- Deliberately not gated on hasHierarchy: an empty Spawned tab is precisely when restoring a
-    -- previous session is most useful.
+    -- Offered only until the user starts working, since restoring onto a session in progress would
+    -- mix two sessions. Still reachable afterwards from the Projects tab. Not gated on hasHierarchy:
+    -- an empty Spawned tab is exactly when this is most useful.
     if sessionSnapshot.canOffer() then
         ImGui.SameLine()
         if ImGui.Button(IconGlyphs.BackupRestore) then

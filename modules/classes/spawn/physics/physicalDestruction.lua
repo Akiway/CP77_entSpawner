@@ -116,10 +116,8 @@ function physicalDestruction:new()
     o.previewNote = "Destruction itself is not simulated in-editor. The physics body of the intact mesh is previewed, and the fracturing effect can be played on demand."
     o.icon = IconGlyphs.CubeUnfolded
 
-    -- The node derives from worldNode, not worldMeshNode: no shadow casting modes, no
-    -- occluder, no render scene layer mask, no wind impulse. Clearing this keeps them out of
-    -- both the properties panel and the export, and keeps loadMeshResourceData from turning
-    -- the occluder row back on for a mesh that has one.
+    -- The node derives from worldNode, not worldMeshNode: no shadow casting modes, occluder, render
+    -- scene layer mask or wind impulse. Clearing this keeps them out of the panel and the export.
     o.hasMeshNodeFlags = false
 
     o.simulationType = 2 -- Kinematic, 82.3%

@@ -975,14 +975,17 @@ function positionable:drawProp(prop, name, axis, disableInput)
 		self.visualizerChanged = true
 	end
 
-	if finished then
-		history.propBeingEdited = false
-		self:onEdited()
-	end
+	-- Record before closing out the interaction: a value committed with Enter reports `changed` and
+	-- `finished` on the same frame, so clearing the flag first would leave it stuck set, silencing
+	-- history (and dirty marking) for every later edit.
 	if changed and not history.propBeingEdited then
 		history.addAction(history.getElementChange(self))
 		history.propBeingEdited = true
 		history.lastEditedElement = self
+	end
+	if finished then
+		history.propBeingEdited = false
+		self:onEdited()
 	end
     if changed or finished then
 		if axis == "x" then

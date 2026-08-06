@@ -170,10 +170,9 @@ local function classifyResult(job)
     end
 
     if record.needsBaseline then
-        -- The group was just loaded from, or saved to, this file and has not been touched since, so
-        -- whatever it hashes to now *is* the on-disk state: adopt it rather than writing the file
-        -- back over itself. `saveState.markDirty` clears this the instant anything is edited -- if it
-        -- ever stops doing that, every edit made before the first pass is silently discarded.
+        -- The group was just loaded from, or saved to, this file and untouched since, so whatever it
+        -- hashes to now is the on-disk state: adopt it instead of rewriting the file. Relies on
+        -- `saveState.markDirty` clearing this the instant anything is edited.
         return "baseline"
     end
 
@@ -327,10 +326,9 @@ local function finishWrite(job)
     end
     saveState.markSaved(job.root, job.build.result.contentHash)
 
-    -- Streaming a large document spans many frames, and the mutation guard only covers the build.
-    -- If the group changed while it was being written, the file is a valid older snapshot -- so keep
-    -- its hash as the baseline -- but the group no longer matches it and has to stay flagged, or that
-    -- edit would sit in memory looking saved and never reach disk.
+    -- The mutation guard only covers the build, but writing spans many frames. If the group changed
+    -- during the write the file is still a valid older snapshot, so keep its hash as the baseline
+    -- but leave the group flagged, or that edit would look saved and never reach disk.
     if (record.mutationCounter or 0) ~= job.mutationAtStart then
         record.dirty = true
         record.state = "edited"
@@ -383,7 +381,7 @@ end
 ---@return boolean
 local function shouldVerify(job)
     local record = job.record
-    local every = math.max(0, math.floor(tonumber(settings.autoSaveVerifyEvery) or 10))
+    local every = math.max(0, math.floor(tonumber(settings.autoSaveVerifyEvery) or 4))
 
     if not saveState.cacheEnabled then
         return false
@@ -708,10 +706,8 @@ function persistenceManager.update(dt)
         end
     end
 
-    -- Auto-save off means no passes at all, rather than passes that check and then decline to write.
-    -- The indicators stay correct without them: markDirty flips a group to "edited" the moment it is
-    -- touched. Resetting the clock also means switching auto-save back on runs a pass immediately
-    -- instead of after one more full interval.
+    -- Auto-save off means no passes at all; indicators stay correct anyway, since markDirty flips a
+    -- group to "edited" on touch. Resetting the clock makes re-enabling run a pass immediately.
     if settings.autoSaveEnabled ~= true then
         persistenceManager.lastPassAt = 0
         return
