@@ -1,10 +1,10 @@
 local spline = require("modules/classes/spawn/meta/spline")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local field = require("modules/utils/field")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local field = require("modules/utils/ui/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
-local settings = require("modules/utils/settings")
+local settings = require("modules/utils/core/settings")
 local speedSplineTimeline = require("modules/ui/speedSplineTimeline")
 
 -- worldSpeedSplineOrientationMarkerType, ordered by enum value.

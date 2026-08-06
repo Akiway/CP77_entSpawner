@@ -1,10 +1,10 @@
-local utils = require("modules/utils/utils")
-local Cron = require("modules/utils/Cron")
-local history = require("modules/utils/history")
-local settings = require("modules/utils/settings")
+local utils = require("modules/utils/core/utils")
+local Cron = require("modules/utils/vendor/Cron")
+local history = require("modules/utils/project/history")
+local settings = require("modules/utils/core/settings")
 local pipelineCommon = require("modules/utils/pipeline/common")
-local logger = require("modules/utils/logger")
-local saveState = require("modules/utils/saveState")
+local logger = require("modules/utils/core/logger")
+local saveState = require("modules/utils/project/saveState")
 
 local groupLoadManager = {}
 local FAST_LOAD_BUDGET_MS = 20

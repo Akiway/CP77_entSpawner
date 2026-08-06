@@ -1,7 +1,7 @@
 local entity = require("modules/classes/spawn/entity/entity")
-local builder = require("modules/utils/entityBuilder")
-local utils = require("modules/utils/utils")
-local cache = require("modules/utils/cache")
+local builder = require("modules/utils/game/entityBuilder")
+local utils = require("modules/utils/core/utils")
+local cache = require("modules/utils/game/cache")
 local spawnable = require("modules/classes/spawn/spawnable")
 local style = require("modules/ui/style")
 

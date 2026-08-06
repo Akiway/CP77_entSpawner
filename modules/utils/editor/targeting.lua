@@ -1,5 +1,5 @@
-local history = require("modules/utils/history")
-local utils = require("modules/utils/utils")
+local history = require("modules/utils/project/history")
+local utils = require("modules/utils/core/utils")
 
 ---@class editorTargeting
 local targeting = {}

@@ -1,5 +1,5 @@
-local utils = require("modules/utils/utils")
-local color = require("modules/utils/color")
+local utils = require("modules/utils/core/utils")
+local color = require("modules/utils/ui/color")
 
 ---Utilities for project-tag normalization and lightweight UI display data.
 ---This module is intentionally UI-adjacent: it prepares label/color/icon data that

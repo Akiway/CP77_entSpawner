@@ -1,5 +1,5 @@
-local config = require("modules/utils/config")
-local utils = require("modules/utils/utils")
+local config = require("modules/utils/core/config")
+local utils = require("modules/utils/core/utils")
 
 ---@class MeshesShapeHashesDataMeshItem
 ---@field meshPath string

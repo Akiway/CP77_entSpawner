@@ -1,8 +1,8 @@
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local style = require("modules/ui/style")
-local visualizer = require("modules/utils/visualizer")
-local settings = require("modules/utils/settings")
-local utils = require("modules/utils/utils")
+local visualizer = require("modules/utils/preview/visualizer")
+local settings = require("modules/utils/core/settings")
+local utils = require("modules/utils/core/utils")
 local intersection = require("modules/utils/editor/intersection")
 
 local materials = colliderBase.getColliderGenerics().materials

@@ -1,9 +1,9 @@
-local config = require("modules/utils/config")
-local utils = require("modules/utils/utils")
-local Cron = require("modules/utils/Cron")
+local config = require("modules/utils/core/config")
+local utils = require("modules/utils/core/utils")
+local Cron = require("modules/utils/vendor/Cron")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local groupExportSidecar = require("modules/utils/pipeline/groupExportSidecar")
-local logger = require("modules/utils/logger")
+local logger = require("modules/utils/core/logger")
 
 local groupExportManager = {}
 local EXPORT_ERROR_LOG_PATH = "data/export_errors.log"

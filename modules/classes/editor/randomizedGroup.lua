@@ -1,7 +1,7 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
-local Cron = require("modules/utils/Cron")
+local history = require("modules/utils/project/history")
+local Cron = require("modules/utils/vendor/Cron")
 
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 

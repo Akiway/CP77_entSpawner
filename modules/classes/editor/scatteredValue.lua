@@ -1,6 +1,6 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local settings = require("modules/utils/settings")
+local settings = require("modules/utils/core/settings")
 
 local syncTypes = { "OFF", "MIRROR", "EQUAL" }
 

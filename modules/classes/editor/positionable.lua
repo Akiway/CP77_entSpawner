@@ -1,11 +1,11 @@
-local utils = require("modules/utils/utils")
-local gameUtils = require("modules/utils/gameUtils")
-local settings = require("modules/utils/settings")
-local history = require("modules/utils/history")
+local utils = require("modules/utils/core/utils")
+local gameUtils = require("modules/utils/game/gameUtils")
+local settings = require("modules/utils/core/settings")
+local history = require("modules/utils/project/history")
 local style = require("modules/ui/style")
-local field = require("modules/utils/field")
+local field = require("modules/utils/ui/field")
 local editor = require("modules/utils/editor/editor")
-local axl = require("modules/utils/axl")
+local axl = require("modules/utils/interop/axl")
 
 local scatteredConfig = require("modules/classes/editor/scatteredConfig")
 

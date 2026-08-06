@@ -1,11 +1,11 @@
 local destructionMesh = require("modules/classes/spawn/physics/destructionMesh")
 local spawnable = require("modules/classes/spawn/spawnable")
-local visualizer = require("modules/utils/visualizer")
+local visualizer = require("modules/utils/preview/visualizer")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local redExport = require("modules/utils/redExport")
-local destructionData = require("modules/utils/destructionData")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local redExport = require("modules/utils/interop/redExport")
+local destructionData = require("modules/utils/data/destructionData")
 
 ---Class for worldPhysicalDestructionNode
 ---

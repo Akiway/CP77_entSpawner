@@ -1,5 +1,5 @@
 local spawnable = require("modules/classes/spawn/spawnable")
-local visualizer = require("modules/utils/visualizer")
+local visualizer = require("modules/utils/preview/visualizer")
 local style = require("modules/ui/style")
 local intersection = require("modules/utils/editor/intersection")
 

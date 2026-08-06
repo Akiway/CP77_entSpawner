@@ -1,8 +1,8 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local Cron = require("modules/utils/Cron")
-local previewSyncManager = require("modules/utils/previewSyncManager")
+local utils = require("modules/utils/core/utils")
+local Cron = require("modules/utils/vendor/Cron")
+local previewSyncManager = require("modules/utils/preview/previewSyncManager")
 local previewTimeline = require("modules/ui/previewTimeline")
 
 ---Class for worldStaticParticleNode

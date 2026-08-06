@@ -1,9 +1,9 @@
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local backup = require("modules/utils/backup")
-local logger = require("modules/utils/logger")
-local saveState = require("modules/utils/saveState")
-local projectFiles = require("modules/utils/projectFiles")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local backup = require("modules/utils/project/backup")
+local logger = require("modules/utils/core/logger")
+local saveState = require("modules/utils/project/saveState")
+local projectFiles = require("modules/utils/project/projectFiles")
 local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 
 ---Base class for hierchical elements, such as groups and objects

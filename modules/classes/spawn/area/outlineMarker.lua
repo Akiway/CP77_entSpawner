@@ -1,9 +1,9 @@
 local connectedMarker = require("modules/classes/spawn/connectedMarker")
 local spawnable = require("modules/classes/spawn/spawnable")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local visualizer = require("modules/utils/visualizer")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local visualizer = require("modules/utils/preview/visualizer")
 
 ---Class for outline marker (Not a node, meta class used for area nodes)
 ---@class outlineMarker : connectedMarker

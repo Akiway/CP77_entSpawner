@@ -1,13 +1,13 @@
-local utils = require("modules/utils/utils")
-local input = require("modules/utils/input")
+local utils = require("modules/utils/core/utils")
+local input = require("modules/utils/core/input")
 local intersection = require("modules/utils/editor/intersection")
-local settings = require("modules/utils/settings")
-local visualizer = require("modules/utils/visualizer")
-local history = require("modules/utils/history")
+local settings = require("modules/utils/core/settings")
+local visualizer = require("modules/utils/preview/visualizer")
+local history = require("modules/utils/project/history")
 local style = require("modules/ui/style")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local brushTool = require("modules/utils/editor/brush")
-local elevatorDoors = require("modules/utils/elevatorDoors")
+local elevatorDoors = require("modules/utils/data/elevatorDoors")
 
 ---@class editor
 ---@field active boolean

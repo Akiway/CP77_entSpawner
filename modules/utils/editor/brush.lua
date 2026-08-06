@@ -1,10 +1,10 @@
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
 local style = require("modules/ui/style")
-local input = require("modules/utils/input")
-local settings = require("modules/utils/settings")
+local input = require("modules/utils/core/input")
+local settings = require("modules/utils/core/settings")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
-local colorUtil = require("modules/utils/color")
+local colorUtil = require("modules/utils/ui/color")
 
 local brushTool = {}
 

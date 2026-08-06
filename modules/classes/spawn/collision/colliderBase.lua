@@ -1,9 +1,9 @@
-local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
+local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
-local visualizer = require("modules/utils/visualizer")
-local previewControls = require("modules/utils/previewControls")
+local history = require("modules/utils/project/history")
+local visualizer = require("modules/utils/preview/visualizer")
+local previewControls = require("modules/utils/preview/previewControls")
 
 local colliderGenerics = {
     -- it's cursed, but I ain't scrolling to the end of the line for that

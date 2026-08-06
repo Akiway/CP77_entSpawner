@@ -1,8 +1,8 @@
 local spawnable = require("modules/classes/spawn/spawnable")
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local visualizer = require("modules/utils/visualizer")
+local utils = require("modules/utils/core/utils")
+local visualizer = require("modules/utils/preview/visualizer")
 
 ---Class for connected markers (Not a node, meta class used for area outlines and splines)
 ---@class connectedMarker : visualized

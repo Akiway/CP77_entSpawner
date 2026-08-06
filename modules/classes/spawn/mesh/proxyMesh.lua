@@ -1,6 +1,6 @@
 local mesh = require("modules/classes/spawn/mesh/mesh")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 
 ---Class for worldGenericProxyMeshNode
 ---@class proxyMesh : mesh

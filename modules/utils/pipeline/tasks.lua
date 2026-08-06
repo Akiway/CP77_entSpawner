@@ -1,4 +1,4 @@
-local Cron = require("modules/utils/Cron")
+local Cron = require("modules/utils/vendor/Cron")
 
 ---Simple task runner that executes a queue either:
 ---1. In parallel (all tasks started immediately), or

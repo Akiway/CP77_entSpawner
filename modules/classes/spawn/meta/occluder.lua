@@ -1,8 +1,8 @@
 local spawnable = require("modules/classes/spawn/spawnable")
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local visualizer = require("modules/utils/visualizer")
+local utils = require("modules/utils/core/utils")
+local visualizer = require("modules/utils/preview/visualizer")
 
 local occluderPaths = {
     { name = "Box", path = "engine\\meshes\\editor\\box_occluder.w2mesh" },

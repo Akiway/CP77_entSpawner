@@ -1,8 +1,8 @@
 local mesh = require("modules/classes/spawn/mesh/mesh")
 local spawnable = require("modules/classes/spawn/spawnable")
-local visualizer = require("modules/utils/visualizer")
+local visualizer = require("modules/utils/preview/visualizer")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 
 ---Class for worldDynamicMeshNode
 ---@class dynamicMesh : mesh

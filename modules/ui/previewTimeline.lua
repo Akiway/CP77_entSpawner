@@ -1,8 +1,8 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local settings = require("modules/utils/settings")
-local history = require("modules/utils/history")
-local previewSyncManager = require("modules/utils/previewSyncManager")
+local settings = require("modules/utils/core/settings")
+local history = require("modules/utils/project/history")
+local previewSyncManager = require("modules/utils/preview/previewSyncManager")
 
 local wu
 

@@ -1,8 +1,8 @@
-local Cron = require("modules/utils/Cron")
-local config = require("modules/utils/config")
-local amm = require("modules/utils/ammUtils")
+local Cron = require("modules/utils/vendor/Cron")
+local config = require("modules/utils/core/config")
+local amm = require("modules/utils/pipeline/ammUtils")
 local pipelineCommon = require("modules/utils/pipeline/common")
-local logger = require("modules/utils/logger")
+local logger = require("modules/utils/core/logger")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 
 local groupAMMImportManager = {}

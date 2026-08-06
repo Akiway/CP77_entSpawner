@@ -1,4 +1,4 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local EPSILON = 0.00001
 
 local intersection = {}

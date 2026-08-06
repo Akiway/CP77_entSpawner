@@ -1,5 +1,5 @@
-local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
+local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
 
 local pipelineCommon = {}
 

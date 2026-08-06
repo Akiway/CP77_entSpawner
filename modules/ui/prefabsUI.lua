@@ -1,10 +1,10 @@
 local style = require("modules/ui/style")
-local field = require("modules/utils/field")
-local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
-local input = require("modules/utils/input")
-local logger = require("modules/utils/logger")
-local previewControls = require("modules/utils/previewControls")
+local field = require("modules/utils/ui/field")
+local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
+local input = require("modules/utils/core/input")
+local logger = require("modules/utils/core/logger")
+local previewControls = require("modules/utils/preview/previewControls")
 
 -- Icon a category is created with, until it is given one of its own
 local DEFAULT_CATEGORY_ICON = "EmoticonOutline"

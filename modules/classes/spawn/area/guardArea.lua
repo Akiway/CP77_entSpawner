@@ -1,8 +1,8 @@
 local area = require("modules/classes/spawn/area/area")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local registry = require("modules/utils/nodeRefRegistry")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local registry = require("modules/utils/game/nodeRefRegistry")
 
 ---Class for worldGuardAreaNode
 ---@class guardArea : area

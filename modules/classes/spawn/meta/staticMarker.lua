@@ -1,6 +1,6 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 
 local propertyNames = {
     "Visualize position",

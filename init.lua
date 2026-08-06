@@ -14,26 +14,26 @@
 --
 -------------------------------------------------------------------------------------------------------------------------------
 
-local about = require("modules/utils/about")
-local settings = require("modules/utils/settings")
-local config = require("modules/utils/config")
-local backup = require("modules/utils/backup")
-local logger = require("modules/utils/logger")
-local saveState = require("modules/utils/saveState")
-local builder = require("modules/utils/entityBuilder")
-local Cron = require("modules/utils/Cron")
+local about = require("modules/utils/core/about")
+local settings = require("modules/utils/core/settings")
+local config = require("modules/utils/core/config")
+local backup = require("modules/utils/project/backup")
+local logger = require("modules/utils/core/logger")
+local saveState = require("modules/utils/project/saveState")
+local builder = require("modules/utils/game/entityBuilder")
+local Cron = require("modules/utils/vendor/Cron")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
-local cache = require("modules/utils/cache")
+local cache = require("modules/utils/game/cache")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
-local input = require("modules/utils/input")
-local registry = require("modules/utils/nodeRefRegistry")
-local rht = require("modules/utils/rhtPlugin")
-local preview = require("modules/utils/previewUtils")
-local previewSyncManager = require("modules/utils/previewSyncManager")
+local history = require("modules/utils/project/history")
+local input = require("modules/utils/core/input")
+local registry = require("modules/utils/game/nodeRefRegistry")
+local rht = require("modules/utils/interop/rhtPlugin")
+local preview = require("modules/utils/preview/previewUtils")
+local previewSyncManager = require("modules/utils/preview/previewSyncManager")
 
 ---@class spawner
 ---@field runtimeData {cetOpen: boolean, inGame: boolean, inMenu: boolean}
@@ -66,18 +66,18 @@ spawner = {
     end,
 
     e = function(data)
-        local red = require("modules/utils/redConverter")
+        local red = require("modules/utils/interop/redConverter")
         config.saveFile("wkit.json", red.redDataToJSON(data))
     end,
 
     i = function(data)
-        local red = require("modules/utils/redConverter")
+        local red = require("modules/utils/interop/redConverter")
         red.JSONToRedData(config.loadFile("wkit.json"), data)
     end,
 
     baseUI = require("modules/ui/baseUI"),
     editor = require("modules/utils/editor/editor"),
-    GameUI = require("modules/utils/GameUI")
+    GameUI = require("modules/utils/vendor/GameUI")
 }
 
 -- local x = collectgarbage("count")
@@ -134,12 +134,9 @@ function spawner:new()
             self.runtimeData.inMenu = isInMenu
         end)
 
-        -- fromRecursive = true on both: visibility still propagates to every child
-        -- (element:setVisible only gates the history action on it). Passing false made
-        -- each session start/end snapshot the entire tree via history.getElementChange on
-        -- the real root, and truncate the redo tail.
-        -- Engine-driven visibility, not a user edit: suppressed so entering or leaving a game does not
-        -- mark every loaded project as modified.
+        -- fromRecursive = true on both: visibility still propagates to every child, it only gates the
+        -- history action, which would otherwise snapshot the whole tree and truncate the redo tail.
+        -- Engine-driven, not a user edit, so dirty marking is suppressed too.
         local function setRootVisible(state)
             saveState.pushSuppress()
             local ok, err = pcall(function()

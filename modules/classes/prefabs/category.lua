@@ -1,11 +1,11 @@
-local utils = require("modules/utils/utils")
-local field = require("modules/utils/field")
+local utils = require("modules/utils/core/utils")
+local field = require("modules/utils/ui/field")
 local style = require("modules/ui/style")
-local config = require("modules/utils/config")
-local settings = require("modules/utils/settings")
-local input = require("modules/utils/input")
-local logger = require("modules/utils/logger")
-local assetFavorites = require("modules/utils/assetFavorites")
+local config = require("modules/utils/core/config")
+local settings = require("modules/utils/core/settings")
+local input = require("modules/utils/core/input")
+local logger = require("modules/utils/core/logger")
+local assetFavorites = require("modules/utils/project/assetFavorites")
 
 local SPAWNABLE_ELEMENT_MODULE_PATH = "modules/classes/editor/spawnableElement"
 

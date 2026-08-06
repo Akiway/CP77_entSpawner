@@ -1,9 +1,9 @@
 local spawnable = require("modules/classes/spawn/spawnable")
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local visualizer = require("modules/utils/visualizer")
-local utils = require("modules/utils/utils")
-local lcHelper = require("modules/utils/lightChannelHelper")
+local visualizer = require("modules/utils/preview/visualizer")
+local utils = require("modules/utils/core/utils")
+local lcHelper = require("modules/utils/ui/lightChannelHelper")
 
 local propertyNames = {
     "Color",

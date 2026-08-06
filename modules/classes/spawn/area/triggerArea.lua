@@ -1,7 +1,7 @@
 local area = require("modules/classes/spawn/area/area")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
+local history = require("modules/utils/project/history")
 
 ---Class for worldTriggerAreaNode
 ---@class triggerArea : area

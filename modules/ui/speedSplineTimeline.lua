@@ -1,7 +1,7 @@
 local style = require("modules/ui/style")
-local settings = require("modules/utils/settings")
-local history = require("modules/utils/history")
-local input = require("modules/utils/input")
+local settings = require("modules/utils/core/settings")
+local history = require("modules/utils/project/history")
+local input = require("modules/utils/core/input")
 
 local wu
 

@@ -1,7 +1,7 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local logger = require("modules/utils/logger")
+local utils = require("modules/utils/core/utils")
+local logger = require("modules/utils/core/logger")
 local element = require("modules/classes/editor/element")
 
 ---Class for worldAreaShapeNode

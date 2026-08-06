@@ -1,9 +1,9 @@
-local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
+local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
-local prefabPreview = require("modules/utils/prefabPreview")
-local colorUtil = require("modules/utils/color")
+local prefabPreview = require("modules/utils/preview/prefabPreview")
+local colorUtil = require("modules/utils/ui/color")
 
 ---@class favorite
 ---@field name string

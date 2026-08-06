@@ -1,7 +1,7 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local cache = require("modules/utils/cache")
+local utils = require("modules/utils/core/utils")
+local cache = require("modules/utils/game/cache")
 
 ---Class for worldStaticSoundEmitterNode
 ---@class sound : visualized

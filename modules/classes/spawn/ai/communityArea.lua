@@ -1,11 +1,11 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local registry = require("modules/utils/nodeRefRegistry")
-local cache = require("modules/utils/cache")
-local builder = require("modules/utils/entityBuilder")
-local Cron = require("modules/utils/Cron")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local registry = require("modules/utils/game/nodeRefRegistry")
+local cache = require("modules/utils/game/cache")
+local builder = require("modules/utils/game/entityBuilder")
+local Cron = require("modules/utils/vendor/Cron")
 
 local characterRecords = nil
 local pendingAppearanceLoads = {}

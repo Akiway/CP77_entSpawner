@@ -1,5 +1,5 @@
 local entity = require("modules/classes/spawn/entity/entity")
-local visualizer = require("modules/utils/visualizer")
+local visualizer = require("modules/utils/preview/visualizer")
 local style = require("modules/ui/style")
 
 local POSITION_MARKER_COLOR = "beige"

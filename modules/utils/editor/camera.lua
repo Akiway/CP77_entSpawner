@@ -1,7 +1,7 @@
-local utils = require("modules/utils/utils")
-local gameUtils = require("modules/utils/gameUtils")
+local utils = require("modules/utils/core/utils")
+local gameUtils = require("modules/utils/game/gameUtils")
 local tween = require("modules/tween/tween")
-local settings = require("modules/utils/settings")
+local settings = require("modules/utils/core/settings")
 
 ---@class cameraTransform
 ---@field position Vector4

@@ -1,8 +1,8 @@
 local connectedMarker = require("modules/classes/spawn/connectedMarker")
 local spawnable = require("modules/classes/spawn/spawnable")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local Cron = require("modules/utils/Cron")
+local Cron = require("modules/utils/vendor/Cron")
 
 ---Class for spline markers
 ---@class splineMarker : connectedMarker

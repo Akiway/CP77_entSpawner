@@ -1,4 +1,4 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 
 ---@class CollisionShapeData
 ---@field type string

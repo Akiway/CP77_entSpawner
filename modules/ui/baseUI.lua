@@ -1,17 +1,17 @@
 local ignoreRequirements = false
 
-local about = require("modules/utils/about")
-local settings = require("modules/utils/settings")
-local gameUtils = require("modules/utils/gameUtils")
+local about = require("modules/utils/core/about")
+local settings = require("modules/utils/core/settings")
+local gameUtils = require("modules/utils/game/gameUtils")
 local style = require("modules/ui/style")
 local editor = require("modules/utils/editor/editor")
-local input = require("modules/utils/input")
+local input = require("modules/utils/core/input")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
 local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
-local history = require("modules/utils/history")
+local history = require("modules/utils/project/history")
 
 local wu
 

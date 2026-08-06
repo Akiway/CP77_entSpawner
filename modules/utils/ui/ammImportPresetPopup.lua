@@ -1,5 +1,5 @@
 local style = require("modules/ui/style")
-local amm = require("modules/utils/ammUtils")
+local amm = require("modules/utils/pipeline/ammUtils")
 local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local groupAMMImportManager = require("modules/utils/pipeline/groupAMMImportManager")
 

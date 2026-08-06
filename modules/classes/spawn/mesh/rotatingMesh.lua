@@ -1,7 +1,7 @@
 local mesh = require("modules/classes/spawn/mesh/mesh")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local Cron = require("modules/utils/Cron")
+local utils = require("modules/utils/core/utils")
+local Cron = require("modules/utils/vendor/Cron")
 
 ---Class for worldRotatingMeshNode
 ---@class rotatingMesh : mesh

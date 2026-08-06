@@ -1,10 +1,10 @@
 local mesh = require("modules/classes/spawn/mesh/mesh")
 local spawnable = require("modules/classes/spawn/spawnable")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
-local Cron = require("modules/utils/Cron")
-local destructibleData = require("modules/utils/destructibleData")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
+local Cron = require("modules/utils/vendor/Cron")
+local destructibleData = require("modules/utils/data/destructibleData")
 
 ---Shared base of the three destruction node classes: worldInstancedDestructibleMeshNode,
 ---worldPhysicalDestructionNode and worldBakedDestructionNode.

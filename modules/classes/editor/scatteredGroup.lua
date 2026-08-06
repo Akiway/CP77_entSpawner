@@ -1,11 +1,11 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
-local Cron = require("modules/utils/Cron")
+local history = require("modules/utils/project/history")
+local Cron = require("modules/utils/vendor/Cron")
 local scatteredRectangleArea = require("modules/classes/editor/scatteredRectangleArea")
 local scatteredCylinderArea = require("modules/classes/editor/scatteredCylinderArea")
 local scatteredPrismArea = require("modules/classes/editor/scatteredPrismArea")
-local logger = require("modules/utils/logger")
+local logger = require("modules/utils/core/logger")
 
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 

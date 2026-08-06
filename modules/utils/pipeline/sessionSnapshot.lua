@@ -1,8 +1,8 @@
-local config = require("modules/utils/config")
-local utils = require("modules/utils/utils")
-local logger = require("modules/utils/logger")
-local settings = require("modules/utils/settings")
-local saveState = require("modules/utils/saveState")
+local config = require("modules/utils/core/config")
+local utils = require("modules/utils/core/utils")
+local logger = require("modules/utils/core/logger")
+local settings = require("modules/utils/core/settings")
+local saveState = require("modules/utils/project/saveState")
 local pipelineCommon = require("modules/utils/pipeline/common")
 
 ---Keeps one crash-recovery file describing everything in the Spawned tab.

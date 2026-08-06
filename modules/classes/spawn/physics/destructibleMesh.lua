@@ -1,10 +1,10 @@
 local destructionMesh = require("modules/classes/spawn/physics/destructionMesh")
 local spawnable = require("modules/classes/spawn/spawnable")
-local visualizer = require("modules/utils/visualizer")
+local visualizer = require("modules/utils/preview/visualizer")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local redExport = require("modules/utils/redExport")
-local destructibleData = require("modules/utils/destructibleData")
+local utils = require("modules/utils/core/utils")
+local redExport = require("modules/utils/interop/redExport")
+local destructibleData = require("modules/utils/data/destructibleData")
 
 ---Class for worldInstancedDestructibleMeshNode
 ---

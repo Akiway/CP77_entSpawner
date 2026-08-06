@@ -1,7 +1,7 @@
 local area = require("modules/classes/spawn/area/area")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local lcHelper = require("modules/utils/lightChannelHelper")
+local lcHelper = require("modules/utils/ui/lightChannelHelper")
 
 ---Class for worldLightChannelVolumeNode
 ---@class lightChannelArea : area

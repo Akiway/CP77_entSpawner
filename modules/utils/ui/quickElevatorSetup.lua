@@ -1,7 +1,7 @@
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local registry = require("modules/utils/nodeRefRegistry")
-local history = require("modules/utils/history")
+local utils = require("modules/utils/core/utils")
+local registry = require("modules/utils/game/nodeRefRegistry")
+local history = require("modules/utils/project/history")
 
 local quickElevatorSetupUI = {
     POPUP_ID = "Quick Elevator Setup##Device"

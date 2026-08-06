@@ -1,10 +1,10 @@
 -- Most of the colors and style has been taken from https://github.com/psiberx/cp2077-red-hot-tools
 
-local history = require("modules/utils/history")
-local settings = require("modules/utils/settings")
-local utils = require("modules/utils/utils")
-local colorUtil = require("modules/utils/color")
-local input = require("modules/utils/input")
+local history = require("modules/utils/project/history")
+local settings = require("modules/utils/core/settings")
+local utils = require("modules/utils/core/utils")
+local colorUtil = require("modules/utils/ui/color")
+local input = require("modules/utils/core/input")
 local dragBeingEdited = false
 
 ---Records one history action per widget interaction, for every tracked widget in this module.
@@ -1767,7 +1767,7 @@ function style.drawSearchableMultiSelectCombo(opts)
 
             if createIcon ~= nil then
                 -- Lazy require: `field` depends on `style`, so it cannot be required at load time.
-                local field = require("modules/utils/field")
+                local field = require("modules/utils/ui/field")
                 local iconSelectorWidth = 42 * style.viewSize
 
                 createIcon, createIconSearch = field.drawIconSelector(createIconPickerId, createIcon, createIconSearch)

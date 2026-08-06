@@ -1,8 +1,8 @@
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
-local history = require("modules/utils/history")
-local colorUtil = require("modules/utils/color")
-local iesProfiles = require("modules/utils/iesProfiles")
+local history = require("modules/utils/project/history")
+local colorUtil = require("modules/utils/ui/color")
+local iesProfiles = require("modules/utils/data/iesProfiles")
 
 ---UI for drawing gameLightComponent/entLightComponent instance data on the entity spawnable class.
 ---Installed onto the entity class via lightComponentUI.install(entity).

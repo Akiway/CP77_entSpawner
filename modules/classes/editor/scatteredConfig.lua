@@ -1,6 +1,6 @@
-local utils = require("modules/utils/utils")
-local settings = require("modules/utils/settings")
-local history = require("modules/utils/history")
+local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
+local history = require("modules/utils/project/history")
 local style = require("modules/ui/style")
 local scatteredValue = require("modules/classes/editor/scatteredValue")
 

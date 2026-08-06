@@ -1,7 +1,7 @@
 local area = require("modules/classes/spawn/area/area")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local field = require("modules/utils/field")
+local utils = require("modules/utils/core/utils")
+local field = require("modules/utils/ui/field")
 local element = require("modules/classes/editor/element")
 
 local function bumpBoundaryOrientationEpoch(instance)

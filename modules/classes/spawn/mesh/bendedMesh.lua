@@ -1,12 +1,12 @@
 local mesh = require("modules/classes/spawn/mesh/mesh")
 local spawnable = require("modules/classes/spawn/spawnable")
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local history = require("modules/utils/history")
+local utils = require("modules/utils/core/utils")
+local history = require("modules/utils/project/history")
 local intersection = require("modules/utils/editor/intersection")
-local visualizer = require("modules/utils/visualizer")
-local field = require("modules/utils/field")
-local cache = require("modules/utils/cache")
+local visualizer = require("modules/utils/preview/visualizer")
+local field = require("modules/utils/ui/field")
+local cache = require("modules/utils/game/cache")
 
 local bendedMesh = setmetatable({}, { __index = mesh })
 local zeroVector3 = { x = 0, y = 0, z = 0 }

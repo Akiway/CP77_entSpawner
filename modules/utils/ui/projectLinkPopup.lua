@@ -1,8 +1,8 @@
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
-local logger = require("modules/utils/logger")
-local saveState = require("modules/utils/saveState")
-local projectFiles = require("modules/utils/projectFiles")
+local utils = require("modules/utils/core/utils")
+local logger = require("modules/utils/core/logger")
+local saveState = require("modules/utils/project/saveState")
+local projectFiles = require("modules/utils/project/projectFiles")
 local projectTagUtil = require("modules/utils/ui/projectTag")
 local pipelineCommon = require("modules/utils/pipeline/common")
 

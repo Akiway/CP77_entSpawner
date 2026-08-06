@@ -1,5 +1,5 @@
 local style = require("modules/ui/style")
-local utils = require("modules/utils/utils")
+local utils = require("modules/utils/core/utils")
 local area = require("modules/classes/spawn/area/area")
 
 ---Class for dummy area, useful for getting outline
