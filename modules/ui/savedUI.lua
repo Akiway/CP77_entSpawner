@@ -23,6 +23,7 @@ local logger = require("modules/utils/core/logger")
 
 local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
+local BACKUP_RESTORE_POPUP_ID = "Restore backup?##savedUIBackupRestore"
 
 savedUI = {
     filter = "",
@@ -56,7 +57,14 @@ savedUI = {
     entryEditState = {},
     ---File names whose cached entry still renders correctly but whose `childs` tree is older than the
     ---file, because auto-save wrote it without holding the document in memory. See `getEntryData`.
-    stalePayloads = {}
+    stalePayloads = {},
+    ---Backup restore waiting on the unlink warning, when the file it targets is open in the Spawned
+    ---tab. `{ source, fileName, groupName }`, or `nil` when nothing is pending.
+    ---@type table?
+    pendingBackupRestore = nil,
+    ---One-shot flag that opens the warning popup at the top level, where a modal has to be opened
+    ---from -- the button that queues the restore is several child windows deep.
+    pendingBackupRestoreOpen = false
 }
 
 ---@param group table
@@ -329,15 +337,107 @@ function savedUI.drawSessionRestoreEntry()
 end
 
 ---@param source "on_save"|"on_game_load"
+---@return string
+local function backupSourceLabel(source)
+    return source == "on_save" and "previous save" or "game load"
+end
+
+---Restores one project file from a backup, and unlinks the copy open in the Spawned tab.
+---
+---The live group is the one thing a restore cannot reach: it keeps the tree it already has, and the
+---next save of it -- automatic or not -- would put that tree straight back over the file, undoing
+---the restore without saying so. Unlinking is what makes the restore stick. The group itself is left
+---exactly as it is; it simply stops owning the file.
+---@param source "on_save"|"on_game_load"
+---@param fileName string
+local function performBackupRestore(source, fileName)
+    local sourceLabel = backupSourceLabel(source)
+
+    if not backup.restoreObjectBackup(source, fileName) then
+        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 5000,
+            string.format("Failed to restore \"%s\" from %s", fileName, sourceLabel)))
+        return
+    end
+
+    savedUI.pendingReload = true
+
+    -- Resolved again rather than carried from the warning: the group can have been closed, deleted or
+    -- unlinked by hand while the popup was up. Only after the restore actually happened, too -- a
+    -- failed one leaves the file matching what the group holds, so there is nothing to protect.
+    local spawned = saveState.findRootChildByUID(fileName)
+    local unlinked = spawned ~= nil and saveState.unbindProjectFile(spawned) ~= nil
+
+    local message = string.format("Restored \"%s\" from %s", fileName, sourceLabel)
+    if unlinked then
+        message = message .. string.format(". \"%s\" no longer writes to it", tostring(spawned.name))
+        logger:info(string.format("[SavedUI] \"%s\" was unlinked from \"%s\": the file was restored from the %s",
+            tostring(spawned.name), fileName, sourceLabel))
+    end
+
+    ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("success"), 5000, message))
+end
+
+---@param source "on_save"|"on_game_load"
 ---@param fileName string
 local function queueBackupRestore(source, fileName)
-    local sourceLabel = source == "on_save" and "previous save" or "game load"
+    local spawned = saveState.findRootChildByUID(fileName)
 
-    if backup.restoreObjectBackup(source, fileName) then
-        savedUI.pendingReload = true
-        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("success"), 5000, string.format("Restored \"%s\" from %s", fileName, sourceLabel)))
+    if not spawned then
+        performBackupRestore(source, fileName)
+        return
+    end
+
+    -- Asked rather than done: the group open in the Spawned tab is usually the reason someone is
+    -- restoring in the first place, and it is about to stop being the project they restored.
+    savedUI.pendingBackupRestore = {
+        source = source,
+        fileName = fileName,
+        groupName = spawned.name
+    }
+    savedUI.pendingBackupRestoreOpen = true
+end
+
+---Warns that restoring over a project that is open in the Spawned tab will unlink the open copy.
+local function drawBackupRestorePopup()
+    local pending = savedUI.pendingBackupRestore
+    if not pending then return end
+
+    if savedUI.pendingBackupRestoreOpen then
+        savedUI.pendingBackupRestoreOpen = false
+        ImGui.OpenPopup(BACKUP_RESTORE_POPUP_ID)
+    end
+
+    if ImGui.BeginPopupModal(BACKUP_RESTORE_POPUP_ID, true, ImGuiWindowFlags.AlwaysAutoResize) then
+        ImGui.Text(string.format("Restore \"%s\" from the %s?", pending.fileName, backupSourceLabel(pending.source)))
+        ImGui.Dummy(0, 8 * style.viewSize)
+
+        style.styledText(string.format("\"%s\" is open in the Spawned tab and writes to this file.", pending.groupName),
+            style.warnColor, 0.9)
+        style.mutedText("It will be unlinked, or its next save would overwrite the restored file.")
+        ImGui.Dummy(0, 4 * style.viewSize)
+        style.mutedText("Nothing spawned is removed and the group keeps everything it has now.")
+        style.mutedText("Saving it afterwards asks for a project file again.")
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+
+        if ImGui.Button("Cancel##backupRestoreCancel") then
+            savedUI.pendingBackupRestore = nil
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.SameLine()
+
+        if style.warnButton("Restore and unlink##backupRestoreConfirm") then
+            savedUI.pendingBackupRestore = nil
+            performBackupRestore(pending.source, pending.fileName)
+            ImGui.CloseCurrentPopup()
+        end
+
+        ImGui.EndPopup()
     else
-        ImGui.ShowToast(ImGui.Toast.new(pipelineCommon.resolveToastType("error"), 5000, string.format("Failed to restore \"%s\" from %s", fileName, sourceLabel)))
+        -- Dismissed with the title bar or Escape. Dropped rather than kept, so it cannot reopen or
+        -- sit there and fire against a file the user has moved on from.
+        savedUI.pendingBackupRestore = nil
     end
 end
 
@@ -1800,6 +1900,8 @@ function savedUI.handlePopUp()
         end
     end
 
+    drawBackupRestorePopup()
+
     ammImportPresetPopup.draw(function(selectedPresetFiles)
         return savedUI.importAMMPresets(selectedPresetFiles)
     end)
@@ -1820,6 +1922,8 @@ function savedUI.reload()
     savedUI.groupProjectIconSearch = {}
     savedUI.entryEditState = {}
     savedUI.pendingGroupProjectPopupId = nil
+    savedUI.pendingBackupRestore = nil
+    savedUI.pendingBackupRestoreOpen = false
     ammImportPresetPopup.reset()
     backup.invalidateInfoCache()
 
