@@ -518,6 +518,17 @@ local function assignProjectToGroup(fileName, group, project, showToast)
     setGroupProject(group, nextProject)
     local saved = saveSavedEntry(fileName, group, true)
 
+    -- A project open in the Spawned tab is the same project, so the tag has to reach the live group
+    -- or its next save writes the old one back -- the whole document is re-emitted from memory, and
+    -- nothing in that path knows the file was edited behind it. Same treatment as a rename, down to
+    -- only doing it once the file actually took the change.
+    if saved then
+        local spawned = saveState.findRootChildByUID(fileName)
+        if spawned and spawned.setProject then
+            spawned:setProject(nextProject)
+        end
+    end
+
     if saved and showToast then
         local target = nextProject and ("project \"" .. nextProject.name .. "\"") or "No Project"
         ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Assigned \"%s\" to %s", group.name, target)))

@@ -442,6 +442,17 @@ function positionableGroup:serialize(ctx)
 	return data
 end
 
+---Assigns the project tag, as the selector in this group's UI does.
+---
+---Public so the Projects tab can reach a group that is open in the Spawned tab: the tag it writes
+---into the file would otherwise be overwritten by the next save of the live group, which re-emits
+---the whole document from memory. Same rules either way -- an undo entry, change tracking, and a
+---hierarchy cache invalidation -- and a no-op when the tag is already what it should be.
+---@param project table?
+function positionableGroup:setProject(project)
+	setProjectAssignment(self, project)
+end
+
 function positionableGroup:addChild(child, index)
 	positionable.addChild(self, child, index)
 end
