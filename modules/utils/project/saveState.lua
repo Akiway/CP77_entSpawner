@@ -495,16 +495,14 @@ end
 -- Mutation tracking
 --------------------------------------------------------------------------------------------------
 
----Invalidates the cached JSON of an element and every ancestor, and marks the owning root group
----modified.
+---Shared core of `markDirty` and `markDerived`: invalidate caches, then do the record bookkeeping.
 ---
 ---The upward walk early-exits at the first already-invalid node. That is sound because invalidation
 ---always runs to the top, so "this node is invalid" implies "everything above it is invalid too" --
 ---which makes repeated marks (a drag, a multi-select edit) O(1) amortised rather than O(depth).
----@param element element?
-function saveState.markDirty(element)
-    if not element or saveState.suppressDepth > 0 then return end
-
+---@param element element
+---@param userEdit boolean Whether this change came from the user rather than from the engine.
+local function mark(element, userEdit)
     saveState.mutationEpoch = saveState.mutationEpoch + 1
 
     local node = element
@@ -527,6 +525,8 @@ function saveState.markDirty(element)
     -- counter would mean editing any group could starve a large one that takes several seconds.
     record.mutationCounter = (record.mutationCounter or 0) + 1
 
+    if not userEdit then return end
+
     -- A pending baseline claims "this already matches the file", which stops the pass after a load
     -- or manual save from rewriting an identical file. An edit makes that untrue, so it must be
     -- dropped here or the next pass would adopt unsaved edits as the on-disk state and skip writing.
@@ -535,6 +535,35 @@ function saveState.markDirty(element)
     if record.state == "clean" then
         record.state = "edited"
     end
+end
+
+---Invalidates the cached JSON of an element and every ancestor, and marks the owning root group
+---modified.
+---@param element element?
+function saveState.markDirty(element)
+    if not element or saveState.suppressDepth > 0 then return end
+
+    mark(element, true)
+end
+
+---Same invalidation as `markDirty`, for state the engine re-derives rather than the user editing.
+---
+---Entity assembly is the case this exists for. It is asynchronous, so it lands frames *after* a group
+---load has released suppression, and it rewrites serialized fields (`defaultComponentData`, the
+---fixed-up `instanceDataChanges`, `deviceClassName`). Those caches genuinely must be invalidated --
+---a node whose JSON was built before its entity assembled is stale -- but the group is still the
+---file it was loaded from, and calling it modified made every entity-bearing project report unsaved
+---changes seconds after opening it, then rewrite itself on the next pass.
+---
+---So this does everything `markDirty` does except make the two claims that are the user's to make:
+---`state` is left alone (never upgraded to "edited", and never downgraded either, so a real edit
+---already recorded survives a later respawn), and a pending baseline survives -- the next pass
+---adopts the post-assembly hash as the on-disk state, which is what "loaded and untouched" means.
+---@param element element?
+function saveState.markDerived(element)
+    if not element or saveState.suppressDepth > 0 then return end
+
+    mark(element, false)
 end
 
 ---Marks an element, its whole subtree, and every ancestor.

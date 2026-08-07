@@ -527,7 +527,15 @@ function entity:loadInstanceData(entity, forceLoadDefault)
     -- `defaultComponentData` is serialized, and `save` drops any `instanceDataChanges` entry that has
     -- no matching default -- so a node whose JSON was cached before the entity finished assembling
     -- holds this entity with its instance data stripped, and nothing else would ever invalidate it.
-    saveState.markDirty(self.object)
+    --
+    -- Which of the two marks depends on who asked. `forceLoadDefault` is the explicit path -- the
+    -- instance data UI, a device PS lookup, an AMM import -- and those are user actions. The assemble
+    -- path is the engine re-deriving what the file already described, so it is only derived state.
+    if forceLoadDefault then
+        saveState.markDirty(self.object)
+    else
+        saveState.markDerived(self.object)
+    end
 end
 
 local function fixInstanceData(data, parent)
@@ -626,7 +634,11 @@ function entity:onAssemble(entRef)
     -- Assembly is asynchronous and rewrites serialized state: `instanceDataChanges` (fixed up in
     -- place above), `defaultComponentData`, and `deviceClassName`. Marked here as well as inside
     -- `loadInstanceData`, which returns early when there is nothing to apply.
-    saveState.markDirty(self.object)
+    --
+    -- Derived, not edited: this lands frames after a group load has released change-tracking
+    -- suppression, so marking it as an edit reported every freshly loaded project as unsaved as soon
+    -- as its entities finished spawning. Real edits to this data are tracked by `updatePropValue`.
+    saveState.markDerived(self.object)
 
     self:updateDeviceSecondaryIcon()
 
@@ -1759,6 +1771,12 @@ function entity:updatePropValue(componentID, path, value)
             self.instanceDataChanges[componentID] = nil
         end
     end
+
+    -- Every instance data edit funnels through here, which is why the mark belongs here rather than
+    -- at the call sites: most of them push a history action (which marks for them), but the array
+    -- entry, colour and light channel paths do not, and the respawn below no longer marks either --
+    -- assembly only reports derived state now.
+    saveState.markDirty(self.object)
 
     self:respawn()
 end

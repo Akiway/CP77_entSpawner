@@ -173,6 +173,10 @@ local function classifyResult(job)
         -- The group was just loaded from, or saved to, this file and untouched since, so whatever it
         -- hashes to now is the on-disk state: adopt it instead of rewriting the file. Relies on
         -- `saveState.markDirty` clearing this the instant anything is edited.
+        --
+        -- "Untouched" means by the user. Entity assembly lands here asynchronously, well after a load
+        -- finishes, and re-derives serialized fields; it marks derived rather than dirty precisely so
+        -- it is folded into this baseline instead of counting as an edit.
         return "baseline"
     end
 
