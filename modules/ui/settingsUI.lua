@@ -34,6 +34,26 @@ local wireframeColorStyleTooltipText = "Global projected wireframe color style u
 
 local settingsUI = {}
 
+local sectionIcons = {
+    defaults = IconGlyphs.ContentSaveSettingsOutline,
+    bindings = IconGlyphs.KeyboardSettingsOutline,
+    about = IconGlyphs.InformationOutline,
+    dependencies = IconGlyphs.PuzzleOutline,
+    spawning = IconGlyphs.PlusBoxOutline,
+    editing = IconGlyphs.AxisArrow,
+    editorMode = IconGlyphs.Rotate3d,
+    visualizers = IconGlyphs.HospitalMarker,
+    appearance = IconGlyphs.PaletteOutline,
+    misc = IconGlyphs.CogOutline,
+    savingRecovery = IconGlyphs.ContentSaveCogOutline,
+    debug = IconGlyphs.BugOutline,
+    cacheExclusions = IconGlyphs.CookieOffOutline
+}
+
+local function sectionLabel(icon, title)
+    return style.resolveActionLabelNoIconOnly(icon or IconGlyphs.CogOutline, title, "settingsSection:" .. title)
+end
+
 ---Runs the full save-encoder diagnostic over every loaded root group.
 ---
 ---Deliberately synchronous and deliberately not on any automatic path: it rebuilds each group twice
@@ -477,7 +497,7 @@ end
 
 ---Draws the "Default values" section grouping default values for inputs and selectors.
 local function drawDefaultsSection()
-    if not ImGui.TreeNodeEx("Default values", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.defaults, "Default values"), ImGuiTreeNodeFlags.SpanFullWidth) then
         return
     end
 
@@ -581,7 +601,7 @@ local function drawBindingRow(action, bindings, usageCount)
 end
 
 local function drawBindingsSection()
-    if not ImGui.TreeNodeEx("Bindings", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.bindings, "Bindings"), ImGuiTreeNodeFlags.SpanFullWidth) then
         settingsUI.listeningBinding = nil
         return
     end
@@ -645,14 +665,14 @@ local function drawAboutRow(label, value, labelWidth, wrapped)
 end
 
 local function drawAboutSection()
-    if not ImGui.TreeNodeEx("About", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.about, "About"), ImGuiTreeNodeFlags.SpanFullWidth) then
         return
     end
 
     ImGui.Dummy(0, 4 * style.viewSize)
 
     local labelWidth = getAboutLabelWidth()
-    style.styledText(about.name, style.highlightColor)
+    style.styledText(about.name, style.activeColor)
     ImGui.Dummy(0, 4 * style.viewSize)
 
     drawAboutRow("Version", about.version, labelWidth)
@@ -807,7 +827,7 @@ local function drawDependenciesSummary(statuses)
 end
 
 local function drawDependenciesSection()
-    if not ImGui.TreeNodeEx("Dependencies", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.dependencies, "Dependencies"), ImGuiTreeNodeFlags.SpanFullWidth) then
         return
     end
 
@@ -845,7 +865,7 @@ end
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
 
-    if ImGui.TreeNodeEx("Spawning", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.spawning, "Spawning"), ImGuiTreeNodeFlags.SpanFullWidth) then
         local pos, changed = ImGui.Combo("##spawnPos", settings.spawnPos - 1, { "At selected", "Screen center" }, 2)
         settings.spawnPos = pos + 1
         if changed then settings.save() end
@@ -884,7 +904,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Editing", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.editing, "Editing"), ImGuiTreeNodeFlags.SpanFullWidth) then
         style.mutedText("When duplicating a group, place the cloned group:")
         if ImGui.RadioButton("Inside the original group", settings.moveCloneToParent == 1) then
             settings.moveCloneToParent = 1
@@ -949,7 +969,7 @@ function settingsUI.draw(spawner)
     drawDefaultsSection()
     drawBindingsSection()
 
-    if ImGui.TreeNodeEx("Editor Mode", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.editorMode, "Editor Mode"), ImGuiTreeNodeFlags.SpanFullWidth) then
         style.pushGreyedOut(not spawner.editor.active)
         local resetCameraLabel, resetCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraRetakeOutline, "Reset camera position", "resetCameraPosition", nil, true)
         if ImGui.Button(resetCameraLabel) and spawner.editor.active then
@@ -977,7 +997,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Visualizers", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.visualizers, "Visualizers"), ImGuiTreeNodeFlags.SpanFullWidth) then
         settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
         if changed then settings.save() end
         style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin of selected group with a colored outline.")
@@ -1068,7 +1088,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Appearance", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.appearance, "Appearance"), ImGuiTreeNodeFlags.SpanFullWidth) then
         local index, indexChanged = ImGui.Combo("Main Window Name", math.max(0, utils.indexValue(windowNames, settings.mainWindowName) - 1), windowNames, #windowNames)
         if indexChanged then
             settings.mainWindowName = windowNames[index + 1]
@@ -1107,6 +1127,9 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         style.tooltip("Pin open parent groups to the top of the Spawned hierarchy while scrolling through their children.")
+        ImGui.SameLine()
+        style.styledText(IconGlyphs.Flask, style.activeColor)
+        style.tooltip("Experimental feature. Interface may bug when scrolling at the bottom of the hierarchy.")
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Balance between icons and text")
@@ -1136,7 +1159,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Misc", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.misc, "Misc"), ImGuiTreeNodeFlags.SpanFullWidth) then
         settings.deleteConfirm, changed = ImGui.Checkbox("Show confirm to delete saved group popup", settings.deleteConfirm)
         if changed then settings.save() end
 
@@ -1163,7 +1186,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx("Saving & Recovery", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.savingRecovery, "Saving & Recovery"), ImGuiTreeNodeFlags.SpanFullWidth) then
         style.sectionHeaderStart("AUTO-SAVE")
 
         settings.autoSaveEnabled, changed = ImGui.Checkbox("Enable auto-save", settings.autoSaveEnabled)
@@ -1200,8 +1223,8 @@ function settingsUI.draw(spawner)
 
     rht.drawSettings()
     
-    if ImGui.TreeNodeEx("Debug", ImGuiTreeNodeFlags.SpanFullWidth) then
-        if ImGui.TreeNodeEx("Cache Exclusions", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.debug, "Debug"), ImGuiTreeNodeFlags.SpanFullWidth) then
+        if ImGui.TreeNodeEx(sectionLabel(sectionIcons.cacheExclusions, "Cache Exclusions"), ImGuiTreeNodeFlags.SpanFullWidth) then
             style.tooltip("Resource paths or glob patterns to exclude from cache reads. Use exact paths, * for any sequence, and ? for a single character.")
 
             local x, _ = ImGui.GetContentRegionAvail()
