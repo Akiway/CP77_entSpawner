@@ -339,7 +339,7 @@ function prefabsUI.drawEditFavoritePopup()
             prefabsUI.openPopup = false
             ImGui.SetKeyboardFocusHere()
         end
-        prefabsUI.popupItem.name, changed = ImGui.InputTextWithHint("##name", "Name...", prefabsUI.popupItem.name, 100)
+        prefabsUI.popupItem.name, changed = style.inputTextWithHint("##name", "Name...", prefabsUI.popupItem.name, 100)
         if changed then
             prefabsUI.popupItem.data.name = prefabsUI.popupItem.name
             if not noCategory then
@@ -452,7 +452,7 @@ function prefabsUI.drawCreatePrefabPopup()
                 prefabsUI.openCreatePopup = false
                 ImGui.SetKeyboardFocusHere()
             end
-            item.name, _ = ImGui.InputTextWithHint("##name", "Name...", item.name, 100)
+            item.name, _ = style.inputTextWithHint("##name", "Name...", item.name, 100)
 
             -- Select category
             style.fieldLabel("Category")
@@ -610,7 +610,7 @@ function prefabsUI.drawAddCategory()
     ImGui.SameLine()
 
     style.setNextItemWidth(200)
-    prefabsUI.newCategoryName, _ = ImGui.InputTextWithHint("##newCategoryName", "Category Name...", prefabsUI.newCategoryName, 100)
+    prefabsUI.newCategoryName, _ = style.inputTextWithHint("##newCategoryName", "Category Name...", prefabsUI.newCategoryName, 100)
 
     local categoryExists = prefabsUI.categories[prefabsUI.newCategoryName] ~= nil
     if style.drawNoBGConditionalButton(prefabsUI.newCategoryName ~= "", IconGlyphs.Plus, categoryExists) and not categoryExists then
@@ -845,7 +845,7 @@ function prefabsUI.drawMergeTags()
     style.mutedText("New tag name")
     ImGui.SameLine()
     style.setNextItemWidth(200)
-    prefabsUI.newMergeTag, _ = ImGui.InputTextWithHint("##newMergeTag", "New tag name...", prefabsUI.newMergeTag, 15)
+    prefabsUI.newMergeTag, _ = style.inputTextWithHint("##newMergeTag", "New tag name...", prefabsUI.newMergeTag, 15)
 
     local selectedTagCount = utils.tableLength(prefabsUI.tagMergeTags)
     local affectedCount = prefabsUI.getTagMergeAffectedCount(prefabsUI.tagMergeTags, prefabsUI.newMergeTag)

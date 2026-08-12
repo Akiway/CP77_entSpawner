@@ -1690,7 +1690,7 @@ function aiSpot:getGroupedProperties()
             style.tooltip("Clears the markings list of all selected AISpot's.")
 
             ImGui.SetNextItemWidth(150 * style.viewSize)
-            element.groupOperationData["aiSpotGrouped"].marking, _ = ImGui.InputTextWithHint("##markings", "Marking", element.groupOperationData["aiSpotGrouped"].marking, 100)
+            element.groupOperationData["aiSpotGrouped"].marking, _ = style.inputTextWithHint("##markings", "Marking", element.groupOperationData["aiSpotGrouped"].marking, 100)
 
             ImGui.SameLine()
 

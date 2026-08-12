@@ -228,7 +228,7 @@ local function drawRootProjectTagSelector(instance)
         ImGui.Separator()
 
         ImGui.SetNextItemWidth(220 * style.viewSize)
-        editorState.name, _ = ImGui.InputTextWithHint("##rootProjectName" .. instance.id, "Project name...", editorState.name or "", 100)
+        editorState.name, _ = style.inputTextWithHint("##rootProjectName" .. instance.id, "Project name...", editorState.name or "", 100)
 
         editorState.icon, instance.projectCreateIconSearch, _ = field.drawIconSelector("spawnedRootProject:" .. instance.id, editorState.icon, instance.projectCreateIconSearch)
         ImGui.SameLine()

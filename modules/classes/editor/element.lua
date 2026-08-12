@@ -5,6 +5,7 @@ local logger = require("modules/utils/core/logger")
 local saveState = require("modules/utils/project/saveState")
 local projectFiles = require("modules/utils/project/projectFiles")
 local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
+local style = require("modules/ui/style")
 
 ---Base class for hierchical elements, such as groups and objects
 ---@class element
@@ -539,7 +540,7 @@ function element:drawName()
 	if not self.newName then self.newName = self.name end
 
 	ImGui.SetNextItemAllowOverlap()
-	self.newName, changed = ImGui.InputTextWithHint('##newname', 'New Name...', self.newName, 100)
+	self.newName, changed = style.inputTextWithHint('##newname', 'New Name...', self.newName, 100)
 	if ImGui.IsItemDeactivated() then
 		self.editName = false
 		if self.newName == "" then self.newName = self.name return end

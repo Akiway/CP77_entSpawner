@@ -743,7 +743,7 @@ local function drawDefaultProjectSelector()
         ImGui.Separator()
 
         ImGui.SetNextItemWidth(220 * style.viewSize)
-        editor.name, _ = ImGui.InputTextWithHint("##defaultProjectName", "Project name...", editor.name or "", 100)
+        editor.name, _ = style.inputTextWithHint("##defaultProjectName", "Project name...", editor.name or "", 100)
 
         editor.icon, settingsUI.defaultProjectIconSearch, _ = field.drawIconSelector("settingsDefaultProject", editor.icon, settingsUI.defaultProjectIconSearch)
         ImGui.SameLine()
@@ -776,7 +776,7 @@ local function drawDefaultsSection()
     ImGui.Dummy(0, 4 * style.viewSize)
     style.sectionHeaderStart("Node properties")
     local changed
-    settings.nodeRefPrefix, changed = ImGui.InputTextWithHint("NodeRef Prefix", "", settings.nodeRefPrefix, 128)
+    settings.nodeRefPrefix, changed = style.inputTextWithHint("NodeRef Prefix", "", settings.nodeRefPrefix, 128)
     if changed then settings.save() end
     style.tooltip("Prefix to add when auto generating NodeRef")
 
@@ -1335,13 +1335,13 @@ function settingsUI.draw(spawner)
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("AI Spot Preview")
-        settings.defaultAISpotNPC, changed = ImGui.InputTextWithHint("Default AI Spot NPC Record", "Character.", settings.defaultAISpotNPC, 128)
+        settings.defaultAISpotNPC, changed = style.inputTextWithHint("Default AI Spot NPC Record", "Character.", settings.defaultAISpotNPC, 128)
         if changed then
             settings.defaultAISpotNPC = utils.stripNonASCII(settings.defaultAISpotNPC)
             settings.save()
         end
 
-        settings.defaultAISpotAppearance, changed = ImGui.InputTextWithHint("Default AI Spot NPC Appearance", "default", settings.defaultAISpotAppearance, 128)
+        settings.defaultAISpotAppearance, changed = style.inputTextWithHint("Default AI Spot NPC Appearance", "default", settings.defaultAISpotAppearance, 128)
         if changed then
             settings.defaultAISpotAppearance = utils.sanitizeText(settings.defaultAISpotAppearance or "default", "default")
             settings.save()
@@ -1518,7 +1518,7 @@ function settingsUI.draw(spawner)
                 for key, exclusion in pairs(settings.cacheExclusions) do
                     ImGui.PushID(key)
                     ImGui.SetNextItemWidth(x)
-                    settings.cacheExclusions[key], changed = ImGui.InputTextWithHint("##exclusion", "base\\*.ent", exclusion, 128)
+                    settings.cacheExclusions[key], changed = style.inputTextWithHint("##exclusion", "base\\*.ent", exclusion, 128)
                     if changed then
                         settings.save()
                     end

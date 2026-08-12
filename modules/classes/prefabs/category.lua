@@ -560,7 +560,7 @@ function category:drawEditPopup()
             self.openPopup = false
             ImGui.SetKeyboardFocusHere()
         end
-        self.editName, changed = ImGui.InputTextWithHint("##name", "Name...", self.editName, 100)
+        self.editName, changed = style.inputTextWithHint("##name", "Name...", self.editName, 100)
         if ImGui.IsItemDeactivatedAfterEdit() then
 			if not self.prefabsUI.categories[self.editName] then
 				self.prefabsUI.updateCategoryName(self.name, self.editName)

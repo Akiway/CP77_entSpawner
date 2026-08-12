@@ -1125,7 +1125,7 @@ local function drawGroupProjectAssignment(group, fileName, projectMap, projectOp
         ImGui.Separator()
 
         ImGui.SetNextItemWidth(220 * style.viewSize)
-        editor.name, _ = ImGui.InputTextWithHint("##newGroupProjectName" .. fileName, "Project name...", editor.name or "", 100)
+        editor.name, _ = style.inputTextWithHint("##newGroupProjectName" .. fileName, "Project name...", editor.name or "", 100)
 
         editor.icon, savedUI.groupProjectIconSearch[fileName], _ = field.drawIconSelector("savedGroupProject:" .. fileName, editor.icon, savedUI.groupProjectIconSearch[fileName])
         ImGui.SameLine()
@@ -1241,7 +1241,7 @@ local function drawProjectSectionActions(section, spawner, projectMap, buttonTex
         ImGui.Separator()
 
         ImGui.SetNextItemWidth(220 * style.viewSize)
-        editor.name, _ = ImGui.InputTextWithHint("##savedProjectName" .. section.key, "Project name...", editor.name, 100)
+        editor.name, _ = style.inputTextWithHint("##savedProjectName" .. section.key, "Project name...", editor.name, 100)
 
         editor.icon, savedUI.projectSectionIconSearch[section.key], _ =
             field.drawIconSelector("savedProjectSection:" .. section.key, editor.icon, savedUI.projectSectionIconSearch[section.key])
@@ -1351,7 +1351,7 @@ function savedUI.draw(spawner)
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
-    savedUI.filter, changed = ImGui.InputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
+    savedUI.filter, changed = style.inputTextWithHint('##Filter', IconGlyphs.Magnify .. ' Search for data...', savedUI.filter, 100)
     if changed then
         settings.savedUIFilter = savedUI.filter
         settings.save()
@@ -1612,7 +1612,7 @@ function savedUI.drawEntryNameFields(data, fileName)
     ImGui.SameLine()
     ImGui.SetCursorPosX(savedUI.maxTextWidth)
     ImGui.PushItemWidth(180 * style.viewSize)
-    state.name = ImGui.InputTextWithHint("##groupName" .. fileName, "Group name...", state.name, 100)
+    state.name = style.inputTextWithHint("##groupName" .. fileName, "Group name...", state.name, 100)
     ImGui.PopItemWidth()
     state.nameFocused = ImGui.IsItemActive()
     style.tooltip("Name of the group itself, shown here and in the Spawned tab.\nDoes not affect which file it is saved in.")
@@ -1631,7 +1631,7 @@ function savedUI.drawEntryNameFields(data, fileName)
     ImGui.SameLine()
     ImGui.SetCursorPosX(savedUI.maxTextWidth)
     ImGui.PushItemWidth(180 * style.viewSize)
-    state.fileName = ImGui.InputTextWithHint("##fileName" .. fileName, "File name...", state.fileName, 100)
+    state.fileName = style.inputTextWithHint("##fileName" .. fileName, "File name...", state.fileName, 100)
     ImGui.PopItemWidth()
     style.tooltip("File this project is stored in, and the id everything else refers to it by.\nRenaming it keeps any spawned copy linked.")
 

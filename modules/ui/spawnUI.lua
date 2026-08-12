@@ -2962,7 +2962,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
         spawnUI.currentPopupVariant = variantName
     end
     local popupFilterChanged
-    spawnUI.popupFilter, popupFilterChanged = ImGui.InputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
+    spawnUI.popupFilter, popupFilterChanged = style.inputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
     local xSpace, _ = ImGui.GetItemRectSize()
     if popupFilterChanged then
         spawnUI.loadPopupData(typeName, variantName)

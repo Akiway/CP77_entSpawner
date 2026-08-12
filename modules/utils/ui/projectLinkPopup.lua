@@ -323,7 +323,7 @@ function projectLinkPopup.draw(spawner)
         style.mutedText("New file name")
         ImGui.SameLine()
         ImGui.SetNextItemWidth(260 * style.viewSize)
-        projectLinkPopup.newName = ImGui.InputTextWithHint("##projectLinkNewName", "File name...", projectLinkPopup.newName, 100)
+        projectLinkPopup.newName = style.inputTextWithHint("##projectLinkNewName", "File name...", projectLinkPopup.newName, 100)
         ImGui.SameLine()
         style.mutedText(projectFiles.extension)
 
@@ -352,7 +352,7 @@ function projectLinkPopup.draw(spawner)
     end
 
     ImGui.SetNextItemWidth(260 * style.viewSize)
-    projectLinkPopup.filter = ImGui.InputTextWithHint("##projectLinkFilter", "Search projects...", projectLinkPopup.filter, 100)
+    projectLinkPopup.filter = style.inputTextWithHint("##projectLinkFilter", "Search projects...", projectLinkPopup.filter, 100)
 
     ImGui.Dummy(0, 4 * style.viewSize)
     local selected = drawProjectList(spawner)

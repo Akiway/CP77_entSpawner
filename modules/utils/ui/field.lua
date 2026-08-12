@@ -482,7 +482,7 @@ function field.drawIconSelector(id, current, search)
 
         local interiorWidth = 250 - (2 * ImGui.GetStyle().FramePadding.x) - 30
         style.setNextItemWidth(interiorWidth)
-        search, _ = ImGui.InputTextWithHint("##iconSearch" .. pickerId, "Icon, alias or tag...", search, 100)
+        search, _ = style.inputTextWithHint("##iconSearch" .. pickerId, "Icon, alias or tag...", search, 100)
         local searchWidth, _ = ImGui.GetItemRectSize()
         local clearButtonWidth = 0
         local controlsWidth = searchWidth

@@ -359,7 +359,7 @@ local function drawImportPopup()
     ImGui.Spacing()
 
     style.setNextItemWidth(400)
-    favoritesUI.importCode = ImGui.InputTextWithHint("##assetFavoritesImportCode", "Paste the favorites code here...", favoritesUI.importCode, IMPORT_CODE_MAX_LENGTH)
+    favoritesUI.importCode = style.inputTextWithHint("##assetFavoritesImportCode", "Paste the favorites code here...", favoritesUI.importCode, IMPORT_CODE_MAX_LENGTH)
 
     if style.drawNoBGConditionalButton(favoritesUI.importCode ~= "", IconGlyphs.Close .. "##assetFavoritesImportCodeClear") then
         favoritesUI.importCode = ""
@@ -1003,7 +1003,7 @@ local function drawTagPopup()
         ImGui.SameLine()
 
         style.setNextItemWidth(200)
-        favoritesUI.tagEditName, _ = ImGui.InputTextWithHint("##tagName", "Tag name...", favoritesUI.tagEditName, 100)
+        favoritesUI.tagEditName, _ = style.inputTextWithHint("##tagName", "Tag name...", favoritesUI.tagEditName, 100)
 
         local newName = utils.trimString(favoritesUI.tagEditName)
         local nameTaken = newName ~= tagName and assetFavorites.hasTag(newName)

@@ -64,10 +64,9 @@ exportUI = {
     templateDeleteTarget = nil,
     templateDeleteDontAskAgain = false,
     templateSaveToasts = {},
-    groupsDividerHovered = false,
-    groupsDividerDragging = false,
-    templatesDividerHovered = false,
-    templatesDividerDragging = false
+    -- One state table per divider, so the two bars do not report each other's hover.
+    groupsDivider = { hovered = false, dragging = false },
+    templatesDivider = { hovered = false, dragging = false }
 }
 
 function exportUI.init(spawner)
@@ -313,11 +312,21 @@ local function drawGroupStreamingBoxes()
     projectedWireframe.endOverlay()
 end
 
+local GROUPS_DEFAULT_HEIGHT = 260
+local GROUPS_MIN_HEIGHT = 120
+local GROUPS_MAX_HEIGHT = 800
+
+---Clamp bounds for the groups list, in scaled pixels. Shared by the list and the divider that
+---resizes it, which are drawn from different places.
+---@return number minSize
+---@return number maxSize
+local function getGroupsHeightBounds()
+    return GROUPS_MIN_HEIGHT * style.viewSize, GROUPS_MAX_HEIGHT * style.viewSize
+end
+
 function exportUI.drawGroups()
-    local defaultSize = 260
-    local minSize = 120 * style.viewSize
-    local maxSize = 800 * style.viewSize
-    settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight or 260))
+    local minSize, maxSize = getGroupsHeightBounds()
+    settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight or GROUPS_DEFAULT_HEIGHT))
 
     ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0)
     ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
@@ -351,7 +360,7 @@ function exportUI.drawGroups()
                     local baseCursorX = ImGui.GetCursorPosX()
                     style.mutedText("Variant Node Ref")
                     ImGui.SameLine()
-                    group.variantRef = ImGui.InputTextWithHint('##variantRef', '$/#foobar', group.variantRef, 100)
+                    group.variantRef = style.inputTextWithHint('##variantRef', '$/#foobar', group.variantRef, 100)
 
                     style.mutedText("Variant name")
                     local variantNameColumnWidth = 150 * style.viewSize
@@ -375,7 +384,7 @@ function exportUI.drawGroups()
                             ImGui.SetNextItemWidth(variantNameColumnWidth)
                             local previousName = variantData.name or ""
                             local _, previousIsDefaultName = pipelineCommon.normalizeVariantName(previousName)
-                            variantData.name = ImGui.InputTextWithHint('##variantName', 'default', variantData.name, 100)
+                            variantData.name = style.inputTextWithHint('##variantName', 'default', variantData.name, 100)
                             local variantNameTooltip = variantData.name or ""
                             style.tooltip(variantNameTooltip ~= "" and variantNameTooltip or "default")
                             ImGui.SameLine()
@@ -431,7 +440,7 @@ function exportUI.drawGroups()
                     ImGui.SetCursorPosX(exportUI.sectorPropertiesWidth)
                     ImGui.SetNextItemWidth(150 * style.viewSize)
 
-                    group.prefabRef, _ = ImGui.InputTextWithHint('##prefabRef', '$/#foobar', group.prefabRef, 100)
+                    group.prefabRef, _ = style.inputTextWithHint('##prefabRef', '$/#foobar', group.prefabRef, 100)
                 end
 
                 style.mutedText("Sector Level")
@@ -551,43 +560,25 @@ function exportUI.drawGroups()
     ImGui.PopStyleColor()
     ImGui.PopStyleVar(2)
     drawGroupStreamingBoxes()
+end
 
-    if exportUI.groupsDividerHovered then
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
-    else
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
-    end
+---The bar that resizes the groups list. Drawn under the card holding Properties and Groups rather
+---than inside it, so it reads as the edge the card is resized by and spans the full tab width.
+function exportUI.drawGroupsDivider()
+    local minSize, maxSize = getGroupsHeightBounds()
 
-    ImGui.BeginChild("##groupsDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
-    local wx, wy = ImGui.GetContentRegionAvail()
-    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
-    ImGui.SetCursorPosX((wx - textWidth) / 2)
-    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
-    ImGui.Text(IconGlyphs.DragHorizontalVariant)
-    ImGui.EndChild()
-    if exportUI.groupsDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
-        settings.exportGroupsHeight = defaultSize
+    local wasDragging = exportUI.groupsDivider.dragging
+    local delta, reset = style.drawHorizontalDivider("##groupsDivider", exportUI.groupsDivider)
+
+    if reset then
+        settings.exportGroupsHeight = GROUPS_DEFAULT_HEIGHT
+        settings.save()
+    elseif delta ~= 0 then
+        settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight + delta))
+    elseif wasDragging and not exportUI.groupsDivider.dragging then
+        -- Written once the drag lets go, rather than on every frame of it.
         settings.save()
     end
-    exportUI.groupsDividerHovered = ImGui.IsItemHovered()
-
-    if exportUI.groupsDividerHovered and ImGui.IsMouseDragging(0, 0) then
-        exportUI.groupsDividerDragging = true
-    end
-    if exportUI.groupsDividerDragging and not ImGui.IsMouseDragging(0, 0) then
-        exportUI.groupsDividerDragging = false
-        settings.save()
-    end
-    if exportUI.groupsDividerDragging then
-        local _, dy = ImGui.GetMouseDragDelta(0, 0)
-        settings.exportGroupsHeight = settings.exportGroupsHeight + dy
-        settings.exportGroupsHeight = math.max(minSize, math.min(maxSize, settings.exportGroupsHeight))
-        ImGui.ResetMouseDragDelta()
-    end
-    if exportUI.groupsDividerHovered or exportUI.groupsDividerDragging then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
-    end
-    ImGui.PopStyleColor()
 end
 
 function exportUI.loadTemplate(data)
@@ -816,42 +807,17 @@ function exportUI.drawTemplates()
         ImGui.PopStyleVar(2)
     end
 
-    if exportUI.templatesDividerHovered then
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0)
-    else
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0)
-    end
+    local wasDragging = exportUI.templatesDivider.dragging
+    local delta, reset = style.drawHorizontalDivider("##templatesDivider", exportUI.templatesDivider)
 
-    ImGui.BeginChild("##templatesDivider", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove)
-    local wx, wy = ImGui.GetContentRegionAvail()
-    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
-    ImGui.SetCursorPosX((wx - textWidth) / 2)
-    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
-    ImGui.Text(IconGlyphs.DragHorizontalVariant)
-    ImGui.EndChild()
-    if exportUI.templatesDividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+    if reset then
         settings.exportTemplatesHeight = defaultSize
         settings.save()
-    end
-    exportUI.templatesDividerHovered = ImGui.IsItemHovered()
-
-    if exportUI.templatesDividerHovered and ImGui.IsMouseDragging(0, 0) then
-        exportUI.templatesDividerDragging = true
-    end
-    if exportUI.templatesDividerDragging and not ImGui.IsMouseDragging(0, 0) then
-        exportUI.templatesDividerDragging = false
+    elseif delta ~= 0 then
+        settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight + delta))
+    elseif wasDragging and not exportUI.templatesDivider.dragging then
         settings.save()
     end
-    if exportUI.templatesDividerDragging then
-        local _, dy = ImGui.GetMouseDragDelta(0, 0)
-        settings.exportTemplatesHeight = settings.exportTemplatesHeight + dy
-        settings.exportTemplatesHeight = math.max(minSize, math.min(maxSize, settings.exportTemplatesHeight))
-        ImGui.ResetMouseDragDelta()
-    end
-    if exportUI.templatesDividerHovered or exportUI.templatesDividerDragging then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
-    end
-    ImGui.PopStyleColor()
 end
 
 function exportUI.getCurrentIssue()
@@ -1193,6 +1159,11 @@ function exportUI.draw()
 
     style.sectionHeaderEnd()
 
+    -- Properties and Groups are the one thing being set up, so they sit together on a card rather
+    -- than reading as two unrelated sections of the tab. Auto-height: the Groups list inside is
+    -- resizable, so the card has to follow whatever the divider leaves it.
+    style.beginCard("##exportSetupCard", { height = "auto" })
+
     style.sectionHeaderStart("Properties")
 
     if not exportUI.mainPropertiesWidth then
@@ -1205,7 +1176,7 @@ function exportUI.draw()
     ImGui.SameLine()
     ImGui.SetNextItemWidth(200 * style.viewSize)
     ImGui.SetCursorPosX(exportUI.mainPropertiesWidth)
-    exportUI.projectName = ImGui.InputTextWithHint('##name', 'Export name...', exportUI.projectName, 100)
+    exportUI.projectName = style.inputTextWithHint('##name', 'Export name...', exportUI.projectName, 100)
     if exportUI.projectName ~= "" then
         ImGui.SameLine()
         style.pushButtonNoBG(true)
@@ -1234,7 +1205,14 @@ function exportUI.draw()
 
     exportUI.drawGroups()
 
-    style.sectionHeaderEnd()
+    style.sectionHeaderEnd(true)
+    style.endCard()
+
+    exportUI.drawGroupsDivider()
+
+    ImGui.Spacing()
+    ImGui.Spacing()
+
     style.sectionHeaderStart("Export and Save")
 
     local groupNameCounts = {}

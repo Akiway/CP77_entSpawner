@@ -38,8 +38,7 @@ local wu
 ---@field openContextMenu {state : boolean, path : string}
 ---@field clipboard table Serialized elements
 ---@field elementCount number
----@field dividerHovered boolean
----@field dividerDragging boolean
+---@field divider dividerState
 ---@field filteredWidestName number
 ---@field draggingSelected boolean
 ---@field infoWindowSize table
@@ -83,8 +82,7 @@ spawnedUI = {
     clipboard = {},
 
     elementCount = 0,
-    dividerHovered = false,
-    dividerDragging = false,
+    divider = { hovered = false, dragging = false },
     filteredWidestName = 0,
     draggingSelected = false,
     infoWindowSize = { x = 0, y = 0 },
@@ -2592,7 +2590,7 @@ function spawnedUI.drawSideButtons(element, rowHovered)
     -- Right side buttons
     local totalX = spawnedUI.getSideButtonsWidth(element)
 
-    local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
+    local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.divider.dragging) and ImGui.GetStyle().ScrollbarSize or 0
 
     local cursorX = ImGui.GetWindowWidth() - totalX - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
     local rowY = ImGui.GetCursorPosY()
@@ -2947,7 +2945,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
         element:drawName()
     else
         local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
-        local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.dividerDragging) and ImGui.GetStyle().ScrollbarSize or 0
+        local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.divider.dragging) and ImGui.GetStyle().ScrollbarSize or 0
         local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
         local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x - rowMetaWidth)
 
@@ -3280,44 +3278,19 @@ end
 function spawnedUI.drawDivider()
     local minSize = 200 * style.viewSize
 
-    if spawnedUI.dividerHovered then
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.4, 0.4, 0.4, 1.0) -- RGBA values
-    else
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0.2, 0.2, 0.2, 1.0) -- RGBA values
-    end
+    local wasDragging = spawnedUI.divider.dragging
+    local delta, reset = style.drawHorizontalDivider("##verticalDividor", spawnedUI.divider)
 
-    ImGui.BeginChild("##verticalDividor", 0, 7.5 * style.viewSize, false, ImGuiWindowFlags.NoMove )
-    local wx, wy = ImGui.GetContentRegionAvail()
-    local textWidth, textHeight = ImGui.CalcTextSize(IconGlyphs.DragHorizontalVariant)
-
-    ImGui.SetCursorPosX((wx - textWidth) / 2)
-    ImGui.SetCursorPosY(1 * style.viewSize + (wy - textHeight) / 2)
-    ImGui.Text(IconGlyphs.DragHorizontalVariant)
-
-    ImGui.EndChild()
-    if spawnedUI.dividerHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
+    if reset then
         settings.editorBottomSize = minSize
         settings.save()
-    end
-    spawnedUI.dividerHovered = ImGui.IsItemHovered()
-    if spawnedUI.dividerHovered and ImGui.IsMouseDragging(0, 0) then
-        spawnedUI.dividerDragging = true
-    end
-    if spawnedUI.dividerDragging and not ImGui.IsMouseDragging(0, 0) then
-        spawnedUI.dividerDragging = false
-    end
-    if spawnedUI.dividerDragging then
-        local _, dy = ImGui.GetMouseDragDelta(0, 0)
-        settings.editorBottomSize = settings.editorBottomSize - dy
-        settings.editorBottomSize = math.max(settings.editorBottomSize, minSize)
-        ImGui.ResetMouseDragDelta()
-
+    elseif delta ~= 0 then
+        -- The properties panel sits below the bar, so dragging down shrinks it.
+        settings.editorBottomSize = math.max(minSize, settings.editorBottomSize - delta)
+    elseif wasDragging and not spawnedUI.divider.dragging then
+        -- Written once the drag lets go, rather than on every frame of it.
         settings.save()
     end
-    if spawnedUI.dividerHovered or spawnedUI.dividerDragging then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
-    end
-    ImGui.PopStyleColor()
 end
 
 ---@param width number
@@ -3389,7 +3362,7 @@ end
 function spawnedUI.drawTop()
     local previousFilter = spawnedUI.filter
     ImGui.PushItemWidth(200 * style.viewSize)
-    spawnedUI.filter = ImGui.InputTextWithHint('##Filter', 'Search for element...', spawnedUI.filter, 100)
+    spawnedUI.filter = style.inputTextWithHint('##Filter', IconGlyphs.Magnify .. ' Search for element...', spawnedUI.filter, 100)
     ImGui.PopItemWidth()
     if spawnedUI.filter ~= previousFilter then
         spawnedUI.invalidateCache(false)
@@ -3412,7 +3385,7 @@ function spawnedUI.drawTop()
     ImGui.PushItemWidth(200 * style.viewSize)
     -- Left as typed: group names are free-form now, and are only cleaned up (of path separators)
     -- when the group is actually created.
-    spawnedUI.newGroupName, changed = ImGui.InputTextWithHint('##newG', 'New group name...', spawnedUI.newGroupName, 100)
+    spawnedUI.newGroupName, changed = style.inputTextWithHint('##newG', 'New group name...', spawnedUI.newGroupName, 100)
     ImGui.PopItemWidth()
 
     ImGui.SameLine()
@@ -3996,7 +3969,7 @@ function spawnedUI.drawProperties()
     spawnedUI.ensureCache()
 
     local _, wy = ImGui.GetContentRegionAvail()
-    ImGui.BeginChild("##properties", 0, wy, false, ImGuiWindowFlags.HorizontalScrollbar)
+    style.beginCard("##properties", { height = wy, flags = ImGuiWindowFlags.HorizontalScrollbar })
 
     local nSelected = #spawnedUI.selectedPaths
     spawnedUI.multiSelectGroup.childs = {}
@@ -4014,7 +3987,7 @@ function spawnedUI.drawProperties()
         spawnedUI.multiSelectGroup:drawProperties()
     end
 
-    ImGui.EndChild()
+    style.endCard()
 end
 
 function spawnedUI.draw()

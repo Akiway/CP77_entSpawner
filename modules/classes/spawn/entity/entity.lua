@@ -1920,7 +1920,7 @@ function entity:drawStringProp(componentID, key, data, path, type, width, max)
     ImGui.SameLine()
     ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(key) + max)
     ImGui.SetNextItemWidth(width * style.viewSize)
-    local value, _ = ImGui.InputText("##" .. componentID .. table.concat(path), data, 250)
+    local value, _ = style.inputText("##" .. componentID .. table.concat(path), data, 250)
     style.tooltip(type)
     self:drawResetProp(componentID, path)
     if ImGui.IsItemDeactivatedAfterEdit() then
@@ -2135,7 +2135,7 @@ function entity:drawTableProp(componentID, key, data, path, max, modified, prope
         ImGui.SameLine()
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(tostring(key)) + max)
         ImGui.SetNextItemWidth(250 * style.viewSize)
-        local value, _ = ImGui.InputText("##" .. componentID .. table.concat(path), data["$value"], 250)
+        local value, _ = style.inputText("##" .. componentID .. table.concat(path), data["$value"], 250)
         local finishedEditing = ImGui.IsItemDeactivatedAfterEdit()
         style.tooltip(info.typeName)
         self:drawResetProp(componentID, path)
@@ -2317,7 +2317,7 @@ function entity:drawInstanceDataProperty(componentID, key, data, path, max, prop
         elseif info.typeName == "uint64" or info.typeName == "Uint64" or info.typeName == "CRUID" or info.typeName == "String" then
             ImGui.SetNextItemWidth(100 * style.viewSize)
 
-            local value, changed = ImGui.InputText("##" .. componentID .. table.concat(path), data, 250)
+            local value, changed = style.inputText("##" .. componentID .. table.concat(path), data, 250)
             if info.typeName == "String" then
                 locKeyPreviewValue = value
             end
@@ -2463,7 +2463,7 @@ function entity:drawInstanceData()
     self.instanceDataSearchInProperties = self.instanceDataSearchInProperties == true
 
     ImGui.PushItemWidth(200 * style.viewSize)
-    self.instanceDataSearch = ImGui.InputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
+    self.instanceDataSearch = style.inputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
     ImGui.PopItemWidth()
 
     if self.instanceDataSearch ~= "" then

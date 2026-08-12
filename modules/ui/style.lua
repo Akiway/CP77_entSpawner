@@ -503,6 +503,282 @@ function style.sectionHeaderEnd(noSpacing)
     end
 end
 
+-- -------------------------------------------------------------- Panel UI
+
+-- Panel design tokens, as RGBA 0-1. Copied from the shared window library rather than required
+-- from it: that library resolves its own `modules/...` paths, so requiring it from here would
+-- pick up this mod's files instead.
+style.panelCardBg         = { 0.65, 0.70, 1.00, 0.045 }
+style.panelFrameBg        = { 0.12, 0.26, 0.42, 0.30 }
+style.panelFrameBorder    = { 0.24, 0.59, 1.00, 0.35 }
+style.panelSplitterHover  = { 0.30, 0.50, 0.70, 0.50 }
+style.panelSplitterDrag   = { 0.00, 1.00, 0.70, 0.60 }
+style.panelSplitterIcon   = { 0.60, 0.60, 0.70, 1.00 }
+style.panelSplitterIconHi = { 1.00, 1.00, 1.00, 1.00 }
+
+-- Border thickness of an outlined input, shared by the resting frame and the active overdraw so
+-- the two land on exactly the same pixels.
+local INPUT_BORDER_SIZE = 2.0
+
+---Push the outlined-input look: a tinted frame behind a 2px blue border. Wraps the
+---widget call itself, so it applies to whatever input is drawn between push and pop.
+function style.pushOutlinedInput()
+    local bg = style.panelFrameBg
+    local border = style.panelFrameBorder
+
+    -- Also tints the fill drags render with, so the same pair works for any outlined control and
+    -- not only a text field.
+    ImGui.PushStyleColor(ImGuiCol.PlotHistogram, 0.26, 0.59, 0.98, 1.00)
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, bg[1], bg[2], bg[3], bg[4])
+    ImGui.PushStyleColor(ImGuiCol.Border, border[1], border[2], border[3], border[4])
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, INPUT_BORDER_SIZE)
+end
+
+---Pop the styling pushed by `style.pushOutlinedInput`, and mark the field as active if it is.
+---
+---Must be called immediately after the widget: the active border is read off the last item.
+function style.popOutlinedInput()
+    ImGui.PopStyleVar(1)
+    ImGui.PopStyleColor(3)
+
+    -- ImGui has no "active border" color, and the real one has to be pushed before the widget is
+    -- drawn - by which point nothing knows yet whether it will take focus. So the active border is
+    -- painted over the resting one afterwards instead, which also avoids the frame of lag a
+    -- remembered state would cost.
+    if not ImGui.IsItemActive() then return end
+
+    local drawList = ImGui.GetWindowDrawList()
+    if not drawList then return end
+
+    local minX, minY = ImGui.GetItemRectMin()
+    local maxX, maxY = ImGui.GetItemRectMax()
+    local active = style.panelSplitterDrag
+
+    -- Drawn opaque rather than at the drag bar's own alpha: that alpha is meant for a fill over
+    -- the window, and letting the blue resting border show through a 2px line only muddies it.
+    ImGui.ImDrawListAddRect(
+        drawList, minX, minY, maxX, maxY,
+        ImGui.GetColorU32(active[1], active[2], active[3], 1.0),
+        ImGui.GetStyle().FrameRounding, 0, INPUT_BORDER_SIZE
+    )
+end
+
+---`ImGui.InputTextWithHint` in the outlined styling. The standard text field: use this rather than
+---calling ImGui directly, so every simple text input in the mod carries the same design.
+---@param ... any Arguments forwarded verbatim (id, hint, value, maxLength, flags?).
+---@return string newValue
+---@return boolean changed
+function style.inputTextWithHint(...)
+    style.pushOutlinedInput()
+    local newValue, changed = ImGui.InputTextWithHint(...)
+    style.popOutlinedInput()
+
+    return newValue, changed
+end
+
+---`ImGui.InputText` in the outlined styling. The hintless counterpart to
+---`style.inputTextWithHint`.
+---@param ... any Arguments forwarded verbatim (id, value, maxLength, flags?).
+---@return string newValue
+---@return boolean changed
+function style.inputText(...)
+    style.pushOutlinedInput()
+    local newValue, changed = ImGui.InputText(...)
+    style.popOutlinedInput()
+
+    return newValue, changed
+end
+
+---Push the card fill for the next child window.
+function style.pushCardBackground()
+    local bg = style.panelCardBg
+    ImGui.PushStyleColor(ImGuiCol.ChildBg, bg[1], bg[2], bg[3], bg[4])
+end
+
+---Pop the fill pushed by `style.pushCardBackground`.
+function style.popCardBackground()
+    ImGui.PopStyleColor(1)
+end
+
+-- Content height of each `height = "auto"` card, measured as it was drawn on the previous frame.
+local cardAutoHeight = {}
+-- Ids of the auto-height cards currently open, so `endCard` knows which one it is closing.
+local cardStack = {}
+
+---@class cardOpts
+---@field width number? Child width, already scaled (default `0`, fill the region).
+---@field height number|"auto"? Child height, already scaled. `0` (default) fills the region,
+---`"auto"` sizes to the content as it measured on the previous frame.
+---@field border boolean? Draw the child's border (default false).
+---@field flags number? Extra `ImGuiWindowFlags` to combine in.
+
+---Begin a card: a child window carrying the panel fill and window padding, so
+---content sits inset from the tinted background rather than flush against it.
+---
+---Must always be paired with `style.endCard`, including when this returns false - `BeginChild`
+---pushes a window either way.
+---@param id string Child ID, `##` prefixed by the caller if it should stay out of the label.
+---@param opts cardOpts?
+---@return boolean visible False when the card is clipped and its content can be skipped.
+function style.beginCard(id, opts)
+    opts = opts or {}
+
+    local height = opts.height or 0
+    local auto = height == "auto"
+    local flags = ImGuiWindowFlags.AlwaysUseWindowPadding + (opts.flags or 0)
+
+    if auto then
+        -- Nothing has been measured on the first frame. Items in a child too short to hold them
+        -- are clipped but still advance the cursor, so one frame at a token height is enough to
+        -- measure from - and the scroll flags keep that frame from flashing a scrollbar.
+        height = cardAutoHeight[id] or 1
+        flags = flags + ImGuiWindowFlags.NoScrollbar + ImGuiWindowFlags.NoScrollWithMouse
+    end
+
+    style.pushCardBackground()
+    local visible = ImGui.BeginChild(id, opts.width or 0, height, opts.border == true, flags)
+    style.popCardBackground()
+
+    -- Only a card that drew its content has a height worth measuring. One scrolled out of view
+    -- would otherwise measure as empty and stay collapsed once it came back.
+    cardStack[#cardStack + 1] = (auto and visible) and id or false
+
+    return visible
+end
+
+---End a card started by `style.beginCard`.
+function style.endCard()
+    local id = table.remove(cardStack)
+
+    -- Measured before the child is closed, while the cursor is still in its coordinate space.
+    -- The trailing item spacing is dropped and the bottom padding added back, so the fill closes
+    -- the same distance below the content as it opens above it.
+    if id then
+        local styleData = ImGui.GetStyle()
+        cardAutoHeight[id] = ImGui.GetCursorPosY() + styleData.WindowPadding.y - styleData.ItemSpacing.y
+    end
+
+    ImGui.EndChild()
+end
+
+---The splitter bar itself: transparent at rest, tinted on hover, brighter while dragged, with a
+---grip glyph centred in it.
+---@param childId string
+---@param width number Already scaled. `0` fills the region.
+---@param height number Already scaled.
+---@param icon string
+---@param active boolean Hovered as of the previous frame.
+---@param dragging boolean
+---@return boolean hovered
+local function drawSplitterBar(childId, width, height, icon, active, dragging)
+    local bg = dragging and style.panelSplitterDrag
+        or active and style.panelSplitterHover
+        or nil
+    local iconColor = (active or dragging) and style.panelSplitterIconHi
+        or style.panelSplitterIcon
+
+    if bg then
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, bg[1], bg[2], bg[3], bg[4])
+    else
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, 0)
+    end
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0, 0)
+
+    if ImGui.BeginChild(childId, width, height, false, ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoScrollbar + ImGuiWindowFlags.NoScrollWithMouse) then
+        local availableX, availableY = ImGui.GetWindowSize()
+        local textWidth, textHeight = ImGui.CalcTextSize(icon)
+
+        ImGui.SetCursorPosX((availableX - textWidth) / 2)
+        ImGui.SetCursorPosY((availableY - textHeight) / 2)
+        ImGui.PushStyleColor(ImGuiCol.Text, iconColor[1], iconColor[2], iconColor[3], iconColor[4])
+        ImGui.Text(icon)
+        ImGui.PopStyleColor()
+    end
+    ImGui.EndChild()
+
+    local hovered = ImGui.IsItemHovered()
+
+    ImGui.PopStyleVar()
+    ImGui.PopStyleColor()
+
+    return hovered
+end
+
+---@class dividerState
+---@field hovered boolean
+---@field dragging boolean
+
+---Horizontal drag bar for resizing the panel above it, in the splitter styling.
+---
+---The delta comes back in pixels rather than being applied here: what it resizes, and between
+---which bounds, is the caller's to decide.
+---@param id string Child ID for the bar, unique per divider.
+---@param state dividerState Persistent per divider, so two bars do not report each other's hover.
+---@return number delta Pixels dragged since the previous frame.
+---@return boolean reset Double-clicked, so the caller should restore its default size.
+function style.drawHorizontalDivider(id, state)
+    local height = 7.5 * style.viewSize
+    -- Read before the bar is redrawn: the double-click lands on the hover state the previous
+    -- frame settled on, which is the one that says whether the cursor was over this bar.
+    local reset = state.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)
+
+    state.hovered = drawSplitterBar(id, 0, height, IconGlyphs.DragHorizontal, state.hovered, state.dragging)
+
+    if state.hovered and ImGui.IsMouseDragging(0, 0) then
+        state.dragging = true
+    end
+    if state.dragging and not ImGui.IsMouseDragging(0, 0) then
+        state.dragging = false
+    end
+
+    local delta = 0
+    if state.dragging then
+        local _, dy = ImGui.GetMouseDragDelta(0, 0)
+        delta = dy
+        ImGui.ResetMouseDragDelta()
+    end
+
+    if state.hovered or state.dragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
+    end
+
+    return delta, reset
+end
+
+---Vertical drag bar, for resizing a panel beside it. The counterpart to
+---`style.drawHorizontalDivider`, with the same contract.
+---@param id string
+---@param height number Already scaled.
+---@param state dividerState
+---@return number delta Pixels dragged since the previous frame.
+---@return boolean reset
+function style.drawVerticalDivider(id, height, state)
+    local width = 7.5 * style.viewSize
+    local reset = state.hovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)
+
+    state.hovered = drawSplitterBar(id, width, height, IconGlyphs.DragVertical, state.hovered, state.dragging)
+
+    if state.hovered and ImGui.IsMouseDragging(0, 0) then
+        state.dragging = true
+    end
+    if state.dragging and not ImGui.IsMouseDragging(0, 0) then
+        state.dragging = false
+    end
+
+    local delta = 0
+    if state.dragging then
+        local dx = ImGui.GetMouseDragDelta(0, 0)
+        delta = dx
+        ImGui.ResetMouseDragDelta()
+    end
+
+    if state.hovered or state.dragging then
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW)
+    end
+
+    return delta, reset
+end
+
 ---Draw text using `style.mutedColor`.
 ---@param text string Text to display.
 function style.mutedText(text)
@@ -1277,7 +1553,7 @@ function style.trackedTextField(element, text, value, hint, width)
 
     width = width or 80
     ImGui.SetNextItemWidth(width * style.viewSize)
-    local newValue, changed = ImGui.InputTextWithHint(text, hint, value, 500)
+    local newValue, changed = style.inputTextWithHint(text, hint, value, 500)
 
 	local finished = ImGui.IsItemDeactivatedAfterEdit()
 	if finished then
@@ -1348,7 +1624,7 @@ function style.drawSearchFilterRow(id, value, opts)
     ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
     local changed
     local defaultHint = IconGlyphs.Magnify .. " Search by name... (Supports pattern matching)"
-    value, changed = ImGui.InputTextWithHint(id, opts.hint or defaultHint, value, opts.maxLength or 100)
+    value, changed = style.inputTextWithHint(id, opts.hint or defaultHint, value, opts.maxLength or 100)
 
     local cleared = false
     if style.drawNoBGConditionalButton(value ~= "", IconGlyphs.Close .. id .. "Clear") then
@@ -1700,7 +1976,7 @@ function style.drawSearchableMultiSelectCombo(opts)
         options = options or {}
 
         ImGui.SetNextItemWidth(searchWidth)
-        local nextSearchValue, searchChanged = ImGui.InputTextWithHint(searchInputId, searchHint, searchValue, 100)
+        local nextSearchValue, searchChanged = style.inputTextWithHint(searchInputId, searchHint, searchValue, 100)
         if searchChanged then
             searchValue = nextSearchValue
         end
@@ -1777,7 +2053,7 @@ function style.drawSearchableMultiSelectCombo(opts)
             end
 
             ImGui.SetNextItemWidth(createInputWidth)
-            createValue, _ = ImGui.InputTextWithHint(createInputId, createHint, createValue, 100)
+            createValue, _ = style.inputTextWithHint(createInputId, createHint, createValue, 100)
 
             local createClicked = style.drawNoBGConditionalButton(createValue ~= "", IconGlyphs.TagPlusOutline .. createButtonId, createDisabled)
 
