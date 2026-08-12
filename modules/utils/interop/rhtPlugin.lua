@@ -855,6 +855,49 @@ local TYPE_PRIORITY = {
     "worldReflectionProbeNode"
 }
 
+local function buildSupportedTypesInfo()
+    local groups = {}
+    local total = 0
+
+    for typeName, definition in pairs(TYPE_MAP) do
+        local category = definition.category or "Other"
+        groups[category] = groups[category] or {}
+        table.insert(groups[category], {
+            typeName = typeName,
+            sub = definition.sub
+        })
+        total = total + 1
+    end
+
+    local categories = {}
+    for category in pairs(groups) do
+        table.insert(categories, category)
+        table.sort(groups[category], function(left, right)
+            if left.sub ~= right.sub then
+                return tostring(left.sub or "") < tostring(right.sub or "")
+            end
+            return left.typeName < right.typeName
+        end)
+    end
+    table.sort(categories)
+
+    local lines = { "Supported Red Hot Tools target types by object type:" }
+    for _, category in ipairs(categories) do
+        local entries = groups[category]
+        table.insert(lines, "")
+        table.insert(lines, category .. " (" .. tostring(#entries) .. ")")
+
+        for _, entry in ipairs(entries) do
+            local target = entry.sub and (" -> " .. entry.sub) or ""
+            table.insert(lines, "- " .. entry.typeName .. target)
+        end
+    end
+
+    return total, table.concat(lines, "\n")
+end
+
+local SUPPORTED_TYPE_COUNT, SUPPORTED_TYPES_TOOLTIP = buildSupportedTypesInfo()
+
 local function sanitizeReplacerMode(mode)
     if VALID_REPLACER_MODES[mode] then
         return mode
@@ -1907,6 +1950,12 @@ function rht.drawSettings()
 
     ImGui.Dummy(0, 8 * style.viewSize)
     style.styledTextWrapped("Adds one-click World Inspector actions in Red Hot Tools for search and replace workflows.", style.mutedColor)
+
+    ImGui.Dummy(0, 4 * style.viewSize)
+    style.mutedText("Supported target types: " .. tostring(SUPPORTED_TYPE_COUNT))
+    ImGui.SameLine()
+    style.mutedText(IconGlyphs.InformationOutline)
+    style.tooltip(SUPPORTED_TYPES_TOOLTIP)
     
     ImGui.Dummy(0, 4 * style.viewSize)
     ImGui.TreePop()
