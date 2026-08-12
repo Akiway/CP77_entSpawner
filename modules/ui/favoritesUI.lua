@@ -47,6 +47,7 @@ local previewEntry = nil
 ---@field tagEditIconSearch string
 ---@field importCode string
 ---@field importReport favoritesImportReport?
+---@field lastAddTags table<string, boolean>
 ---@field bulkRequest favoriteBulkAddRequest?
 ---@field openBulkAddPopup boolean
 ---@field bulkTags table<string, boolean>
@@ -77,9 +78,10 @@ local favoritesUI = {
     importCode = "",
     importReport = nil,
 
+    lastAddTags = {},
     bulkRequest = nil,
     openBulkAddPopup = false,
-    -- Kept between openings: favoriting several folders under one tag is the common case.
+    -- Mirrors lastAddTags while the bulk popup is open.
     bulkTags = {},
     bulkTagSearch = "",
     bulkNewTag = "",
@@ -537,6 +539,64 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
     })
 end
 
+---@param tags table<string, boolean>?
+local function pruneAddTags(tags)
+    if type(tags) ~= "table" then
+        return
+    end
+
+    utils.pruneKeys(tags, utils.toKeySet(assetFavorites.getTagNames()))
+end
+
+---@param tags table<string, boolean>?
+local function rememberAddTags(tags)
+    favoritesUI.lastAddTags = utils.deepcopy(tags or {})
+    pruneAddTags(favoritesUI.lastAddTags)
+end
+
+---@return table<string, boolean>
+local function getRememberedAddTags()
+    pruneAddTags(favoritesUI.lastAddTags)
+    return utils.deepcopy(favoritesUI.lastAddTags or {})
+end
+
+---@param entry assetFavoriteEntry
+---@return boolean applied
+local function applyRememberedAddTags(entry)
+    if not entry then
+        return false
+    end
+
+    local tags = getRememberedAddTags()
+    if utils.tableLength(tags) == 0 then
+        return false
+    end
+
+    entry.tags = tags
+    return true
+end
+
+---@param oldName string
+---@param newName string
+local function renameRememberedAddTag(oldName, newName)
+    for _, tags in ipairs({ favoritesUI.lastAddTags, favoritesUI.bulkTags }) do
+        if type(tags) == "table" and tags[oldName] then
+            tags[oldName] = nil
+            tags[newName] = true
+        end
+    end
+end
+
+---@param tagName string
+local function forgetAddTag(tagName)
+    if type(favoritesUI.lastAddTags) == "table" then
+        favoritesUI.lastAddTags[tagName] = nil
+    end
+    if type(favoritesUI.bulkTags) == "table" then
+        favoritesUI.bulkTags[tagName] = nil
+    end
+end
+
 ---Stages the favorite settings popup for one entry.
 ---The popup itself is drawn by `favoritesUI.drawPopups`, so this works from any tab.
 ---@param entry assetFavoriteEntry
@@ -569,6 +629,9 @@ function favoritesUI.toggleFavorite(modulePath, path, name, data)
     end
 
     logger:info(string.format("[%s] Added \"%s\" to favorites", settings.mainWindowName, tostring(path)))
+    if applyRememberedAddTags(entry) then
+        assetFavorites.save()
+    end
     favoritesUI.openEntrySettings(entry)
 
     return true
@@ -629,8 +692,7 @@ function favoritesUI.openBulkAdd(modulePath, items, sourceLabel)
         end
     end
 
-    -- The kept selection may name tags deleted since the last opening.
-    utils.pruneKeys(favoritesUI.bulkTags, utils.toKeySet(assetFavorites.getTagNames()))
+    favoritesUI.bulkTags = getRememberedAddTags()
 
     favoritesUI.bulkRequest = {
         modulePath = modulePath,
@@ -692,7 +754,8 @@ local function drawBulkAddPopup()
         style.mutedText(string.format("%d asset(s), of which %d not favorited yet", #request.items, request.newCount))
 
         style.fieldLabel("Tags")
-        _, favoritesUI.bulkTagSearch, favoritesUI.bulkNewTag, favoritesUI.bulkNewTagIcon, favoritesUI.bulkNewTagIconSearch = drawTagSelectorCombo(
+        local tagsChanged
+        tagsChanged, favoritesUI.bulkTagSearch, favoritesUI.bulkNewTag, favoritesUI.bulkNewTagIcon, favoritesUI.bulkNewTagIconSearch = drawTagSelectorCombo(
             favoritesUI.bulkTags,
             "assetFavoriteBulkTags",
             favoritesUI.bulkTagSearch,
@@ -704,6 +767,9 @@ local function drawBulkAddPopup()
                 showClearSelectionButton = true
             }
         )
+        if tagsChanged then
+            rememberAddTags(favoritesUI.bulkTags)
+        end
         style.tooltip("Every added asset gets these tags.\nAssets already favorited keep their own tags, and only gain the missing ones.")
 
         if #request.items > BULK_ADD_WARN_THRESHOLD then
@@ -801,6 +867,7 @@ local function drawEntryPopup()
             }
         )
         if tagsChanged then
+            rememberAddTags(entry.tags)
             assetFavorites.save()
         end
 
@@ -860,6 +927,7 @@ local function deleteTagAndCleanup(tagName, removeOrphans)
     settings.assetFavoritesFilterTags[tagName] = nil
     settings.save()
     transferGroupOpenState(tagName, nil)
+    forgetAddTag(tagName)
     favoritesUI.popupTagName = nil
 
     if removeOrphans then
@@ -950,6 +1018,7 @@ local function drawTagPopup()
             end
 
             transferGroupOpenState(tagName, newName)
+            renameRememberedAddTag(tagName, newName)
             favoritesUI.popupTagName = newName
             tagName = newName
         end

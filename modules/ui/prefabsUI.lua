@@ -16,6 +16,7 @@ local DEFAULT_CATEGORY_ICON = "EmoticonOutline"
 ---@field tagFilterFilter string Tag filter for filtering tags
 ---@field tagMergeFilter string
 ---@field tagMergeTags table
+---@field newItemTags table<string, boolean>
 ---@field newTag string
 ---@field newMergeTag string
 ---@field openPopup boolean
@@ -42,6 +43,7 @@ local prefabsUI = {
     tagFilterFilter = "",
     tagMergeFilter = "",
     tagMergeTags = {},
+    newItemTags = {},
     newTag = "",
     newMergeTag = "",
 
@@ -268,6 +270,20 @@ function prefabsUI.drawTagCombo(idScope, selections, searchValue, opts)
     })
 end
 
+---@param tags table<string, boolean>?
+local function rememberNewItemTags(tags)
+    prefabsUI.newItemTags = utils.deepcopy(tags or {})
+end
+
+---@param oldName string
+---@param newName string
+local function renameRememberedNewItemTag(oldName, newName)
+    if type(prefabsUI.newItemTags) == "table" and prefabsUI.newItemTags[oldName] then
+        prefabsUI.newItemTags[oldName] = nil
+        prefabsUI.newItemTags[newName] = true
+    end
+end
+
 function prefabsUI.addNewItem(serialized, name, icon)
     prefabsUI.openCreatePopup = true
 
@@ -291,6 +307,7 @@ function prefabsUI.addNewItem(serialized, name, icon)
     local favorite = require("modules/classes/prefabs/prefab"):new(prefabsUI)
     favorite.data = serialized
     favorite.name = name
+    favorite.tags = utils.deepcopy(prefabsUI.newItemTags or {})
 
     local iconKey = utils.indexValue(IconGlyphs, icon)
     if iconKey == -1 then iconKey = "" end
@@ -337,11 +354,15 @@ function prefabsUI.drawEditFavoritePopup()
         style.fieldLabel("Tags")
         local tagsChanged
         tagsChanged, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(prefabsUI.popupItem.tags, "editTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
-        if tagsChanged and not noCategory then
-            if prefabsUI.popupItem.category.grouped then
-                prefabsUI.popupItem.category:loadVirtualGroups()
+        if tagsChanged then
+            rememberNewItemTags(prefabsUI.popupItem.tags)
+
+            if not noCategory then
+                if prefabsUI.popupItem.category.grouped then
+                    prefabsUI.popupItem.category:loadVirtualGroups()
+                end
+                prefabsUI.popupItem.category:save()
             end
-            prefabsUI.popupItem.category:save()
         end
 
         -- Select category
@@ -445,7 +466,11 @@ function prefabsUI.drawCreatePrefabPopup()
 
             -- Select tags (staged only, no save)
             style.fieldLabel("Tags")
-            _, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(item.tags, "createTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
+            local tagsChanged
+            tagsChanged, prefabsUI.tagAddFilter, prefabsUI.newTag = prefabsUI.drawTagSelectorCombo(item.tags, "createTags", prefabsUI.tagAddFilter, prefabsUI.newTag)
+            if tagsChanged then
+                rememberNewItemTags(item.tags)
+            end
 
             -- Detect a name collision within the target category (overwrite candidate)
             local existing = nil
@@ -849,6 +874,9 @@ function prefabsUI.drawMergeTags()
                     settings.filterTags[oldTag] = nil
                     settings.filterTags[prefabsUI.newMergeTag] = true
                     changedFilterTags = true
+                end
+                if oldTag ~= prefabsUI.newMergeTag then
+                    renameRememberedNewItemTag(oldTag, prefabsUI.newMergeTag)
                 end
             end
         end
