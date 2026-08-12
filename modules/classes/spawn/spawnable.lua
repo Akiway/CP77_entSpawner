@@ -12,6 +12,7 @@ local GameSettings = require("modules/utils/vendor/GameSettings")
 local preview = require("modules/utils/preview/previewUtils")
 local logger = require("modules/utils/core/logger")
 local settings = require("modules/utils/core/settings")
+local assetValidation = require("modules/utils/game/assetValidation")
 
 ---Base class for any object / node that can be spawned
 ---@class spawnable
@@ -59,6 +60,8 @@ local settings = require("modules/utils/core/settings")
 ---@field public streamingRefPointOverride boolean
 ---@field public streamingRefPoint Vector4
 ---@field public visualizeStreamingRange boolean
+---@field protected assetCheck assetCheckResult? Type check of `spawnData`, see `refreshAssetCheck`
+---@field private assetBlockReported boolean
 local spawnable = {}
 local streamingPresetLabels = {
     "Interior",
@@ -120,6 +123,9 @@ function spawnable:new()
     o.streamingRefPointOverride = false
     o.streamingRefPoint = Vector4.new(0, 0, 0, 0)
     o.visualizeStreamingRange = false
+
+    o.assetCheck = nil
+    o.assetBlockReported = false
 
     o.isHovered = false
     o.arrowDirection = "none"
@@ -215,10 +221,45 @@ function spawnable:isSpawnLifetimeTokenCurrent(token, entity)
     return true
 end
 
+---Re-runs the asset type check against the current `spawnData`.
+---Called from `loadSpawnData`, which is the only place `spawnData` is set for good; anything that
+---swaps it around a spawn call (the placeholder entity wrappers) must not invalidate the result,
+---which is why `spawn` reads the cached one rather than checking the live path.
+---@protected
+function spawnable:refreshAssetCheck()
+    self.assetCheck = assetValidation.check(self.modulePath, self.spawnData)
+    self.assetBlockReported = false
+end
+
+---The reason this spawnable's asset must not be handed to the game, or nil when it may be.
+---@return string? reason
+function spawnable:getAssetSpawnBlock()
+    if settings.validateAssetTypes == false then return nil end
+    if not self.assetCheck or self.assetCheck.severity ~= "error" then return nil end
+
+    return assetValidation.getSummary(self.assetCheck, self.dataType or self.modulePath)
+end
+
 ---Spawns the spawnable if not spawned already, must register a callback for entityAssemble which calls onAssemble
 ---@param ignoreSpawning boolean? If true, spawn call will be issued even if already spawning
 function spawnable:spawn(ignoreSpawning)
     if self:isSpawned() or (self.spawning and not ignoreSpawning) then
+        return false
+    end
+
+    -- Last line of defense: the UI refuses these long before they get here, but a project saved
+    -- before the check existed, or written by hand, can still carry one. Handing the game a
+    -- resource of the wrong type crashes it, so the node stays unspawned instead.
+    local assetBlock = self:getAssetSpawnBlock()
+    if assetBlock then
+        if not self.assetBlockReported then
+            self.assetBlockReported = true
+            -- The checked path, not `spawnData`: the placeholder wrappers have already swapped
+            -- theirs out by the time this runs.
+            logger:warn(string.format("Refused to spawn \"%s\": %s", tostring(self.assetCheck.path), assetBlock))
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Error, 6000, string.format("Not spawned - %s", assetBlock)))
+        end
+
         return false
     end
 
@@ -438,6 +479,21 @@ function spawnable:addNodeProperty(properties)
     return properties
 end
 
+---Draws the asset type warning of the World Node section, when there is one to draw.
+---Red for an asset that is refused, orange for one that spawns but looks wrong.
+---@protected
+function spawnable:drawAssetCheckWarning()
+    local check = self.assetCheck
+    if not check or check.ok then return end
+
+    local label = self.dataType or self.modulePath
+    local blocking = check.severity == "error" and settings.validateAssetTypes ~= false
+
+    ImGui.SameLine()
+    style.styledText(IconGlyphs.AlertOutline, blocking and 0xFF0000FF or style.warnColor)
+    style.tooltip(assetValidation.getSummary(check, label) .. "\n\n" .. assetValidation.getDetail(check, label))
+end
+
 function spawnable:getProperties()
     local properties =  {}
 
@@ -467,6 +523,8 @@ function spawnable:getProperties()
             ImGui.SameLine()
             ImGui.Text(utils.shortenPath(assetPath, style.getMaxWidth(250), true))
             style.tooltip(assetPath)
+
+            self:drawAssetCheckWarning()
 
             style.mutedText("Node Ref")
             ImGui.SameLine()
@@ -964,6 +1022,10 @@ function spawnable:loadSpawnData(data, position, rotation)
 
     self.streamingRefPointOverride = data.streamingRefPointOverride or false
     self.streamingRefPoint = data.streamingRefPoint and utils.getVector(data.streamingRefPoint) or Vector4.new(0, 0, 0, 0)
+
+    -- Before any subclass gets to load its own data off the same asset, so a subclass can skip
+    -- that work (resource loads, appearance lookups) for an asset that will never spawn.
+    self:refreshAssetCheck()
 end
 
 ---Export the spawnable for WScript import, using same structure for `data` as JSON formated node

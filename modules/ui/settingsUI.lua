@@ -58,7 +58,9 @@ local settingsSectionSearchText = {
         "Set group as target on load",
         "Prefab Saved group load speed",
         "Fast Slow FPS drops",
-        "Prefab preview max assets"
+        "Prefab preview max assets",
+        "Check asset type before spawning",
+        "Crash wrong resource type mismatch validation"
     }, " "),
     editing = table.concat({
         "Editing",
@@ -317,7 +319,7 @@ local function drawSettingsSearchRow()
     end
     ImGui.SameLine()
     style.styledText(IconGlyphs.Flask, style.activeColor)
-    style.tooltip("~{ Experimental feature }~\nOnly sections that match the search query will be shown.")
+    style.tooltip("-{ Experimental feature }-\nOnly filters sections that match the search query, won't filter settings themselves.")
 
     ImGui.Dummy(0, 6 * style.viewSize)
 
@@ -1177,6 +1179,10 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("When hovering a prefab favorite, spawn a rotating preview of it if it contains at most this many assets.\nSet to 0 to disable prefab previews. (max 300)")
 
+        settings.validateAssetTypes, changed = ImGui.Checkbox("Check asset type before spawning", settings.validateAssetTypes)
+        if changed then settings.save() end
+        style.tooltip("Refuse to spawn an asset whose file type the selected object variant cannot spawn,\nfor example a .mesh file spawned as an Entity Template.\n\nThe game crashes on those instead of failing, so leaving this on is strongly recommended.")
+
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()
     end
@@ -1406,7 +1412,7 @@ function settingsUI.draw(spawner)
         style.tooltip("Pin open parent groups to the top of the Spawned hierarchy while scrolling through their children.")
         ImGui.SameLine()
         style.styledText(IconGlyphs.Flask, style.activeColor)
-        style.tooltip("~{ Experimental feature }~\nInterface may bug when scrolling at the bottom of the hierarchy.")
+        style.tooltip("-{ Experimental feature }-\nInterface may bug when scrolling at the bottom of the hierarchy.")
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Balance between icons and text")

@@ -14,6 +14,7 @@ local logger = require("modules/utils/core/logger")
 local prefabPreview = require("modules/utils/preview/prefabPreview")
 local previewControls = require("modules/utils/preview/previewControls")
 local assetFavorites = require("modules/utils/project/assetFavorites")
+local assetValidation = require("modules/utils/game/assetValidation")
 
 local types = {
     ["Entity"] = {
@@ -398,6 +399,51 @@ end
 ---@return table class
 function spawnUI.resolveEntryClass(spawnList, entry)
     return resolveEntryClass(spawnList, entry)
+end
+
+---Display name of a spawnable class, for messages about it.
+---@param modulePath string?
+---@return string
+local function getSpawnableLabel(modulePath)
+    return modulePathToVariantLabel[modulePath or ""] or tostring(modulePath or "this node")
+end
+
+---Lists the variants that would accept the asset a class just rejected, empty when none does.
+---@param check assetCheckResult
+---@return string
+local function getVariantSuggestion(check)
+    local labels = {}
+
+    for _, modulePath in ipairs(check.acceptedBy) do
+        -- Several classes can share one browser, and then they share its label too.
+        local label = modulePathToVariantLabel[modulePath]
+        if label and not utils.has_value(labels, label) then
+            table.insert(labels, label)
+        end
+    end
+
+    if #labels == 0 then return "" end
+
+    return "Spawn it under: " .. table.concat(labels, ", ")
+end
+
+---Refuses a spawn whose asset is of a resource type the target class cannot spawn, and says so.
+---Everything that spawns from Spawn New funnels through here, because handing the game a resource
+---of the wrong type crashes it rather than failing.
+---@param modulePath string?
+---@param path string?
+---@return boolean rejected
+local function rejectIncompatibleAsset(modulePath, path)
+    local label = getSpawnableLabel(modulePath)
+    local reason = assetValidation.getSpawnBlock(modulePath, path, label)
+    if not reason then return false end
+
+    local suggestion = getVariantSuggestion(assetValidation.check(modulePath, path))
+
+    logger:warn(string.format("Refused to spawn \"%s\" as %s: %s", tostring(path), label, reason))
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Error, 6000, reason .. (suggestion ~= "" and ("\n" .. suggestion) or "")))
+
+    return true
 end
 
 ---Sorts one spawn list in the order Spawn New displays it.
@@ -1732,6 +1778,13 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
 
             spawnUI.previewInstance:loadSpawnData(data, pos, rot)
 
+            -- Hovering must never be what takes the game down: an entry whose asset this class
+            -- cannot spawn is silently not previewed. Committing to the spawn reports it instead.
+            if spawnUI.previewInstance:getAssetSpawnBlock() then
+                spawnUI.previewInstance = nil
+                return
+            end
+
             spawnUI.previewInstance:assetPreview(true)
             spawnUI.setAssetPreviewActive(true)
         end)
@@ -2293,25 +2346,47 @@ function spawnUI.drawNoMatch()
     local activeSpawnList = spawnUI.getActiveSpawnList()
     if #spawnUI.filteredList ~= 0 or not activeSpawnList.isPaths then return end
 
-    style.mutedText("No match found...")
-    style.mutedText(("Spawn \"%s\" anyways?"):format(spawnUI.filter))
+    local manualPath = utils.trimString(spawnUI.filter or "")
 
+    style.mutedText("No match found...")
+    style.styledTextWrapped(("Spawn \"%s\" anyways?"):format(spawnUI.filter), style.mutedColor)
+
+    -- Typing a path by hand is the one way into Spawn New that no list vouches for, so the
+    -- verdict is shown up front rather than only after the click.
+    local check = assetValidation.check(activeSpawnList.modulePath, manualPath)
+    local label = getSpawnableLabel(activeSpawnList.modulePath)
+    local blocked = check.severity == "error" and settings.validateAssetTypes ~= false
+
+    if not check.ok then
+        local suggestion = getVariantSuggestion(check)
+        local detail = assetValidation.getDetail(check, label)
+
+        style.styledText(IconGlyphs.AlertOutline, blocked and 0xFF0000FF or style.warnColor)
+        ImGui.SameLine()
+        style.styledTextWrapped(assetValidation.getSummary(check, label), blocked and 0xFF0000FF or style.warnColor)
+        style.tooltip(suggestion ~= "" and (detail .. "\n\n" .. suggestion) or detail)
+    end
+
+    style.pushGreyedOut(blocked)
     if ImGui.Button("Spawn") then
-        local manualPath = utils.trimString(spawnUI.filter or "")
         if manualPath == "" then
             ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "Cannot spawn: path is empty"))
             logger:warn("Spawn attempt ignored: empty manual path in Spawn New")
-            return
+        else
+            logger:info(string.format("Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
+
+            -- This path matched no list entry, so there is nothing to read a node type off for
+            -- a variant hosting several classes: the variant's own class is the only choice.
+            -- `spawnNew` re-runs the check above and reports it, so a blocked path stops there.
+            spawnUI.spawnNew({
+                data = { spawnData = manualPath }, lastSpawned = nil, name = manualPath, fileName = manualPath
+            }, activeSpawnList.class, false)
         end
-
-        logger:info(string.format("Manual spawn attempt from Spawn New: \"%s\" (unverified path)", manualPath))
-
-        -- This path matched no list entry, so there is nothing to read a node type off for
-        -- a variant hosting several classes: the variant's own class is the only choice.
-        spawnUI.spawnNew({
-            data = { spawnData = manualPath }, lastSpawned = nil, name = manualPath, fileName = manualPath
-        }, activeSpawnList.class, false)
     end
+    if blocked then
+        style.tooltip(assetValidation.getDetail(check, label))
+    end
+    style.popGreyedOut(blocked)
 end
 
 ---Draws the "Strip paths" toggle, persisting and re-filtering when it changes.
@@ -2685,6 +2760,25 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         return nil
     end
 
+    -- Whether the asset can be spawned by this class at all decides everything below, so it is
+    -- settled first: a refused spawn must not become what Repeat Last Spawn retries. A favorited
+    -- group is not checked here, each of its elements is checked as it loads.
+    local targetModulePath, targetAssetPath
+    if isFavorite then
+        local spawnableData = type(entry.data) == "table" and entry.data.spawnable or nil
+        if type(spawnableData) == "table" then
+            targetModulePath = spawnableData.modulePath
+            targetAssetPath = spawnableData.spawnData
+        end
+    else
+        targetModulePath = class:new().modulePath
+        targetAssetPath = type(entry.data) == "table" and entry.data.spawnData or nil
+    end
+
+    if rejectIncompatibleAsset(targetModulePath, targetAssetPath) then
+        return nil
+    end
+
     options = options or {}
     local loadHidden = isFavorite and options.loadHidden == true
 
@@ -2747,7 +2841,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
     end
 
     if not isFavorite then
-        data.modulePath = class:new().modulePath
+        data.modulePath = targetModulePath
         applySpawnNewVisualizerDefault(data)
         data.position = { x = pos.x, y = pos.y, z = pos.z, w = 0 }
         data.rotation = { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw }

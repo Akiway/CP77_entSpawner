@@ -11,18 +11,13 @@ local preview = require("modules/utils/preview/previewUtils")
 local previewControls = require("modules/utils/preview/previewControls")
 local settings = require("modules/utils/core/settings")
 local appearanceHelper = require("modules/utils/ui/appearanceHelper")
+local assetValidation = require("modules/utils/game/assetValidation")
 
 ---Static mesh spawnable implementation.
 ---Handles resource-driven mesh appearance loading, editor UI, preview rendering,
 ---mesh-type conversion, collider generation helpers, and export serialization.
 
 local colliderShapeTypes = { "Box", "Capsule", "Sphere", "ConvexMesh", "BV4TriangleMesh" }
-local clothListPath = "data/spawnables/mesh/cloth/paths.txt"
-local bendedListPath = "data/spawnables/mesh/bended/paths_bended.txt"
-local dynamicListPath = "data/spawnables/mesh/physics/paths_filtered_mesh.txt"
-local destructibleListPath = "data/spawnables/mesh/destructible/paths_destructible.txt"
-local physicalDestructionListPath = "data/spawnables/mesh/physicalDestruction/paths_physical_destruction.txt"
-local bakedDestructionListPath = "data/spawnables/mesh/bakedDestruction/paths_baked_destruction.txt"
 
 -- Supported module targets for single-item and grouped conversion.
 local conversionTargets = {
@@ -209,6 +204,10 @@ end
 ---@protected
 ---@param forceRefresh boolean? Clears cached values before loading when true.
 function mesh:loadMeshResourceData(forceRefresh)
+    -- The resource behind a path of the wrong type is not a CMesh, so reading appearances or a
+    -- bounding box off it would fail, and caching that under the path would poison the cache.
+    if self:getAssetSpawnBlock() then return end
+
     if forceRefresh then
         cache.removeValue(self.spawnData .. "_apps")
         self.apps = {}
@@ -823,7 +822,9 @@ function mesh:getProperties()
 end
 
 ---Checks whether current mesh asset supports conversion to the target subtype.
----Some targets are constrained by curated path allowlists.
+---Some targets only accept meshes authored for their node (cloth simulation, a fracture
+---hierarchy, a destruction animation, ...), which `assetValidation` tracks per class as the
+---curated list of assets the game itself places on that node.
 ---@param targetModulePath string
 ---@return boolean
 function mesh:isMeshConversionAllowed(targetModulePath)
@@ -831,34 +832,7 @@ function mesh:isMeshConversionAllowed(targetModulePath)
         return false
     end
 
-    if targetModulePath == "mesh/clothMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, clothListPath)
-    end
-
-    if targetModulePath == "mesh/bendedMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, bendedListPath)
-    end
-
-    if targetModulePath == "physics/dynamicMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, dynamicListPath)
-    end
-
-    if targetModulePath == "physics/destructibleMesh" then
-        return cache.isSpawnDataInSet(self.spawnData, destructibleListPath)
-    end
-
-    -- Both destruction node types need a mesh baked for them: physical destruction needs a
-    -- fracture hierarchy, baked destruction needs a destruction animation. Neither can be
-    -- faked from an arbitrary mesh, so the lists are the ones the game itself places.
-    if targetModulePath == "physics/physicalDestruction" then
-        return cache.isSpawnDataInSet(self.spawnData, physicalDestructionListPath)
-    end
-
-    if targetModulePath == "physics/bakedDestruction" then
-        return cache.isSpawnDataInSet(self.spawnData, bakedDestructionListPath)
-    end
-
-    return true
+    return assetValidation.isAssetListed(targetModulePath, self.spawnData)
 end
 
 ---Returns conversion labels and target module paths filtered for this mesh.

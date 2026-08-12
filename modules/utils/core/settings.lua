@@ -97,6 +97,7 @@ local config = require("modules/utils/core/config")
 ---@field public persistenceBudgetMs number Per-frame time budget for the persistence pipeline.
 ---@field public autoSaveVerifyEvery integer Verify every Nth auto-save against a cache-free rebuild (0 = never).
 ---@field public autoSaveCacheEnabled boolean Reuse cached per-node JSON. Disable to fall back to full rebuilds.
+---@field public validateAssetTypes boolean Refuse to spawn an asset whose resource type the node cannot spawn.
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -199,6 +200,7 @@ local settingsData = {
     persistenceBudgetMs = 4,
     autoSaveVerifyEvery = 4,
     autoSaveCacheEnabled = true,
+    validateAssetTypes = true,
 
     -- Resolved from the game language on first use, see previewControls.getBindings
     previewBindings = {},
