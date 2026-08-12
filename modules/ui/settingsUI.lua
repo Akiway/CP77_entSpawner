@@ -50,8 +50,278 @@ local sectionIcons = {
     cacheExclusions = IconGlyphs.CookieOffOutline
 }
 
+local settingsSectionSearchText = {
+    spawning = table.concat({
+        "Spawning",
+        "Spawn new objects At selected Screen center",
+        "Spawn distance from camera",
+        "Set group as target on load",
+        "Prefab Saved group load speed",
+        "Fast Slow FPS drops",
+        "Prefab preview max assets"
+    }, " "),
+    editing = table.concat({
+        "Editing",
+        "Duplicating cloning cloned group",
+        "Inside the original group",
+        "At the same level as the original group",
+        "Dragging Threshold",
+        "Transform",
+        "Position controls step size",
+        "Rotation controls step size",
+        "Apply Rotation When Dropped",
+        "Quick Rotation Step",
+        "Precision multiplier",
+        "Coarse precision multiplier"
+    }, " "),
+    defaults = table.concat({
+        "Default values",
+        "Node properties",
+        "NodeRef Prefix",
+        "Default Collider Material",
+        "Default Streaming distance",
+        table.concat(streamingPresetLabels, " "),
+        "Groups",
+        "Default project tag for new groups",
+        "Export",
+        "Default export format",
+        table.concat(exportFormatLabels, " ")
+    }, " "),
+    bindings = table.concat({
+        "Bindings",
+        "Asset preview",
+        "Preview controls",
+        "Keyboard keys hotkeys",
+        "Turntable",
+        "Appearance cycle",
+        "Restore defaults",
+        "Camera forward back left right up down",
+        "Previous appearance next appearance"
+    }, " "),
+    editorMode = table.concat({
+        "Editor Mode",
+        "Reset camera position",
+        "Camera Movement Speed",
+        "Camera Rotation Speed",
+        "Camera Zoom Speed",
+        "3D Editor"
+    }, " "),
+    visualizers = table.concat({
+        "Visualizers",
+        "Show Group Wireframe",
+        "Positioning Helpers",
+        "Show arrows when hovering an element",
+        "Show arrows when element is selected",
+        "Scale arrows with camera distance",
+        "Arrow size multiplier",
+        "Show outline when element is selected",
+        "Outline color",
+        table.concat(outlineColors, " "),
+        "Visualization Helpers",
+        "Active visualizers by default",
+        "AI Spot Preview",
+        "Default AI Spot NPC Record",
+        "Default AI Spot NPC Appearance",
+        "Default AI Spot Animation Speed",
+        "Spline Preview",
+        "Default Curve Quality",
+        "Colliders",
+        "Collider color",
+        table.concat(colliderColors, " ")
+    }, " "),
+    appearance = table.concat({
+        "Appearance",
+        "Main Window Name",
+        table.concat(windowNames, " "),
+        "Color Picker style",
+        table.concat(colorPickerStyles, " "),
+        "Wireframe color style",
+        table.concat(wireframeColorStyles, " "),
+        "Speed unit",
+        table.concat(speedUnits, " "),
+        "Sticky Hierarchy Rows",
+        "Balance between icons and text",
+        "Preferred icon Icon and text Preferred text"
+    }, " "),
+    misc = table.concat({
+        "Misc",
+        "Show confirm to delete saved group popup",
+        "Show confirm to delete export template popup",
+        "Show confirm to convert popup",
+        "Despawn everything on Reload all mods",
+        "Ignore hidden elements during export"
+    }, " "),
+    savingRecovery = table.concat({
+        "Saving Recovery",
+        "Auto-save autosave",
+        "Enable auto-save",
+        "Auto-save every",
+        "Show a notification on auto-save",
+        "Session recovery",
+        "Keep a session backup",
+        "Restore",
+        "Crash recovery"
+    }, " "),
+    rht = table.concat({
+        "Red Hot Tools World Inspector addon",
+        "RHT",
+        "Removal Editor",
+        "Replacer mode",
+        "Clone",
+        "Replace",
+        "Replace and Hide",
+        "Mesh target type",
+        "Auto Match Source",
+        "Force Static",
+        "Search replace workflows"
+    }, " "),
+    debug = table.concat({
+        "Debug",
+        "Clear cache",
+        "Performances",
+        "Enable Spawned UI profiler",
+        "Show Spawned UI profiler window",
+        "Reset Spawned UI profiler metrics",
+        "Saving advanced tuning",
+        "Save time budget",
+        "Idle before saving",
+        "Verify every N saves",
+        "Reuse cached node data",
+        "Run auto-save now",
+        "Verify loaded groups"
+    }, " "),
+    cacheExclusions = table.concat({
+        "Cache Exclusions",
+        "Resource paths",
+        "Glob patterns",
+        "Exclude from cache reads",
+        "base ent"
+    }, " "),
+    about = table.concat({
+        "About",
+        "Version",
+        "Author",
+        "Contributors",
+        "Thanks"
+    }, " "),
+    dependencies = table.concat({
+        "Dependencies",
+        "Required",
+        "Optional integrations",
+        "Installed",
+        "Outdated",
+        "Not installed",
+        "Could not be detected"
+    }, " ")
+}
+
+local topLevelSettingsSearchSections = {
+    { "spawning" },
+    { "editing" },
+    { "defaults" },
+    { "bindings" },
+    { "editorMode" },
+    { "visualizers" },
+    { "appearance" },
+    { "misc" },
+    { "savingRecovery" },
+    { "rht" },
+    { "debug", "cacheExclusions" },
+    { "about" },
+    { "dependencies" }
+}
+
 local function sectionLabel(icon, title)
     return style.resolveActionLabelNoIconOnly(icon or IconGlyphs.CogOutline, title, "settingsSection:" .. title)
+end
+
+local function getSettingsSearchQuery()
+    return utils.trimString(settingsUI.search or "")
+end
+
+local function isSettingsSearchActive()
+    return getSettingsSearchQuery() ~= ""
+end
+
+---@param key string
+---@return boolean
+local function settingsSearchMatches(key)
+    local query = getSettingsSearchQuery()
+    if query == "" then
+        return true
+    end
+
+    return utils.matchSearch(settingsSectionSearchText[key] or key, query)
+end
+
+---@param keys string[]
+---@return boolean
+local function anySettingsSearchMatch(keys)
+    if not isSettingsSearchActive() then
+        return true
+    end
+
+    for _, key in ipairs(keys) do
+        if settingsSearchMatches(key) then
+            return true
+        end
+    end
+
+    return false
+end
+
+---@param sectionKey string
+---@param title string
+---@param childKeys string[]?
+---@return boolean
+local function drawSettingsTreeNode(sectionKey, title, childKeys)
+    local keys = { sectionKey }
+    for _, childKey in ipairs(childKeys or {}) do
+        table.insert(keys, childKey)
+    end
+
+    if not anySettingsSearchMatch(keys) then
+        return false
+    end
+
+    return ImGui.TreeNodeEx(sectionLabel(sectionIcons[sectionKey], title), ImGuiTreeNodeFlags.SpanFullWidth)
+end
+
+---@return number
+local function getVisibleSettingsSectionCount()
+    local count = 0
+
+    for _, keys in ipairs(topLevelSettingsSearchSections) do
+        if anySettingsSearchMatch(keys) then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+---@return number
+local function drawSettingsSearchRow()
+    settingsUI.search = settingsUI.search or ""
+
+    settingsUI.search = select(1, style.drawSearchFilterRow("##settingsSearch", settingsUI.search, {
+        width = 120 * style.viewSize,
+        hint = IconGlyphs.Magnify .. " Search settings..."
+    }))
+    settingsUI.search = utils.stripNonASCII(settingsUI.search)
+
+    local visibleCount = getVisibleSettingsSectionCount()
+    if isSettingsSearchActive() then
+        ImGui.SameLine()
+        style.mutedText(string.format("%d / %d sections", visibleCount, #topLevelSettingsSearchSections))
+    end
+    ImGui.SameLine()
+    style.styledText(IconGlyphs.Flask, style.activeColor)
+    style.tooltip("~{ Experimental feature }~\nOnly sections that match the search query will be shown.")
+
+    ImGui.Dummy(0, 6 * style.viewSize)
+
+    return visibleCount
 end
 
 ---Runs the full save-encoder diagnostic over every loaded root group.
@@ -497,7 +767,7 @@ end
 
 ---Draws the "Default values" section grouping default values for inputs and selectors.
 local function drawDefaultsSection()
-    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.defaults, "Default values"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not drawSettingsTreeNode("defaults", "Default values") then
         return
     end
 
@@ -601,7 +871,7 @@ local function drawBindingRow(action, bindings, usageCount)
 end
 
 local function drawBindingsSection()
-    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.bindings, "Bindings"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not drawSettingsTreeNode("bindings", "Bindings") then
         settingsUI.listeningBinding = nil
         return
     end
@@ -665,7 +935,7 @@ local function drawAboutRow(label, value, labelWidth, wrapped)
 end
 
 local function drawAboutSection()
-    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.about, "About"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not drawSettingsTreeNode("about", "About") then
         return
     end
 
@@ -827,7 +1097,7 @@ local function drawDependenciesSummary(statuses)
 end
 
 local function drawDependenciesSection()
-    if not ImGui.TreeNodeEx(sectionLabel(sectionIcons.dependencies, "Dependencies"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if not drawSettingsTreeNode("dependencies", "Dependencies") then
         return
     end
 
@@ -865,7 +1135,14 @@ end
 function settingsUI.draw(spawner)
     ImGui.PushItemWidth(120 * style.viewSize)
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.spawning, "Spawning"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    local visibleSectionCount = drawSettingsSearchRow()
+    if visibleSectionCount == 0 then
+        style.mutedText("No settings match the current search.")
+        ImGui.PopItemWidth()
+        return
+    end
+
+    if drawSettingsTreeNode("spawning", "Spawning") then
         local pos, changed = ImGui.Combo("##spawnPos", settings.spawnPos - 1, { "At selected", "Screen center" }, 2)
         settings.spawnPos = pos + 1
         if changed then settings.save() end
@@ -904,7 +1181,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.editing, "Editing"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("editing", "Editing") then
         style.mutedText("When duplicating a group, place the cloned group:")
         if ImGui.RadioButton("Inside the original group", settings.moveCloneToParent == 1) then
             settings.moveCloneToParent = 1
@@ -969,7 +1246,7 @@ function settingsUI.draw(spawner)
     drawDefaultsSection()
     drawBindingsSection()
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.editorMode, "Editor Mode"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("editorMode", "Editor Mode") then
         style.pushGreyedOut(not spawner.editor.active)
         local resetCameraLabel, resetCameraHiddenText = style.resolveActionLabel(IconGlyphs.CameraRetakeOutline, "Reset camera position", "resetCameraPosition", nil, true)
         if ImGui.Button(resetCameraLabel) and spawner.editor.active then
@@ -997,7 +1274,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.visualizers, "Visualizers"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("visualizers", "Visualizers") then
         settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
         if changed then settings.save() end
         style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin of selected group with a colored outline.")
@@ -1088,7 +1365,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.appearance, "Appearance"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("appearance", "Appearance") then
         local index, indexChanged = ImGui.Combo("Main Window Name", math.max(0, utils.indexValue(windowNames, settings.mainWindowName) - 1), windowNames, #windowNames)
         if indexChanged then
             settings.mainWindowName = windowNames[index + 1]
@@ -1129,7 +1406,7 @@ function settingsUI.draw(spawner)
         style.tooltip("Pin open parent groups to the top of the Spawned hierarchy while scrolling through their children.")
         ImGui.SameLine()
         style.styledText(IconGlyphs.Flask, style.activeColor)
-        style.tooltip("Experimental feature. Interface may bug when scrolling at the bottom of the hierarchy.")
+        style.tooltip("~{ Experimental feature }~\nInterface may bug when scrolling at the bottom of the hierarchy.")
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Balance between icons and text")
@@ -1159,7 +1436,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.misc, "Misc"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("misc", "Misc") then
         settings.deleteConfirm, changed = ImGui.Checkbox("Show confirm to delete saved group popup", settings.deleteConfirm)
         if changed then settings.save() end
 
@@ -1186,7 +1463,7 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.savingRecovery, "Saving & Recovery"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("savingRecovery", "Saving & Recovery") then
         style.sectionHeaderStart("AUTO-SAVE")
 
         settings.autoSaveEnabled, changed = ImGui.Checkbox("Enable auto-save", settings.autoSaveEnabled)
@@ -1221,10 +1498,12 @@ function settingsUI.draw(spawner)
         ImGui.TreePop()
     end
 
-    rht.drawSettings()
+    if anySettingsSearchMatch({ "rht" }) then
+        rht.drawSettings()
+    end
     
-    if ImGui.TreeNodeEx(sectionLabel(sectionIcons.debug, "Debug"), ImGuiTreeNodeFlags.SpanFullWidth) then
-        if ImGui.TreeNodeEx(sectionLabel(sectionIcons.cacheExclusions, "Cache Exclusions"), ImGuiTreeNodeFlags.SpanFullWidth) then
+    if drawSettingsTreeNode("debug", "Debug", { "cacheExclusions" }) then
+        if drawSettingsTreeNode("cacheExclusions", "Cache Exclusions") then
             style.tooltip("Resource paths or glob patterns to exclude from cache reads. Use exact paths, * for any sequence, and ? for a single character.")
 
             local x, _ = ImGui.GetContentRegionAvail()
