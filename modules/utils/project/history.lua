@@ -694,6 +694,71 @@ function history.getElementChanges(elements)
     return changes
 end
 
+---Create an action that restores the child order of a group.
+---
+---Children are keyed by name rather than by reference or runtime ID: sibling names are unique, while
+---an undo of an earlier removal rebuilds its elements as fresh objects with fresh IDs, which would
+---leave captured references pointing at detached copies.
+---@param element element Group whose children got reordered.
+---@param previous string[] Child names in their order before the reorder.
+---@param new string[] Child names in their order after the reorder.
+---@return table action Child-order history action.
+function history.getChildOrder(element, previous, new)
+    local action = {}
+    action.path = element:getPath()
+    action.id = element.id
+    action.dirtyElements = { element }
+
+    local function apply(order)
+        local target = resolveElementByPath(action.path, false, action.id, true)
+        if not target then
+            logger:warn("[history] Child order target not found for path: " .. tostring(action.path))
+            return
+        end
+
+        local byName = {}
+        for _, child in ipairs(target.childs) do
+            byName[child.name] = child
+        end
+
+        local ordered = {}
+        for _, name in ipairs(order) do
+            local child = byName[name]
+            if child then
+                byName[name] = nil
+                table.insert(ordered, child)
+            end
+        end
+
+        -- Children added or renamed since the reorder are not in the recorded order, they keep their
+        -- relative position and end up behind the ones that are.
+        for _, child in ipairs(target.childs) do
+            if byName[child.name] then
+                table.insert(ordered, child)
+            end
+        end
+
+        if #ordered ~= #target.childs then return end
+
+        for index, child in ipairs(ordered) do
+            target.childs[index] = child
+        end
+
+        saveState.markDirty(target)
+        rebuildCache(true)
+    end
+
+    action.redo = function()
+        apply(new)
+    end
+
+    action.undo = function()
+        apply(previous)
+    end
+
+    return action
+end
+
 ---Create an action that swaps element state across an old/new rename path.
 ---@param data table Serialized element snapshot captured before rename.
 ---@param current string Old path (pre-rename).

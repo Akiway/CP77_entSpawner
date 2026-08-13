@@ -1300,6 +1300,55 @@ function spawnedUI.handleReorder(element)
     history.addAction(history.getMove(remove, insert))
 end
 
+---Sorts the direct children of a group: groups first, assets second, both alphabetically.
+---@param element element
+function spawnedUI.sortChildren(element)
+    local previous = {}
+    local sorted = {}
+    for index, child in ipairs(element.childs) do
+        previous[index] = child
+        sorted[index] = child
+    end
+
+    table.sort(sorted, function(a, b)
+        if a.expandable ~= b.expandable then
+            return a.expandable
+        end
+
+        local nameA = a.name:lower()
+        local nameB = b.name:lower()
+        if nameA ~= nameB then
+            return nameA < nameB
+        end
+
+        return a.name < b.name
+    end)
+
+    local changed = false
+    for index, child in ipairs(sorted) do
+        if previous[index] ~= child then
+            changed = true
+            break
+        end
+    end
+    if not changed then return end
+
+    local previousNames = {}
+    local sortedNames = {}
+    for index, child in ipairs(previous) do
+        previousNames[index] = child.name
+    end
+    for index, child in ipairs(sorted) do
+        sortedNames[index] = child.name
+        element.childs[index] = child
+    end
+
+    saveState.markDirty(element)
+    spawnedUI.invalidateCache(true)
+
+    history.addAction(history.getChildOrder(element, previousNames, sortedNames))
+end
+
 ---@protected
 ---@param element element
 ---@param indentX number?
@@ -1843,6 +1892,9 @@ function spawnedUI.drawContextMenu(element, path)
             ImGui.BeginDisabled(isEmptyGroup)
             if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DownloadMultiple, "Drop Children to Floor")) then
                 element:dropChildrenToSurface(false, Vector4.new(0, 0, -1, 0))
+            end
+            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.SortAlphabeticalAscending, "Sort children alphabetically")) then
+                spawnedUI.sortChildren(element)
             end
             ImGui.EndDisabled()
 
