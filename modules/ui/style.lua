@@ -2235,6 +2235,11 @@ style.lightChannelEnum = {
     "LC_Automated"
 }
 
+---Warnings shown in front of individual light channels, keyed by the names in `style.lightChannelEnum`.
+style.lightChannelWarnings = {
+    LC_Channel1 = "This channel is bugged in game and may not work as expected."
+}
+
 style.triggerChannelEnum = {
     "TC_Default",
     "TC_Player",
@@ -2269,9 +2274,14 @@ style.triggerChannelEnum = {
 ---@param object table? Optional element for undo history tracking.
 ---@param lightChannels boolean[] Array of channel states.
 ---@return boolean[] lightChannels Updated channel states.
+---@return boolean changed Whether the selection was edited this frame.
 function style.drawLightChannelsSelector(object, lightChannels)
+    local changed = false
+
     if not maxLightChannelsWidth then
-        maxLightChannelsWidth = utils.getTextMaxWidth(style.lightChannelEnum) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        -- Channels carrying a warning are prefixed with an icon, so the checkbox column has to leave
+        -- room for the longest label plus that icon.
+        maxLightChannelsWidth = utils.getTextMaxWidth(style.lightChannelEnum) + ImGui.CalcTextSize(IconGlyphs.AlertOutline) + 3 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     style.pushButtonNoBG(true)
@@ -2280,6 +2290,7 @@ function style.drawLightChannelsSelector(object, lightChannels)
         for i = 1, #lightChannels do
             lightChannels[i] = true
         end
+        changed = true
     end
     style.tooltip("Select all light channels")
     ImGui.SameLine()
@@ -2288,6 +2299,7 @@ function style.drawLightChannelsSelector(object, lightChannels)
         for i = 1, #lightChannels do
             lightChannels[i] = false
         end
+        changed = true
     end
     style.tooltip("Deselect all light channels")
     ImGui.SameLine()
@@ -2303,24 +2315,39 @@ function style.drawLightChannelsSelector(object, lightChannels)
     if ImGui.Button(IconGlyphs.ContentPaste) and channels ~= nil then
         if object then history.addAction(history.getElementChange(object)) end
         lightChannels = utils.deepcopy(channels)
+        changed = true
     end
     style.tooltip("Paste light channels from clipboard")
     style.popGreyedOut(channels == nil)
     style.pushButtonNoBG(false)
 
     for key, channel in ipairs(style.lightChannelEnum) do
+        local warning = style.lightChannelWarnings[channel]
+
+        if warning then
+            style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+            style.tooltip(warning)
+            ImGui.SameLine()
+        end
+
         style.mutedText(channel)
+        if warning then
+            style.tooltip(warning)
+        end
         ImGui.SameLine()
         ImGui.SetCursorPosX(maxLightChannelsWidth)
 
+        local channelChanged
         if object then
-            lightChannels[key], _ = style.trackedCheckbox(object, "##lightChannel" .. key, lightChannels[key])
+            lightChannels[key], channelChanged = style.trackedCheckbox(object, "##lightChannel" .. key, lightChannels[key])
         else
-            lightChannels[key], _ = ImGui.Checkbox("##lightChannel" .. key, lightChannels[key])
+            lightChannels[key], channelChanged = ImGui.Checkbox("##lightChannel" .. key, lightChannels[key])
         end
+
+        changed = changed or channelChanged
     end
 
-    return lightChannels
+    return lightChannels, changed
 end
 
 ---Draws a fixed-size color swatch with an inline hex input, a hover tooltip, and a click-to-open popup

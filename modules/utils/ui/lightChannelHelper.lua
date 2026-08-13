@@ -23,7 +23,29 @@ local lightChannelBitValues = {
     LC_Automated = 32768
 }
 
+---Single-character labels used by the hierarchy status icon, keyed by the names in `style.lightChannelEnum`.
+local lightChannelShortLabels = {
+    LC_Channel1 = "1",
+    LC_Channel2 = "2",
+    LC_Channel3 = "3",
+    LC_Channel4 = "4",
+    LC_Channel5 = "5",
+    LC_Channel6 = "6",
+    LC_Channel7 = "7",
+    LC_Channel8 = "8",
+    LC_ChannelWorld = "W",
+    LC_Character = "C",
+    LC_Player = "P",
+    LC_Automated = "A"
+}
+
 ---Builds the numeric `rendLightChannel` mask for a channel selection.
+---
+---This is also what a native `rendLightChannel` property has to be assigned: CET converts bitfield
+---properties from a Lua number (or cdata) and from nothing else, and writes a plain 0 for any other
+---value instead of failing. There is no `BitField` global to wrap the mask in either - CET only
+---creates globals for enum and class RTTI types, and `Enum.new` resolves through `GetEnum`, which
+---does not know bitfields, so it yields a typeless enum that converts to exactly that silent 0.
 ---@param selection boolean[] Channel states, in `style.lightChannelEnum` order.
 ---@return number mask
 function lcHelper.getMask(selection)
@@ -40,28 +62,48 @@ function lcHelper.getMask(selection)
     return mask
 end
 
----Builds a value that can be assigned to a native `rendLightChannel` property.
----Prefers `BitField`, falls back to `Enum` on CET builds without it, and to the raw mask as a last resort.
+---Reads a `rendLightChannel` property back as a number.
+---CET hands bitfields to Lua as a `ull` cdata, which compares equal to nothing useful on its own.
+---@param value any Value read off a native bitfield property.
+---@return number? mask
+function lcHelper.readMask(value)
+    if type(value) == "number" then
+        return value
+    end
+
+    if value == nil then
+        return nil
+    end
+
+    return tonumber((tostring(value):gsub("[^%d]", "")))
+end
+
+---Builds the hierarchy status icon for a channel selection. Fully on and fully off get their own
+---glyph, any partial selection spells out the selected channels next to the outlined glyph, since the
+---glyph alone can not say which of the twelve channels are active.
 ---@param selection boolean[] Channel states, in `style.lightChannelEnum` order.
----@return any lightChannel
-function lcHelper.getBitField(selection)
-    local mask = lcHelper.getMask(selection)
+---@return string icon Glyph, suffixed with the per-channel letters for a partial selection.
+---@return string tooltip
+function lcHelper.getStatusIcon(selection)
+    local labels = {}
+    local names = {}
 
-    local ok, value = pcall(function ()
-        return BitField.new("rendLightChannel", mask)
-    end)
-    if ok and value ~= nil then
-        return value
+    for index, name in ipairs(style.lightChannelEnum) do
+        if selection[index] then
+            table.insert(labels, lightChannelShortLabels[name] or "?")
+            table.insert(names, (name:gsub("^LC_", "")))
+        end
     end
 
-    ok, value = pcall(function ()
-        return Enum.new("rendLightChannel", mask)
-    end)
-    if ok and value ~= nil then
-        return value
+    if #labels == 0 then
+        return IconGlyphs.LightbulbGroupOffOutline, "No light channels selected"
     end
 
-    return mask
+    if #labels == #style.lightChannelEnum then
+        return IconGlyphs.LightbulbGroup, "All light channels selected"
+    end
+
+    return IconGlyphs.LightbulbGroupOutline .. " " .. table.concat(labels), "Light channels: " .. table.concat(names, ", ")
 end
 
 ---Returns the grouped editor state bucket for light channels.
@@ -96,6 +138,12 @@ local function drawGroupedLightChannels(element, entries)
             if entry.spawnable.lightChannels ~= nil then
                 entry.spawnable.lightChannels = utils.deepcopy(groupedData.selected)
                 nApplied = nApplied + 1
+
+                -- Spawnables that preview their channels (lights, light channel areas) apply the new
+                -- selection to their live entity here, the rest only carry it into the export.
+                if entry.spawnable.onLightChannelsChanged then
+                    entry.spawnable:onLightChannelsChanged()
+                end
             end
         end
 

@@ -858,10 +858,8 @@ function light:onAssemble(entity)
         component.iesProfile = ResRef.FromString(self.iesProfile)
     end
 
-    -- `lightChannel` is a bitfield, so it needs a BitField/Enum instance instead of the boolean array
-    pcall(function ()
-        component.lightChannel = lcHelper.getBitField(self.lightChannels)
-    end)
+    -- `lightChannel` is a bitfield, which CET only converts from a number, see `lcHelper.getMask`
+    component.lightChannel = lcHelper.getMask(self.lightChannels)
 
     entity:AddComponent(component)
     self:updateArrowVisibilityForCameraFollow(entity)
@@ -956,6 +954,15 @@ function light:updateParameters()
     comp:SetAngles(self.innerAngle, self.outerAngle)
     comp:SetRadius(self.radius)
     comp:SetFlickerParams(self.flickerStrength, self.flickerPeriod, self.flickerOffset)
+end
+
+---Called by the light channel editor, for single as well as grouped edits.
+---
+---The channel mask has no runtime setter, and the render side reads it off the component when that
+---registers, so the light is respawned to apply it - the same as every other light property without a
+---setter. This is what lets a light react to a light channel area while both are being edited.
+function light:onLightChannelsChanged()
+    self:updateFull(true)
 end
 
 function light:setPreview(state)
@@ -1507,7 +1514,13 @@ function light:draw()
     end
 
     if ImGui.TreeNodeEx("Light Channels") then
-        self.lightChannels = style.drawLightChannelsSelector(self.object, self.lightChannels)
+        local channelsChanged
+        self.lightChannels, channelsChanged = style.drawLightChannelsSelector(self.object, self.lightChannels)
+
+        if channelsChanged then
+            self:onLightChannelsChanged()
+        end
+
         ImGui.TreePop()
     end
 

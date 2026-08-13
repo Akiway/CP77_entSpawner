@@ -1,5 +1,6 @@
 local connectedMarker = require("modules/classes/spawn/connectedMarker")
 local spawnable = require("modules/classes/spawn/spawnable")
+local area = require("modules/classes/spawn/area/area")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/core/utils")
 local history = require("modules/utils/project/history")
@@ -94,12 +95,17 @@ function outlineMarker:midAssemble()
     self:inheritLinkedState(self.object and self.object.parent or nil)
     self:enforceSameZ()
     self:setPreview(self.previewed)
+    area.notifyOutlineChanged(self.object)
 end
 
 function outlineMarker:onParentChanged(oldParent)
     self:inheritLinkedState(self.object and self.object.parent or nil)
     connectedMarker.onParentChanged(self, oldParent)
     self:setPreview(self.previewed)
+
+    -- Both outlines changed shape: the marker left one and joined the other.
+    area.notifyOutlineChanged(self.object, oldParent)
+    area.notifyOutlineChanged(self.object)
 end
 
 function outlineMarker:save()
@@ -125,6 +131,8 @@ function outlineMarker:update()
         neighbor.height = self.height
         neighbor:updateHeight()
     end
+
+    area.notifyOutlineChanged(self.object)
 end
 
 function outlineMarker:getNeighbors(parent)
@@ -535,6 +543,8 @@ function outlineMarker:draw()
             neighbor.height = self.height
             neighbor:updateHeight()
         end
+
+        area.notifyOutlineChanged(self.object)
     end
 end
 

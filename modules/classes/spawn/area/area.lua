@@ -12,6 +12,84 @@ local element = require("modules/classes/editor/element")
 ---@field protected maxPropertyWidth number
 local area = setmetatable({}, { __index = visualized })
 
+---Areas that consume an outline, bucketed by the outline group path they reference, per root element.
+---Outline markers notify on every transform change, so this avoids walking the hierarchy per frame
+---while one is being dragged. Stamped with the hierarchy cache epoch, like the other path caches.
+local outlineConsumerCache = setmetatable({}, { __mode = "k" })
+
+---Which outline an area references is not part of the hierarchy, so picking a different one has to
+---invalidate the buckets explicitly.
+local outlineConsumerEpoch = 0
+
+function area.invalidateOutlineConsumers()
+    outlineConsumerEpoch = outlineConsumerEpoch + 1
+end
+
+---@param root element
+---@param sUI table
+---@return table<string, table[]>
+local function getOutlineConsumers(root, sUI)
+    if sUI.ensureCache then
+        sUI.ensureCache()
+    end
+
+    local stamp = string.format("%s:%s", tostring(sUI.cacheEpoch or 0), tostring(outlineConsumerEpoch))
+    local cached = outlineConsumerCache[root]
+
+    if cached and cached.stamp == stamp then
+        return cached.byPath
+    end
+
+    local byPath = {}
+
+    for _, entry in pairs(sUI.paths or {}) do
+        local ref = entry.ref
+        local spawnable = ref and utils.isA(ref, "spawnableElement") and ref.spawnable or nil
+
+        if spawnable and spawnable.onOutlineChanged and spawnable.outlinePath and spawnable.outlinePath ~= "" then
+            if ref.getRootParent and ref:getRootParent() == root then
+                local bucket = byPath[spawnable.outlinePath]
+
+                if not bucket then
+                    bucket = {}
+                    byPath[spawnable.outlinePath] = bucket
+                end
+
+                table.insert(bucket, spawnable)
+            end
+        end
+    end
+
+    outlineConsumerCache[root] = { stamp = stamp, byPath = byPath }
+
+    return byPath
+end
+
+---Notifies every area referencing an outline group that its geometry changed.
+---
+---Outline markers are elements of their own, so an area has no way of noticing on its own that one of
+---them moved, changed height, or joined/left the group.
+---@param object element Element inside the outline group, usually an outline marker.
+---@param parentOverride element? Group to notify for, when the marker just left or entered one.
+function area.notifyOutlineChanged(object, parentOverride)
+    if not object then return end
+
+    local parent = parentOverride or object.parent
+    local sUI = object.sUI
+
+    if not parent or not sUI or not parent.getPath then return end
+
+    local path = parent:getPath()
+    if not path or path == "" then return end
+
+    local root = object.getRootParent and object:getRootParent() or nil
+    if not root then return end
+
+    for _, spawnable in ipairs(getOutlineConsumers(root, sUI)[path] or {}) do
+        spawnable:onOutlineChanged()
+    end
+end
+
 function area:new()
 	local o = visualized.new(self)
 
@@ -42,6 +120,13 @@ function area:spawn()
     visualized.spawn(self)
 end
 
+function area:loadSpawnData(data, position, rotation)
+    visualized.loadSpawnData(self, data, position, rotation)
+
+    -- Loading a project, pasting, or undoing an edit can all point this area at a different outline.
+    area.invalidateOutlineConsumers()
+end
+
 function area:update()
     self.rotation = EulerAngles.new(0, 0, 0)
     visualized.update(self)
@@ -51,6 +136,12 @@ function area:getTransformUIConfig()
     return {
         showRotation = false
     }
+end
+
+---Called when the referenced outline changed: a different group got picked, or one of its markers
+---moved, changed height, or joined/left the group.
+---@protected
+function area:onOutlineChanged()
 end
 
 function area:getMarkersData()
@@ -160,6 +251,8 @@ function area:draw()
     if changed then
         self.outlinePath = paths[idx + 1]
         element.bumpWireframeEpoch(self.object)
+        area.invalidateOutlineConsumers()
+        self:onOutlineChanged()
     end
     style.tooltip("Path to the group containing the outline markers.\nMust be contained within the same root group as this area.")
 end

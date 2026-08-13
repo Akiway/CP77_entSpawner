@@ -17,6 +17,7 @@ local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
+local lcHelper = require("modules/utils/ui/lightChannelHelper")
 
 local wu
 
@@ -55,7 +56,7 @@ spawnedUI = {
     root = require("modules/classes/editor/element"):new(spawnedUI),
     multiSelectGroup = require("modules/classes/editor/positionableGroup"):new(spawnedUI),
     filter = "",
-    newGroupName = "New_Group",
+    newGroupName = "New Group",
     groupTypes = { "Normal", "Randomized", "Scattered" },
     groupTypeIcons = { IconGlyphs.FolderOutline, IconGlyphs.Dice5Outline, IconGlyphs.DiceMultipleOutline },
     newGroupTypeIndex = 1,
@@ -2099,6 +2100,21 @@ local function snapStateIconXToGrid(x)
     return snapped
 end
 
+---Grid slot an icon occupies. Most icons are a single glyph and fit one step, but an icon that carries
+---a text suffix (light channels) claims as many whole steps as it needs so it can not run into the next one.
+---@param icon string
+---@return number
+local function getStateIconSlotWidth(icon)
+    local step = STATE_ICON_GRID_STEP * style.viewSize
+    local textWidth, _ = ImGui.CalcTextSize(icon)
+
+    if textWidth <= step then
+        return step
+    end
+
+    return math.ceil(textWidth / step) * step
+end
+
 ---@param target table
 ---@param icon string
 ---@param tooltip string
@@ -2468,6 +2484,14 @@ function spawnedUI.getStateIcons(element)
                 addStateIcon(stateIcons, IconGlyphs.LanDisconnect, "No linked path", STATE_COLOR_RED)
             end
         end
+
+        -- Lights, fog volumes, reflection probes and light channel areas all carry a channel selection,
+        -- which otherwise only shows up inside the properties panel. Drawn last so it trails the linked
+        -- path icon on light channel areas.
+        if spawnable.lightChannels ~= nil then
+            local channelIcon, channelTooltip = lcHelper.getStatusIcon(spawnable.lightChannels)
+            addStateIcon(stateIcons, channelIcon, channelTooltip, style.mutedColor)
+        end
     end
 
     if utils.isA(element, "positionableGroup") then
@@ -2545,8 +2569,13 @@ function spawnedUI.getStateIconsWidth(stateIcons)
         return 0
     end
 
-    local step = STATE_ICON_GRID_STEP * style.viewSize
-    return (#stateIcons + 1) * step
+    local width = STATE_ICON_GRID_STEP * style.viewSize -- Lead-in slot before the first icon
+
+    for _, iconData in ipairs(stateIcons) do
+        width = width + getStateIconSlotWidth(iconData.icon)
+    end
+
+    return width
 end
 
 ---@param projectTag table?
@@ -2598,7 +2627,6 @@ function spawnedUI.drawStateIcons(stateIcons)
     ImGui.SameLine()
     local cursorX = ImGui.GetCursorPosX() + STATE_ICON_GRID_PADDING * style.viewSize
     local baselineY = ImGui.GetCursorPosY() + 1 * style.viewSize
-    local step = STATE_ICON_GRID_STEP * style.viewSize
 
     for idx, iconData in ipairs(stateIcons) do
         local snappedX = snapStateIconXToGrid(cursorX)
@@ -2623,7 +2651,7 @@ function spawnedUI.drawStateIcons(stateIcons)
         if iconData.drawPopup then
             iconData.drawPopup()
         end
-        cursorX = snappedX + step
+        cursorX = snappedX + getStateIconSlotWidth(iconData.icon)
     end
 end
 
