@@ -179,17 +179,6 @@ function speedSpline:new()
     return o
 end
 
----@param value any
----@param default number
----@return number
-local function toNumber(value, default)
-    local number = tonumber(value)
-    if number == nil then
-        return default
-    end
-    return number
-end
-
 function speedSpline:loadSpawnData(data, position, rotation)
     spline.loadSpawnData(self, data, position, rotation)
 
@@ -205,9 +194,9 @@ function speedSpline:normalizeSpeedSections(sections)
     local normalized = {}
     for _, section in ipairs(sections or {}) do
         table.insert(normalized, {
-            start = toNumber(section.start, 0),
-            endPos = toNumber(section.endPos, 0),
-            speed = toNumber(section.speed, 0)
+            start = utils.toNumber(section.start, 0),
+            endPos = utils.toNumber(section.endPos, 0),
+            speed = utils.toNumber(section.speed, 0)
         })
     end
     return normalized
@@ -223,11 +212,11 @@ function speedSpline:normalizeOrientationSections(sections)
             mode = orientationModes[1].value
         end
         table.insert(normalized, {
-            pos = toNumber(section.pos, 0),
+            pos = utils.toNumber(section.pos, 0),
             mode = mode,
-            pitch = toNumber(section.pitch, 0),
-            yaw = toNumber(section.yaw, 0),
-            roll = toNumber(section.roll, 0)
+            pitch = utils.toNumber(section.pitch, 0),
+            yaw = utils.toNumber(section.yaw, 0),
+            roll = utils.toNumber(section.roll, 0)
         })
     end
     return normalized
@@ -239,8 +228,8 @@ function speedSpline:normalizeRoadSections(sections)
     local normalized = {}
     for _, section in ipairs(sections or {}) do
         table.insert(normalized, {
-            pos = toNumber(section.pos, 0),
-            factor = toNumber(section.factor, 1)
+            pos = utils.toNumber(section.pos, 0),
+            factor = utils.toNumber(section.factor, 1)
         })
     end
     return normalized

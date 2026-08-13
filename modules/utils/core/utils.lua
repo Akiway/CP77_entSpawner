@@ -1294,12 +1294,18 @@ function miscUtils.matchesComponentPropertiesSearch(component, componentChanges,
     return false
 end
 
----Coerces a value read back from surveyed data or a serialized payload to a boolean.
----Survey values arrive as the raw strings the RED types printed, so "True" and "1" have to
----read as true just like a real boolean or a non-zero number.
+---Coerces a value read back from surveyed data, a serialized payload or a native property to a
+---boolean. Survey values arrive as the raw strings the RED types printed, so "True" and "1" have
+---to read as true just like a real boolean or a non-zero number.
 ---@param value any
+---@param fallback boolean? Returned when the value is absent, which is not the same as false:
+---a property the source does not answer for keeps whatever the caller defaults it to.
 ---@return boolean
-function miscUtils.toBoolean(value)
+function miscUtils.toBoolean(value, fallback)
+    if value == nil then
+        return fallback == true
+    end
+
     if type(value) == "boolean" then
         return value
     end
@@ -1307,8 +1313,28 @@ function miscUtils.toBoolean(value)
         return value ~= 0
     end
 
-    local text = miscUtils.trimString(value or ""):lower()
+    local text = miscUtils.trimString(value):lower()
     return text == "true" or text == "1"
+end
+
+---Coerces a value read back from surveyed data, a serialized payload or a native property to a
+---number. The 64 bit RED types print with a `ULL`/`LL` suffix that `tonumber` alone rejects.
+---@param value any
+---@param fallback number? Returned when the value is absent or not numeric.
+---@return number?
+function miscUtils.toNumber(value, fallback)
+    if type(value) == "number" then
+        return value
+    end
+
+    if value ~= nil then
+        local number = tonumber((tostring(value):gsub("ULL", ""):gsub("LL", "")))
+        if number ~= nil then
+            return number
+        end
+    end
+
+    return fallback
 end
 
 ---Zero-based index of an enum member name inside its ordered member list.

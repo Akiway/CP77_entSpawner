@@ -11,43 +11,15 @@ local cache = require("modules/utils/game/cache")
 local bendedMesh = setmetatable({}, { __index = mesh })
 local zeroVector3 = { x = 0, y = 0, z = 0 }
 
-local function toNumber(value, fallback)
-    local number = tonumber(value)
-    if number == nil then
-        return fallback
-    end
-    return number
-end
-
-local function toBoolean(value, fallback)
-    if value == nil then
-        return fallback
-    end
-
-    if type(value) == "boolean" then
-        return value
-    end
-
-    if type(value) == "number" then
-        return value ~= 0
-    end
-
-    if type(value) == "string" then
-        return value == "1" or value == "true" or value == "True"
-    end
-
-    return fallback
-end
-
 local function normalizeVector4(raw, fallback)
     local source = raw or {}
     local f = fallback or Vector4.new(0, 0, 0, 0)
 
     return Vector4.new(
-        toNumber(source.x or source.X, f.x),
-        toNumber(source.y or source.Y, f.y),
-        toNumber(source.z or source.Z, f.z),
-        toNumber(source.w or source.W, f.w)
+        utils.toNumber(source.x or source.X, f.x),
+        utils.toNumber(source.y or source.Y, f.y),
+        utils.toNumber(source.z or source.Z, f.z),
+        utils.toNumber(source.w or source.W, f.w)
     )
 end
 
@@ -70,13 +42,13 @@ end
 local function copyPathPoint(point, fallback)
     local source = point or {}
     local base = fallback or { x = 0, y = 0, z = 0, roll = 0, anchored = false }
-    local anchored = toBoolean(source.anchored or source.anchor or source.isAnchored, base.anchored)
+    local anchored = utils.toBoolean(source.anchored or source.anchor or source.isAnchored, base.anchored)
 
     return {
-        x = toNumber(source.x or source.X, base.x),
-        y = toNumber(source.y or source.Y, base.y),
-        z = toNumber(source.z or source.Z, base.z),
-        roll = toNumber(source.roll or source.Roll, base.roll),
+        x = utils.toNumber(source.x or source.X, base.x),
+        y = utils.toNumber(source.y or source.Y, base.y),
+        z = utils.toNumber(source.z or source.Z, base.z),
+        roll = utils.toNumber(source.roll or source.Roll, base.roll),
         anchored = anchored == true
     }
 end
@@ -157,7 +129,7 @@ local function toTypedMatrix(matrix)
 end
 
 local function buildStraightPathPoints(length, pointCount)
-    local count = math.max(2, math.floor(toNumber(pointCount, 2)))
+    local count = math.max(2, math.floor(utils.toNumber(pointCount, 2)))
     local step = count > 1 and (length / (count - 1)) or 0
     local points = {}
 
@@ -425,17 +397,17 @@ local function getPathStartFrame(pathPoints, upAxisIndex)
     local secondPoint = pathPoints and pathPoints[2]
 
     local position = {
-        x = toNumber(firstPoint and firstPoint.x, 0),
-        y = toNumber(firstPoint and firstPoint.y, 0),
-        z = toNumber(firstPoint and firstPoint.z, 0)
+        x = utils.toNumber(firstPoint and firstPoint.x, 0),
+        y = utils.toNumber(firstPoint and firstPoint.y, 0),
+        z = utils.toNumber(firstPoint and firstPoint.z, 0)
     }
 
     local forward = { x = 0, y = 1, z = 0 }
     if secondPoint then
         forward = {
-            x = toNumber(secondPoint.x, 0) - position.x,
-            y = toNumber(secondPoint.y, 0) - position.y,
-            z = toNumber(secondPoint.z, 0) - position.z
+            x = utils.toNumber(secondPoint.x, 0) - position.x,
+            y = utils.toNumber(secondPoint.y, 0) - position.y,
+            z = utils.toNumber(secondPoint.z, 0) - position.z
         }
     end
     forward = normalizeDirection(forward)
@@ -443,11 +415,11 @@ local function getPathStartFrame(pathPoints, upAxisIndex)
         forward = { x = 0, y = 1, z = 0 }
     end
 
-    local clampedUpAxisIndex = math.max(0, math.min(math.floor(toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
+    local clampedUpAxisIndex = math.max(0, math.min(math.floor(utils.toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
     local upHint = getPathUpAxis(clampedUpAxisIndex)
     local right, _, up = buildBasisFromForward(forward, upHint)
 
-    local roll = toNumber(firstPoint and firstPoint.roll, 0)
+    local roll = utils.toNumber(firstPoint and firstPoint.roll, 0)
     if math.abs(roll) > 0.00001 then
         local angle = math.rad(roll)
         right = normalizeDirection(rotateAroundAxis(right, forward, angle))
@@ -522,8 +494,8 @@ end
 function bendedMesh:loadSpawnData(data, position, rotation)
     mesh.loadSpawnData(self, data, position, rotation)
 
-    self.isBendedRoad = toBoolean(data.isBendedRoad, true)
-    self.removeFromRainMap = toBoolean(data.removeFromRainMap, false)
+    self.isBendedRoad = utils.toBoolean(data.isBendedRoad, true)
+    self.removeFromRainMap = utils.toBoolean(data.removeFromRainMap, false)
     self.version = data.version or self.version
 
     local navigationImpact = data.navigationImpact
@@ -540,15 +512,15 @@ function bendedMesh:loadSpawnData(data, position, rotation)
 
     self.deformedBox = copyDeformedBox(data.deformedBox)
 
-    self.pathLooped = toBoolean(data.pathLooped, self.pathLooped)
-    self.pathUseAlgorithm = toBoolean(data.pathUseAlgorithm, self.pathUseAlgorithm)
-    self.pathInterpolation = math.max(0, math.min(math.floor(toNumber(data.pathInterpolation, self.pathInterpolation)), #pathInterpolationOptions - 1))
-    self.pathUpAxis = math.max(0, math.min(math.floor(toNumber(data.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
-    self.pathPreviewEnabled = toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
-    self.pathPreviewShowFrames = toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
-    self.bendedColliderShape = math.max(0, math.min(2, math.floor(toNumber(data.bendedColliderShape, self.bendedColliderShape))))
-    self.bendedColliderStep = math.max(1, math.min(16, math.floor(toNumber(data.bendedColliderStep, self.bendedColliderStep))))
-    self.bendedColliderOverlap = math.max(0, math.min(0.5, toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
+    self.pathLooped = utils.toBoolean(data.pathLooped, self.pathLooped)
+    self.pathUseAlgorithm = utils.toBoolean(data.pathUseAlgorithm, self.pathUseAlgorithm)
+    self.pathInterpolation = math.max(0, math.min(math.floor(utils.toNumber(data.pathInterpolation, self.pathInterpolation)), #pathInterpolationOptions - 1))
+    self.pathUpAxis = math.max(0, math.min(math.floor(utils.toNumber(data.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
+    self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
+    self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
+    self.bendedColliderShape = math.max(0, math.min(2, math.floor(utils.toNumber(data.bendedColliderShape, self.bendedColliderShape))))
+    self.bendedColliderStep = math.max(1, math.min(16, math.floor(utils.toNumber(data.bendedColliderStep, self.bendedColliderStep))))
+    self.bendedColliderOverlap = math.max(0, math.min(0.5, utils.toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
 
     self.pathPoints = {}
     for _, point in ipairs(data.pathPoints or {}) do
@@ -645,16 +617,16 @@ function bendedMesh:applyDeformationClipboardPayload(payload)
     local hasPath = type(payload.pathPoints) == "table" and #payload.pathPoints > 0
 
     if payload.pathLooped ~= nil then
-        self.pathLooped = toBoolean(payload.pathLooped, self.pathLooped)
+        self.pathLooped = utils.toBoolean(payload.pathLooped, self.pathLooped)
     end
     if payload.pathUseAlgorithm ~= nil then
-        self.pathUseAlgorithm = toBoolean(payload.pathUseAlgorithm, self.pathUseAlgorithm)
+        self.pathUseAlgorithm = utils.toBoolean(payload.pathUseAlgorithm, self.pathUseAlgorithm)
     end
     if payload.pathInterpolation ~= nil then
-        self.pathInterpolation = math.max(0, math.min(math.floor(toNumber(payload.pathInterpolation, self.pathInterpolation)), #pathInterpolationOptions - 1))
+        self.pathInterpolation = math.max(0, math.min(math.floor(utils.toNumber(payload.pathInterpolation, self.pathInterpolation)), #pathInterpolationOptions - 1))
     end
     if payload.pathUpAxis ~= nil then
-        self.pathUpAxis = math.max(0, math.min(math.floor(toNumber(payload.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
+        self.pathUpAxis = math.max(0, math.min(math.floor(utils.toNumber(payload.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
     end
 
     self.pathPoints = {}
@@ -828,16 +800,16 @@ function bendedMesh:createContinuationMesh()
         continuationPathPoints = buildStraightPathPoints(signedLength, requiredPointCount)
     end
 
-    local continuationUpAxis = math.max(0, math.min(math.floor(toNumber(data.spawnable.pathUpAxis, self.pathUpAxis or 0)), #pathUpAxisOptions - 1))
+    local continuationUpAxis = math.max(0, math.min(math.floor(utils.toNumber(data.spawnable.pathUpAxis, self.pathUpAxis or 0)), #pathUpAxisOptions - 1))
     local continuationStartFrame = getPathStartFrame(continuationPathPoints, continuationUpAxis)
     local targetQuat = worldRotation:ToQuat()
     local startQuat = quaternionFromBasis(continuationStartFrame.right, continuationStartFrame.forward, continuationStartFrame.up)
     local continuationQuat = normalizeQuaternion(Quaternion.MulInverse(targetQuat, startQuat))
     local continuationScale = data.spawnable.scale or self.scale or { x = 1, y = 1, z = 1 }
     local startScaledLocal = {
-        x = continuationStartFrame.position.x * toNumber(continuationScale.x, 1),
-        y = continuationStartFrame.position.y * toNumber(continuationScale.y, 1),
-        z = continuationStartFrame.position.z * toNumber(continuationScale.z, 1)
+        x = continuationStartFrame.position.x * utils.toNumber(continuationScale.x, 1),
+        y = continuationStartFrame.position.y * utils.toNumber(continuationScale.y, 1),
+        z = continuationStartFrame.position.z * utils.toNumber(continuationScale.z, 1)
     }
     local startWorldOffset = continuationQuat:Transform(Vector4.new(startScaledLocal.x, startScaledLocal.y, startScaledLocal.z, 0))
     local continuationPosition = Vector4.new(
@@ -1102,11 +1074,16 @@ function bendedMesh:ensurePathPoints()
     end
 
     for index, point in ipairs(self.pathPoints) do
-        local anchored = toBoolean(point.anchored or point.anchor or point.isAnchored, nil)
-        if anchored == nil then
-            anchored = index == 1 or index == #self.pathPoints
+        -- A point that says nothing about being anchored is one the payload never authored, and
+        -- the two ends of a path are anchored by default. That is a third state on top of the
+        -- boolean, so it is settled here rather than through a coercion fallback.
+        local authored = point.anchored or point.anchor or point.isAnchored
+
+        if authored == nil then
+            point.anchored = index == 1 or index == #self.pathPoints
+        else
+            point.anchored = utils.toBoolean(authored)
         end
-        point.anchored = anchored == true
     end
 
     if #self.pathPoints >= 1 then
@@ -1374,7 +1351,7 @@ function bendedMesh:getSampledPathFrames()
             up = { x = -up.x, y = -up.y, z = -up.z }
         end
 
-        local roll = toNumber(point.roll, 0)
+        local roll = utils.toNumber(point.roll, 0)
         if math.abs(roll) < 0.001 then
             roll = 0
         end
@@ -1455,24 +1432,24 @@ end
 
 function bendedMesh:matrixToPreviewFrame(matrix)
     local axisX = normalizeDirection({
-        x = toNumber(matrix and matrix.X and (matrix.X.x or matrix.X.X), 1),
-        y = toNumber(matrix and matrix.X and (matrix.X.y or matrix.X.Y), 0),
-        z = toNumber(matrix and matrix.X and (matrix.X.z or matrix.X.Z), 0)
+        x = utils.toNumber(matrix and matrix.X and (matrix.X.x or matrix.X.X), 1),
+        y = utils.toNumber(matrix and matrix.X and (matrix.X.y or matrix.X.Y), 0),
+        z = utils.toNumber(matrix and matrix.X and (matrix.X.z or matrix.X.Z), 0)
     })
     local axisY = normalizeDirection({
-        x = toNumber(matrix and matrix.Y and (matrix.Y.x or matrix.Y.X), 0),
-        y = toNumber(matrix and matrix.Y and (matrix.Y.y or matrix.Y.Y), 1),
-        z = toNumber(matrix and matrix.Y and (matrix.Y.z or matrix.Y.Z), 0)
+        x = utils.toNumber(matrix and matrix.Y and (matrix.Y.x or matrix.Y.X), 0),
+        y = utils.toNumber(matrix and matrix.Y and (matrix.Y.y or matrix.Y.Y), 1),
+        z = utils.toNumber(matrix and matrix.Y and (matrix.Y.z or matrix.Y.Z), 0)
     })
     local axisZ = normalizeDirection({
-        x = toNumber(matrix and matrix.Z and (matrix.Z.x or matrix.Z.X), 0),
-        y = toNumber(matrix and matrix.Z and (matrix.Z.y or matrix.Z.Y), 0),
-        z = toNumber(matrix and matrix.Z and (matrix.Z.z or matrix.Z.Z), 1)
+        x = utils.toNumber(matrix and matrix.Z and (matrix.Z.x or matrix.Z.X), 0),
+        y = utils.toNumber(matrix and matrix.Z and (matrix.Z.y or matrix.Z.Y), 0),
+        z = utils.toNumber(matrix and matrix.Z and (matrix.Z.z or matrix.Z.Z), 1)
     })
     local position = {
-        x = toNumber(matrix and matrix.W and (matrix.W.x or matrix.W.X), 0),
-        y = toNumber(matrix and matrix.W and (matrix.W.y or matrix.W.Y), 0),
-        z = toNumber(matrix and matrix.W and (matrix.W.z or matrix.W.Z), 0)
+        x = utils.toNumber(matrix and matrix.W and (matrix.W.x or matrix.W.X), 0),
+        y = utils.toNumber(matrix and matrix.W and (matrix.W.y or matrix.W.Y), 0),
+        z = utils.toNumber(matrix and matrix.W and (matrix.W.z or matrix.W.Z), 0)
     }
 
     if isDirectionZero(axisX) then axisX = { x = 1, y = 0, z = 0 } end
@@ -1520,7 +1497,7 @@ end
 ---@param upAxisIndex integer? Up axis to read the twist against, `World Z` by default.
 ---@return table pathPoints
 function bendedMesh.pathPointsFromMatrices(matrices, upAxisIndex)
-    local clampedUpAxisIndex = math.max(0, math.min(math.floor(toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
+    local clampedUpAxisIndex = math.max(0, math.min(math.floor(utils.toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
     local upHint = getPathUpAxis(clampedUpAxisIndex)
     local pathPoints = {}
 

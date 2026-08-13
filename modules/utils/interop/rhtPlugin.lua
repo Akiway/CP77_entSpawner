@@ -77,23 +77,38 @@ local function getEnumIndex(enumName, targetValue)
     return 0
 end
 
+---Reads one property off a native object, which throws rather than returning nil when the
+---object does not have it.
 ---@param object any
 ---@param key string
+---@param defaultValue any? Returned when the property is absent or unreadable.
 ---@return any
-local function safeGet(object, key)
+local function safeGet(object, key, defaultValue)
     if object == nil then
-        return nil
+        return defaultValue
     end
 
     local ok, value = pcall(function()
         return object[key]
     end)
 
-    if ok then
+    if ok and value ~= nil then
         return value
     end
 
-    return nil
+    return defaultValue
+end
+
+---Text of a CName, which reads back either as a plain string or as a wrapper around one.
+---@param value any
+---@return string
+local function toName(value)
+    if type(value) == "string" then
+        return value
+    end
+
+    local name = safeGet(value, "value")
+    return type(name) == "string" and name or ""
 end
 
 ---The node object behind a Red Hot Tools target. It is reachable through the loaded definition
@@ -218,36 +233,20 @@ local function readTriggerAreaData(node)
     }
 end
 
----Data of a `worldBendedMeshNode`, in the shape the Bended Mesh spawnable loads. What makes the
----node more than a static mesh is its deformation: one matrix per path point, which the
----spawnable's own converter reads back into the path it edits. The deformed box comes across as
----authored, even though the spawnable refits it to that path once the mesh bounds are known.
+local MESH_SHADOW_FIELDS = {
+    "castShadows",
+    "castLocalShadows",
+    "castRayTracedGlobalShadows",
+    "castRayTracedLocalShadows"
+}
+
+---The mesh and its appearance, which every mesh-bearing node stores the same way and every mesh
+---spawnable loads the same way. Red Hot Tools resolves both for the node types it knows about,
+---so they survive even when the node object itself cannot be read.
 ---@param node any
----@return table?
-local function readBendedMeshData(node)
-    local function toBool(value, defaultValue)
-        if type(value) == "boolean" then
-            return value
-        end
-
-        if value == nil then
-            return defaultValue
-        end
-
-        return tonumber((tostring(value):gsub("ULL", ""):gsub("LL", ""))) == 1
-    end
-
-    local function toName(value)
-        if type(value) == "string" then
-            return value
-        end
-
-        local name = safeGet(value, "value")
-        return type(name) == "string" and name or ""
-    end
-
-    local native = getNativeNode(node, "deformationData")
-
+---@param native any? Node object behind the target, or nil when it could not be resolved.
+---@return table? nil when there is no mesh to clone.
+local function readMeshAsset(node, native)
     local meshPath = type(node and node.meshPath) == "string" and node.meshPath or ""
     if meshPath == "" then
         local hash = safeGet(safeGet(native, "mesh"), "hash")
@@ -267,7 +266,103 @@ local function readBendedMeshData(node)
         data.app = appearance
     end
 
-    if not native then
+    return data
+end
+
+---Everything a `worldMeshNode` carries, in the shape every mesh spawnable loads it. Its subtypes
+---(cloth, rotating, dynamic, ...) differ from a static mesh only by the handful of properties
+---their own class adds, so each of them reads this first and then describes just what makes it
+---that subtype.
+---
+---Only the asset is guaranteed: what is read off the node object is dropped when that object is
+---not there, and the clone keeps the spawnable's defaults for it.
+---@param node any
+---@param native any? Node object behind the target, or nil when it could not be resolved.
+---@return table? nil when there is no mesh to clone.
+local function readMeshNodeData(node, native)
+    local data = readMeshAsset(node, native)
+    if not data or not native then
+        return data
+    end
+
+    -- Shadow modes keep the spawnable's own defaults when the node cannot be read, since index 0
+    -- is a meaningful setting of its own ("Default") rather than an absent value.
+    for _, field in ipairs(MESH_SHADOW_FIELDS) do
+        local mode = safeGet(native, field)
+        if mode ~= nil then
+            data[field] = getEnumIndex("shadowsShadowCastingMode", mode)
+        end
+    end
+
+    local occluderType = safeGet(native, "occluderType")
+    if occluderType ~= nil then
+        data.occluderType = getEnumIndex("visWorldOccluderType", occluderType)
+    end
+
+    data.windImpulseEnabled = utils.toBoolean(safeGet(native, "windImpulseEnabled"), true)
+
+    return data
+end
+
+-- Bit order of `physicsEClothCollisionMaskEnum`, which is also the order the Cloth Mesh
+-- spawnable lists in its Collision Mask selector.
+local CLOTH_COLLISION_TYPES = { "SPHERE", "BOX", "CONVEX", "TRIMESH", "CAPSULE" }
+
+---Collision mask index the Cloth Mesh spawnable edits. A bitfield reads back in any of three
+---shapes - an object with one boolean per member, its comma-separated member list, or a plain
+---mask when the bitfield definition cannot be resolved - so all three are accepted, the same way
+---the light channels and the trigger channels handle theirs. The spawnable models the mask as a
+---single choice, so a node enabling several kinds keeps only the first of them.
+---@param mask any
+---@param defaultValue integer Index to keep when nothing readable is set.
+---@return integer
+local function toClothCollisionType(mask, defaultValue)
+    if mask == nil then
+        return defaultValue
+    end
+
+    local text = tostring(mask)
+    local numeric = utils.toNumber(mask)
+    local listed = {}
+
+    for name in text:gmatch("[^,%s]+") do
+        listed[name] = true
+    end
+
+    for index, member in ipairs(CLOTH_COLLISION_TYPES) do
+        local bit = index - 1
+        local named = safeGet(mask, member)
+
+        if type(named) == "boolean" then
+            if named then
+                return bit
+            end
+        elseif numeric then
+            local power = 2 ^ bit
+            if numeric % (power * 2) >= power then
+                return bit
+            end
+        elseif listed[member] then
+            return bit
+        end
+    end
+
+    return defaultValue
+end
+
+---Data of a `worldBendedMeshNode`, in the shape the Bended Mesh spawnable loads. What makes the
+---node more than a static mesh is its deformation: one matrix per path point, which the
+---spawnable's own converter reads back into the path it edits. The deformed box comes across as
+---authored, even though the spawnable refits it to that path once the mesh bounds are known.
+---@param node any
+---@return table?
+local function readBendedMeshData(node)
+    -- worldBendedMeshNode derives from worldNode, not from worldMeshNode, so only the asset is
+    -- shared with the mesh subtypes; the flags it does carry are its own and read below.
+    local native = getNativeNode(node, "deformationData")
+    local data = readMeshAsset(node, native)
+
+    if not data or not native then
         return data
     end
 
@@ -294,9 +389,9 @@ local function readBendedMeshData(node)
         }
     end
 
-    data.isBendedRoad = toBool(safeGet(native, "isBendedRoad"), true)
-    data.removeFromRainMap = toBool(safeGet(native, "removeFromRainMap"), false)
-    data.version = tonumber((tostring(safeGet(native, "version")):gsub("ULL", ""):gsub("LL", ""))) or 0
+    data.isBendedRoad = utils.toBoolean(safeGet(native, "isBendedRoad"), true)
+    data.removeFromRainMap = utils.toBoolean(safeGet(native, "removeFromRainMap"), false)
+    data.version = utils.toNumber(safeGet(native, "version"), 0)
 
     -- Shadow modes keep the spawnable's own defaults when the node cannot be read, since index 0
     -- is a meaningful setting of its own ("Default") rather than an absent value.
@@ -386,6 +481,83 @@ local TYPE_MAP = {
         dataRetrieval = readBendedMeshData,
         category = "Mesh",
         sub = "Bended Mesh",
+        replacer = true
+    },
+    -- The three worldMeshNode subtypes below are probed on the property that defines them, so a
+    -- target whose node object is the wrong one of the two candidates is not mistaken for a
+    -- readable node, and their extras are then read off that same object.
+    ["worldClothMeshNode"] = {
+        dataRetrieval = function(node)
+            local native = getNativeNode(node, "affectedByWind")
+            local data = readMeshNodeData(node, native)
+            if not data then
+                return nil
+            end
+
+            data.affectedByWind = utils.toBoolean(safeGet(native, "affectedByWind"), false)
+            -- Default to the spawnable's own CAPSULE rather than to the first member, so an
+            -- unreadable mask lands on what a hand-placed cloth mesh would have used.
+            data.collisionType = toClothCollisionType(safeGet(native, "collisionMask"), 4)
+
+            return data
+        end,
+        category = "Mesh",
+        sub = "Cloth Mesh",
+        replacer = true
+    },
+    ["worldRotatingMeshNode"] = {
+        dataRetrieval = function(node)
+            local native = getNativeNode(node, "fullRotationTime")
+            local data = readMeshNodeData(node, native)
+            if not data then
+                return nil
+            end
+
+            -- The node's axis enum (worldRotatingMeshNodeAxis) and the one the spawnable's
+            -- selector lists (gameTransformAnimation_RotateOnAxisAxis) are the same X/Y/Z triple,
+            -- so the node's value indexes the selector directly.
+            local axis = safeGet(native, "rotationAxis")
+            if axis ~= nil then
+                data.axis = getEnumIndex("gameTransformAnimation_RotateOnAxisAxis", axis)
+            end
+
+            -- The spawnable divides by the rotation time to animate the clone, so a node that
+            -- stores none of it keeps the spawnable's default instead.
+            local duration = utils.toNumber(safeGet(native, "fullRotationTime"))
+            if duration and duration > 0 then
+                data.duration = duration
+            end
+
+            data.reverse = utils.toBoolean(safeGet(native, "reverseDirection"), false)
+
+            return data
+        end,
+        category = "Mesh",
+        sub = "Rotating Mesh",
+        replacer = true
+    },
+    ["worldDynamicMeshNode"] = {
+        dataRetrieval = function(node)
+            local native = getNativeNode(node, "startAsleep")
+            local data = readMeshNodeData(node, native)
+            if not data then
+                return nil
+            end
+
+            data.startAsleep = utils.toBoolean(safeGet(native, "startAsleep"), true)
+
+            -- Declared by worldMeshNode, but only the Dynamic Mesh spawnable edits it. Zero is
+            -- "no override" on the node and not a distance the spawnable can express, so it
+            -- keeps its own default there.
+            local autoHideDistance = utils.toNumber(safeGet(native, "forceAutoHideDistance"))
+            if autoHideDistance and autoHideDistance > 0 then
+                data.forceAutoHideDistance = autoHideDistance
+            end
+
+            return data
+        end,
+        category = "Mesh",
+        sub = "Dynamic Mesh",
         replacer = true
     },
     ["worldStaticOccluderMeshNode"] = {
@@ -498,31 +670,6 @@ local TYPE_MAP = {
     },
     ["worldStaticLightNode"] = {
         dataRetrieval = function(node)
-            local function safeGet(obj, key, defaultValue)
-                local ok, value = pcall(function()
-                    return obj[key]
-                end)
-
-                if ok and value ~= nil then
-                    return value
-                end
-
-                return defaultValue
-            end
-
-            local function toBool(value)
-                if type(value) == "boolean" then
-                    return value
-                end
-
-                if type(value) == "number" then
-                    return value ~= 0
-                end
-
-                local normalized = tonumber((tostring(value or ""):gsub("ULL", ""):gsub("LL", "")))
-                return normalized == 1
-            end
-
             local function getLightChannels(nativeChannel)
                 if not nativeChannel then
                     return { true, true, true, true, true, true, true, true, true, false, false, false }
@@ -599,16 +746,16 @@ local TYPE_MAP = {
                 temperature = safeGet(native, "temperature", -1),
                 lightType = getEnumIndex("ELightType", safeGet(native, "type", 1)),
                 scaleVolFog = safeGet(native, "scaleVolFog", 0),
-                sceneDiffuse = toBool(safeGet(native, "sceneDiffuse", true)),
+                sceneDiffuse = utils.toBoolean(safeGet(native, "sceneDiffuse", true)),
                 sceneSpecularScale = safeGet(native, "sceneSpecularScale", 100),
                 roughnessBias = safeGet(native, "roughnessBias", 0),
-                directional = toBool(safeGet(native, "directional", false)),
+                directional = utils.toBoolean(safeGet(native, "directional", false)),
                 attenuation = getEnumIndex("rendLightAttenuation", safeGet(native, "attenuation", 0)),
-                localShadows = toBool(safeGet(native, "enableLocalShadows", true)),
-                localShadowsForceStaticsOnly = toBool(safeGet(native, "enableLocalShadowsForceStaticsOnly", false)),
+                localShadows = utils.toBoolean(safeGet(native, "enableLocalShadows", true)),
+                localShadowsForceStaticsOnly = utils.toBoolean(safeGet(native, "enableLocalShadowsForceStaticsOnly", false)),
                 sourceRadius = safeGet(native, "sourceRadius", 0.05),
                 softness = safeGet(native, "softness", 2),
-                spotCapsule = toBool(safeGet(native, "spotCapsule", false)),
+                spotCapsule = utils.toBoolean(safeGet(native, "spotCapsule", false)),
                 lightChannels = getLightChannels(safeGet(native, "lightChannel", nil)),
                 unit = getEnumIndex("ELightUnit", safeGet(native, "unit", 0)),
                 scaleGI = safeGet(native, "scaleGI", 100),
@@ -616,14 +763,14 @@ local TYPE_MAP = {
                 shadowRadius = safeGet(native, "shadowRadius", -1),
                 shadowSoftnessMode = getEnumIndex("ELightShadowSoftnessMode", safeGet(native, "shadowSoftnessMode", 2)),
                 areaShape = getEnumIndex("EAreaLightShape", safeGet(native, "areaShape", 1)),
-                areaTwoSided = toBool(safeGet(native, "areaTwoSided", true)),
+                areaTwoSided = utils.toBoolean(safeGet(native, "areaTwoSided", true)),
                 areaRectSideA = safeGet(native, "areaRectSideA", 1),
                 areaRectSideB = safeGet(native, "areaRectSideB", 1),
                 lightGroup = getEnumIndex("rendLightGroup", safeGet(native, "group", 0)),
                 envColorGroup = getEnumIndex("EEnvColorGroup", safeGet(native, "envColorGroup", 0)),
                 colorGroupSaturation = safeGet(native, "colorGroupSaturation", 100),
                 portalAngleCutoff = safeGet(native, "portalAngleCutoff", 0),
-                allowDistantLight = toBool(safeGet(native, "allowDistantLight", false))
+                allowDistantLight = utils.toBoolean(safeGet(native, "allowDistantLight", false))
             }
 
             if color then
@@ -642,22 +789,6 @@ local TYPE_MAP = {
     },
     ["worldStaticSoundEmitterNode"] = {
         dataRetrieval = function(node)
-            local function getCNameValue(value)
-                if type(value) == "string" then
-                    return value
-                end
-
-                if not value then
-                    return ""
-                end
-
-                local ok, name = pcall(function()
-                    return value.value
-                end)
-
-                return ok and name and tostring(name) or ""
-            end
-
             if not node or not node.nodeInstance or type(node.nodeInstance.GetNode) ~= "function" then
                 return nil
             end
@@ -677,14 +808,14 @@ local TYPE_MAP = {
                 return nil
             end
 
-            local soundEvent = getCNameValue(activeEvents[1] and activeEvents[1].event)
+            local soundEvent = toName(activeEvents[1] and activeEvents[1].event)
             if soundEvent == "" then
                 return nil
             end
 
             return {
                 spawnData = soundEvent,
-                emitterMetadataName = getCNameValue(nativeNode.emitterMetadataName)
+                emitterMetadataName = toName(nativeNode.emitterMetadataName)
             }
         end,
         category = "Deco",
@@ -693,18 +824,6 @@ local TYPE_MAP = {
     },
     ["worldAISpotNode"] = {
         dataRetrieval = function(node)
-            local function toBool(value, defaultValue)
-                if type(value) == "boolean" then
-                    return value
-                end
-
-                if value == nil then
-                    return defaultValue
-                end
-
-                return tonumber((tostring(value):gsub("ULL", ""):gsub("LL", ""))) == 1
-            end
-
             -- markings is an array:CName, which CET hands over as a plain list of CName.
             local function toMarkings(value)
                 local markings = {}
@@ -713,8 +832,8 @@ local TYPE_MAP = {
                 end
 
                 for _, marking in ipairs(value) do
-                    local name = type(marking) == "string" and marking or safeGet(marking, "value")
-                    if type(name) == "string" and name ~= "" and name ~= "None" then
+                    local name = toName(marking)
+                    if name ~= "" and name ~= "None" then
                         table.insert(markings, name)
                     end
                 end
@@ -740,8 +859,8 @@ local TYPE_MAP = {
 
             return {
                 spawnData = workspot,
-                isWorkspotInfinite = toBool(safeGet(native, "isWorkspotInfinite"), true),
-                isWorkspotStatic = toBool(safeGet(native, "isWorkspotStatic"), false),
+                isWorkspotInfinite = utils.toBoolean(safeGet(native, "isWorkspotInfinite"), true),
+                isWorkspotStatic = utils.toBoolean(safeGet(native, "isWorkspotStatic"), false),
                 markings = toMarkings(safeGet(native, "markings"))
             }
         end,
@@ -829,6 +948,11 @@ local TYPE_PRIORITY = {
     "worldBendedMeshNode",
     "worldStaticOccluderMeshNode",
     "worldFoliageNode",
+    -- Cloth, rotating and dynamic meshes derive from worldMeshNode, so they come before it and
+    -- before the plain static mesh for an unrecognized subclass to land on what it really is.
+    "worldClothMeshNode",
+    "worldRotatingMeshNode",
+    "worldDynamicMeshNode",
     "worldStaticMeshNode",
     "worldInstancedMeshNode",
     "worldPrefabProxyMeshNode",
