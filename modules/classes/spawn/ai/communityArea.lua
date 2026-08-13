@@ -159,6 +159,47 @@ local function getFirstUnusedPeriodHour(periods, hourCount)
     return nil
 end
 
+---Collect the names used by the siblings of an item, so a new name can be checked against them.
+---@param items table Array of entries or phases.
+---@param field string Name field, `entryName` or `phaseName`.
+---@param ignoreKey any? Key of the item the name is for, e.g. the one being renamed.
+---@return table<string, boolean> usedNames
+local function collectUsedNames(items, field, ignoreKey)
+    local usedNames = {}
+
+    for key, item in pairs(items or {}) do
+        if key ~= ignoreKey then
+            local name = sanitizeValue(item and item[field] or "")
+            if name ~= "" then
+                usedNames[name] = true
+            end
+        end
+    end
+
+    return usedNames
+end
+
+---Increment `name` until no sibling uses it, like the spawned hierarchy does for groups and assets.
+---Empty names are left as they are, they show up as a placeholder in the UI.
+---@param items table Array of entries or phases.
+---@param field string Name field, `entryName` or `phaseName`.
+---@param name string Wanted name.
+---@param ignoreKey any? Key of the item the name is for, e.g. the one being renamed.
+---@return string uniqueName
+local function getUniqueName(items, field, name, ignoreKey)
+    local unique = sanitizeValue(name)
+    if unique == "" then
+        return unique
+    end
+
+    local usedNames = collectUsedNames(items, field, ignoreKey)
+    while usedNames[unique] do
+        unique = utils.generateCopyName(unique)
+    end
+
+    return unique
+end
+
 local function collectPhaseNames(phases)
     local names = {}
     local dedupe = {}
@@ -847,7 +888,7 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
         history.addAction(history.getElementChange(self.object))
         local nextPhaseIndex = #entry.phases + 1
         table.insert(entry.phases, {
-            phaseName = string.format("phase_%d", nextPhaseIndex),
+            phaseName = getUniqueName(entry.phases, "phaseName", string.format("phase_%d", nextPhaseIndex)),
             appearances = { "default" },
             timePeriods = {}
         })
@@ -868,13 +909,21 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
             phaseOpen = not phaseOpen
             self.hierarchyOpen[phaseHierarchyKey] = phaseOpen
         end
-        self:drawContext(key, entry.phases)
+        self:drawContext(key, entry.phases, {
+            prepareDuplicate = function(copy)
+                copy.phaseName = getUniqueName(entry.phases, "phaseName", copy.phaseName)
+            end
+        })
 
         ImGui.SameLine()
         if phaseOpen then
             style.drawIconLabelRow(nil, string.format("[%d]", key))
             ImGui.SameLine()
-            phase.phaseName, _ = style.trackedTextField(self.object, "##phaseName", phase.phaseName, "default", 120)
+            local phaseNameCommitted
+            phase.phaseName, _, phaseNameCommitted = style.trackedTextField(self.object, "##phaseName", phase.phaseName, "default", 120)
+            if phaseNameCommitted then
+                phase.phaseName = getUniqueName(entry.phases, "phaseName", phase.phaseName, key)
+            end
         else
             local phaseNameLabel = phase.phaseName ~= "" and phase.phaseName or "default"
             style.drawIconLabelRow(nil, string.format("[%d] %s", key, phaseNameLabel))
@@ -903,7 +952,9 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
         local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicatePhase", "deletePhase")
         if duplicateClicked then
             history.addAction(history.getElementChange(self.object))
-            table.insert(entry.phases, utils.deepcopy(entry.phases[key]))
+            local copy = utils.deepcopy(entry.phases[key])
+            copy.phaseName = getUniqueName(entry.phases, "phaseName", copy.phaseName)
+            table.insert(entry.phases, copy)
         end
         if deleteClicked then
             history.addAction(history.getElementChange(self.object))
@@ -951,7 +1002,7 @@ function community:drawEntries()
         history.addAction(history.getElementChange(self.object))
         local nextEntryIndex = #self.entries + 1
         table.insert(self.entries, {
-            entryName = string.format("entry_%d", nextEntryIndex),
+            entryName = getUniqueName(self.entries, "entryName", string.format("entry_%d", nextEntryIndex)),
             characterRecordId = "Character.Judy",
             initialPhaseName = "default",
             entryActiveOnStart = true,
@@ -990,13 +1041,21 @@ function community:drawEntries()
             entryOpen = not entryOpen
             self.hierarchyOpen[entryHierarchyKey] = entryOpen
         end
-        self:drawContext(key, self.entries)
+        self:drawContext(key, self.entries, {
+            prepareDuplicate = function(copy)
+                copy.entryName = getUniqueName(self.entries, "entryName", copy.entryName)
+            end
+        })
 
         ImGui.SameLine()
         if entryOpen then
             style.drawIconLabelRow(nil, string.format("[%d]", key))
             ImGui.SameLine()
-            entry.entryName, _ = style.trackedTextField(self.object, "##entryName", entry.entryName, "name", 120)
+            local entryNameCommitted
+            entry.entryName, _, entryNameCommitted = style.trackedTextField(self.object, "##entryName", entry.entryName, "name", 120)
+            if entryNameCommitted then
+                entry.entryName = getUniqueName(self.entries, "entryName", entry.entryName, key)
+            end
 
             ImGui.SameLine()
             style.mutedText(IconGlyphs.AlphaRBoxOutline)
@@ -1080,7 +1139,9 @@ function community:drawEntries()
         local duplicateClicked, deleteClicked = drawDuplicateDeleteButtons("duplicateEntry", "deleteEntry")
         if duplicateClicked then
             history.addAction(history.getElementChange(self.object))
-            table.insert(self.entries, utils.deepcopy(self.entries[key]))
+            local copy = utils.deepcopy(self.entries[key])
+            copy.entryName = getUniqueName(self.entries, "entryName", copy.entryName)
+            table.insert(self.entries, copy)
         end
         if deleteClicked then
             history.addAction(history.getElementChange(self.object))
