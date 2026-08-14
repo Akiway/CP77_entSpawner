@@ -53,9 +53,10 @@ local style = {
     targetedColor = 0xFF00007F,
     regularColor = 0xFFFFFFFF,
     greyedColor = 0xff777777,
-    lightColorHexBadgeBg = colorUtil.packAABBGGRR({ 0.09, 0.20, 0.34 }, 0.95),
-    lightColorHexBadgeHover = colorUtil.packAABBGGRR({ 0.13, 0.27, 0.45 }, 1.0),
-    lightColorHexBadgePressed = colorUtil.packAABBGGRR({ 0.07, 0.17, 0.29 }, 1.0),
+    lightColorHexBadgeScrim = colorUtil.packAABBGGRR({ 0.04, 0.05, 0.07 }, 1.0),
+    lightColorHexBadgeBg = colorUtil.packAABBGGRR({ 0.0, 0.0, 0.0 }, 0.0),
+    lightColorHexBadgeHover = colorUtil.packAABBGGRR({ 1.0, 1.0, 1.0 }, 0.10),
+    lightColorHexBadgePressed = colorUtil.packAABBGGRR({ 1.0, 1.0, 1.0 }, 0.16),
     lightRadiusIconColor = 0xFF5D9645,
     lightInnerAngleColor = 0xFF98CCE9,
     lightOuterAngleColor = 0xFFAF7838,
@@ -2416,6 +2417,18 @@ function style.drawLightColorSwatch(object, popupId, hexInputId, color, hexText,
         )
     end
 
+    local badgePadding = 3 * style.viewSize
+    local badgeRounding = ImGui.GetStyle().FrameRounding + badgePadding
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        hexInputScreenX - badgePadding,
+        hexInputScreenY - badgePadding,
+        hexInputScreenX + hexInputScreenW + badgePadding,
+        hexInputScreenY + hexInputScreenH + badgePadding,
+        style.lightColorHexBadgeScrim,
+        badgeRounding
+    )
+
     local afterSwatchY = swatchLocalY + swatchSize
     local hexInputY = swatchLocalY + swatchSize - ImGui.GetFrameHeight() - hexInputBottomOffset
     ImGui.SetCursorPos(swatchLocalX + 10 * style.viewSize, hexInputY)
@@ -2433,10 +2446,10 @@ function style.drawLightColorSwatch(object, popupId, hexInputId, color, hexText,
     local popupOpen = ImGui.IsPopupOpen(popupId)
     local hoveringSwatch = ImGui.IsMouseHoveringRect(swatchX, swatchY, swatchMaxX, swatchMaxY)
     local hoveringHexInput = ImGui.IsMouseHoveringRect(
-        hexInputScreenX,
-        hexInputScreenY,
-        hexInputScreenX + hexInputScreenW,
-        hexInputScreenY + hexInputScreenH
+        hexInputScreenX - badgePadding,
+        hexInputScreenY - badgePadding,
+        hexInputScreenX + hexInputScreenW + badgePadding,
+        hexInputScreenY + hexInputScreenH + badgePadding
     )
     if not popupOpen and hoveringSwatch and not hoveringHexInput then
         if ImGui.IsMouseClicked(0) then
