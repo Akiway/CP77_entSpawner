@@ -1513,6 +1513,9 @@ function entity:getProperties()
         id = self.node .. "instanceData",
         name = "Entity Instance Data",
         defaultHeader = false,
+        drawHeader = function()
+            self:drawInstanceDataCounter()
+        end,
         draw = function()
             self:drawInstanceData()
         end
@@ -2443,6 +2446,37 @@ function entity:getSortedComponents()
     end)
 
     return entries
+end
+
+---Whether component data has been loaded, i.e. more than just the (optional) PS controller entry
+---@return boolean
+function entity:hasLoadedInstanceData()
+    local nDefaultData = utils.tableLength(self.defaultComponentData)
+
+    if nDefaultData == 0 then return false end
+    if nDefaultData == 1 and self.defaultComponentData[self.psControllerID] ~= nil then return false end
+
+    return true
+end
+
+---Number of components in the loaded instance data, excluding the entity itself
+---@return number
+function entity:getComponentCount()
+    local count = utils.tableLength(self.defaultComponentData)
+
+    if self.defaultComponentData["0"] then -- The "0" entry is the entity, not a component
+        count = count - 1
+    end
+
+    return count
+end
+
+---Draws the component counter next to the "Entity Instance Data" header, once components have been loaded
+function entity:drawInstanceDataCounter()
+    if not self:hasLoadedInstanceData() then return end
+
+    ImGui.SameLine()
+    style.mutedText(string.format("(%d %s)", self:getComponentCount(), self:getComponentCount() == 1 and "component" or "components"))
 end
 
 function entity:drawInstanceData()
