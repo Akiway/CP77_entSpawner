@@ -233,7 +233,7 @@ function prefabsUI.drawTagCombo(idScope, selections, searchValue, opts)
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
         previewLabel = style.getMultiSelectPreviewLabel(selections, opts.allLabel, "%d tags selected"),
-        searchHint = IconGlyphs.Magnify .. " Search tag...",
+        searchHint = "Search tag...",
         searchValue = searchValue,
         options = opts.options,
         selections = selections,
@@ -664,7 +664,7 @@ function prefabsUI.drawSelectCategory(categoryName)
         comboId = "##selectCategory",
         previewLabel = getCategoryLabel(categoryName),
         singleSelect = true,
-        searchHint = IconGlyphs.Magnify .. " Search category...",
+        searchHint = "Search category...",
         searchValue = prefabsUI.selectCategorySearch,
         options = categories,
         selections = selections,

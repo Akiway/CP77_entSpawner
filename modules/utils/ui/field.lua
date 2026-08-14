@@ -480,23 +480,16 @@ function field.drawIconSelector(id, current, search)
     if ImGui.BeginCombo(comboId, previewValue) then
         input.updateContext("main")
 
+        if style.drawSearchClearButton("##iconClear" .. pickerId, search ~= "", "Search icons") then
+            search = ""
+        end
+        local clearButtonWidth, _ = ImGui.GetItemRectSize()
+
         local interiorWidth = 250 - (2 * ImGui.GetStyle().FramePadding.x) - 30
         style.setNextItemWidth(interiorWidth)
         search, _ = style.inputTextWithHint("##iconSearch" .. pickerId, "Icon, alias or tag...", search, 100)
         local searchWidth, _ = ImGui.GetItemRectSize()
-        local clearButtonWidth = 0
-        local controlsWidth = searchWidth
-
-        if search ~= "" then
-            ImGui.SameLine()
-            style.pushButtonNoBG(true)
-            if ImGui.Button(IconGlyphs.Close .. "##iconClear" .. pickerId) then
-                search = ""
-            end
-            clearButtonWidth, _ = ImGui.GetItemRectSize()
-            controlsWidth = controlsWidth + ImGui.GetStyle().ItemSpacing.x + clearButtonWidth
-            style.pushButtonNoBG(false)
-        end
+        local controlsWidth = searchWidth + ImGui.GetStyle().ItemSpacing.x + clearButtonWidth
 
         ImGui.SameLine()
         pickerState.showNames, _ = ImGui.Checkbox("Show names##showIconNames" .. pickerId, pickerState.showNames)

@@ -3440,26 +3440,21 @@ end
 
 ---@protected
 function spawnedUI.drawTop()
+    if style.drawSearchClearButton('##FilterClear', spawnedUI.filter ~= '', 'Search for element') then
+        spawnedUI.filter = ''
+        spawnedUI.invalidateCache(false)
+        if #spawnedUI.selectedPaths == 1 then
+            spawnedUI.selectedPaths[1].ref:expandAllParents()
+            spawnedUI.scrollToSelected = true
+        end
+    end
+
     local previousFilter = spawnedUI.filter
     ImGui.PushItemWidth(200 * style.viewSize)
-    spawnedUI.filter = style.inputTextWithHint('##Filter', IconGlyphs.Magnify .. ' Search for element...', spawnedUI.filter, 100)
+    spawnedUI.filter = style.inputTextWithHint('##Filter', 'Search for element...', spawnedUI.filter, 100)
     ImGui.PopItemWidth()
     if spawnedUI.filter ~= previousFilter then
         spawnedUI.invalidateCache(false)
-    end
-
-    if spawnedUI.filter ~= '' then
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            spawnedUI.filter = ''
-            spawnedUI.invalidateCache(false)
-            if #spawnedUI.selectedPaths == 1 then
-                spawnedUI.selectedPaths[1].ref:expandAllParents()
-                spawnedUI.scrollToSelected = true
-            end
-        end
-        style.pushButtonNoBG(false)
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)

@@ -493,7 +493,7 @@ local function drawTagSelectorCombo(selections, idScope, searchValue, opts)
     return style.drawSearchableMultiSelectCombo({
         comboId = "##" .. idScope .. "Combo",
         previewLabel = preview,
-        searchHint = IconGlyphs.Magnify .. " Search tag...",
+        searchHint = "Search tag...",
         searchValue = searchValue,
         options = assetFavorites.getTagNames(),
         selections = selections,

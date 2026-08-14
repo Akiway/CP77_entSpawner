@@ -351,6 +351,10 @@ function projectLinkPopup.draw(spawner)
         style.mutedText("Or replace an existing project")
     end
 
+    if style.drawSearchClearButton("##projectLinkFilterClear", projectLinkPopup.filter ~= "", "Search projects") then
+        projectLinkPopup.filter = ""
+    end
+
     ImGui.SetNextItemWidth(260 * style.viewSize)
     projectLinkPopup.filter = style.inputTextWithHint("##projectLinkFilter", "Search projects...", projectLinkPopup.filter, 100)
 

@@ -1350,25 +1350,19 @@ function savedUI.draw(spawner)
         savedUI.maxTextWidth = utils.getTextMaxWidth({"Group name", "File name", "Project", "Position"}) + 6 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
+    if style.drawSearchClearButton('##FilterClear', savedUI.filter ~= '', 'Search for data') then
+        savedUI.filter = ''
+        settings.savedUIFilter = savedUI.filter
+        settings.save()
+    end
+
     ImGui.PushItemWidth(200 * style.viewSize)
-    savedUI.filter, changed = style.inputTextWithHint('##Filter', IconGlyphs.Magnify .. ' Search for data...', savedUI.filter, 100)
+    savedUI.filter, changed = style.inputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
     if changed then
         settings.savedUIFilter = savedUI.filter
         settings.save()
     end
     ImGui.PopItemWidth()
-
-    if savedUI.filter ~= '' then
-        ImGui.SameLine()
-
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            savedUI.filter = ''
-            settings.savedUIFilter = savedUI.filter
-            settings.save()
-        end
-        style.pushButtonNoBG(false)
-    end
 
     ammImportReportPopup.syncAutoOpen()
     local hasImportReport = ammImportReportPopup.hasReport()

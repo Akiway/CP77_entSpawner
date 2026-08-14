@@ -512,6 +512,10 @@ end
 style.panelCardBg         = { 0.65, 0.70, 1.00, 0.045 }
 style.panelFrameBg        = { 0.12, 0.26, 0.42, 0.30 }
 style.panelFrameBorder    = { 0.24, 0.59, 1.00, 0.35 }
+-- Resting border, lifted just enough to read as "this reacts" without competing with the active
+-- one. Alpha is well under the active border's so the hover stays a hint and the focused field
+-- remains the loudest thing on screen.
+style.panelFrameBorderHi  = { 0.45, 0.72, 1.00, 0.75 }
 style.panelSplitterHover  = { 0.30, 0.50, 0.70, 0.50 }
 style.panelSplitterDrag   = { 0.00, 1.00, 0.70, 0.60 }
 style.panelSplitterIcon   = { 0.60, 0.60, 0.70, 1.00 }
@@ -535,31 +539,42 @@ function style.pushOutlinedInput()
     ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, INPUT_BORDER_SIZE)
 end
 
----Pop the styling pushed by `style.pushOutlinedInput`, and mark the field as active if it is.
+---Pop the styling pushed by `style.pushOutlinedInput`, and mark the field as active or hovered if
+---it is.
 ---
----Must be called immediately after the widget: the active border is read off the last item.
+---Must be called immediately after the widget: both borders are read off the last item.
 function style.popOutlinedInput()
     ImGui.PopStyleVar(1)
     ImGui.PopStyleColor(3)
 
-    -- ImGui has no "active border" color, and the real one has to be pushed before the widget is
-    -- drawn - by which point nothing knows yet whether it will take focus. So the active border is
-    -- painted over the resting one afterwards instead, which also avoids the frame of lag a
-    -- remembered state would cost.
-    if not ImGui.IsItemActive() then return end
+    -- ImGui has no "active border" or "hovered border" color, and the real one has to be pushed
+    -- before the widget is drawn - by which point nothing knows yet whether it will take focus or
+    -- the cursor. So both states are painted over the resting border afterwards instead, which also
+    -- avoids the frame of lag a remembered state would cost.
+    local overdraw, alpha
+
+    if ImGui.IsItemActive() then
+        -- Drawn opaque rather than at the drag bar's own alpha: that alpha is meant for a fill over
+        -- the window, and letting the blue resting border show through a 2px line only muddies it.
+        overdraw, alpha = style.panelSplitterDrag, 1.0
+    elseif ImGui.IsItemHovered() then
+        -- Hover keeps its own alpha, so the resting blue underneath softens the lift instead of
+        -- replacing it outright.
+        overdraw = style.panelFrameBorderHi
+        alpha = overdraw[4]
+    else
+        return
+    end
 
     local drawList = ImGui.GetWindowDrawList()
     if not drawList then return end
 
     local minX, minY = ImGui.GetItemRectMin()
     local maxX, maxY = ImGui.GetItemRectMax()
-    local active = style.panelSplitterDrag
 
-    -- Drawn opaque rather than at the drag bar's own alpha: that alpha is meant for a fill over
-    -- the window, and letting the blue resting border show through a 2px line only muddies it.
     ImGui.ImDrawListAddRect(
         drawList, minX, minY, maxX, maxY,
-        ImGui.GetColorU32(active[1], active[2], active[3], 1.0),
+        ImGui.GetColorU32(overdraw[1], overdraw[2], overdraw[3], alpha),
         ImGui.GetStyle().FrameRounding, 0, INPUT_BORDER_SIZE
     )
 end
@@ -1606,11 +1621,38 @@ end
 -- Query-syntax help shared by every search field supporting `utils.matchSearch`.
 style.searchQuerySyntaxTooltip = "Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'"
 
----Draw the standard search row: text input, conditional clear button and syntax help glyph.
+---Draw the glyph button that goes in front of a search input: a magnifier while the field is
+---empty, a clear button once there is a query to drop. Always drawn, so the row keeps the same
+---layout whether or not something has been typed. Leaves the cursor on the same line, ready for
+---the input itself.
+---@param id string Button ID, `##` prefixed by the caller so the glyph stays out of the ID.
+---@param hasQuery boolean Whether the field currently holds a query.
+---@param searchTooltip string? Tooltip shown while the field is empty (default `"Search"`).
+---@return boolean cleared True when the button was pressed while there was a query to clear.
+function style.drawSearchClearButton(id, hasQuery, searchTooltip)
+    local cleared = false
+
+    -- Tightened spacing: the glyph reads as part of the field beside it, not as a button of its own.
+    ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 4 * style.viewSize, ImGui.GetStyle().ItemSpacing.y)
+    style.pushButtonNoBG(true)
+    if ImGui.Button((hasQuery and IconGlyphs.CloseCircleOutline or IconGlyphs.Magnify) .. id) and hasQuery then
+        cleared = true
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip(hasQuery and "Clear the search" or (searchTooltip or "Search"))
+
+    ImGui.SameLine()
+    ImGui.PopStyleVar()
+
+    return cleared
+end
+
+---Draw the standard search row: clear/search button, text input and syntax help glyph.
 ---@class SearchFilterRowOpts
 ---@field width number? Input width in unscaled units (default `300`).
 ---@field maxLength number? Input buffer length (default `100`).
 ---@field hint string? Placeholder text.
+---@field searchTooltip string? Tooltip of the leading glyph while the field is empty.
 ---@field onClear fun()? Called instead of `changed` when the clear button is pressed.
 ---@param id string Input ID, e.g. `##filter`.
 ---@param value string Current search text.
@@ -1622,16 +1664,14 @@ function style.drawSearchFilterRow(id, value, opts)
     opts = opts or {}
     value = tostring(value or "")
 
+    local cleared = style.drawSearchClearButton(id .. "Clear", value ~= "", opts.searchTooltip)
+    if cleared then
+        value = ""
+    end
+
     ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
     local changed
-    local defaultHint = IconGlyphs.Magnify .. " Search by name... (Supports pattern matching)"
-    value, changed = style.inputTextWithHint(id, opts.hint or defaultHint, value, opts.maxLength or 100)
-
-    local cleared = false
-    if style.drawNoBGConditionalButton(value ~= "", IconGlyphs.Close .. id .. "Clear") then
-        value = ""
-        cleared = true
-    end
+    value, changed = style.inputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
 
     ImGui.SameLine()
     style.mutedText(IconGlyphs.InformationOutline)
@@ -1728,17 +1768,14 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     if comboOpen then
         local effectiveWidth = matchContentWidth and (popupMaxWidth / style.viewSize) or width
         local interiorWidth = effectiveWidth - (2 * ImGui.GetStyle().FramePadding.x) - 30
+        if style.drawSearchClearButton("##searchClear", searchValue ~= "") then
+            searchValue = ""
+        end
+        local xButton, _ = ImGui.GetItemRectSize()
+
         searchValue, _, _ = style.trackedTextField(nil, "##search", searchValue, searchHint, interiorWidth)
         local x, _ = ImGui.GetItemRectSize()
 
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            searchValue = ""
-        end
-        style.pushButtonNoBG(false)
-
-        local xButton, _ = ImGui.GetItemRectSize()
         local customValue = tostring(searchValue or "")
         customValue = utils.sanitizeText(customValue)
         local customExists = false
@@ -1976,19 +2013,14 @@ function style.drawSearchableMultiSelectCombo(opts)
         end
         options = options or {}
 
+        if style.drawSearchClearButton(searchClearButtonId, searchValue ~= "") then
+            searchValue = ""
+        end
+
         ImGui.SetNextItemWidth(searchWidth)
         local nextSearchValue, searchChanged = style.inputTextWithHint(searchInputId, searchHint, searchValue, 100)
         if searchChanged then
             searchValue = nextSearchValue
-        end
-
-        if searchValue ~= "" then
-            ImGui.SameLine()
-            style.pushButtonNoBG(true)
-            if ImGui.Button(IconGlyphs.Close .. searchClearButtonId) then
-                searchValue = ""
-            end
-            style.pushButtonNoBG(false)
         end
 
         style.pushButtonNoBG(true)

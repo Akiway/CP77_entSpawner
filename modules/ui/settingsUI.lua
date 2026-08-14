@@ -308,7 +308,8 @@ local function drawSettingsSearchRow()
 
     settingsUI.search = select(1, style.drawSearchFilterRow("##settingsSearch", settingsUI.search, {
         width = 120 * style.viewSize,
-        hint = IconGlyphs.Magnify .. " Search settings..."
+        hint = "Search settings...",
+        searchTooltip = "Search the settings"
     }))
     settingsUI.search = utils.stripNonASCII(settingsUI.search)
 

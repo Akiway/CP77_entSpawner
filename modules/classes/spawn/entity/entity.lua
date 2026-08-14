@@ -2462,18 +2462,13 @@ function entity:drawInstanceData()
 
     self.instanceDataSearchInProperties = self.instanceDataSearchInProperties == true
 
+    if style.drawSearchClearButton('##searchComponentClear', self.instanceDataSearch ~= "", 'Search for component') then
+        self.instanceDataSearch = ""
+    end
+
     ImGui.PushItemWidth(200 * style.viewSize)
     self.instanceDataSearch = style.inputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
     ImGui.PopItemWidth()
-
-    if self.instanceDataSearch ~= "" then
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            self.instanceDataSearch = ""
-        end
-        style.pushButtonNoBG(false)
-    end
 
     ImGui.SameLine()
     self.instanceDataSearchInProperties, _ = ImGui.Checkbox("Search in properties##instanceDataPropertySearch", self.instanceDataSearchInProperties)

@@ -2956,29 +2956,30 @@ function spawnUI.drawPopupVariant(typeName, variantName)
     local _, screenHeight = GetDisplayResolution()
     local popupSpawnList = spawnData[typeName][variantName]
 
-    if spawnUI.currentPopupVariant ~= variantName then
-        ImGui.SetKeyboardFocusHere()
+    local focusFilter = spawnUI.currentPopupVariant ~= variantName
+    if focusFilter then
         spawnUI.loadPopupData(typeName, variantName)
         spawnUI.currentPopupVariant = variantName
     end
+
+    if style.drawSearchClearButton('##FilterClear', spawnUI.popupFilter ~= '') then
+        spawnUI.popupFilter = ''
+        spawnUI.loadPopupData(typeName, variantName)
+    end
+    local xButton, _ = ImGui.GetItemRectSize()
+
+    -- Focus is requested here rather than when the popup opens, so it lands on the input instead of
+    -- the glyph button now drawn in front of it.
+    if focusFilter then
+        ImGui.SetKeyboardFocusHere()
+    end
+
     local popupFilterChanged
     spawnUI.popupFilter, popupFilterChanged = style.inputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
     local xSpace, _ = ImGui.GetItemRectSize()
+    xSpace = xSpace + xButton + ImGui.GetStyle().ItemSpacing.x
     if popupFilterChanged then
         spawnUI.loadPopupData(typeName, variantName)
-    end
-
-    if spawnUI.popupFilter ~= '' then
-        ImGui.SameLine()
-
-        style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Close) then
-            spawnUI.popupFilter = ''
-            spawnUI.loadPopupData(typeName, variantName)
-        end
-        style.pushButtonNoBG(false)
-        local x, _ = ImGui.GetItemRectSize()
-        xSpace = xSpace + x + ImGui.GetStyle().ItemSpacing.x
     end
 
     if spawnUI.popupFilter ~= "" or #popupSpawnList.data < 100 then
