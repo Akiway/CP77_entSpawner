@@ -1310,6 +1310,12 @@ function exportUI.addGroup(name, fileName)
         variantData = {}
     }
 
+    -- First group added to an unnamed export: the group name is the best guess at what the export
+    -- should be called, and saves having to type it again.
+    if #exportUI.groups == 0 and exportUI.projectName == "" then
+        exportUI.projectName = name
+    end
+
     table.insert(exportUI.groups, data)
     local blob = loadSavedGroupBlob(data)
     if not blob then return end
