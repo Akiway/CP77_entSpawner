@@ -223,6 +223,18 @@ function assetValidation.check(modulePath, path)
     return result
 end
 
+---Whether a spawnable class carries a depot resource path in its `spawnData`.
+---
+---True for exactly the classes that have a rule, which is the same thing: a class without one
+---either puts something else there (a TweakDB record, a sound event, a collision shape hash) or
+---never leaves the placeholder entity every non asset backed node spawns through. Those have no
+---asset path to point somewhere else, however much their World Node section shows one.
+---@param modulePath string?
+---@return boolean
+function assetValidation.hasAssetPath(modulePath)
+    return rulesByModule[modulePath or ""] ~= nil
+end
+
 ---Whether an asset appears in the curated list of the class that would spawn it.
 ---True for every class without a list, since then nothing constrains the asset.
 ---@param modulePath string?

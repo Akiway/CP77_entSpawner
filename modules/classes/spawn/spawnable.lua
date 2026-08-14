@@ -62,7 +62,14 @@ local assetValidation = require("modules/utils/game/assetValidation")
 ---@field public visualizeStreamingRange boolean
 ---@field protected assetCheck assetCheckResult? Type check of `spawnData`, see `refreshAssetCheck`
 ---@field private assetBlockReported boolean
+---@field private assetPathEdit string Live value of the asset path editor's path field, see `drawAssetPathEditPopup`
+---@field private assetNameEdit string Live value of the asset path editor's name field
 local spawnable = {}
+
+-- The asset path editor is drawn by whichever node is selected, and only one ever is, so a single
+-- ID is enough. Text before `##` is the popup's title bar.
+local ASSET_PATH_EDIT_POPUP_ID = "Edit Asset Path##wb-assetPathEdit-wui"
+local ASSET_PATH_EDIT_POPUP_WIDTH = 520
 local streamingPresetLabels = {
     "Interior",
     "Street",
@@ -126,6 +133,8 @@ function spawnable:new()
 
     o.assetCheck = nil
     o.assetBlockReported = false
+    o.assetPathEdit = ""
+    o.assetNameEdit = ""
 
     o.isHovered = false
     o.arrowDirection = "none"
@@ -238,6 +247,75 @@ function spawnable:getAssetSpawnBlock()
     if not self.assetCheck or self.assetCheck.severity ~= "error" then return nil end
 
     return assetValidation.getSummary(self.assetCheck, self.dataType or self.modulePath)
+end
+
+---Whether `spawnData` is a depot asset path that may be pointed at another asset.
+---@return boolean
+function spawnable:hasEditableAssetPath()
+    return assetValidation.hasAssetPath(self.modulePath)
+end
+
+---Points this node at another asset, optionally renaming the element in the same move.
+---
+---Writing `spawnData` and respawning would keep everything the class read off the *old* asset:
+---appearance lists, bounding box, occluder support, whatever a subtype loads for itself. So the
+---element is serialized and loaded back with the new path instead, which is the one path every
+---class already implements for an asset it has never seen.
+---
+---The name rides along in that same payload rather than going through `element:rename`, which would
+---record a second history action: both were one decision in the editor, so one undo takes both back.
+---That is also how history itself renames -- `getRename` swaps a serialized element in, name and all.
+---@param path string New depot path. Trimmed, and ignored when empty or unchanged.
+---@param name string? New display name. Ignored when empty, unchanged, or the element is locked.
+---@return boolean changed
+function spawnable:setAssetPath(path, name)
+    local object = self.object
+    if not object then return false end
+
+    path = utils.sanitizeText(path)
+    local newPath = (path ~= "" and path ~= self.spawnData) and path or nil
+
+    local newName = nil
+    if name ~= nil and object:canRename() then
+        local resolved = object:resolveSiblingName(utils.sanitizeText(name))
+        if resolved ~= "" and resolved ~= object.name then
+            newName = resolved
+        end
+    end
+
+    if not newPath and not newName then return false end
+
+    local data = object:serialize()
+    if not data or not data.spawnable then return false end
+
+    local previousPath = self.spawnData
+    local previousName = object.name
+    data.spawnable.spawnData = newPath or previousPath
+    data.name = newName or previousName
+
+    history.addAction(history.getElementChange(object))
+    object:load(data, object.silent)
+
+    if newPath then
+        logger:info(string.format("Asset path of \"%s\" changed from \"%s\" to \"%s\"", tostring(previousName), tostring(previousPath), newPath))
+    end
+
+    if newName then
+        -- Draft of the tree row's inline rename field, which `load` does not carry: left alone it
+        -- would offer the previous name the next time that field is opened.
+        object.newName = object.name
+
+        -- A renamed element sits at a different path, and both the Spawned tab's path cache and the
+        -- NodeRef registry are keyed by it. `load` marks the element dirty but knows nothing of them.
+        local sUI = object.sUI
+        if sUI and sUI.invalidateCache then
+            sUI.invalidateCache(true)
+        end
+
+        logger:info(string.format("Renamed \"%s\" to \"%s\"", tostring(previousName), newName))
+    end
+
+    return true
 end
 
 ---Spawns the spawnable if not spawned already, must register a callback for entityAssemble which calls onAssemble
@@ -494,6 +572,160 @@ function spawnable:drawAssetCheckWarning()
     style.tooltip(assetValidation.getSummary(check, label) .. "\n\n" .. assetValidation.getDetail(check, label))
 end
 
+---The Spawn New UI, when this node's element can reach it.
+---Only ever used for wording: it owns the "Type > Variant" labels the asset check names in its
+---hints, and a node whose element is not attached to the UI simply goes without them.
+---@param instance spawnable
+---@return table?
+local function getSpawnUI(instance)
+    local sUI = instance.object and instance.object.sUI
+    local baseUI = sUI and sUI.spawner and sUI.spawner.baseUI
+
+    return baseUI and baseUI.spawnUI or nil
+end
+
+---Reason the Apply button of the asset path editor is disabled, or nil when it is not.
+---@param blocked boolean Whether the asset check refuses the typed path.
+---@param pathChanged boolean
+---@param nameChanged boolean
+---@param emptyPath boolean
+---@return string? reason
+local function getAssetPathEditBlockReason(blocked, pathChanged, nameChanged, emptyPath)
+    if blocked then return nil end -- Explained by the check's own detail text instead.
+    if pathChanged or nameChanged then return nil end
+
+    if emptyPath then
+        return "Enter an asset path, or a new name"
+    end
+
+    return "Neither the asset path nor the name was changed"
+end
+
+---Draws the popup that points this node at another asset, and renames the element with it.
+---
+---The asset is checked exactly the way Spawn New checks a path typed into its search field, and for
+---the same reason: nothing vouches for a hand written path, and handing the game a resource of the
+---wrong type crashes it. A path that fails that check cannot be applied; the softer warnings (asset
+---not in any loaded archive, mesh not authored for this node type) are shown and left to the user.
+---
+---The name is offered here because the two go together: an element is named after the asset it was
+---spawned from, so pointing it somewhere else usually leaves the name describing the old one.
+---@protected
+function spawnable:drawAssetPathEditPopup()
+    if not ImGui.BeginPopupModal(ASSET_PATH_EDIT_POPUP_ID, true, ImGuiWindowFlags.AlwaysAutoResize) then
+        return
+    end
+
+    local width = ASSET_PATH_EDIT_POPUP_WIDTH * style.viewSize
+    local label = self.dataType or self.modulePath
+    local canRename = self.object ~= nil and self.object:canRename()
+    -- Every wrapped line ends where the fields do, so the auto-resized popup keeps one width whatever
+    -- it ends up saying. Taken before the first `SameLine` moves the cursor.
+    local wrapX = ImGui.GetCursorPosX() + width
+
+    -- `styledText`, not `styledTextWrapped`: `TextWrapped` overrides the wrap position with the
+    -- content region width, which in an auto-resizing popup is whatever the widest item made it.
+    ImGui.PushTextWrapPos(wrapX)
+    style.styledText(IconGlyphs.AlertOutline .. " Changing this path replaces the asset the node spawns.", style.warnColor)
+    style.styledText("Appearance, size and anything else read off the asset are loaded again from the new path. Everything else is kept as it is, which for an unrelated asset can mean settings that no longer match it, or a node that spawns wrong. Undo restores the node as it was.", style.mutedColor)
+    ImGui.PopTextWrapPos()
+
+    style.spacedSeparator()
+
+    local valueX = utils.getTextMaxWidth({ "Current", "New Path", "Name" }) + ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+    local fieldWidth = math.max(wrapX - valueX, 140 * style.viewSize)
+
+    style.mutedText("Current")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(valueX)
+    ImGui.Text(utils.shortenPath(self.spawnData or "", fieldWidth, true))
+    style.tooltip(self.spawnData or "")
+
+    style.mutedText("New Path")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(valueX)
+    ImGui.SetNextItemWidth(fieldWidth)
+    self.assetPathEdit, _ = style.inputTextWithHint("##assetPathEditField", "base\\path\\to\\asset...", self.assetPathEdit, 500)
+
+    -- Sanitized here as well as in `setAssetPath`, so what gets checked is what gets applied.
+    local newPath = utils.sanitizeText(self.assetPathEdit)
+    local check = assetValidation.check(self.modulePath, newPath)
+    local blocked = check.severity == "error" and settings.validateAssetTypes ~= false
+    local pathChanged = newPath ~= "" and newPath ~= self.spawnData
+
+    if not check.ok then
+        local spawnUI = getSpawnUI(self)
+        local suggestion = spawnUI and spawnUI.getVariantSuggestion(check) or ""
+        local detail = assetValidation.getDetail(check, label)
+
+        style.styledText(IconGlyphs.AlertOutline, blocked and 0xFF0000FF or style.warnColor)
+        ImGui.SameLine()
+        ImGui.PushTextWrapPos(wrapX)
+        style.styledText(assetValidation.getSummary(check, label), blocked and 0xFF0000FF or style.warnColor)
+        ImGui.PopTextWrapPos()
+        style.tooltip(suggestion ~= "" and (detail .. "\n\n" .. suggestion) or detail)
+    end
+
+    -- A locked element keeps its name whatever is typed, so the field is left out rather than offered
+    -- and then ignored.
+    local resolvedName = ""
+    if canRename then
+        style.mutedText("Name")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(valueX)
+        ImGui.SetNextItemWidth(fieldWidth)
+        self.assetNameEdit, _ = style.inputTextWithHint("##assetNameEditField", "Element name...", self.assetNameEdit, 100)
+
+        local typedName = utils.sanitizeText(self.assetNameEdit)
+        resolvedName = self.object:resolveSiblingName(typedName)
+
+        -- Sibling names are unique, so a taken one comes back suffixed. Said up front rather than
+        -- letting the element quietly land under a name nobody typed.
+        if resolvedName ~= "" and resolvedName ~= typedName then
+            ImGui.PushTextWrapPos(wrapX)
+            style.styledText(string.format("Another element here is already called \"%s\", this one becomes \"%s\".", typedName, resolvedName), style.mutedColor)
+            ImGui.PopTextWrapPos()
+        end
+    end
+
+    local nameChanged = canRename and resolvedName ~= "" and resolvedName ~= self.object.name
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    -- Applying replaces `self` with a freshly loaded spawnable, so the popup is closed at the very
+    -- end of the frame rather than from inside the button, which keeps this draw on the live object.
+    local closeAfterDraw = false
+    local blockReason = getAssetPathEditBlockReason(blocked, pathChanged, nameChanged, newPath == "")
+    local disabled = blocked or blockReason ~= nil
+
+    style.pushGreyedOut(disabled)
+    if ImGui.Button("Apply##assetPathEditApply") and not disabled then
+        if self:setAssetPath(newPath, canRename and self.assetNameEdit or nil) then
+            local applied = pathChanged and (nameChanged and "Asset path and name changed" or "Asset path changed") or "Name changed"
+            ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, applied))
+        end
+        closeAfterDraw = true
+    end
+    style.popGreyedOut(disabled)
+
+    if blocked then
+        style.tooltip(assetValidation.getDetail(check, label))
+    elseif blockReason then
+        style.tooltip(blockReason)
+    end
+
+    ImGui.SameLine()
+    if ImGui.Button("Cancel##assetPathEditCancel") then
+        closeAfterDraw = true
+    end
+
+    if closeAfterDraw then
+        ImGui.CloseCurrentPopup()
+    end
+
+    ImGui.EndPopup()
+end
+
 function spawnable:getProperties()
     local properties =  {}
 
@@ -520,11 +752,29 @@ function spawnable:getProperties()
             end
             style.pushButtonNoBG(false)
             style.tooltip("Copy asset path to clipboard")
+
+            local editableAssetPath = self:hasEditableAssetPath()
+            if editableAssetPath then
+                ImGui.SameLine()
+                style.pushButtonNoBG(true)
+                if ImGui.Button(IconGlyphs.PencilOutline .. "##editAssetPath") then
+                    self.assetPathEdit = assetPath
+                    self.assetNameEdit = self.object and self.object.name or ""
+                    ImGui.OpenPopup(ASSET_PATH_EDIT_POPUP_ID)
+                end
+                style.pushButtonNoBG(false)
+                style.tooltip("Point this node at another asset, and rename it")
+            end
+
             ImGui.SameLine()
             ImGui.Text(utils.shortenPath(assetPath, style.getMaxWidth(250), true))
             style.tooltip(assetPath)
 
             self:drawAssetCheckWarning()
+
+            if editableAssetPath then
+                self:drawAssetPathEditPopup()
+            end
 
             style.mutedText("Node Ref")
             ImGui.SameLine()

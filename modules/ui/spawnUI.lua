@@ -409,9 +409,10 @@ local function getSpawnableLabel(modulePath)
 end
 
 ---Lists the variants that would accept the asset a class just rejected, empty when none does.
+---Also used by the Spawned tab, whose asset path editor runs the same check on a typed path.
 ---@param check assetCheckResult
 ---@return string
-local function getVariantSuggestion(check)
+function spawnUI.getVariantSuggestion(check)
     local labels = {}
 
     for _, modulePath in ipairs(check.acceptedBy) do
@@ -438,7 +439,7 @@ local function rejectIncompatibleAsset(modulePath, path)
     local reason = assetValidation.getSpawnBlock(modulePath, path, label)
     if not reason then return false end
 
-    local suggestion = getVariantSuggestion(assetValidation.check(modulePath, path))
+    local suggestion = spawnUI.getVariantSuggestion(assetValidation.check(modulePath, path))
 
     logger:warn(string.format("Refused to spawn \"%s\" as %s: %s", tostring(path), label, reason))
     ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Error, 6000, reason .. (suggestion ~= "" and ("\n" .. suggestion) or "")))
@@ -2358,7 +2359,7 @@ function spawnUI.drawNoMatch()
     local blocked = check.severity == "error" and settings.validateAssetTypes ~= false
 
     if not check.ok then
-        local suggestion = getVariantSuggestion(check)
+        local suggestion = spawnUI.getVariantSuggestion(check)
         local detail = assetValidation.getDetail(check, label)
 
         style.styledText(IconGlyphs.AlertOutline, blocked and 0xFF0000FF or style.warnColor)

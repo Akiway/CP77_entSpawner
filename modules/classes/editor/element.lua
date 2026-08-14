@@ -266,20 +266,41 @@ function element.sanitizeDisplayName(name)
 	return cleaned
 end
 
+---The name this element would end up with if renamed to `name`: sanitized, and suffixed until no
+---sibling holds it. Answering that without renaming is what a caller applying a name as part of a
+---larger change needs, since it writes the name itself instead of going through `rename`.
+---@param name string
+---@return string cleaned Empty when the name cannot be used at all.
+function element:resolveSiblingName(name)
+	local cleaned = element.sanitizeDisplayName(name)
+	if cleaned == "" or cleaned == self.name then return cleaned end
+
+	-- Deduplicated through a stand-in rather than self, so nothing is written until the caller says
+	-- so. It is not among the children either, which is what makes a sibling holding `cleaned` count.
+	local candidate = { name = cleaned }
+	generateUniqueName(candidate, self.parent and self.parent.childs or {})
+
+	return candidate.name
+end
+
+---Whether the display name of this element may be changed.
+---@return boolean
+function element:canRename()
+	return not self.lockedRename and not self:isLocked()
+end
+
 ---Update the display name to the given one. Does not affect which file the element saves to.
 ---@param name string
 function element:rename(name)
-	if self.lockedRename then return end
-	if self:isLocked() then return end
+	if not self:canRename() then return end
 
-	local cleaned = element.sanitizeDisplayName(name)
+	local cleaned = self:resolveSiblingName(name)
 	if cleaned == "" then return end
 
 	local oldPath = self:getPath()
 	local oldState = self:serialize()
 
 	self.name = cleaned
-	generateUniqueName(self, self.parent.childs)
 	self.newName = self.name
 
 	history.addAction(history.getRename(oldState, oldPath, self:getPath(), self.id))
