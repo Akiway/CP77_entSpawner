@@ -25,6 +25,9 @@ local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
 local BACKUP_RESTORE_POPUP_ID = "Restore backup?##savedUIBackupRestore"
 
+---Seconds the tab may go without re-listing `data/objects/`. See `syncSavedFileCaches`.
+local FILE_SCAN_INTERVAL = 1.0
+
 savedUI = {
     filter = "",
     color = {group = {0, 255, 0}, object = {0, 50, 255}},
@@ -58,6 +61,9 @@ savedUI = {
     ---File names whose cached entry still renders correctly but whose `childs` tree is older than the
     ---file, because auto-save wrote it without holding the document in memory. See `getEntryData`.
     stalePayloads = {},
+    ---`os.clock()` of the last `data/objects/` listing. `nil` means one is due on the next draw.
+    ---@type number?
+    lastFileScanAt = nil,
     ---Backup restore waiting on the unlink warning, when the file it targets is open in the Spawned
     ---tab. `{ source, fileName, groupName }`, or `nil` when nothing is pending.
     ---@type table?
@@ -493,11 +499,35 @@ local function drawCorruptedEntry(fileName, tagX)
     end
 end
 
+---Forces the next draw to re-list `data/objects/` instead of waiting out `FILE_SCAN_INTERVAL`.
+---Call after adding, removing or renaming a project file, so the tab shows it immediately.
+function savedUI.invalidateFileScan()
+    savedUI.lastFileScanAt = nil
+end
+
+---Reconciles the entry cache with what is actually in `data/objects/`, at most once per
+---`FILE_SCAN_INTERVAL`.
+---
+---Throttled because the listing is nowhere near as cheap as it looks: CET's `dir()` canonicalizes
+---every entry against the folder, which costs two file-handle opens plus a status walk per file, and
+---it builds a fresh Lua table per file on top. Run per frame over a folder of any size that is
+---thousands of filesystem queries and a few hundred tables per frame, on the render thread, for an
+---answer that changes only when something touches the folder behind this tab's back -- everything the
+---tab itself does to a file already keeps the cache in step. A second of lag on a file that appeared
+---by other means is unnoticeable; anything that wants it sooner calls `savedUI.invalidateFileScan`.
 local function syncSavedFileCaches()
+    local now = os.clock()
+    if savedUI.lastFileScanAt and (now - savedUI.lastFileScanAt) < FILE_SCAN_INTERVAL then
+        return
+    end
+    savedUI.lastFileScanAt = now
+
     local existing = {}
 
     for _, file in pairs(dir("data/objects")) do
-        if file.name:match("^.+(%..+)$") == ".json" then
+        -- Suffix test rather than a pattern: this runs once per file per scan and the old
+        -- `^.+(%..+)$` interned a new string for every one of them just to compare it away.
+        if #file.name > 5 and file.name:sub(-5) == ".json" then
             existing[file.name] = true
 
             if not savedUI.files[file.name] and savedUI.invalidFiles[file.name] == nil then
@@ -511,6 +541,7 @@ local function syncSavedFileCaches()
             savedUI.files[fileName] = nil
             savedUI.groupOpenState[fileName] = nil
             savedUI.stalePayloads[fileName] = nil
+            savedUI.entryEditState[fileName] = nil
         end
     end
 
@@ -584,6 +615,7 @@ local function saveSavedEntry(fileName, data, updateTimestamp)
         savedUI.invalidFiles[fileName] = nil
         -- The file is now exactly this table again, so whatever auto-save had written is superseded.
         savedUI.stalePayloads[fileName] = nil
+        savedUI.invalidateFileScan()
     end
 
     return ok
@@ -871,7 +903,7 @@ end
 
 function savedUI.backwardComp()
     for _, file in pairs(dir("data/objects")) do
-        if file.name:match("^.+(%..+)$") == ".json" then
+        if #file.name > 5 and file.name:sub(-5) == ".json" then
             local data = config.loadFile("data/objects/" .. file.name)
 
             if data.type == "object" and data.path then
@@ -1007,6 +1039,7 @@ local function renameSavedFile(fileName, newBaseName)
     end
 
     moveEntryUIState(fileName, newFileName)
+    savedUI.invalidateFileScan()
 
     -- The uID *is* the file name, so the live group has to follow it. Its content is unaffected --
     -- the same bytes simply live under a new name now.
@@ -1832,6 +1865,7 @@ local function removeSavedEntry(fileName, data)
     savedUI.groupOpenState[fileName] = nil
     savedUI.stalePayloads[fileName] = nil
     savedUI.entryEditState[fileName] = nil
+    savedUI.invalidateFileScan()
 
     -- The group may still be open in the Spawned tab; its file is gone, so it is no longer a project
     -- and saving it has to ask for a new file rather than silently recreating this one.
@@ -1922,10 +1956,13 @@ function savedUI.reload()
     backup.invalidateInfoCache()
 
     for _, file in pairs(dir("data/objects")) do
-        if file.name:match("^.+(%..+)$") == ".json" then
+        if #file.name > 5 and file.name:sub(-5) == ".json" then
             loadSavedEntry(file.name)
         end
     end
+
+    -- This *was* the scan, so the throttled one does not need to repeat it on the next draw.
+    savedUI.lastFileScanAt = os.clock()
 end
 
 return savedUI
