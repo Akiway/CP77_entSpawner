@@ -64,6 +64,24 @@ savedUI = {
     ---`os.clock()` of the last `data/objects/` listing. `nil` means one is due on the next draw.
     ---@type number?
     lastFileScanAt = nil,
+    ---Player position for the current frame, as plain numbers.
+    ---
+    ---Read once per draw rather than once per expanded entry: `GetWorldPosition` and `Vector4:Distance`
+    ---both cross into RTTI, which CET routes through `RTTIHelper::ExecuteFunction` -- a stack frame,
+    ---argument marshalling and a scratch allocator swap per call. Three of those per expanded entry per
+    ---frame was the single largest cost of a fully expanded list.
+    playerPos = { x = 0, y = 0, z = 0 },
+    ---Formatted position/distance line per file. Dropped wholesale when the player moves far enough to
+    ---change one, and per entry when the entry's own position changes. See `getPositionString`.
+    ---@type table<string, {text: string, x: number, y: number, z: number}>
+    posStrings = {},
+    ---Height of each entry's expanded body, so one that is scrolled out of view can be replaced by a
+    ---spacer of the same size instead of being drawn. See `beginEntryBody`.
+    ---@type table<string, number>
+    entryBodyHeight = {},
+    ---False while any field is being edited or any popup is open, which is exactly when swapping an
+    ---entry for a spacer would destroy the state being interacted with.
+    allowOffscreenSkip = false,
     ---Backup restore waiting on the unlink warning, when the file it targets is open in the Spawned
     ---tab. `{ source, fileName, groupName }`, or `nil` when nothing is pending.
     ---@type table?
@@ -72,6 +90,89 @@ savedUI = {
     ---from -- the button that queues the restore is several child windows deep.
     pendingBackupRestoreOpen = false
 }
+
+---Distance the player may drift before the cached position lines are rebuilt. Matches the single
+---decimal they are formatted to, so nothing visible can go stale.
+local POSITION_STRING_EPSILON = 0.05
+
+---Reads the player position once for the whole tab, and drops the cached position lines when it has
+---moved far enough for one of them to read differently.
+---@param spawner spawner
+local function syncPlayerPosition(spawner)
+    local x, y, z = 0, 0, 0
+
+    if spawner.player then
+        local position = spawner.player:GetWorldPosition()
+        x, y, z = position.x, position.y, position.z
+    end
+
+    local player = savedUI.playerPos
+    if math.abs(player.x - x) < POSITION_STRING_EPSILON
+        and math.abs(player.y - y) < POSITION_STRING_EPSILON
+        and math.abs(player.z - z) < POSITION_STRING_EPSILON then
+        return
+    end
+
+    player.x, player.y, player.z = x, y, z
+    savedUI.posStrings = {}
+end
+
+---Returns the "X=.. Y=.. Z=.., Distance: .." line for one entry, formatting it only when it would
+---actually differ from the one already cached.
+---@param fileName string
+---@param pos table `x`/`y`/`z` of the entry.
+---@return string
+local function getPositionString(fileName, pos)
+    local cached = savedUI.posStrings[fileName]
+
+    -- Validated against the position itself rather than invalidated from every path that rewrites an
+    -- entry: an entry's position changes on any re-save, and three number compares are cheaper than
+    -- threading invalidation through the several places that refresh a cached entry.
+    if cached and cached.x == pos.x and cached.y == pos.y and cached.z == pos.z then
+        return cached.text
+    end
+
+    local text = ("X=%.1f Y=%.1f Z=%.1f, Distance: %.1f")
+        :format(pos.x, pos.y, pos.z, utils.distanceVector(pos, savedUI.playerPos))
+
+    savedUI.posStrings[fileName] = { text = text, x = pos.x, y = pos.y, z = pos.z }
+
+    return text
+end
+
+---Decides whether an entry's expanded body has to be drawn this frame, standing a spacer of the
+---remembered height in for it when it does not.
+---
+---This tab cannot use `ImGuiListClipper` the way the Spawned tab does -- its rows are whatever height
+---their contents come to, not a uniform one -- and ImGui only clips *drawing*: every Lua call, every
+---id concatenation and every string marshalled across the binding is still paid for an entry nobody
+---can see. The body is the expensive half of an entry (two `InputTextWithHint`, a combo, the backup
+---rows), so it is the half worth skipping.
+---@param fileName string
+---@return boolean skipped True when a spacer was drawn and the body must not be.
+---@return number startY Cursor position to hand back to `endEntryBody`.
+local function beginEntryBody(fileName)
+    local height = savedUI.entryBodyHeight[fileName]
+
+    if height and savedUI.allowOffscreenSkip and not ImGui.IsRectVisible(1, height) then
+        ImGui.Dummy(0, height)
+        return true, 0
+    end
+
+    return false, ImGui.GetCursorPosY()
+end
+
+---Records how tall the body just drawn was, so the next frame can skip it while it is off screen.
+---@param fileName string Current name of the file, which the body itself may have renamed.
+---@param startY number Second return of `beginEntryBody`.
+local function endEntryBody(fileName, startY)
+    -- One item spacing short of the measured span: `startY` was taken before the first item and the
+    -- cursor now sits past the last one's trailing spacing, while the spacer standing in for the body
+    -- adds its own. Without the correction the list would grow every time an entry scrolled away.
+    local height = ImGui.GetCursorPosY() - startY - ImGui.GetStyle().ItemSpacing.y
+
+    savedUI.entryBodyHeight[fileName] = math.max(1, height)
+end
 
 ---@param group table
 ---@param spawner spawner
@@ -474,6 +575,10 @@ local function drawBackupRestoreActions(fileName)
     style.sectionHeaderStart("BACKUP")
     drawBackupRestoreAction("on_save", "Restore previous save", fileName)
     drawBackupRestoreAction("on_game_load", "Restore from game load", fileName)
+    -- `sectionHeaderStart` opens an ImGui group; leaving it open left one on the stack per drawn entry
+    -- for the window to unwind, and let the indent it sets leak into whatever was drawn afterwards.
+    -- Ended without trailing spacing, since every caller already closes the entry with its own.
+    style.sectionHeaderEnd(true)
 end
 
 ---@param fileName string
@@ -542,6 +647,8 @@ local function syncSavedFileCaches()
             savedUI.groupOpenState[fileName] = nil
             savedUI.stalePayloads[fileName] = nil
             savedUI.entryEditState[fileName] = nil
+            savedUI.posStrings[fileName] = nil
+            savedUI.entryBodyHeight[fileName] = nil
         end
     end
 
@@ -967,7 +1074,9 @@ local function moveEntryUIState(oldFileName, newFileName)
         savedUI.invalidFiles,
         savedUI.entryEditState,
         savedUI.groupProjectCreateState,
-        savedUI.groupProjectIconSearch
+        savedUI.groupProjectIconSearch,
+        savedUI.posStrings,
+        savedUI.entryBodyHeight
     }) do
         map[newFileName] = map[oldFileName]
         map[oldFileName] = nil
@@ -1379,6 +1488,15 @@ local function drawProjectSection(section, spawner, projectMap, projectOptions)
 end
 
 function savedUI.draw(spawner)
+    syncPlayerPosition(spawner)
+
+    -- Read before anything is submitted, so both still describe the frame the user last interacted
+    -- with. An entry that owns the active field or an open popup has to keep being drawn even once it
+    -- is scrolled away, or the edit in progress would be dropped without ever committing.
+    savedUI.allowOffscreenSkip = savedUI.pendingGroupProjectPopupId == nil
+        and not ImGui.IsAnyItemActive()
+        and not ImGui.IsPopupOpen("", ImGuiPopupFlags.AnyPopup or 0)
+
     if not savedUI.maxTextWidth then
         savedUI.maxTextWidth = utils.getTextMaxWidth({"Group name", "File name", "Project", "Position"}) + 6 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
@@ -1725,67 +1843,67 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
     style.mutedText(countText)
 
     if open then
-        local pPos = Vector4.new(0, 0, 0, 0)
-        if spawner.player then
-            pPos = spawner.player:GetWorldPosition()
-        end
-        local posString = ("X=%.1f Y=%.1f Z=%.1f, Distance: %.1f"):format(group.pos.x, group.pos.y, group.pos.z, ToVector4(group.pos):Distance(pPos))
+        local bodySkipped, bodyStartY = beginEntryBody(fileName)
 
-        fileName = savedUI.drawEntryNameFields(group, fileName)
+        if not bodySkipped then
+            fileName = savedUI.drawEntryNameFields(group, fileName)
 
-        drawGroupProjectAssignment(group, fileName, projectMap or {}, projectOptions or {})
+            drawGroupProjectAssignment(group, fileName, projectMap or {}, projectOptions or {})
 
-        style.mutedText("Position")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(savedUI.maxTextWidth)
-        ImGui.Text(posString)
+            style.mutedText("Position")
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(savedUI.maxTextWidth)
+            ImGui.Text(getPositionString(fileName, group.pos))
 
-        local groupLoadActive = groupLoadManager.isActive() or groupAMMImportManager.isActive()
-        style.pushGreyedOut(groupLoadActive)
-        if ImGui.Button("Load") and not groupLoadActive then
-            savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, false, fileName)
-        end
-        if groupLoadActive then
-            style.tooltip("Loading is disabled while another pipeline operation is active")
-        else
-            style.tooltip("Load and spawn the group immediately")
-        end
+            local groupLoadActive = groupLoadManager.isActive() or groupAMMImportManager.isActive()
+            style.pushGreyedOut(groupLoadActive)
+            if ImGui.Button("Load") and not groupLoadActive then
+                savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, false, fileName)
+            end
+            if groupLoadActive then
+                style.tooltip("Loading is disabled while another pipeline operation is active")
+            else
+                style.tooltip("Load and spawn the group immediately")
+            end
 
-        ImGui.SameLine()
-        if ImGui.Button("Load as Hidden") and not groupLoadActive then
-            savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, true, fileName)
-        end
-        if groupLoadActive then
-            style.tooltip("Loading is disabled while another pipeline operation is active")
-        else
-            style.tooltip("Load with hidden root so children are kept despawned until shown")
-        end
-        style.popGreyedOut(groupLoadActive)
+            ImGui.SameLine()
+            if ImGui.Button("Load as Hidden") and not groupLoadActive then
+                savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, true, fileName)
+            end
+            if groupLoadActive then
+                style.tooltip("Loading is disabled while another pipeline operation is active")
+            else
+                style.tooltip("Load with hidden root so children are kept despawned until shown")
+            end
+            style.popGreyedOut(groupLoadActive)
 
-        ImGui.SameLine()
-        local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
-        if style.warnButton(IconGlyphs.RunFast, {
-            tooltip = "Teleport player to group",
-            disabled = teleportDisabledByEditor,
-            disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
-        }) then
-            gameUtils.teleportPlayer(utils.getVector(group.pos))
-        end
+            ImGui.SameLine()
+            local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
+            if style.warnButton(IconGlyphs.RunFast, {
+                tooltip = "Teleport player to group",
+                disabled = teleportDisabledByEditor,
+                disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
+            }) then
+                gameUtils.teleportPlayer(utils.getVector(group.pos))
+            end
 
-        ImGui.SameLine()
-        if ImGui.Button("Add to Export") then
-            spawner.baseUI.exportUI.addGroup(group.name, fileName)
-        end
-        
-        ImGui.SameLine()
-        if style.dangerButton(IconGlyphs.DeleteOutline) then
-            savedUI.deleteData(fileName, group)
-        end
-	    style.tooltip("Delete group")
+            ImGui.SameLine()
+            if ImGui.Button("Add to Export") then
+                spawner.baseUI.exportUI.addGroup(group.name, fileName)
+            end
 
-        ImGui.PushID("groupBackup" .. fileName)
-        drawBackupRestoreActions(fileName)
-        ImGui.PopID()
+            ImGui.SameLine()
+            if style.dangerButton(IconGlyphs.DeleteOutline) then
+                savedUI.deleteData(fileName, group)
+            end
+            style.tooltip("Delete group")
+
+            ImGui.PushID("groupBackup" .. fileName)
+            drawBackupRestoreActions(fileName)
+            ImGui.PopID()
+
+            endEntryBody(fileName, bodyStartY)
+        end
 
         ImGui.TreePop()
         ImGui.Spacing()
@@ -1797,54 +1915,54 @@ end
 ---@param fileName string
 function savedUI.drawObject(obj, spawner, fileName)
     if ImGui.TreeNodeEx(obj.name) then
-        local pPos = Vector4.new(0, 0, 0, 0)
-        if spawner.player then
-            pPos = spawner.player:GetWorldPosition()
-        end
-        local posString = ("X=%.1f Y=%.1f Z=%.1f, Distance: %.1f"):format(obj.spawnable.position.x, obj.spawnable.position.y, obj.spawnable.position.z, ToVector4(obj.spawnable.position):Distance(pPos))
+        local bodySkipped, bodyStartY = beginEntryBody(fileName)
 
-        fileName = savedUI.drawEntryNameFields(obj, fileName)
+        if not bodySkipped then
+            fileName = savedUI.drawEntryNameFields(obj, fileName)
 
-        ImGui.PushID("objectBackup" .. fileName)
-        drawBackupRestoreActions(fileName)
-        ImGui.PopID()
+            ImGui.PushID("objectBackup" .. fileName)
+            drawBackupRestoreActions(fileName)
+            ImGui.PopID()
 
-        style.mutedText("Position:")
-        ImGui.SameLine()
-        ImGui.Text(posString)
+            style.mutedText("Position:")
+            ImGui.SameLine()
+            ImGui.Text(getPositionString(fileName, obj.spawnable.position))
 
-        style.mutedText("Type:")
-        ImGui.SameLine()
-        ImGui.Text(obj.spawnable.dataType)
+            style.mutedText("Type:")
+            ImGui.SameLine()
+            ImGui.Text(obj.spawnable.dataType)
 
-        local pipelineBusy = groupLoadManager.isActive() or groupAMMImportManager.isActive()
-        style.pushGreyedOut(pipelineBusy)
-        if ImGui.Button("Load") and not pipelineBusy then
-            local o = require("modules/classes/editor/spawnableElement"):new(spawner.baseUI.spawnedUI)
-            o:load(obj)
-            spawner.baseUI.spawnedUI.addRootElement(o)
-            history.addAction(history.getInsert({ o }))
-        end
-        if pipelineBusy then
-            style.tooltip("Loading is disabled while another pipeline operation is active")
-        else
-            style.tooltip("Load object immediately")
-        end
-        style.popGreyedOut(pipelineBusy)
+            local pipelineBusy = groupLoadManager.isActive() or groupAMMImportManager.isActive()
+            style.pushGreyedOut(pipelineBusy)
+            if ImGui.Button("Load") and not pipelineBusy then
+                local o = require("modules/classes/editor/spawnableElement"):new(spawner.baseUI.spawnedUI)
+                o:load(obj)
+                spawner.baseUI.spawnedUI.addRootElement(o)
+                history.addAction(history.getInsert({ o }))
+            end
+            if pipelineBusy then
+                style.tooltip("Loading is disabled while another pipeline operation is active")
+            else
+                style.tooltip("Load object immediately")
+            end
+            style.popGreyedOut(pipelineBusy)
 
-        ImGui.SameLine()
-        local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
-        if style.warnButton(IconGlyphs.RunFast, {
-            disabled = teleportDisabledByEditor,
-            tooltip = "Teleport player to object",
-            disabledTooltip = TELEPORT_DISABLED_EDITOR_TOOLTIP
-        }) then
-            gameUtils.teleportPlayer(utils.getVector(obj.spawnable.position))
-        end
-        
-        ImGui.SameLine()
-        if ImGui.Button("Delete") then
-            savedUI.deleteData(fileName, obj)
+            ImGui.SameLine()
+            local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
+            if style.warnButton(IconGlyphs.RunFast, {
+                disabled = teleportDisabledByEditor,
+                tooltip = "Teleport player to object",
+                disabledTooltip = TELEPORT_DISABLED_EDITOR_TOOLTIP
+            }) then
+                gameUtils.teleportPlayer(utils.getVector(obj.spawnable.position))
+            end
+
+            ImGui.SameLine()
+            if ImGui.Button("Delete") then
+                savedUI.deleteData(fileName, obj)
+            end
+
+            endEntryBody(fileName, bodyStartY)
         end
 
         ImGui.TreePop()
@@ -1865,6 +1983,8 @@ local function removeSavedEntry(fileName, data)
     savedUI.groupOpenState[fileName] = nil
     savedUI.stalePayloads[fileName] = nil
     savedUI.entryEditState[fileName] = nil
+    savedUI.posStrings[fileName] = nil
+    savedUI.entryBodyHeight[fileName] = nil
     savedUI.invalidateFileScan()
 
     -- The group may still be open in the Spawned tab; its file is gone, so it is no longer a project
@@ -1949,6 +2069,8 @@ function savedUI.reload()
     savedUI.groupProjectCreateState = {}
     savedUI.groupProjectIconSearch = {}
     savedUI.entryEditState = {}
+    savedUI.posStrings = {}
+    savedUI.entryBodyHeight = {}
     savedUI.pendingGroupProjectPopupId = nil
     savedUI.pendingBackupRestore = nil
     savedUI.pendingBackupRestoreOpen = false
