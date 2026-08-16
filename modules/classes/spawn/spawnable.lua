@@ -298,16 +298,12 @@ function spawnable:setAssetPath(path, name)
 
     if newPath then
         logger:info(string.format("Asset path of \"%s\" changed from \"%s\" to \"%s\"", tostring(previousName), tostring(previousPath), newPath))
-    end
+	end
 
-    if newName then
-        -- Draft of the tree row's inline rename field, which `load` does not carry: left alone it
-        -- would offer the previous name the next time that field is opened.
-        object.newName = object.name
-
-        -- A renamed element sits at a different path, and both the Spawned tab's path cache and the
-        -- NodeRef registry are keyed by it. `load` marks the element dirty but knows nothing of them.
-        local sUI = object.sUI
+	if newName then
+		-- A renamed element sits at a different path, and both the Spawned tab's path cache and the
+		-- NodeRef registry are keyed by it. `load` marks the element dirty but knows nothing of them.
+		local sUI = object.sUI
         if sUI and sUI.invalidateCache then
             sUI.invalidateCache(true)
         end

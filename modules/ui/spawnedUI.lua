@@ -1630,8 +1630,7 @@ function spawnedUI.moveToNewGroup(isMulti, element)
 
     spawnedUI.unselectAll()
     group:setSelected(true)
-    group.editName = true
-    group.focusNameEdit = 2
+    group:beginNameEdit(2)
     spawnedUI.scrollToSelected = true
 end
 
@@ -3044,8 +3043,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
 
     if isHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
         if not element:isLocked() and not element.lockedRename then
-            element.editName = true
-            element.focusNameEdit = 1
+            element:beginNameEdit(1)
             element:setSelected(true)
         end
     end

@@ -193,6 +193,7 @@ function element:load(data, silent)
 	-- Only the name: what file this came from is the caller's business (a load from `data/objects/`
 	-- binds the uID through saveState), and a clipboard paste must not inherit one at all.
 	self.name = data.name
+	self.newName = self.name
 	self.modulePath = data.modulePath
 	self.headerOpen = data.headerOpen
 	self.visible = data.visible
@@ -287,6 +288,19 @@ end
 ---@return boolean
 function element:canRename()
 	return not self.lockedRename and not self:isLocked()
+end
+
+---Begin editing the display name, seeding the input from the current displayed row name.
+---@param focusFrames number?
+---@return boolean
+function element:beginNameEdit(focusFrames)
+	if not self:canRename() then return false end
+
+	self.newName = self.name
+	self.editName = true
+	self.focusNameEdit = focusFrames or 1
+
+	return true
 end
 
 ---Update the display name to the given one. Does not affect which file the element saves to.
