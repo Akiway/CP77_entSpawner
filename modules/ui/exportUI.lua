@@ -118,7 +118,11 @@ end
 local function drawVariantsTooltip()
     ImGui.SameLine()
     ImGui.Text(IconGlyphs.InformationOutline)
-    style.tooltip("All objects placed within the root of the group will be part of the default variant\nLeave variant name empty (or set it to \"default\") to treat it as default/non-variant")
+    style.tooltip("All objects placed within the root of the group will be part of the default variant\nLeave variant name empty (or set it to \"default\") to treat it as default/non-variant\nNamed variants use the Default variant state from Settings when first named.")
+end
+
+local function getDefaultNamedVariantState()
+    return settings.defaultVariantOn == true
 end
 
 ---Resolves which project file an export entry refers to.
@@ -398,8 +402,8 @@ function exportUI.drawGroups()
                             if isDefaultName then
                                 variantData.defaultOn = true
                             elseif previousName ~= variantData.name and previousIsDefaultName then
-                                -- If the name was changed from default/non-variant, toggle off defaultOn
-                                variantData.defaultOn = false
+                                -- If the name was changed from default/non-variant, apply the configured default state.
+                                variantData.defaultOn = getDefaultNamedVariantState()
                                 changed = true
                             end
                             if changed and not isDefaultName then

@@ -88,6 +88,7 @@ local config = require("modules/utils/core/config")
 ---@field public defaultGroupProject table? Default project tag ({name, icon, color}) assigned to new groups, or nil for none.
 ---@field public defaultStreamingPreset integer Default streaming distance preset index (0 = Interior) for new spawnables.
 ---@field public defaultExportFormat integer Default export XL format (0 = JSON, 1 = YAML).
+---@field public defaultVariantOn boolean Default visible state applied when an export variant receives a non-default name.
 ---@field public previewBindings table<string, string> ImGuiKey names bound to the asset preview controls, keyed by action id. Empty until first resolved from the game language.
 ---@field public autoSaveEnabled boolean Periodically write modified root groups back to their project file.
 ---@field public autoSaveIntervalMinutes number Minutes between auto-save passes.
@@ -189,6 +190,7 @@ local settingsData = {
     -- defaultGroupProject is intentionally omitted (nil) so "none" is the default.
     defaultStreamingPreset = 0, -- Interior
     defaultExportFormat = 0, -- JSON
+    defaultVariantOn = false, -- Hidden
 
     -- Saving & recovery
     autoSaveEnabled = false,

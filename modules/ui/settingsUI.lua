@@ -18,6 +18,7 @@ local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local colliderColors = { "Red", "Green", "Blue" }
 local streamingPresetLabels = { "Interior", "Street", "District", "Landscape", "To the Moon" }
 local exportFormatLabels = { "JSON", "YAML" }
+local variantDefaultStateLabels = { "Visible", "Hidden" }
 local PROJECT_NEUTRAL_LABEL = "No Project"
 local outlineColors = { "Green", "Red", "Blue", "Orange", "Yellow", "Light Blue", "White", "Black" }
 local windowNames = { "World Builder", "Object Spawner", "Entity Spawner", "World Additor", "World Editing Toolkit", "World Editor", "WheezeKit", "Buildy McBuildface", "Keanus Editing Kit (Kek)", "Redkit at home" }
@@ -87,7 +88,10 @@ local settingsSectionSearchText = {
         "Default project tag for new groups",
         "Export",
         "Default export format",
-        table.concat(exportFormatLabels, " ")
+        table.concat(exportFormatLabels, " "),
+        "Default variant state",
+        "Named variants",
+        table.concat(variantDefaultStateLabels, " ")
     }, " "),
     bindings = table.concat({
         "Bindings",
@@ -824,6 +828,14 @@ local function drawDefaultsSection()
         settings.save()
     end
     style.tooltip("Default format for the generated .xl file in the Export tab.")
+
+    local variantDefaultState = settings.defaultVariantOn == true and 0 or 1
+    local variantDefaultStateIndex, variantDefaultStateChanged = ImGui.Combo("Default variant state", variantDefaultState, variantDefaultStateLabels, #variantDefaultStateLabels)
+    if variantDefaultStateChanged then
+        settings.defaultVariantOn = variantDefaultStateIndex == 0
+        settings.save()
+    end
+    style.tooltip("Initial Default state assigned in the Export tab when a default/non-variant row receives a real variant name.")
     style.sectionHeaderEnd()
     
     ImGui.Dummy(0, 4 * style.viewSize)
