@@ -40,6 +40,9 @@ local projectedWireframe = {}
 ---@field fillColor integer|nil Optional fill color for a projected fan.
 ---@field thickness number|nil Outline thickness in pixels.
 ---@field segments number|nil Number of circle segments (minimum 12).
+---@field normal Vector4|nil Optional surface normal used to orient the circle plane.
+---@field tangent Vector4|nil Optional tangent axis used to orient the circle plane.
+---@field bitangent Vector4|nil Optional bitangent axis used to orient the circle plane.
 
 local cubeEdgeVertices = {
     { 1, 2 }, { 2, 4 }, { 3, 4 }, { 1, 3 },
@@ -72,6 +75,58 @@ local cubeFaceEdges = {
 ---@return number clamped
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
+end
+
+---@param vec Vector4?
+---@return Vector4?
+local function normalizeVector(vec)
+    if not vec then
+        return nil
+    end
+
+    local okLength, length = pcall(function()
+        return vec:Length()
+    end)
+    if not okLength or not length or length <= 0.0001 then
+        return nil
+    end
+
+    local okNormalized, normalized = pcall(function()
+        return vec:Normalize()
+    end)
+    if okNormalized then
+        return normalized
+    end
+
+    return nil
+end
+
+---@param options projectedWireframeCircleOptions
+---@return Vector4, Vector4
+local function getCircleAxes(options)
+    local tangent = normalizeVector(options.tangent)
+    local bitangent = normalizeVector(options.bitangent)
+    if tangent and bitangent then
+        return tangent, bitangent
+    end
+
+    local normal = normalizeVector(options.normal)
+    if normal then
+        local reference = math.abs(normal.z or 0) < 0.95 and Vector4.new(0, 0, 1, 0) or Vector4.new(1, 0, 0, 0)
+        tangent = normalizeVector(reference:Cross(normal))
+        if not tangent then
+            tangent = normalizeVector(Vector4.new(0, 1, 0, 0):Cross(normal))
+        end
+
+        if tangent then
+            bitangent = normalizeVector(normal:Cross(tangent))
+            if bitangent then
+                return tangent, bitangent
+            end
+        end
+    end
+
+    return Vector4.new(1, 0, 0, 0), Vector4.new(0, 1, 0, 0)
 end
 
 ---Extracts alpha channel from packed ARGB color.
@@ -397,8 +452,8 @@ function projectedWireframe.drawWorldMarker(drawList, screen, position, options)
     return true
 end
 
----Draws a horizontal world-space circle projected to screen-space.
----Circle points are sampled on the XY plane at `center.z`.
+---Draws a world-space circle projected to screen-space.
+---Circle points are sampled on an oriented plane when axes or a normal are provided.
 ---@param drawList table ImGui draw list obtained from `beginOverlay`.
 ---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.
 ---@param center Vector4 Circle world-space center.
@@ -417,14 +472,17 @@ function projectedWireframe.drawWorldCircle(drawList, screen, center, radius, op
     local fillColor = options.fillColor
     local thickness = tonumber(options.thickness) or 2.0
     local segments = math.max(12, math.floor(tonumber(options.segments) or 48))
+    local tangent, bitangent = getCircleAxes(options)
 
     local points = {}
     for i = 0, segments - 1 do
         local angle = (i / segments) * math.pi * 2
+        local offsetX = math.cos(angle) * radius
+        local offsetY = math.sin(angle) * radius
         local worldPoint = Vector4.new(
-            center.x + math.cos(angle) * radius,
-            center.y + math.sin(angle) * radius,
-            center.z,
+            center.x + tangent.x * offsetX + bitangent.x * offsetY,
+            center.y + tangent.y * offsetX + bitangent.y * offsetY,
+            center.z + tangent.z * offsetX + bitangent.z * offsetY,
             center.w or 0
         )
 

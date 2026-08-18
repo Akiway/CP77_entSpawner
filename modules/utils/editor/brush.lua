@@ -733,6 +733,41 @@ local function validateBrushSourceGroup(editor)
     end
 end
 
+---@param element element?
+---@param ancestorId number?
+---@return boolean
+local function isElementOrDescendantOfId(element, ancestorId)
+    if not element or not ancestorId then
+        return false
+    end
+
+    local current = element
+    while current ~= nil do
+        if current.id == ancestorId then
+            return true
+        end
+        current = current.parent
+    end
+
+    return false
+end
+
+---@param editor editor
+---@param target element?
+---@return boolean
+local function isInvalidBrushTargetGroup(editor, target)
+    if not target or target.parent == nil then
+        return true
+    end
+
+    local sourceGroupId = tonumber(editor.brush and editor.brush.sourceGroupId) or nil
+    if isElementOrDescendantOfId(target, sourceGroupId) then
+        return true
+    end
+
+    return utils.isA(target, "randomizedGroup")
+end
+
 ---@param editor editor
 ---@return randomizedGroup?
 local function resolveSelectedRandomizedGroup(editor)
@@ -773,7 +808,8 @@ local function resolveBrushTargetGroup(editor)
     if runtime.targetCache.selectedGroup == selectedGroup
         and runtime.targetCache.sourceGroupId == sourceGroupId then
         local cachedTarget = runtime.targetCache.target
-        if cachedTarget and cachedTarget.parent ~= nil and cachedTarget ~= root then
+        if cachedTarget and cachedTarget.parent ~= nil and cachedTarget ~= root
+            and not isInvalidBrushTargetGroup(editor, cachedTarget) then
             return cachedTarget
         end
         if cachedTarget == nil and spawnedUI and not spawnedUI.cacheDirty then
@@ -794,7 +830,7 @@ local function resolveBrushTargetGroup(editor)
         return nil
     end
 
-    if sourceGroupId and parent.id == sourceGroupId then
+    if isInvalidBrushTargetGroup(editor, parent) then
         runtime.targetCache.selectedGroup = selectedGroup
         runtime.targetCache.target = nil
         runtime.targetCache.sourceGroupId = sourceGroupId
@@ -929,6 +965,25 @@ local function compareCandidatesByProbability(a, b)
     return aId < bId
 end
 
+---@param a table
+---@param b table
+---@return boolean
+local function compareCandidatesByProbabilityAndTie(a, b)
+    if a.probability ~= b.probability then
+        return a.probability > b.probability
+    end
+
+    local aTie = tonumber(a.tieBreaker) or 0
+    local bTie = tonumber(b.tieBreaker) or 0
+    if aTie ~= bTie then
+        return aTie < bTie
+    end
+
+    local aId = a.child and a.child.id or 0
+    local bId = b.child and b.child.id or 0
+    return aId < bId
+end
+
 ---@param editor editor
 ---@param group randomizedGroup
 ---@return table
@@ -1036,7 +1091,9 @@ local function collectBrushTemplates(editor, group)
                 orderChanged = true
             end
 
-            if nextBrushRandom(editor) < probability then
+            local shownByProbability = nextBrushRandom(editor) < probability
+            candidate.tieBreaker = nextBrushRandom(editor)
+            if shownByProbability then
                 table.insert(shown, candidate)
             else
                 table.insert(hidden, candidate)
@@ -1046,9 +1103,9 @@ local function collectBrushTemplates(editor, group)
 
     if orderChanged then
         table.sort(candidates, compareCandidatesByProbability)
-        table.sort(shown, compareCandidatesByProbability)
-        table.sort(hidden, compareCandidatesByProbability)
     end
+    table.sort(shown, compareCandidatesByProbabilityAndTie)
+    table.sort(hidden, compareCandidatesByProbabilityAndTie)
 
     local amount
     if group.fixedAmountRule == 0 then
@@ -1548,11 +1605,16 @@ local function drawBrushPreview(editor, hitData, eraseActive, brushReady)
         local center = hitData.result.position
         local brushColor = eraseActive and BRUSH_ERASE_COLOR or BRUSH_COLOR
         local brushFillColor = eraseActive and BRUSH_ERASE_FILL_COLOR or BRUSH_FILL_COLOR
+        local surfaceNormal = getBrushSurfaceNormal(hitData)
+        local tangent, bitangent = getSurfaceTangents(surfaceNormal)
         projectedWireframe.drawWorldCircle(drawList, screen, center, radius, {
             color = brushColor,
             fillColor = brushFillColor,
             thickness = 2.0,
-            segments = 56
+            segments = 56,
+            normal = surfaceNormal,
+            tangent = tangent,
+            bitangent = bitangent
         })
         projectedWireframe.drawWorldMarker(drawList, screen, center, {
             color = brushColor,
@@ -1670,15 +1732,15 @@ function brushTool.attach(editor)
         return count
     end
 
-    ---Returns whether Spawn New target is a valid non-root group for brush painting.
-    ---Target group must also be different from the current brush source group.
+    ---Returns whether Spawn New target is a valid normal non-root group for brush painting.
+    ---Target group must not be the current brush source group or inside it.
     ---@return boolean
     function editor.hasBrushValidTargetGroup()
         return resolveBrushTargetGroup(editor) ~= nil
     end
 
     ---Returns active brush target group id, or nil when target is invalid.
-    ---Invalid when root, missing, or matching the current brush source group.
+    ---Invalid when root, missing, randomized, or inside the current brush source group.
     ---@return number?
     function editor.getBrushTargetGroupId()
         local target = resolveBrushTargetGroup(editor)

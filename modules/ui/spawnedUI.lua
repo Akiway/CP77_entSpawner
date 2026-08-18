@@ -3394,6 +3394,25 @@ local function getGroupNameById(id)
     return nil
 end
 
+---@param element element?
+---@param ancestorId number?
+---@return boolean
+local function isElementOrDescendantOfId(element, ancestorId)
+    if not element or not ancestorId then
+        return false
+    end
+
+    local current = element
+    while current ~= nil do
+        if current.id == ancestorId then
+            return true
+        end
+        current = current.parent
+    end
+
+    return false
+end
+
 ---@param ready boolean
 ---@param sourceName string
 ---@param targetName string
@@ -3878,11 +3897,18 @@ function spawnedUI.drawTop()
         local hasBrushSourceGroup = brushSourceGroupId ~= nil
         local hasBrushSourceEntries = brushSourceEntryCount > 0
         local hasBrushTargetGroup = brushTargetGroupId ~= nil
-        local brushTargetMatchesSource = hasBrushSourceGroup
+        local brushTargetInsideSource = hasBrushSourceGroup
             and selectedTargetRef ~= nil
             and selectedTargetRef ~= spawnedUI.root
-            and selectedTargetRef.id == brushSourceGroupId
-        local brushReady = hasBrushSourceGroup and hasBrushSourceEntries and hasBrushTargetGroup and not brushTargetMatchesSource
+            and isElementOrDescendantOfId(selectedTargetRef, brushSourceGroupId)
+        local brushTargetIsRandomized = selectedTargetRef ~= nil
+            and selectedTargetRef ~= spawnedUI.root
+            and utils.isA(selectedTargetRef, "randomizedGroup")
+        local brushReady = hasBrushSourceGroup
+            and hasBrushSourceEntries
+            and hasBrushTargetGroup
+            and not brushTargetInsideSource
+            and not brushTargetIsRandomized
         local brushIssues = {}
 
         local sourceGroupName = getGroupNameById(brushSourceGroupId) or "None"
@@ -3903,8 +3929,14 @@ function spawnedUI.drawTop()
             table.insert(brushIssues, "Selected randomized group is empty, add elements to paint.")
         end
 
-        if brushTargetMatchesSource then
-            table.insert(brushIssues, "Target group cannot be the same as source group.")
+        if brushTargetInsideSource then
+            if selectedTargetRef and selectedTargetRef.id == brushSourceGroupId then
+                table.insert(brushIssues, "Target group cannot be the same as source group.")
+            else
+                table.insert(brushIssues, "Target group cannot be inside the source group.")
+            end
+        elseif brushTargetIsRandomized then
+            table.insert(brushIssues, "Target group must be a normal group, not a randomized group.")
         elseif not hasBrushTargetGroup then
             table.insert(brushIssues, "No valid target group, set a normal group as \"Spawn New\" target (root is invalid).")
         end
