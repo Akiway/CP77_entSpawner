@@ -40,7 +40,7 @@ local COLLISION_PREVIEW_ARCHIVE = "scc_collision.archive"
 
 local about = {
     name = "World Builder",
-    version = "a.1.4.0",
+    version = "a.1.4.1-beta.1",
     author = "NexusGuy999",
     contributors = { "Akiway", "spiritualspirit", "tordalor", "MisterChedda", "SunliveQ", "theCyanideX" },
     thanks = "A huge thank you to everyone supporting World Builder: the testers, the bug reporters, everyone sending feedback and ideas, and everyone sharing what they build with it. The mod keeps growing because of you.",
