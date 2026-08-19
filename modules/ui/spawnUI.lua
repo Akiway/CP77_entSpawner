@@ -2527,12 +2527,16 @@ end
 
 ---Draws the target group selector used for new spawns.
 function spawnUI.drawTargetGroupSelector()
+    if spawnUI.spawnedUI and spawnUI.spawnedUI.ensureCache then
+        spawnUI.spawnedUI.ensureCache()
+    end
+
     local groups = { "Root" }
-	for _, group in pairs(spawnUI.spawnedUI.containerPaths) do
+	for _, group in ipairs(spawnUI.spawnedUI.containerPaths) do
 		table.insert(groups, group.path)
 	end
 
-    if spawnUI.selectedGroup >= #groups then
+    if not spawnUI.selectedGroup or spawnUI.selectedGroup >= #groups then
         spawnUI.selectedGroup = 0
     end
 
@@ -2550,9 +2554,14 @@ end
 ---Returns the parent selected for new spawns, falling back to root.
 ---@return element
 function spawnUI.getSpawnTargetParent()
+    if spawnUI.spawnedUI and spawnUI.spawnedUI.ensureCache then
+        spawnUI.spawnedUI.ensureCache()
+    end
+
+    local selectedGroup = spawnUI.selectedGroup or 0
     local parent = spawnUI.spawnedUI.root
-    if spawnUI.selectedGroup ~= 0 and spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup] then
-        parent = spawnUI.spawnedUI.containerPaths[spawnUI.selectedGroup].ref
+    if selectedGroup ~= 0 and spawnUI.spawnedUI.containerPaths[selectedGroup] then
+        parent = spawnUI.spawnedUI.containerPaths[selectedGroup].ref
     end
 
     return parent

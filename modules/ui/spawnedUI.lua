@@ -364,7 +364,7 @@ end
 ---@param depth number
 ---@param pathById table<number, string>
 local function cacheVisiblePathsRecursive(parent, depth, pathById)
-    for _, child in pairs(parent.childs) do
+    for _, child in ipairs(parent.childs) do
         local entryPath = pathById[child.id] or child:getPath()
         table.insert(spawnedUI.visiblePaths, {
             path = entryPath,
@@ -379,8 +379,58 @@ local function cacheVisiblePathsRecursive(parent, depth, pathById)
     end
 end
 
+---@return spawnUI?
+local function getActiveSpawnUI()
+    local spawner = spawnedUI.spawner
+    local baseUI = spawner and spawner.baseUI or nil
+
+    return baseUI and baseUI.spawnUI or nil
+end
+
+---@param spawnUI spawnUI?
+---@return element?, number?
+local function captureSpawnNewTarget(spawnUI)
+    if not spawnUI or not spawnUI.selectedGroup or spawnUI.selectedGroup == 0 then
+        return nil, nil
+    end
+
+    local targetEntry = spawnedUI.containerPaths[spawnUI.selectedGroup]
+    local targetRef = targetEntry and targetEntry.ref or nil
+
+    return targetRef, targetRef and targetRef.id or nil
+end
+
+---@param spawnUI spawnUI?
+---@param targetRef element?
+---@param targetId number?
+local function restoreSpawnNewTarget(spawnUI, targetRef, targetId)
+    if not spawnUI then
+        return
+    end
+
+    if not targetRef and not targetId then
+        if not spawnUI.selectedGroup
+            or (spawnUI.selectedGroup ~= 0 and spawnUI.selectedGroup > #spawnedUI.containerPaths) then
+            spawnUI.selectedGroup = 0
+        end
+        return
+    end
+
+    for index, entry in ipairs(spawnedUI.containerPaths) do
+        if entry.ref == targetRef or (targetId ~= nil and entry.ref and entry.ref.id == targetId) then
+            spawnUI.selectedGroup = index
+            return
+        end
+    end
+
+    spawnUI.selectedGroup = 0
+end
+
 ---Rebuilds hierarchy cache state (paths, selections, filters, lock-descendant cache).
 function spawnedUI.cachePaths()
+    local spawnUI = getActiveSpawnUI()
+    local spawnNewTargetRef, spawnNewTargetId = captureSpawnNewTarget(spawnUI)
+
     spawnedUI.paths = {}
     spawnedUI.containerPaths = {}
     spawnedUI.selectedPaths = {}
@@ -392,7 +442,7 @@ function spawnedUI.cachePaths()
     spawnedUI.nameBeingEdited = false
     local pathById = {}
 
-    for _, path in pairs(spawnedUI.root:getPathsRecursive(true)) do
+    for _, path in ipairs(spawnedUI.root:getPathsRecursive(true)) do
         table.insert(spawnedUI.paths, {
             path = path.path,
             ref = path.ref
@@ -423,6 +473,8 @@ function spawnedUI.cachePaths()
             spawnedUI.nameBeingEdited = true
         end
     end
+
+    restoreSpawnNewTarget(spawnUI, spawnNewTargetRef, spawnNewTargetId)
 
     cacheVisiblePathsRecursive(spawnedUI.root, 0, pathById)
     cacheLockedChildrenRecursive(spawnedUI.root)
@@ -671,15 +723,16 @@ function spawnedUI.setElementSpawnNewTarget(element)
         elementPath = element.parent:getPath()
     end
 
-    local idx = 1
-    for _, entry in pairs(spawnedUI.containerPaths) do
+    spawnedUI.ensureCache()
+
+    for idx, entry in ipairs(spawnedUI.containerPaths) do
         if entry.path == elementPath then
-            break
+            spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
+            return
         end
-        idx = idx + 1
     end
 
-    spawnedUI.spawner.baseUI.spawnUI.selectedGroup = idx
+    spawnedUI.spawner.baseUI.spawnUI.selectedGroup = 0
 end
 
 ---Pins a group to the focused hierarchy window.

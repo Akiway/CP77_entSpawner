@@ -821,6 +821,14 @@ local function resolveBrushTargetGroup(editor)
         spawnedUI.ensureCache()
     end
 
+    selectedGroup = spawnUI.selectedGroup or 0
+    if selectedGroup == 0 then
+        runtime.targetCache.selectedGroup = selectedGroup
+        runtime.targetCache.target = nil
+        runtime.targetCache.sourceGroupId = sourceGroupId
+        return nil
+    end
+
     local containerEntry = spawnedUI.containerPaths and spawnedUI.containerPaths[selectedGroup] or nil
     local parent = containerEntry and containerEntry.ref or nil
     if not parent or parent == root then
