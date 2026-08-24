@@ -26,6 +26,7 @@ local groupLoadSpeedOptions = { "Fast - with FPS drops", "Slow - without FPS dro
 local wireframeColorStyles = { "Darker + white text", "Lighter + black text" }
 local colorPickerStyles = { "Hue Bar", "Hue Wheel" }
 local speedUnits = { "km/h", "mph" }
+local savedSortModes = { "Alphabetically", "Last loaded first" }
 local actionLabelDisplayModeOptions = {
     { value = 1, label = "Preferred icon" },
     { value = 2, label = "Icon + text" },
@@ -145,6 +146,9 @@ local settingsSectionSearchText = {
         table.concat(wireframeColorStyles, " "),
         "Speed unit",
         table.concat(speedUnits, " "),
+        "Projects tab sorting",
+        "Sort saved projects groups order",
+        table.concat(savedSortModes, " "),
         "Sticky Hierarchy Rows",
         "Balance between icons and text",
         "Preferred icon Icon and text Preferred text"
@@ -1416,6 +1420,14 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         style.tooltip("Unit used to display speeds (for example on Speed Spline nodes).")
+
+        local savedSortMode = math.max(1, math.min(#savedSortModes, tonumber(settings.savedSortMode) or 1))
+        local savedSortModeIndex, savedSortModeChanged = ImGui.Combo("Projects tab sorting", savedSortMode - 1, savedSortModes, #savedSortModes)
+        if savedSortModeChanged then
+            settings.savedSortMode = savedSortModeIndex + 1
+            settings.save()
+        end
+        style.tooltip("Order in which the projects and their groups are listed on the Projects tab.\n\n\"Alphabetically\" sorts both by name.\n\"Last loaded first\" puts the group you loaded most recently at the top, and each project\nwhere its most recently loaded group puts it. Anything you have never loaded keeps its\nalphabetical place below.")
 
         local stickyRowsEnabled, stickyRowsChanged = ImGui.Checkbox("Sticky Hierarchy Rows", settings.stickyRowsEnabled)
         if stickyRowsChanged then

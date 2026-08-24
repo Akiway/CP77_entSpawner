@@ -99,6 +99,9 @@ local config = require("modules/utils/core/config")
 ---@field public autoSaveVerifyEvery integer Verify every Nth auto-save against a cache-free rebuild (0 = never).
 ---@field public autoSaveCacheEnabled boolean Reuse cached per-node JSON. Disable to fall back to full rebuilds.
 ---@field public validateAssetTypes boolean Refuse to spawn an asset whose resource type the node cannot spawn.
+---@field public savedSortMode integer Order of the Projects tab: 1 = alphabetically, 2 = last loaded first.
+---@field public savedLoadOrder table<string, integer> Load rank per project file, higher is more recent. Only used by the "last loaded" sort mode.
+---@field public savedLoadCounter integer Rank handed to the next loaded entry, so every load orders after all earlier ones.
 local settingsData = {
     spawnPos = 1,
     spawnDist = 4,
@@ -203,6 +206,11 @@ local settingsData = {
     autoSaveVerifyEvery = 4,
     autoSaveCacheEnabled = true,
     validateAssetTypes = true,
+
+    -- Projects tab ordering
+    savedSortMode = 1, -- Alphabetically
+    savedLoadOrder = {},
+    savedLoadCounter = 0,
 
     -- Resolved from the game language on first use, see previewControls.getBindings
     previewBindings = {},

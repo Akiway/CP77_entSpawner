@@ -25,6 +25,10 @@ local PROJECT_NEUTRAL_KEY = "__no_project__"
 local PROJECT_NEUTRAL_LABEL = "No Project"
 local BACKUP_RESTORE_POPUP_ID = "Restore backup?##savedUIBackupRestore"
 
+---Values of the `savedSortMode` setting. See `sortSavedEntries` and `buildProjectSections`.
+local SORT_MODE_ALPHABETICAL = 1
+local SORT_MODE_LAST_LOADED = 2
+
 ---Seconds the tab may go without re-listing `data/objects/`. See `syncSavedFileCaches`.
 local FILE_SCAN_INTERVAL = 1.0
 
@@ -184,6 +188,69 @@ local function endEntryBody(fileName, startY)
     savedUI.entryBodyHeight[fileName] = math.max(1, height)
 end
 
+---Hands `fileName` the next load rank, without persisting it.
+---
+---A rank rather than a timestamp: `os.time()` only resolves to the second, so the groups of a project
+---loaded in one go would all share a stamp and fall back to being ordered by name -- which is the
+---order the "last loaded" mode exists to get away from. Ranks are handed out one at a time, so they
+---never tie.
+---@param fileName string? File in `data/objects/`, or `nil` for an entry that has none.
+---@return boolean assigned
+local function assignLoadRank(fileName)
+    if type(fileName) ~= "string" or fileName == "" then return false end
+
+    if type(settings.savedLoadOrder) ~= "table" then
+        settings.savedLoadOrder = {}
+    end
+
+    local rank = (tonumber(settings.savedLoadCounter) or 0) + 1
+    settings.savedLoadCounter = rank
+    settings.savedLoadOrder[fileName] = rank
+
+    return true
+end
+
+---Marks a file as the most recently loaded one, for the "last loaded" sort mode.
+---@param fileName string? File in `data/objects/`, or `nil` for an entry that has none.
+local function recordEntryLoaded(fileName)
+    if assignLoadRank(fileName) then
+        settings.save()
+    end
+end
+
+---Marks every file of a bulk load as loaded, newest rank first.
+---
+---Backwards over the list on purpose: ranking the groups in the order they spawn would leave the
+---project reading bottom to top next time the tab is opened, which is not what loading it once did
+---to the order the user was looking at. The first entry gets the newest rank instead, so the run
+---leaves the list as it found it and only moves the project itself.
+---@param entries {fileName: string}[] Groups of the run, in the order they will be loaded.
+local function recordEntriesLoaded(entries)
+    local assigned = false
+
+    for index = #entries, 1, -1 do
+        assigned = assignLoadRank(entries[index].fileName) or assigned
+    end
+
+    if assigned then
+        settings.save()
+    end
+end
+
+---Follows an entry's load rank to a new file name, or drops it when there is no new name.
+---@param fileName string
+---@param newFileName string? `nil` to forget the rank, for a file that is gone.
+local function moveEntryLoadRank(fileName, newFileName)
+    local ranks = settings.savedLoadOrder
+    if type(ranks) ~= "table" or ranks[fileName] == nil then return end
+
+    if newFileName then
+        ranks[newFileName] = ranks[fileName]
+    end
+    ranks[fileName] = nil
+    settings.save()
+end
+
 ---@param group table
 ---@param spawner spawner
 ---@param loadHidden boolean?
@@ -191,6 +258,7 @@ end
 function savedUI.startQueuedGroupLoad(group, spawner, loadHidden, fileName)
     local hidden = loadHidden == true
 
+    recordEntryLoaded(fileName)
     sessionSnapshot.consume("loaded a project")
 
     groupLoadManager.start({
@@ -331,6 +399,7 @@ function savedUI.startProjectSpawn(entries, spawner, projectName, hidden)
 
     if #queue == 0 then return false end
 
+    recordEntriesLoaded(queue)
     sessionSnapshot.consume("loaded a project")
 
     savedUI.projectSpawn = {
@@ -383,6 +452,42 @@ local function compareSavedEntriesByName(a, b)
     end
 
     return nameA < nameB
+end
+
+---@param fileName string?
+---@return integer rank Higher is more recently loaded, `0` for an entry never loaded from this tab.
+local function getEntryLoadRank(fileName)
+    local ranks = settings.savedLoadOrder
+    local rank = type(ranks) == "table" and ranks[tostring(fileName)] or nil
+
+    return type(rank) == "number" and rank or 0
+end
+
+---@param a {fileName: string, data: table}
+---@param b {fileName: string, data: table}
+---@return boolean
+local function compareSavedEntriesByLoad(a, b)
+    local rankA = getEntryLoadRank(a.fileName)
+    local rankB = getEntryLoadRank(b.fileName)
+
+    -- Equal ranks only ever means neither was loaded: `recordEntryLoaded` never hands out the same
+    -- one twice. Everything the user has not loaded yet stays in the alphabetical order it had.
+    if rankA == rankB then
+        return compareSavedEntriesByName(a, b)
+    end
+
+    return rankA > rankB
+end
+
+---@return boolean
+local function sortsByLastLoaded()
+    return (tonumber(settings.savedSortMode) or SORT_MODE_ALPHABETICAL) == SORT_MODE_LAST_LOADED
+end
+
+---Orders saved entries the way the "Sort saved entries" setting asks for.
+---@param entries {fileName: string, data: table}[]
+local function sortSavedEntries(entries)
+    table.sort(entries, sortsByLastLoaded() and compareSavedEntriesByLoad or compareSavedEntriesByName)
 end
 
 ---@param group table?
@@ -1042,6 +1147,35 @@ function savedUI.getProjectCatalog()
     return collectProjectCatalog(allGroups)
 end
 
+---@param a table Project section.
+---@param b table Project section.
+---@return boolean
+local function compareSectionsByName(a, b)
+    if a.isNeutral ~= b.isNeutral then
+        return a.isNeutral
+    end
+
+    local aName = ((a.project and a.project.name) or ""):lower()
+    local bName = ((b.project and b.project.name) or ""):lower()
+
+    if aName == bName then
+        return a.key < b.key
+    end
+
+    return aName < bName
+end
+
+---@param a table Project section carrying a `lastLoadRank`.
+---@param b table Project section carrying a `lastLoadRank`.
+---@return boolean
+local function compareSectionsByLoad(a, b)
+    if a.lastLoadRank == b.lastLoadRank then
+        return compareSectionsByName(a, b)
+    end
+
+    return a.lastLoadRank > b.lastLoadRank
+end
+
 ---@param filteredGroups {fileName: string, data: table}[]
 ---@return table[]
 local function buildProjectSections(filteredGroups)
@@ -1088,23 +1222,24 @@ local function buildProjectSections(filteredGroups)
         table.insert(section.groups, entry)
     end
 
-    table.sort(sections, function(a, b)
-        if a.isNeutral ~= b.isNeutral then
-            return a.isNeutral
+    if sortsByLastLoaded() then
+        -- A project is as recent as the last of its groups to be loaded: loading one group of a
+        -- project is what puts that project back at the top, not having to load all of them.
+        for _, section in ipairs(sections) do
+            local newest = 0
+            for _, entry in ipairs(section.groups) do
+                newest = math.max(newest, getEntryLoadRank(entry.fileName))
+            end
+            section.lastLoadRank = newest
         end
 
-        local aName = ((a.project and a.project.name) or ""):lower()
-        local bName = ((b.project and b.project.name) or ""):lower()
-
-        if aName == bName then
-            return a.key < b.key
-        end
-
-        return aName < bName
-    end)
+        table.sort(sections, compareSectionsByLoad)
+    else
+        table.sort(sections, compareSectionsByName)
+    end
 
     for _, section in ipairs(sections) do
-        table.sort(section.groups, compareSavedEntriesByName)
+        sortSavedEntries(section.groups)
     end
 
     return sections
@@ -1248,6 +1383,8 @@ local function moveEntryUIState(oldFileName, newFileName)
         map[newFileName] = map[oldFileName]
         map[oldFileName] = nil
     end
+
+    moveEntryLoadRank(oldFileName, newFileName)
 end
 
 ---Renames the group inside a project file, without touching the file itself.
@@ -1710,7 +1847,7 @@ function savedUI.draw(spawner)
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
-    savedUI.filter, changed = style.inputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
+    savedUI.filter, changed = style.searchInputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
     if changed then
         settings.savedUIFilter = savedUI.filter
         settings.save()
@@ -1875,8 +2012,8 @@ function savedUI.draw(spawner)
         end
     end
 
-    table.sort(allGroups, compareSavedEntriesByName)
-    table.sort(allObjects, compareSavedEntriesByName)
+    sortSavedEntries(allGroups)
+    sortSavedEntries(allObjects)
 
     local filteredGroups = {}
     for _, entry in ipairs(allGroups) do
@@ -2146,6 +2283,7 @@ function savedUI.drawObject(obj, spawner, fileName)
             local pipelineBusy = groupLoadManager.isActive() or groupAMMImportManager.isActive()
             style.pushGreyedOut(pipelineBusy)
             if ImGui.Button("Load") and not pipelineBusy then
+                recordEntryLoaded(fileName)
                 local o = require("modules/classes/editor/spawnableElement"):new(spawner.baseUI.spawnedUI)
                 o:load(obj)
                 spawner.baseUI.spawnedUI.addRootElement(o)
@@ -2196,6 +2334,7 @@ local function removeSavedEntry(fileName, data)
     savedUI.entryEditState[fileName] = nil
     savedUI.posStrings[fileName] = nil
     savedUI.entryBodyHeight[fileName] = nil
+    moveEntryLoadRank(fileName, nil)
     savedUI.invalidateFileScan()
 
     -- The group may still be open in the Spawned tab; its file is gone, so it is no longer a project
