@@ -353,6 +353,9 @@ function baseUI.draw(spawner)
         groupLoadManager.drawToasts()
         groupAMMImportManager.drawToasts()
         persistenceManager.drawToasts()
+        -- From here rather than the Projects tab: a bulk project load keeps running while another
+        -- tab is open, and it is what closes one out that was cancelled.
+        baseUI.savedUI.drawToasts()
         -- Drawn from here rather than a tab, so it stays usable whichever tab is open.
         sessionRestorePopup.draw(spawner)
         projectLinkPopup.draw(spawner)

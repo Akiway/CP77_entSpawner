@@ -306,7 +306,7 @@ function favorite:draw(context)
     end
 
     if ImGui.BeginPopupContextItem("##favoriteContext", ImGuiPopupFlags.MouseButtonRight) then
-        if ImGui.MenuItem("Spawn as Hidden") then
+        if ImGui.MenuItem(IconGlyphs.FileHidden .. " Spawn as Hidden") then
             self.spawnUI.spawnNew({ data = self.data }, require(self.data.modulePath), true, { loadHidden = true })
         end
 

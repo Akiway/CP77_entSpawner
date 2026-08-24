@@ -88,7 +88,17 @@ savedUI = {
     pendingBackupRestore = nil,
     ---One-shot flag that opens the warning popup at the top level, where a modal has to be opened
     ---from -- the button that queues the restore is several child windows deep.
-    pendingBackupRestoreOpen = false
+    pendingBackupRestoreOpen = false,
+    ---Bulk "load every group of a project" run in progress, or `nil` when none is.
+    ---
+    ---`groupLoadManager` takes one group at a time, so the groups of a project are chained through
+    ---its `onFinished` hook rather than looped over. Same shape as `sessionRestorePopup`'s queue.
+    ---@type table?
+    projectSpawn = nil,
+    ---Toasts raised by that chain, which runs from onUpdate, where ImGui may not be touched. Drained
+    ---by `savedUI.drawToasts`.
+    ---@type table[]
+    pendingToasts = {}
 }
 
 ---Distance the player may drift before the cached position lines are rebuilt. Matches the single
@@ -191,6 +201,163 @@ function savedUI.startQueuedGroupLoad(group, spawner, loadHidden, fileName)
         loadHidden = hidden,
         projectFile = fileName
     })
+end
+
+---@return boolean
+function savedUI.isProjectSpawnActive()
+    return savedUI.projectSpawn ~= nil
+end
+
+---Ends the current bulk load, filing everything it managed to load as a single undo step.
+---
+---One action for the whole run rather than one per group: the user clicked once, and undoing that
+---click group by group would take as many undos as the project has groups.
+---@param message string? Summary toast, or `nil` for none.
+---@param kind string? Toast kind, defaults to `"success"`.
+local function finishProjectSpawn(message, kind)
+    local run = savedUI.projectSpawn
+    if not run then return end
+
+    savedUI.projectSpawn = nil
+
+    if #run.loaded > 0 then
+        history.addAction(history.getInsert(run.loaded))
+    end
+
+    if message then
+        pipelineCommon.queueToast(savedUI.pendingToasts, kind or "success", 4000, message)
+    end
+end
+
+---Starts the next queued group, or ends the run once the queue is empty.
+local function startNextProjectSpawnGroup()
+    local run = savedUI.projectSpawn
+    if not run then return end
+
+    local entry = table.remove(run.queue, 1)
+
+    if not entry then
+        local message = string.format("Loaded %d group%s from \"%s\"", run.done, run.done == 1 and "" or "s", run.projectName)
+        if run.failed > 0 then
+            message = message .. string.format(", %d could not be loaded", run.failed)
+        end
+
+        finishProjectSpawn(message, run.failed > 0 and "warning" or "success")
+        return
+    end
+
+    -- Through the accessor rather than the cached entry the row was drawn from: auto-save can have
+    -- written a newer tree that the cache has not picked up yet.
+    local data = savedUI.getEntryData(entry.fileName) or entry.data
+
+    if type(data) ~= "table" or not data.name then
+        run.failed = run.failed + 1
+        logger:warn(string.format("[SavedUI] Skipped \"%s\" of project \"%s\": nothing loadable in the file",
+            tostring(entry.fileName), run.projectName))
+        startNextProjectSpawnGroup()
+        return
+    end
+
+    run.awaitingLoad = true
+
+    local started = groupLoadManager.start({
+        spawner = run.spawner,
+        data = data,
+        targetParent = run.spawner.baseUI.spawnedUI.root,
+        setAsSpawnNew = settings.setLoadedGroupAsSpawnNew and not run.hidden,
+        loadHidden = run.hidden,
+        projectFile = entry.fileName,
+        -- The run files one insert action covering all of its groups, in `finishProjectSpawn`.
+        suppressHistory = true,
+        onFinished = function (loadedGroup)
+            -- Not the run this callback belongs to any more: it was closed out while the load ran.
+            if savedUI.projectSpawn ~= run then return end
+
+            run.awaitingLoad = false
+            run.done = run.done + 1
+            if loadedGroup then
+                table.insert(run.loaded, loadedGroup)
+            end
+
+            startNextProjectSpawnGroup()
+        end
+    })
+
+    if not started then
+        run.awaitingLoad = false
+        run.failed = run.failed + 1
+        logger:warn(string.format("[SavedUI] Could not start loading \"%s\" of project \"%s\"",
+            tostring(entry.fileName), run.projectName))
+        startNextProjectSpawnGroup()
+    end
+end
+
+---Ends a run whose chain was broken.
+---
+---A load cancelled by the user, or one that fails while building its root, never reaches
+---`onFinished` -- so nothing would start the next group, and the run would sit there claiming to be
+---active forever. The manager going idle while a group is still in flight is what says that happened.
+local function resolveStalledProjectSpawn()
+    local run = savedUI.projectSpawn
+
+    if not run or not run.awaitingLoad or groupLoadManager.isActive() then
+        return
+    end
+
+    run.awaitingLoad = false
+    run.queue = {}
+
+    finishProjectSpawn(string.format("Stopped loading \"%s\" after %d of %d group%s",
+        run.projectName, run.done, run.total, run.total == 1 and "" or "s"), "warning")
+end
+
+---Queues every group of a project to be loaded, one after the other.
+---@param entries {fileName: string, data: table}[] Groups of the project, in the order to load them.
+---@param spawner spawner
+---@param projectName string Name of the project, for the progress line and the summary toast.
+---@param hidden boolean Load with a hidden root, so the children stay despawned until shown.
+---@return boolean started
+function savedUI.startProjectSpawn(entries, spawner, projectName, hidden)
+    if savedUI.isProjectSpawnActive() or groupLoadManager.isActive() or groupAMMImportManager.isActive() then
+        return false
+    end
+
+    local queue = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and type(entry.fileName) == "string" and entry.fileName ~= "" then
+            table.insert(queue, entry)
+        end
+    end
+
+    if #queue == 0 then return false end
+
+    sessionSnapshot.consume("loaded a project")
+
+    savedUI.projectSpawn = {
+        spawner = spawner,
+        projectName = projectName,
+        hidden = hidden == true,
+        queue = queue,
+        total = #queue,
+        done = 0,
+        failed = 0,
+        ---@type element[] Roots loaded so far, filed as one history action when the run ends.
+        loaded = {},
+        awaitingLoad = false
+    }
+
+    startNextProjectSpawnGroup()
+
+    return true
+end
+
+---Drains the queued toasts, and closes out a bulk load whose chain was broken.
+---
+---Called every frame from `baseUI` rather than from `savedUI.draw`: a run keeps going while another
+---tab is open, so what reports on it has to keep running there too.
+function savedUI.drawToasts()
+    resolveStalledProjectSpawn()
+    pipelineCommon.drawQueuedToasts(savedUI.pendingToasts)
 end
 
 ---@param entry {fileName: string, data: table}
@@ -1340,13 +1507,18 @@ local function drawProjectSectionActions(section, spawner, projectMap, buttonTex
     end
 
     ImGui.SameLine()
+    local spawnIcon = IconGlyphs.FileImageOutline
+    local spawnHiddenIcon = IconGlyphs.FileHidden
     local exportIcon = IconGlyphs.Export
     local editIcon = IconGlyphs.CogOutline
-    local exportWidth, _ = ImGui.CalcTextSize(exportIcon)
-    local editWidth, _ = ImGui.CalcTextSize(editIcon)
-    local exportButtonWidth = exportWidth + ImGui.GetStyle().FramePadding.x * 2
-    local editButtonWidth = editWidth + ImGui.GetStyle().FramePadding.x * 2
-    local buttonsWidth = exportButtonWidth + ImGui.GetStyle().ItemSpacing.x + editButtonWidth
+    local rowIcons = { spawnIcon, spawnHiddenIcon, exportIcon, editIcon }
+
+    local buttonsWidth = ImGui.GetStyle().ItemSpacing.x * (#rowIcons - 1)
+    for _, icon in ipairs(rowIcons) do
+        local iconWidth, _ = ImGui.CalcTextSize(icon)
+        buttonsWidth = buttonsWidth + iconWidth + ImGui.GetStyle().FramePadding.x * 2
+    end
+
     local scrollBarAddition = ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0
     local cursorX = ImGui.GetWindowWidth() - buttonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
     ImGui.SetCursorPosX(cursorX)
@@ -1354,10 +1526,40 @@ local function drawProjectSectionActions(section, spawner, projectMap, buttonTex
     style.pushButtonNoBG(true)
     ImGui.PushStyleColor(ImGuiCol.Text, buttonTextColor[1], buttonTextColor[2], buttonTextColor[3], buttonTextColor[4] or 1)
 
+    -- The whole project, not just the rows the search left visible -- the same set the export button
+    -- below sends over, and what "all the groups of this project" has to mean to be worth trusting.
+    local projectGroups = (projectMap[section.key] and projectMap[section.key].groups) or section.groups
+    local groupCountText = string.format("%d group%s", #projectGroups, #projectGroups == 1 and "" or "s")
+    local loadBlocked = groupLoadManager.isActive()
+        or groupAMMImportManager.isActive()
+        or savedUI.isProjectSpawnActive()
+    local blockedTooltip = "Loading is disabled while another pipeline operation is active"
+
+    ImGui.BeginDisabled(loadBlocked)
+    if ImGui.Button(spawnIcon .. "##savedProjectSpawnButton" .. section.key) then
+        actionButtonClicked = true
+        savedUI.startProjectSpawn(projectGroups, spawner, section.project.name, false)
+    end
+    style.tooltip(loadBlocked and blockedTooltip
+        or string.format("Load and spawn all %s of this project", groupCountText),
+        ImGuiHoveredFlags.AllowWhenDisabled)
+
+    ImGui.SameLine()
+    ImGui.SetNextItemAllowOverlap()
+    if ImGui.Button(spawnHiddenIcon .. "##savedProjectSpawnHiddenButton" .. section.key) then
+        actionButtonClicked = true
+        savedUI.startProjectSpawn(projectGroups, spawner, section.project.name, true)
+    end
+    style.tooltip(loadBlocked and blockedTooltip
+        or string.format("Load as hidden all %s of this project", groupCountText),
+        ImGuiHoveredFlags.AllowWhenDisabled)
+    ImGui.EndDisabled()
+
+    ImGui.SameLine()
+    ImGui.SetNextItemAllowOverlap()
     if ImGui.Button(exportIcon .. "##savedProjectExportButton" .. section.key) then
         actionButtonClicked = true
         local exportUI = spawner.baseUI.exportUI
-        local projectGroups = (projectMap[section.key] and projectMap[section.key].groups) or section.groups
 
         exportUI.projectName = section.project.name
         for _, entry in ipairs(projectGroups) do
@@ -1604,6 +1806,15 @@ function savedUI.draw(spawner)
 
     groupLoadManager.drawProgress(style)
     groupAMMImportManager.drawProgress(style)
+
+    local projectSpawn = savedUI.projectSpawn
+    if projectSpawn then
+        -- Which group of which project, under the manager's bar for the one group it knows about.
+        style.mutedText(string.format("%s \"%s\": %d of %d group%s",
+            projectSpawn.hidden and "Loading as hidden" or "Loading",
+            projectSpawn.projectName, math.min(projectSpawn.done + 1, projectSpawn.total),
+            projectSpawn.total, projectSpawn.total == 1 and "" or "s"))
+    end
 
     style.pushButtonNoBG(true)
     local hasGroups = hasSavedGroups()
@@ -1857,7 +2068,7 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
 
             local groupLoadActive = groupLoadManager.isActive() or groupAMMImportManager.isActive()
             style.pushGreyedOut(groupLoadActive)
-            if ImGui.Button("Load") and not groupLoadActive then
+            if ImGui.Button(IconGlyphs.FileImageOutline .. " Load") and not groupLoadActive then
                 savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, false, fileName)
             end
             if groupLoadActive then
@@ -1867,7 +2078,7 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
             end
 
             ImGui.SameLine()
-            if ImGui.Button("Load as Hidden") and not groupLoadActive then
+            if ImGui.Button(IconGlyphs.FileHidden .. " Load as Hidden") and not groupLoadActive then
                 savedUI.startQueuedGroupLoad(savedUI.getEntryData(fileName) or group, spawner, true, fileName)
             end
             if groupLoadActive then
