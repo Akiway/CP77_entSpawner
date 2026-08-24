@@ -2498,10 +2498,11 @@ function entity:drawInstanceData()
 
     if style.drawSearchClearButton('##searchComponentClear', self.instanceDataSearch ~= "", 'Search for component') then
         self.instanceDataSearch = ""
+        style.clearSearchInput('##searchComponent', true)
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
-    self.instanceDataSearch = style.inputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
+    self.instanceDataSearch = style.searchInputTextWithHint('##searchComponent', 'Search for component...', self.instanceDataSearch, 100)
     ImGui.PopItemWidth()
 
     ImGui.SameLine()

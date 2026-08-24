@@ -1842,13 +1842,15 @@ function savedUI.draw(spawner)
 
     if style.drawSearchClearButton('##FilterClear', savedUI.filter ~= '', 'Search for data') then
         savedUI.filter = ''
+        style.clearSearchInput('##Filter', true)
         settings.savedUIFilter = savedUI.filter
         settings.save()
     end
 
     ImGui.PushItemWidth(200 * style.viewSize)
-    savedUI.filter, changed = style.searchInputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
-    if changed then
+    local changed, cleared
+    savedUI.filter, changed, cleared = style.searchInputTextWithHint('##Filter', 'Search for data...', savedUI.filter, 100)
+    if changed or cleared then
         settings.savedUIFilter = savedUI.filter
         settings.save()
     end

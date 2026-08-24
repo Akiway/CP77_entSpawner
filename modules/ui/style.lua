@@ -592,6 +592,63 @@ function style.inputTextWithHint(...)
     return newValue, changed
 end
 
+-- While an input is active, ImGui keeps an internal text copy and can keep showing it after the
+-- external value has been emptied. Changing the widget id for one frame retires that copy.
+---@type table<string, {count: integer, refocus: boolean}>
+local searchInputState = {}
+
+---@param id string
+---@param refocus boolean?
+function style.clearSearchInput(id, refocus)
+    local entry = searchInputState[id]
+    searchInputState[id] = { count = ((entry and entry.count) or 0) + 1, refocus = refocus == true }
+end
+
+---`style.inputTextWithHint` for search fields. Right-clicking a non-empty search input clears it.
+---@param id string
+---@param hint string
+---@param value string
+---@param maxLength number
+---@param flags number?
+---@return string newValue
+---@return boolean changed
+---@return boolean cleared
+function style.searchInputTextWithHint(id, hint, value, maxLength, flags)
+    value = tostring(value or "")
+
+    local entry = searchInputState[id]
+    if entry and entry.refocus then
+        entry.refocus = false
+        ImGui.SetKeyboardFocusHere()
+    end
+
+    style.pushOutlinedInput()
+
+    local widgetId = id .. "##take" .. (entry and entry.count or 0)
+    local newValue, changed
+    if flags ~= nil then
+        newValue, changed = ImGui.InputTextWithHint(widgetId, hint, value, maxLength, flags)
+    else
+        newValue, changed = ImGui.InputTextWithHint(widgetId, hint, value, maxLength)
+    end
+
+    style.popOutlinedInput()
+
+    local cleared = false
+
+    if newValue ~= "" and ImGui.IsItemClicked(ImGuiMouseButton.Right) then
+        if ImGui.IsItemActive() then
+            style.clearSearchInput(id, true)
+        end
+
+        newValue = ""
+        changed = false
+        cleared = true
+    end
+
+    return newValue, changed, cleared
+end
+
 ---`ImGui.InputText` in the outlined styling. The hintless counterpart to
 ---`style.inputTextWithHint`.
 ---@param ... any Arguments forwarded verbatim (id, value, maxLength, flags?).
@@ -1648,12 +1705,12 @@ function style.drawSearchClearButton(id, hasQuery, searchTooltip)
 end
 
 ---Draw the standard search row: clear/search button, text input and syntax help glyph.
+---Right-clicking the input clears it.
 ---@class SearchFilterRowOpts
 ---@field width number? Input width in unscaled units (default `300`).
 ---@field maxLength number? Input buffer length (default `100`).
 ---@field hint string? Placeholder text.
 ---@field searchTooltip string? Tooltip of the leading glyph while the field is empty.
----@field onClear fun()? Called instead of `changed` when the clear button is pressed.
 ---@param id string Input ID, e.g. `##filter`.
 ---@param value string Current search text.
 ---@param opts SearchFilterRowOpts?
@@ -1667,11 +1724,13 @@ function style.drawSearchFilterRow(id, value, opts)
     local cleared = style.drawSearchClearButton(id .. "Clear", value ~= "", opts.searchTooltip)
     if cleared then
         value = ""
+        style.clearSearchInput(id, true)
     end
 
     ImGui.SetNextItemWidth((opts.width or 300) * style.viewSize)
-    local changed
-    value, changed = style.inputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
+    local changed, inputCleared
+    value, changed, inputCleared = style.searchInputTextWithHint(id, opts.hint or "Search by name... (Supports pattern matching)", value, opts.maxLength or 100)
+    cleared = cleared or inputCleared
 
     ImGui.SameLine()
     style.mutedText(IconGlyphs.InformationOutline)
@@ -1770,10 +1829,12 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
         local interiorWidth = effectiveWidth - (2 * ImGui.GetStyle().FramePadding.x) - 30
         if style.drawSearchClearButton("##searchClear", searchValue ~= "") then
             searchValue = ""
+            style.clearSearchInput("##search", true)
         end
         local xButton, _ = ImGui.GetItemRectSize()
 
-        searchValue, _, _ = style.trackedTextField(nil, "##search", searchValue, searchHint, interiorWidth)
+        ImGui.SetNextItemWidth(interiorWidth * style.viewSize)
+        searchValue, _, _ = style.searchInputTextWithHint("##search", searchHint, searchValue, 500)
         local x, _ = ImGui.GetItemRectSize()
 
         local customValue = tostring(searchValue or "")
@@ -2015,11 +2076,12 @@ function style.drawSearchableMultiSelectCombo(opts)
 
         if style.drawSearchClearButton(searchClearButtonId, searchValue ~= "") then
             searchValue = ""
+            style.clearSearchInput(searchInputId, true)
         end
 
         ImGui.SetNextItemWidth(searchWidth)
-        local nextSearchValue, searchChanged = style.inputTextWithHint(searchInputId, searchHint, searchValue, 100)
-        if searchChanged then
+        local nextSearchValue, searchChanged, searchCleared = style.searchInputTextWithHint(searchInputId, searchHint, searchValue, 100)
+        if searchChanged or searchCleared then
             searchValue = nextSearchValue
         end
 

@@ -2974,6 +2974,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
 
     if style.drawSearchClearButton('##FilterClear', spawnUI.popupFilter ~= '') then
         spawnUI.popupFilter = ''
+        style.clearSearchInput('##Filter', true)
         spawnUI.loadPopupData(typeName, variantName)
     end
     local xButton, _ = ImGui.GetItemRectSize()
@@ -2984,11 +2985,11 @@ function spawnUI.drawPopupVariant(typeName, variantName)
         ImGui.SetKeyboardFocusHere()
     end
 
-    local popupFilterChanged
-    spawnUI.popupFilter, popupFilterChanged = style.inputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
+    local popupFilterChanged, popupFilterCleared
+    spawnUI.popupFilter, popupFilterChanged, popupFilterCleared = style.searchInputTextWithHint('##Filter', 'Search...', spawnUI.popupFilter, 75)
     local xSpace, _ = ImGui.GetItemRectSize()
     xSpace = xSpace + xButton + ImGui.GetStyle().ItemSpacing.x
-    if popupFilterChanged then
+    if popupFilterChanged or popupFilterCleared then
         spawnUI.loadPopupData(typeName, variantName)
     end
 

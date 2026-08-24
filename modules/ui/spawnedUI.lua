@@ -3512,6 +3512,7 @@ end
 function spawnedUI.drawTop()
     if style.drawSearchClearButton('##FilterClear', spawnedUI.filter ~= '', 'Search for element') then
         spawnedUI.filter = ''
+        style.clearSearchInput('##Filter', true)
         spawnedUI.invalidateCache(false)
         if #spawnedUI.selectedPaths == 1 then
             spawnedUI.selectedPaths[1].ref:expandAllParents()
@@ -3521,7 +3522,7 @@ function spawnedUI.drawTop()
 
     local previousFilter = spawnedUI.filter
     ImGui.PushItemWidth(200 * style.viewSize)
-    spawnedUI.filter = style.inputTextWithHint('##Filter', 'Search for element...', spawnedUI.filter, 100)
+    spawnedUI.filter = style.searchInputTextWithHint('##Filter', 'Search for element...', spawnedUI.filter, 100)
     ImGui.PopItemWidth()
     if spawnedUI.filter ~= previousFilter then
         spawnedUI.invalidateCache(false)

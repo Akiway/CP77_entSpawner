@@ -353,10 +353,11 @@ function projectLinkPopup.draw(spawner)
 
     if style.drawSearchClearButton("##projectLinkFilterClear", projectLinkPopup.filter ~= "", "Search projects") then
         projectLinkPopup.filter = ""
+        style.clearSearchInput("##projectLinkFilter", true)
     end
 
     ImGui.SetNextItemWidth(260 * style.viewSize)
-    projectLinkPopup.filter = style.inputTextWithHint("##projectLinkFilter", "Search projects...", projectLinkPopup.filter, 100)
+    projectLinkPopup.filter = style.searchInputTextWithHint("##projectLinkFilter", "Search projects...", projectLinkPopup.filter, 100)
 
     ImGui.Dummy(0, 4 * style.viewSize)
     local selected = drawProjectList(spawner)

@@ -482,12 +482,13 @@ function field.drawIconSelector(id, current, search)
 
         if style.drawSearchClearButton("##iconClear" .. pickerId, search ~= "", "Search icons") then
             search = ""
+            style.clearSearchInput("##iconSearch" .. pickerId, true)
         end
         local clearButtonWidth, _ = ImGui.GetItemRectSize()
 
         local interiorWidth = 250 - (2 * ImGui.GetStyle().FramePadding.x) - 30
         style.setNextItemWidth(interiorWidth)
-        search, _ = style.inputTextWithHint("##iconSearch" .. pickerId, "Icon, alias or tag...", search, 100)
+        search, _ = style.searchInputTextWithHint("##iconSearch" .. pickerId, "Icon, alias or tag...", search, 100)
         local searchWidth, _ = ImGui.GetItemRectSize()
         local controlsWidth = searchWidth + ImGui.GetStyle().ItemSpacing.x + clearButtonWidth
 
