@@ -27,6 +27,7 @@ local diffuseColorScaleNormalization = {
 ---@field private autoHideDistance number
 ---@field private scale {x: number, y: number, z: number}
 ---@field private diffuseColorScale number[]
+---@field private isStretchingEnabled boolean
 ---@field private isTiling boolean
 ---@field private maxPropertyWidth number
 local decal = setmetatable({}, { __index = visualized })
@@ -48,6 +49,7 @@ function decal:new()
     o.autoHideDistance = 150
     o.scale = { x = 1, y = 1, z = 1 }
     o.diffuseColorScale = { 1, 1, 1, 1 }
+    o.isStretchingEnabled = false
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.05
@@ -77,6 +79,7 @@ function decal:onAssemble(entity)
     component.verticalFlip = self.verticalFlip
     component.autoHideDistance = self.autoHideDistance
     component.aspectRatio = 1
+    component.isStretchingEnabled = self.isStretchingEnabled
     component.name = "decal"
     component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
 
@@ -156,6 +159,7 @@ end
 function decal:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
     self.diffuseColorScale = colorUtil.normalizeChannels(self.diffuseColorScale, diffuseColorScaleNormalization)
+    self.isStretchingEnabled = self.isStretchingEnabled ~= false and self.isStretchingEnabled ~= 0
 end
 
 function decal:save()
@@ -167,6 +171,7 @@ function decal:save()
     data.verticalFlip = self.verticalFlip
     data.autoHideDistance = self.autoHideDistance
     data.scale = { x = self.scale.x, y = self.scale.y, z = self.scale.z }
+    data.isStretchingEnabled = self.isStretchingEnabled
     data.diffuseColorScale = {
         self.diffuseColorScale[1],
         self.diffuseColorScale[2],
@@ -254,7 +259,7 @@ function decal:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Alpha", "Vertical Flip", "Horizontal Flip", "Auto Hide Distance", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Alpha", "Vertical Flip", "Horizontal Flip", "Stretching Enabled", "Auto Hide Distance", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
@@ -276,6 +281,12 @@ function decal:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.horizontalFlip, changed = style.trackedCheckbox(self.object, "##horizontalFlip", self.horizontalFlip)
     self:updateFull(ImGui.IsItemDeactivatedAfterEdit())
+
+    style.mutedText("Stretching Enabled")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.isStretchingEnabled, changed = style.trackedCheckbox(self.object, "##isStretchingEnabled", self.isStretchingEnabled)
+    self:updateFull(changed)
 
     style.mutedText("Auto Hide Distance")
     ImGui.SameLine()
@@ -312,7 +323,7 @@ function decal:export()
         },
         horizontalFlip = self.horizontalFlip and 1 or 0,
         verticalFlip = self.verticalFlip and 1 or 0,
-        isStretchingEnabled = 1,
+        isStretchingEnabled = self.isStretchingEnabled and 1 or 0,
         material = {
             DepotPath = {
                 ["$storage"] = "string",

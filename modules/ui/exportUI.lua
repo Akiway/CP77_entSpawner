@@ -1687,6 +1687,7 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                             ["$storage"] = "string",
                             ["$value"] = phase.phaseName
                         },
+                        ["alwaysSpawned"] = phase.alwaysSpawned and "true_" or "default__false_",
                         ["timePeriods"] = periods
                     }
                   })
@@ -1705,6 +1706,7 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                         ["$storage"] = "string",
                         ["$value"] = entry.entryName
                     },
+                    ["spawnInView"] = entry.spawnInView == false and "false_" or "default__true_",
                     ["phases"] = phases,
                 }
             })

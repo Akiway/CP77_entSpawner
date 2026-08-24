@@ -890,6 +890,7 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
         table.insert(entry.phases, {
             phaseName = getUniqueName(entry.phases, "phaseName", string.format("phase_%d", nextPhaseIndex)),
             appearances = { "default" },
+            alwaysSpawned = false,
             timePeriods = {}
         })
     end
@@ -901,6 +902,7 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
         phase.appearances = phase.appearances or { "default" }
         phase.timePeriods = phase.timePeriods or {}
         phase.phaseName = sanitizeValue(phase.phaseName)
+        phase.alwaysSpawned = phase.alwaysSpawned == true
         self:drawHierarchyRowBackground("phase")
 
         local phaseHierarchyKey = entryHierarchyKey .. "/phase:" .. tostring(phase)
@@ -967,6 +969,11 @@ function community:drawPhases(entryKey, entry, entryHierarchyKey)
         if phaseOpen then
             ImGui.Indent(hierarchyIndent())
             ImGui.Dummy(0, 4 * style.viewSize)
+            style.mutedText("Always Spawned")
+            style.tooltip("If true, the actors in this phase will always be spawned, regardless of whether enough workspots are available.")
+            ImGui.SameLine()
+            phase.alwaysSpawned, _ = style.trackedCheckbox(self.object, "##alwaysSpawned", phase.alwaysSpawned)
+            ImGui.Dummy(0, 8 * style.viewSize)
             self:drawPhaseAppearances(entryKey, key, entry, phase)
             ImGui.Dummy(0, 8 * style.viewSize)
             self:drawPhasePeriods(phase, phaseHierarchyKey)
@@ -1006,6 +1013,7 @@ function community:drawEntries()
             characterRecordId = "Character.Judy",
             initialPhaseName = "default",
             entryActiveOnStart = true,
+            spawnInView = true,
             phases = {}
         })
     end
@@ -1021,6 +1029,7 @@ function community:drawEntries()
         entry.characterRecordId = sanitizeValue(entry.characterRecordId)
         entry.initialPhaseName = sanitizeValue(entry.initialPhaseName)
         entry.entryActiveOnStart = entry.entryActiveOnStart ~= false
+        entry.spawnInView = entry.spawnInView ~= false
         local phaseOptions, defaultInitialPhase, phaseNames = buildInitialPhaseOptions(entry.phases)
         if #phaseNames == 0 then
             entry.initialPhaseName = "default"
@@ -1083,13 +1092,25 @@ function community:drawEntries()
                 ImGui.OpenPopup("##entrySettingsPopup")
             end
             style.tooltip(string.format(
-                "Initial Phase Name: %s\nActive On Start: %s",
+                "Initial Phase Name: %s\nActive On Start: %s\nSpawn In View: %s",
                 entry.initialPhaseName ~= "" and entry.initialPhaseName or "default",
-                entry.entryActiveOnStart and "true" or "false"
+                entry.entryActiveOnStart and "true" or "false",
+                entry.spawnInView and "true" or "false"
             ))
 
+            style.constrainPopupToViewport("##entrySettingsPopup")
             if ImGui.BeginPopup("##entrySettingsPopup") then
-                style.mutedText("Initial Phase Name")
+                local settingsControlX = ImGui.GetCursorPosX()
+                    + utils.getTextMaxWidth({ "Initial Phase Name", "Active On Start", "Spawn In View" })
+                    + 2 * ImGui.GetStyle().ItemSpacing.x
+                local function drawEntrySettingLabel(label)
+                    ImGui.AlignTextToFramePadding()
+                    style.mutedText(label)
+                    ImGui.SameLine()
+                    ImGui.SetCursorPosX(settingsControlX)
+                end
+
+                drawEntrySettingLabel("Initial Phase Name")
                 local phaseSearchKey = entryKey
                 local phaseSearch = self.entryInitialPhaseSearch[phaseSearchKey] or ""
                 local previousInitialPhase = entry.initialPhaseName
@@ -1101,22 +1122,25 @@ function community:drawEntries()
                     phaseOptions,
                     {
                         element = self.object,
-                        width = 220,
-                        matchContentWidth = true
+                        width = 160,
+                        matchContentWidth = true,
+                        tooltip = #phaseNames == 0
+                            and "No phases available, using 'default'."
+                            or "Select the phase to start this entry from."
                     }
                 )
                 if entry.initialPhaseName ~= previousInitialPhase then
                     self.entryInitialPhaseTouched[entryKey] = true
                 end
                 self.entryInitialPhaseSearch[phaseSearchKey] = phaseSearch
-                style.tooltip(
-                    #phaseNames == 0
-                        and "No phases available, using 'default'."
-                        or "Select the phase to start this entry from."
-                )
 
-                style.mutedText("Active On Start")
+                drawEntrySettingLabel("Active On Start")
+                style.tooltip("If true, this entry will be active when the community is first loaded.\nIf false, it will be inactive until activated by a script or a questphase.")
                 entry.entryActiveOnStart, _ = style.trackedCheckbox(self.object, "##activeOnStart", entry.entryActiveOnStart)
+
+                drawEntrySettingLabel("Spawn In View")
+                style.tooltip("Determine whether the item can appear within the player's field of view when activated.\nIf set to false, it will wait for the player to look away.")
+                entry.spawnInView, _ = style.trackedCheckbox(self.object, "##spawnInView", entry.spawnInView)
                 ImGui.EndPopup()
             end
         else
