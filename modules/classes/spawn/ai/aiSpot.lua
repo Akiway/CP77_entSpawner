@@ -25,7 +25,7 @@ local workspotRigStore = {
     workspots = {}
 }
 local workspotRigStoreLoaded = false
-local COMMUNITY_ATTACH_POPUP_ID = "Add Workspot To Community"
+local COMMUNITY_ATTACH_POPUP_ID = "Add Workspot To Community##wb-communityAttachPopup-wui"
 local NO_WORKSPOT_RIG_KEY = "__wb_no_workspot_rig_data__"
 
 local function normalizeRigPath(path)
