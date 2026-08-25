@@ -26,6 +26,7 @@ local workspotRigStore = {
 }
 local workspotRigStoreLoaded = false
 local COMMUNITY_ATTACH_POPUP_ID = "Add Workspot To Community"
+local NO_WORKSPOT_RIG_KEY = "__wb_no_workspot_rig_data__"
 
 local function normalizeRigPath(path)
     return utils.normalizePath(path, {
@@ -140,7 +141,7 @@ local function getRecordRigsFromStore(recordID)
     return utils.deepcopy(rigs)
 end
 
-local function getWorkspotRigsFromStore(workspotPath)
+local function getWorkspotRigsFromStoreRaw(workspotPath)
     loadWorkspotRigStore()
     local normalizedPath = normalizeRigPath(workspotPath)
     if not normalizedPath then
@@ -152,7 +153,73 @@ local function getWorkspotRigsFromStore(workspotPath)
         return nil
     end
 
+    return rigs
+end
+
+local function getWorkspotRigsFromStore(workspotPath)
+    local rigs = getWorkspotRigsFromStoreRaw(workspotPath)
+    if type(rigs) ~= "table" then
+        return nil
+    end
+
     return utils.deepcopy(rigs)
+end
+
+local function getWorkspotRigFilterKeys(workspotPath)
+    local rigs = getWorkspotRigsFromStoreRaw(workspotPath)
+    if type(rigs) ~= "table" or #rigs == 0 then
+        return { NO_WORKSPOT_RIG_KEY }
+    end
+
+    return rigs
+end
+
+local function getRigDisplayName(rigPath)
+    local rig = tostring(rigPath or "")
+    if rig == NO_WORKSPOT_RIG_KEY then
+        return "No cached rig data"
+    end
+
+    local normalized = normalizeRigPath(rig)
+    if not normalized then
+        return utils.sanitizeText(rig)
+    end
+
+    local baseEntity = normalized:match("base\\characters\\base_entities\\([^\\]+)\\[^\\]+%.rig$")
+    if baseEntity and baseEntity ~= "" then
+        return baseEntity
+    end
+
+    local playerRig = normalized:match("base\\characters\\entities\\player\\([^\\]+)%.rig$")
+    if playerRig and playerRig ~= "" then
+        return playerRig
+    end
+
+    local workspotPropRig = normalized:match("workspot_prop_rigs\\(.+)%.rig$")
+    if workspotPropRig and workspotPropRig ~= "" then
+        return workspotPropRig:gsub("\\", "/")
+    end
+
+    local parent, fileName = normalized:match("([^\\]+)\\([^\\]+)%.rig$")
+    if parent and fileName then
+        return parent .. "/" .. fileName
+    end
+
+    return utils.getFileName(normalized)
+end
+
+local function getRigIcon(rigPath)
+    local rig = tostring(rigPath or "")
+    if rig == NO_WORKSPOT_RIG_KEY then
+        return IconGlyphs.AlertOutline
+    end
+
+    local normalized = rig:lower():gsub("/", "\\")
+    if normalized:find("\\characters\\", 1, true) then
+        return IconGlyphs.Account
+    end
+
+    return IconGlyphs.PackageVariantClosed
 end
 
 local function ensureCharacterRecordsLoaded()
@@ -312,6 +379,12 @@ end
 ---@field communityAttachNodeRef string
 ---@field communityAttachStatus string
 local aiSpot = setmetatable({}, { __index = visualized })
+
+aiSpot.NO_WORKSPOT_RIG_KEY = NO_WORKSPOT_RIG_KEY
+aiSpot.getWorkspotRigsFromStore = getWorkspotRigsFromStore
+aiSpot.getWorkspotRigFilterKeys = getWorkspotRigFilterKeys
+aiSpot.getRigDisplayName = getRigDisplayName
+aiSpot.getRigIcon = getRigIcon
 
 local function sanitizePreviewValue(value, fallback)
     return utils.sanitizeText(value, fallback or "")
@@ -607,6 +680,7 @@ function aiSpot:new()
     o.dataType = "AI Spot"
     o.spawnDataPath = "data/spawnables/ai/aiSpot/"
     o.modulePath = "ai/aiSpot"
+    o.entryFilter = "workspotRig"
     o.node = "worldAISpotNode"
     o.description = "Defines a spot at which NPCs use a workspot. Must be used together with a community node."
     o.icon = IconGlyphs.MapMarkerStar

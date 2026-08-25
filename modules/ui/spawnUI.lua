@@ -10,6 +10,7 @@ local groupLoadManager = require("modules/utils/pipeline/groupLoadManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
+local aiSpotClass = require("modules/classes/spawn/ai/aiSpot")
 local logger = require("modules/utils/core/logger")
 local prefabPreview = require("modules/utils/preview/prefabPreview")
 local previewControls = require("modules/utils/preview/previewControls")
@@ -103,7 +104,7 @@ local types = {
     },
     ["AI"] = {
         variants = {
-            ["AI Spot"] = { class = require("modules/classes/spawn/ai/aiSpot"), index = 1 },
+            ["AI Spot"] = { class = aiSpotClass, index = 1 },
             ["Community"] = { class = require("modules/classes/spawn/ai/communityArea"), index = 2 }
         },
         index = 8
@@ -806,10 +807,16 @@ end
 ---@field label string Row label.
 ---@field supports fun(spawnList: table): boolean Whether the filter applies to a list.
 ---@field resolveKey fun(entry: table, spawnList: table): string Option key of one entry.
+---@field resolveKeys fun(entry: table, spawnList: table): string[]? Option keys of one entry, for multi-value filters.
 ---@field defaults table<string, boolean>? Initial selection state.
 ---@field prune boolean? When false, selections are kept even if no entry carries them.
 ---@field isActive fun(selections: table<string, boolean>): boolean Whether the filter constrains results.
 ---@field accepts fun(selections: table<string, boolean>, key: string): boolean Entry test.
+---@field acceptsKeys fun(selections: table<string, boolean>, keys: string[], state: table): boolean Multi-key entry test.
+---@field showAndFilterToggle boolean? Whether the combo exposes an AND/OR mode toggle.
+---@field defaultAndFilter boolean? Initial AND/OR mode for new filter state.
+---@field formatOptionLabel fun(option: SpawnEntryFilterOption): string? Optional display label for an option.
+---@field matchesOption fun(option: SpawnEntryFilterOption, searchValue: string, idx: integer): boolean? Optional option-list search matcher.
 
 ---Default activity test: the filter constrains as soon as one option is picked.
 ---@param selections table<string, boolean>
@@ -824,6 +831,99 @@ end
 ---@return boolean
 local function acceptsSelectedKey(selections, key)
     return key ~= "" and selections[key] == true
+end
+
+---@param keys any
+---@return string[]
+local function normalizeFilterKeys(keys)
+    local normalized = {}
+    local dedupe = {}
+
+    if type(keys) == "string" then
+        keys = { keys }
+    end
+
+    if type(keys) ~= "table" then
+        return normalized
+    end
+
+    for _, key in ipairs(keys) do
+        key = tostring(key or "")
+        if key ~= "" and not dedupe[key] then
+            dedupe[key] = true
+            table.insert(normalized, key)
+        end
+    end
+
+    return normalized
+end
+
+---@param filter SpawnEntryFilter
+---@param entry table
+---@param spawnList table
+---@return string[]
+local function resolveEntryFilterKeys(filter, entry, spawnList)
+    if type(filter.resolveKeys) == "function" then
+        return normalizeFilterKeys(filter.resolveKeys(entry, spawnList))
+    end
+
+    if type(filter.resolveKey) == "function" then
+        return normalizeFilterKeys(filter.resolveKey(entry, spawnList))
+    end
+
+    return {}
+end
+
+---@param selections table<string, boolean>
+---@param keys string[]
+---@return boolean
+local function acceptsAnySelectedKey(selections, keys)
+    for _, key in ipairs(keys or {}) do
+        if acceptsSelectedKey(selections, key) then
+            return true
+        end
+    end
+
+    return false
+end
+
+---@param selections table<string, boolean>
+---@param keys string[]
+---@return boolean
+local function acceptsAllSelectedKeys(selections, keys)
+    local entryKeys = utils.toKeySet(keys)
+    local hasSelection = false
+
+    for key, isSelected in pairs(selections or {}) do
+        if isSelected then
+            hasSelection = true
+            if not entryKeys[key] then
+                return false
+            end
+        end
+    end
+
+    return hasSelection
+end
+
+---@param filter SpawnEntryFilter
+---@param state table
+---@param keys string[]
+---@return boolean
+local function acceptsFilterEntry(filter, state, keys)
+    if type(filter.acceptsKeys) == "function" then
+        return filter.acceptsKeys(state.selections, keys, state)
+    end
+
+    if type(filter.accepts) == "function" and type(filter.resolveKeys) ~= "function" then
+        return filter.accepts(state.selections, keys[1] or "")
+    end
+
+    if state.andFilter == true then
+        return acceptsAllSelectedKeys(state.selections, keys)
+    end
+
+    return acceptsAnySelectedKey(state.selections, keys)
 end
 
 ---@type SpawnEntryFilter[]
@@ -913,6 +1013,41 @@ local entryFilters = {
         resolveIcon = function () return IconGlyphs.AlphaRBoxOutline end,
         isActive = anySelected,
         accepts = acceptsSelectedKey
+    },
+    {
+        id = "workspotRig",
+        label = "Supported rig",
+        allLabel = "All rigs",
+        multiLabel = "%d rigs selected",
+        searchHint = "Search rig...",
+        emptyText = "No rig metadata available",
+        noMatchText = "No matching rigs",
+        selectAllTooltip = "Select all rigs",
+        unselectAllTooltip = "Unselect all rigs (default behavior: show all)",
+        clearTooltip = "Clear selected rig filters",
+        comboWidth = 300,
+        supports = function (spawnList) return spawnList.entryFilter == "workspotRig" end,
+        resolveKeys = function (entry, spawnList)
+            return aiSpotClass.getWorkspotRigFilterKeys(getEntryAssetPath(entry, spawnList))
+        end,
+        resolveIcon = aiSpotClass.getRigIcon,
+        formatOptionLabel = function (option)
+            return aiSpotClass.getRigDisplayName(option.key)
+        end,
+        matchesOption = function (option, searchValue)
+            local search = string.lower(tostring(searchValue or ""))
+            if search == "" then
+                return true
+            end
+
+            local label = string.lower(aiSpotClass.getRigDisplayName(option.key))
+            local key = string.lower(tostring(option.key or ""))
+            return utils.safePatternMatch(label, search) or utils.safePatternMatch(key, search)
+        end,
+        showAndFilterToggle = true,
+        andFilterTooltip = "Require every selected rig instead of any selected rig.",
+        andFilterIcon = IconGlyphs.SetCenter,
+        isActive = anySelected
     }
 }
 
@@ -959,8 +1094,14 @@ local function getFilterState(filter, spawnList)
 
     local state = byModule[spawnList.modulePath]
     if not state then
-        state = { selections = utils.deepcopy(filter.defaults or {}), search = "" }
+        state = {
+            selections = utils.deepcopy(filter.defaults or {}),
+            search = "",
+            andFilter = filter.defaultAndFilter == true
+        }
         byModule[spawnList.modulePath] = state
+    elseif filter.showAndFilterToggle == true and state.andFilter == nil then
+        state.andFilter = filter.defaultAndFilter == true
     end
 
     return state
@@ -979,8 +1120,7 @@ local function getAvailableFilterKeys(filter, spawnList)
 
     local availableKeys = {}
     for _, entry in ipairs(spawnList.data) do
-        local key = tostring(filter.resolveKey(entry, spawnList) or "")
-        if key ~= "" then
+        for _, key in ipairs(resolveEntryFilterKeys(filter, entry, spawnList)) do
             availableKeys[key] = true
         end
     end
@@ -1010,8 +1150,7 @@ local function getFilterOptions(filter, spawnList)
     local optionsByKey = {}
 
     for _, entry in ipairs(spawnList.data) do
-        local key = tostring(filter.resolveKey(entry, spawnList) or "")
-        if key ~= "" then
+        for _, key in ipairs(resolveEntryFilterKeys(filter, entry, spawnList)) do
             local option = optionsByKey[key]
             if not option then
                 option = { key = key, icon = resolveIcon and resolveIcon(key) or "", count = 0 }
@@ -1031,7 +1170,11 @@ local function getFilterOptions(filter, spawnList)
         end
     end
 
-    table.sort(options, function (a, b) return string.lower(a.key) < string.lower(b.key) end)
+    table.sort(options, function (a, b)
+        local aLabel = filter.formatOptionLabel and filter.formatOptionLabel(a) or a.key
+        local bLabel = filter.formatOptionLabel and filter.formatOptionLabel(b) or b.key
+        return string.lower(aLabel) < string.lower(bLabel)
+    end)
 
     filterOptionsCache[cacheKey] = { search = spawnUI.filter, options = options }
 
@@ -1215,7 +1358,7 @@ function spawnUI.updateFilter()
             end
 
             if filter.isActive(state.selections) then
-                table.insert(activeFilters, { filter = filter, selections = state.selections })
+                table.insert(activeFilters, { filter = filter, state = state })
             end
         end
     end
@@ -1235,8 +1378,8 @@ function spawnUI.updateFilter()
             local include = true
 
             for _, active in ipairs(activeFilters) do
-                local key = tostring(active.filter.resolveKey(data, activeSpawnList) or "")
-                if not active.filter.accepts(active.selections, key) then
+                local keys = resolveEntryFilterKeys(active.filter, data, activeSpawnList)
+                if not acceptsFilterEntry(active.filter, active.state, keys) then
                     include = false
                     break
                 end
@@ -1321,6 +1464,7 @@ end
 local function drawFilterCombo(filter, spawnList, state)
     style.fieldLabel(filter.label)
 
+    local andFilterChanged = false
     local changed, nextSearch = style.drawSearchableMultiSelectCombo({
         comboId = "##" .. filter.id .. "FilterCombo",
         previewLabel = style.getMultiSelectPreviewLabel(state.selections, filter.allLabel, filter.multiLabel),
@@ -1341,21 +1485,31 @@ local function drawFilterCombo(filter, spawnList, state)
         optionIdPrefix = "##" .. filter.id .. "Option",
         selectAllTooltip = filter.selectAllTooltip,
         unselectAllTooltip = filter.unselectAllTooltip,
+        showAndFilterToggle = filter.showAndFilterToggle == true,
+        andFilterState = state.andFilter == true,
+        onAndFilterChanged = function (nextState)
+            state.andFilter = nextState == true
+            andFilterChanged = true
+        end,
+        andFilterTooltip = filter.andFilterTooltip,
+        andFilterIcon = filter.andFilterIcon,
         showClearSelectionButton = true,
         clearSelectionButtonId = "##" .. filter.id .. "FilterSelectionClear",
         clearSelectionTooltip = filter.clearTooltip,
+        matchesOption = filter.matchesOption,
         getOptionKey = function (option)
             return option.key
         end,
         getOptionLabel = function (option)
             local labelIcon = option.icon ~= "" and (option.icon .. " ") or ""
-            return string.format("%s%s (%d)", labelIcon, option.key, option.count)
+            local label = filter.formatOptionLabel and filter.formatOptionLabel(option) or option.key
+            return string.format("%s%s (%d)", labelIcon, label, option.count)
         end
     })
 
     state.search = nextSearch
 
-    return changed
+    return changed or andFilterChanged
 end
 
 ---Draws every per-entry filter supported by the active spawn list.
