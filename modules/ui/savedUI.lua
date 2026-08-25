@@ -34,8 +34,6 @@ local FILE_SCAN_INTERVAL = 1.0
 
 savedUI = {
     filter = "",
-    color = {group = {0, 255, 0}, object = {0, 50, 255}},
-    box = {group = {x = 600, y = 116}, object = {x = 600, y = 133}},
     files = {},
     invalidFiles = {},
     corruptedColor = 0xFF00A5FF,
@@ -546,16 +544,6 @@ local function validateSavedEntry(fileName, data)
 
     if utils.isSerializedGroupStrict(data) then
         if type(data.childs) ~= "table" or not isPositionValid(data.pos) then
-            savedUI.invalidFiles[fileName] = true
-            return false
-        end
-
-        savedUI.invalidFiles[fileName] = nil
-        return true
-    end
-
-    if utils.isSerializedSpawnableStrict(data) then
-        if type(data.spawnable) ~= "table" or not isPositionValid(data.spawnable.position) then
             savedUI.invalidFiles[fileName] = true
             return false
         end
@@ -1315,13 +1303,7 @@ function savedUI.backwardComp()
         if #file.name > 5 and file.name:sub(-5) == ".json" then
             local data = config.loadFile("data/objects/" .. file.name)
 
-            if data.type == "object" and data.path then
-                config.saveFile("data/oldFormat/" .. file.name, data)
-
-                local new = savedUI.convertObject(data, true)
-                config.saveFile("data/objects/" .. file.name, new)
-                logger:warn("Converted \"" .. file.name .. "\" to the new file format.")
-            elseif data.type == "group" and not data.isUsingSpawnables then
+            if data.type == "group" and not data.isUsingSpawnables then
                 config.saveFile("data/oldFormat/" .. file.name, data)
 
                 data = savedUI.convertGroup(data)
@@ -2000,34 +1982,21 @@ function savedUI.draw(spawner)
     end
 
     local allGroups = {}
-    local allObjects = {}
     for fileName, data in pairs(savedUI.files) do
-        local entry = {
-            fileName = fileName,
-            data = data
-        }
-
         if utils.isSerializedGroupStrict(data) then
-            table.insert(allGroups, entry)
-        elseif utils.isSerializedSpawnableStrict(data) then
-            table.insert(allObjects, entry)
+            table.insert(allGroups, {
+                fileName = fileName,
+                data = data
+            })
         end
     end
 
     sortSavedEntries(allGroups)
-    sortSavedEntries(allObjects)
 
     local filteredGroups = {}
     for _, entry in ipairs(allGroups) do
         if matchesSavedFilter(savedUI.filter, entry.data, entry.fileName) then
             table.insert(filteredGroups, entry)
-        end
-    end
-
-    local filteredObjects = {}
-    for _, entry in ipairs(allObjects) do
-        if matchesSavedFilter(savedUI.filter, entry.data, entry.fileName) then
-            table.insert(filteredObjects, entry)
         end
     end
 
@@ -2054,19 +2023,6 @@ function savedUI.draw(spawner)
             drawProjectSection(section, spawner, projectMap, projectOptions)
             visibleResults = true
         end
-    end
-
-    if #filteredObjects > 0 then
-        if visibleResults then
-            ImGui.Dummy(0, 4 * style.viewSize)
-            style.mutedText("Saved Objects")
-            ImGui.Separator()
-        end
-
-        for _, entry in ipairs(filteredObjects) do
-            savedUI.drawObject(entry.data, spawner, entry.fileName)
-        end
-        visibleResults = true
     end
 
     if not visibleResults and filteredCorruptedCount == 0 then
@@ -2251,67 +2207,6 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
             ImGui.PushID("groupBackup" .. fileName)
             drawBackupRestoreActions(fileName)
             ImGui.PopID()
-
-            endEntryBody(fileName, bodyStartY)
-        end
-
-        ImGui.TreePop()
-        ImGui.Spacing()
-    end
-end
-
----@param obj table
----@param spawner spawner
----@param fileName string
-function savedUI.drawObject(obj, spawner, fileName)
-    if ImGui.TreeNodeEx(obj.name) then
-        local bodySkipped, bodyStartY = beginEntryBody(fileName)
-
-        if not bodySkipped then
-            fileName = savedUI.drawEntryNameFields(obj, fileName)
-
-            ImGui.PushID("objectBackup" .. fileName)
-            drawBackupRestoreActions(fileName)
-            ImGui.PopID()
-
-            style.mutedText("Position:")
-            ImGui.SameLine()
-            ImGui.Text(getPositionString(fileName, obj.spawnable.position))
-
-            style.mutedText("Type:")
-            ImGui.SameLine()
-            ImGui.Text(obj.spawnable.dataType)
-
-            local pipelineBusy = groupLoadManager.isActive() or groupAMMImportManager.isActive()
-            style.pushGreyedOut(pipelineBusy)
-            if ImGui.Button("Load") and not pipelineBusy then
-                recordEntryLoaded(fileName)
-                local o = require("modules/classes/editor/spawnableElement"):new(spawner.baseUI.spawnedUI)
-                o:load(obj)
-                spawner.baseUI.spawnedUI.addRootElement(o)
-                history.addAction(history.getInsert({ o }))
-            end
-            if pipelineBusy then
-                style.tooltip("Loading is disabled while another pipeline operation is active")
-            else
-                style.tooltip("Load object immediately")
-            end
-            style.popGreyedOut(pipelineBusy)
-
-            ImGui.SameLine()
-            local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
-            if style.warnButton(IconGlyphs.RunFast, {
-                disabled = teleportDisabledByEditor,
-                tooltip = "Teleport player to object",
-                disabledTooltip = TELEPORT_DISABLED_EDITOR_TOOLTIP
-            }) then
-                gameUtils.teleportPlayer(utils.getVector(obj.spawnable.position))
-            end
-
-            ImGui.SameLine()
-            if ImGui.Button("Delete") then
-                savedUI.deleteData(fileName, obj)
-            end
 
             endEntryBody(fileName, bodyStartY)
         end
