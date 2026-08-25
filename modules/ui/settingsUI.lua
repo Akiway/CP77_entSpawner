@@ -475,6 +475,15 @@ local function drawWireframeColorStyleTooltip()
     ImGui.EndTooltip()
 end
 
+local function normalizeNonNegativeNumber(value, fallback)
+    local numberValue = tonumber(value)
+    if numberValue == nil or numberValue ~= numberValue then
+        return fallback
+    end
+
+    return math.max(0, numberValue)
+end
+
 ---@param spawner spawner
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
@@ -1231,11 +1240,37 @@ function settingsUI.draw(spawner)
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("TRANSFORM")
-        settings.posSteps, changed = ImGui.InputFloat("Position controls step size", settings.posSteps, -9999, 9999, "%.4f")
-        if changed then settings.save() end
+        settings.posSteps = normalizeNonNegativeNumber(settings.posSteps, 0.002)
+        settings.posSteps, changed = field.advancedTrackedFloat(nil, "Position controls step size", settings.posSteps, {
+            step = 0.001,
+            shiftStep = 0.0001,
+            ctrlStep = 0.01,
+            min = 0,
+            max = 99999,
+            format = "%.4f",
+            shiftFormat = "%.4f",
+            width = 120
+        })
+        if changed then
+            settings.posSteps = normalizeNonNegativeNumber(settings.posSteps, 0.002)
+            settings.save()
+        end
 
-        settings.rotSteps, changed = ImGui.InputFloat("Rotation controls step size", settings.rotSteps, -9999, 9999, "%.4f")
-        if changed then settings.save() end
+        settings.rotSteps = normalizeNonNegativeNumber(settings.rotSteps, 0.050)
+        settings.rotSteps, changed = field.advancedTrackedFloat(nil, "Rotation controls step size", settings.rotSteps, {
+            step = 0.001,
+            shiftStep = 0.0001,
+            ctrlStep = 0.01,
+            min = 0,
+            max = 99999,
+            format = "%.4f",
+            shiftFormat = "%.4f",
+            width = 120
+        })
+        if changed then
+            settings.rotSteps = normalizeNonNegativeNumber(settings.rotSteps, 0.050)
+            settings.save()
+        end
 
         settings.applyRotationWhenDropped, changed = ImGui.Checkbox("Apply Rotation When Dropped", settings.applyRotationWhenDropped)
         if changed then settings.save() end
@@ -1253,12 +1288,38 @@ function settingsUI.draw(spawner)
         if changed then settings.save() end
         style.tooltip("Amount added/subtracted when Shift+Left/Right clicking Roll/Pitch/Yaw fields.")
 
-        settings.precisionMultiplier, changed = ImGui.InputFloat("Precision multiplier", settings.precisionMultiplier, 0, 10, "x%.3f")
-        if changed then settings.save() end
+        settings.precisionMultiplier = normalizeNonNegativeNumber(settings.precisionMultiplier, 0.2)
+        settings.precisionMultiplier, changed = field.advancedTrackedFloat(nil, "Precision multiplier", settings.precisionMultiplier, {
+            step = 0.01,
+            shiftStep = 0.001,
+            ctrlStep = 0.1,
+            min = 0,
+            max = 99999,
+            format = "%.3f",
+            shiftFormat = "%.3f",
+            width = 120
+        })
+        if changed then
+            settings.precisionMultiplier = normalizeNonNegativeNumber(settings.precisionMultiplier, 0.2)
+            settings.save()
+        end
         style.tooltip("When holding SHIFT while dragging transform values, the step size will be multiplied by this value")
 
-        settings.coarsePrecisionMultiplier, changed = ImGui.InputFloat("Coarse precision multiplier", settings.coarsePrecisionMultiplier, 0, 100, "x%.3f")
-        if changed then settings.save() end
+        settings.coarsePrecisionMultiplier = normalizeNonNegativeNumber(settings.coarsePrecisionMultiplier, 5)
+        settings.coarsePrecisionMultiplier, changed = field.advancedTrackedFloat(nil, "Coarse precision multiplier", settings.coarsePrecisionMultiplier, {
+            step = 0.1,
+            shiftStep = 0.01,
+            ctrlStep = 1,
+            min = 0,
+            max = 99999,
+            format = "%.3f",
+            shiftFormat = "%.3f",
+            width = 120
+        })
+        if changed then
+            settings.coarsePrecisionMultiplier = normalizeNonNegativeNumber(settings.coarsePrecisionMultiplier, 5)
+            settings.save()
+        end
         style.tooltip("When holding CTRL while dragging transform values, the step size will be multiplied by this value")
         style.sectionHeaderEnd(true)
 
