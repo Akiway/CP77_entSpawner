@@ -22,20 +22,41 @@ local previewComponentNames = {
 ---@param scale visualizerScale Visual scale applied through `component.visualScale`.
 ---@param app string? Mesh appearance name. `"green"` is remapped to `"lime"` for compatibility.
 ---@param enabled boolean? Initial enabled state (`component.isEnabled`).
-local function addMesh(entity, name, mesh, scale, app, enabled)
-    if app == "green" then app = "lime" end
+---Find the component that runtime-added components should bind to.
+---Ideally the placed component which is root (No parentTransform, no localTransform), alertnatively the first IPlacedComponent
+---@param entity entEntity Target entity.
+---@return entIComponent|nil
+function visualizer.getPlacedParent(entity)
+    if not entity then return nil end
 
-    -- Ideally use placed component which is root (No parentTransform, no localTransform), alertnatively use first IPlacedComponent
-    local parent = nil
     for _, component in pairs(entity:GetComponents()) do
         if component:IsA("entIPlacedComponent") then
             if not component.parentTransform and component.localTransform.Position:ToVector4():IsZero() and component.localTransform:GetOrientation():GetForward().y == 1 then
-                parent = component
-                break
+                return component
             end
         end
     end
-    if not parent then parent = entity:GetComponents()[1] end
+
+    return entity:GetComponents()[1]
+end
+
+---Bind `component` to the entity's stable placed parent. Must be called before `AddComponent`.
+---An unbound placed component becomes a root placed component: besides the weird bug where
+---other components lose their localTransform, the game crashes once enough of them pile up on
+---one entity. Anything adding components in bulk (curve/path previews) has to bind them.
+---@param entity entEntity Target entity.
+---@param component entIComponent Component that is about to be added.
+function visualizer.bindToPlacedParent(entity, component)
+    local parent = visualizer.getPlacedParent(entity)
+    if not parent then return end
+
+    local parentTransform = entHardTransformBinding.new()
+    parentTransform.bindName = parent.name.value
+    component.parentTransform = parentTransform
+end
+
+local function addMesh(entity, name, mesh, scale, app, enabled)
+    if app == "green" then app = "lime" end
 
     local component = entMeshComponent.new()
     component.name = name
@@ -44,12 +65,7 @@ local function addMesh(entity, name, mesh, scale, app, enabled)
     component.meshAppearance = app
     component.isEnabled = enabled
 
-    -- Bind to something, to avoid weird bug where other components would lose their localTransform
-    if parent then
-        local parentTransform = entHardTransformBinding.new()
-        parentTransform.bindName = parent.name.value
-        component.parentTransform = parentTransform
-    end
+    visualizer.bindToPlacedParent(entity, component)
 
     entity:AddComponent(component)
 end

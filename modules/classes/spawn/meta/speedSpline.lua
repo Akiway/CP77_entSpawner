@@ -6,6 +6,7 @@ local field = require("modules/utils/ui/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local settings = require("modules/utils/core/settings")
 local speedSplineTimeline = require("modules/ui/speedSplineTimeline")
+local visualizer = require("modules/utils/preview/visualizer")
 
 -- worldSpeedSplineOrientationMarkerType, ordered by enum value.
 -- The `value` is the exact RED enum name used on export, the rest drives the UI.
@@ -395,12 +396,17 @@ function speedSpline:getRotationGizmoComponent(index)
         return component
     end
 
+    if not self:canAddPreviewComponent(entity) then
+        return nil
+    end
+
     component = entMeshComponent.new()
     component.name = name
     component.mesh = ResRef.FromString(rotationGizmoMesh)
     component.meshAppearance = rotationGizmoAppearance
     component.visualScale = Vector3.new(rotationGizmoScale, rotationGizmoScale, rotationGizmoScale)
     component.isEnabled = self.previewed
+    visualizer.bindToPlacedParent(entity, component)
     entity:AddComponent(component)
 
     return component

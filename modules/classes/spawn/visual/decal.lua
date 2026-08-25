@@ -283,6 +283,7 @@ function decal:draw()
     self:updateFull(ImGui.IsItemDeactivatedAfterEdit())
 
     style.mutedText("Stretching Enabled")
+    style.tooltip("If enabled, the decal will stretch to fit the surface it is projected onto.")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.isStretchingEnabled, changed = style.trackedCheckbox(self.object, "##isStretchingEnabled", self.isStretchingEnabled)

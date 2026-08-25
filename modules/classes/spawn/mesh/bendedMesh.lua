@@ -1547,26 +1547,7 @@ function bendedMesh:getPathPreviewComponent(name, meshPath, appearance)
 
     -- Keep preview components bound to a stable placed parent so runtime-added
     -- components retain valid local transforms (same pattern as visualizer.lua).
-    local parent = nil
-    for _, existing in pairs(entity:GetComponents()) do
-        if existing:IsA("entIPlacedComponent") then
-            if not existing.parentTransform
-                and existing.localTransform.Position:ToVector4():IsZero()
-                and existing.localTransform:GetOrientation():GetForward().y == 1 then
-                parent = existing
-                break
-            end
-        end
-    end
-    if not parent then
-        parent = entity:GetComponents()[1]
-    end
-
-    if parent then
-        local parentTransform = entHardTransformBinding.new()
-        parentTransform.bindName = parent.name.value
-        component.parentTransform = parentTransform
-    end
+    visualizer.bindToPlacedParent(entity, component)
 
     entity:AddComponent(component)
     return component

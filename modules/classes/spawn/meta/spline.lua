@@ -7,9 +7,25 @@ local builder = require("modules/utils/game/entityBuilder")
 local Cron = require("modules/utils/vendor/Cron")
 local history = require("modules/utils/project/history")
 local settings = require("modules/utils/core/settings")
+local visualizer = require("modules/utils/preview/visualizer")
+local logger = require("modules/utils/core/logger")
 
 local minCurvePreviewSamples = 8
 local maxCurvePreviewSamples = 24
+-- Measured ceiling: the game crashes once a single entity carries more components than this.
+-- bendedMesh's PATH_PREVIEW_MAX_SEGMENTS encodes the same limit. It is per entity, not global:
+-- a project holds thousands of components across its spawnables without trouble.
+local maxEntityPreviewComponents = 320
+-- Which is why the curve preview does not live on the spline node entity at all. Its lines are
+-- spread over dedicated host entities holding this many each, so the number of spline points is
+-- bounded by what you are willing to render, not by the engine.
+local curvePreviewComponentsPerHost = 256
+local curvePreviewHostTemplate = "base\\spawner\\empty_entity.ent"
+-- Safety valve only: past this the preview decimates rather than spawning hosts without end.
+local curvePreviewComponentCeiling = 4096
+-- Chord error, in meters, that segments are flattened to at the lowest and highest curve quality.
+local minCurveFlattenTolerance = 0.002
+local maxCurveFlattenTolerance = 0.2
 local lengthIntegrationEpsilon = 0.00001
 local lengthIntegrationMaxDepth = 18
 
@@ -68,7 +84,6 @@ function spline:new()
     o.splineReachDistance = 0.85
     o._currentPointIndex = nil
     o.curvePreviewSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, settings.defaultSplineCurveQuality or 12)))
-    o.maxCurvePreviewComponents = 256
     o._curvePreviewComponentCount = 0
 
     setmetatable(o, { __index = self })
@@ -583,12 +598,198 @@ function spline:getBezierArcLength(p0, c0, c1, p1, epsilon, maxDepth)
     return integrateRecursive(a, b, fa, fm, fb, whole, epsilon, maxDepth)
 end
 
-function spline:getCurvePreviewComponent(index)
-    local entity = self:getEntity()
-    if not entity then return end
+---Distance from `point` to the chord between `p0` and `p1`.
+---@param point Vector4
+---@param p0 Vector4
+---@param p1 Vector4
+---@return number
+local function chordDistance(point, p0, p1)
+    local dx, dy, dz = p1.x - p0.x, p1.y - p0.y, p1.z - p0.z
+    local px, py, pz = point.x - p0.x, point.y - p0.y, point.z - p0.z
+    local lengthSq = dx * dx + dy * dy + dz * dz
 
-    local name = "curvePreview" .. tostring(index)
-    local component = entity:FindComponentByName(name)
+    if lengthSq > 0.000001 then
+        local t = math.max(0, math.min(1, (px * dx + py * dy + pz * dz) / lengthSq))
+        px, py, pz = px - dx * t, py - dy * t, pz - dz * t
+    end
+
+    return math.sqrt(px * px + py * py + pz * pz)
+end
+
+---Chord error, in meters, that segments get flattened to at the given curve quality.
+---@param quality number
+---@return number
+local function getFlattenTolerance(quality)
+    local t = (quality - minCurvePreviewSamples) / math.max(1, maxCurvePreviewSamples - minCurvePreviewSamples)
+
+    return maxCurveFlattenTolerance * (minCurveFlattenTolerance / maxCurveFlattenTolerance) ^ t
+end
+
+---Which host holds line `index`, and the component name it goes under.
+---@param index number Global 1-based line index.
+---@return number chunk, string name
+local function getCurvePreviewAddress(index)
+    return math.floor((index - 1) / curvePreviewComponentsPerHost) + 1, "curvePreview" .. tostring(index)
+end
+
+---Whether `entity` can take one more preview component without crossing the ceiling.
+---@param entity entEntity
+---@return boolean
+function spline:canAddPreviewComponent(entity)
+    local count = 0
+
+    for _ in pairs(entity:GetComponents()) do
+        count = count + 1
+    end
+
+    return count < maxEntityPreviewComponents
+end
+
+---Host records the curve preview lines live on, keyed by chunk: `{ entityID, entity }`.
+---@return table
+function spline:getCurvePreviewHosts()
+    self._curvePreviewHosts = self._curvePreviewHosts or {}
+
+    return self._curvePreviewHosts
+end
+
+---Resolves a host record to a live entity. The entity system does not hand the entity back
+---while it is still assembling, so the one the assemble callback captured is the fallback --
+---the same two-step `spawnable:getEntity` uses.
+---@param record table
+---@return entEntity|nil
+function spline:resolveCurvePreviewHost(record)
+    local live = Game.GetStaticEntitySystem():GetEntity(record.entityID)
+    if live then return live end
+
+    if record.entity then
+        local ok, entityID = pcall(function ()
+            return record.entity:GetEntityID()
+        end)
+
+        if ok and entityID and entityID.hash == record.entityID.hash then
+            return record.entity
+        end
+    end
+
+    return nil
+end
+
+---Fetches host `chunk`, spawning it when it does not exist yet. Hosts sit at the spline's own
+---origin with no rotation, which is what lets every line keep using spline-local coordinates.
+---@param chunk number 1-based host index.
+---@return entEntity|nil entity `nil` while the host is still spawning; the assemble callback redraws.
+function spline:getCurvePreviewHost(chunk)
+    local hosts = self:getCurvePreviewHosts()
+
+    if hosts[chunk] then
+        return self:resolveCurvePreviewHost(hosts[chunk])
+    end
+
+    local spec = StaticEntitySpec.new()
+    spec.templatePath = curvePreviewHostTemplate
+    spec.position = self.position
+    spec.orientation = EulerAngles.new(0, 0, 0):ToQuat()
+    spec.attached = true
+
+    local entityID = Game.GetStaticEntitySystem():SpawnEntity(spec)
+    if not entityID or not entityID.hash or entityID.hash == 0 then
+        logger:warn("Failed to spawn a curve preview host for a Spline")
+        return nil
+    end
+
+    local record = { entityID = entityID }
+    hosts[chunk] = record
+
+    -- Components can only be added once the host has assembled. The builder fires this once and
+    -- then forgets it, so the entity it passes has to be kept: nothing else can hand it over
+    -- until the host finishes attaching, and the redraw below needs it now.
+    builder.registerAssembleCallback(entityID, function (entity)
+        if self:getCurvePreviewHosts()[chunk] ~= record then return end
+
+        record.entity = entity
+        self:updateCurvePreview()
+    end)
+
+    return nil
+end
+
+---Spawns every host the next draw is going to need, so a spline that just outgrew its
+---current hosts converges in a single redraw instead of one redraw per host.
+---@param count number Number of hosts required.
+function spline:ensureCurvePreviewHosts(count)
+    for chunk = 1, count do
+        self:getCurvePreviewHost(chunk)
+    end
+end
+
+---Despawns every host, taking all curve preview lines with them.
+function spline:despawnCurvePreviewHosts()
+    local hosts = self:getCurvePreviewHosts()
+
+    for chunk, record in pairs(hosts) do
+        Game.GetStaticEntitySystem():DespawnEntity(record.entityID)
+        hosts[chunk] = nil
+    end
+
+    self._curvePreviewComponentCount = 0
+end
+
+---Despawns hosts the preview has outgrown, so shortening a spline gives the components back.
+---@param usedChunks number Number of hosts the current preview actually fills.
+function spline:trimCurvePreviewHosts(usedChunks)
+    local hosts = self:getCurvePreviewHosts()
+
+    for chunk, record in pairs(hosts) do
+        if chunk > usedChunks then
+            Game.GetStaticEntitySystem():DespawnEntity(record.entityID)
+            hosts[chunk] = nil
+        end
+    end
+
+    self._curvePreviewComponentCount = math.min(self._curvePreviewComponentCount, usedChunks * curvePreviewComponentsPerHost)
+end
+
+---Hosts carry lines in spline-local coordinates, so they have to follow the node when it moves.
+function spline:updateCurvePreviewHostTransforms()
+    for _, record in pairs(self:getCurvePreviewHosts()) do
+        local host = self:resolveCurvePreviewHost(record)
+
+        if host then
+            local transform = host:GetWorldTransform()
+            transform:SetPosition(self.position)
+            transform:SetOrientationEuler(EulerAngles.new(0, 0, 0))
+            host:SetWorldTransform(transform)
+        end
+    end
+end
+
+---Existing line component for `index`, without spawning a host for it.
+---@param index number
+---@return entMeshComponent|nil
+function spline:findCurvePreviewComponent(index)
+    local chunk, name = getCurvePreviewAddress(index)
+    local record = self:getCurvePreviewHosts()[chunk]
+    if not record then return nil end
+
+    local host = self:resolveCurvePreviewHost(record)
+    if not host then return nil end
+
+    return host:FindComponentByName(name)
+end
+
+---@param index number
+---@return entMeshComponent|nil
+function spline:getCurvePreviewComponent(index)
+    local chunk, name = getCurvePreviewAddress(index)
+    local host = self:getCurvePreviewHost(chunk)
+
+    if not host then
+        self._curvePreviewHostPending = true
+        return nil
+    end
+
+    local component = host:FindComponentByName(name)
     if component then
         return component
     end
@@ -599,23 +800,72 @@ function spline:getCurvePreviewComponent(index)
     component.meshAppearance = self.previewColor or "violet"
     component.visualScale = Vector3.new(0.005, 0.005, 0.005)
     component.isEnabled = self.previewed
-    entity:AddComponent(component)
+    visualizer.bindToPlacedParent(host, component)
+    host:AddComponent(component)
 
     return component
 end
 
-function spline:getCurvePreviewSampling(pointDefs)
-    local segmentCount = #pointDefs - 1
-    if self.looped and #pointDefs > 1 then
-        segmentCount = segmentCount + 1
+---Splits the preview markers into bezier segments, including the closing one when looped.
+---@param pointDefs table
+---@return table segments List of { defA, defB } pairs.
+function spline:getCurveSegments(pointDefs)
+    local segments = {}
+    if #pointDefs < 2 then return segments end
+
+    for i = 1, #pointDefs - 1 do
+        table.insert(segments, { pointDefs[i], pointDefs[i + 1] })
     end
 
-    local requestedSamples = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
-    local maxComponents = math.max(1, self.maxCurvePreviewComponents or 256)
-    local maxSamplesPerSegment = math.max(1, math.floor(maxComponents / math.max(1, segmentCount)))
-    local samples = math.max(1, math.min(requestedSamples, maxSamplesPerSegment))
+    if self.looped then
+        table.insert(segments, { pointDefs[#pointDefs], pointDefs[1] })
+    end
 
-    return samples
+    return segments
+end
+
+---Control points of the bezier running between two marker defs.
+---@return Vector4 p0, Vector4 c0, Vector4 c1, Vector4 p1
+function spline:getSegmentControlPoints(defA, defB)
+    local p0 = defA.position
+    local p1 = defB.position
+    local c0 = utils.addVector(p0, Vector4.new(defA.tangentOut.x, defA.tangentOut.y, defA.tangentOut.z, 0))
+    local c1 = utils.addVector(p1, Vector4.new(defB.tangentIn.x, defB.tangentIn.y, defB.tangentIn.z, 0))
+
+    return p0, c0, c1, p1
+end
+
+---How many samples a segment needs to stay within `tolerance` of the real curve. The control
+---points bound how far a bezier leaves its chord and uniform subdivision cuts that error by
+---roughly n², so a straight run costs a single line and only real curvature costs more.
+---@param tolerance number Chord error budget in meters.
+---@param maxSamples number Upper bound, from the curve quality setting.
+---@return number
+function spline:getSegmentSampleCount(p0, c0, c1, p1, tolerance, maxSamples)
+    local deviation = math.max(chordDistance(c0, p0, p1), chordDistance(c1, p0, p1))
+    if deviation <= tolerance then return 1 end
+
+    return math.max(1, math.min(maxSamples, math.ceil(math.sqrt(0.75 * deviation / tolerance))))
+end
+
+---Sample count for every segment, and the number of lines they add up to.
+---@param segments table
+---@param quality number
+---@param tolerance number
+---@return table samplesPerSegment, number total
+function spline:getCurvePreviewPlan(segments, quality, tolerance)
+    local samplesPerSegment = {}
+    local total = 0
+
+    for i, segment in ipairs(segments) do
+        local p0, c0, c1, p1 = self:getSegmentControlPoints(segment[1], segment[2])
+        local samples = self:getSegmentSampleCount(p0, c0, c1, p1, tolerance, quality)
+
+        samplesPerSegment[i] = samples
+        total = total + samples
+    end
+
+    return samplesPerSegment, total
 end
 
 function spline:renderCurveSegmentLine(startPos, endPos, index)
@@ -641,16 +891,14 @@ function spline:renderCurveSegmentLine(startPos, endPos, index)
     return true
 end
 
-function spline:drawBezierPreviewSegment(defA, defB, samples, used)
-    local p0 = defA.position
-    local p1 = defB.position
-    local c0 = utils.addVector(p0, Vector4.new(defA.tangentOut.x, defA.tangentOut.y, defA.tangentOut.z, 0))
-    local c1 = utils.addVector(p1, Vector4.new(defB.tangentIn.x, defB.tangentIn.y, defB.tangentIn.z, 0))
+function spline:drawBezierPreviewSegment(defA, defB, samples, used, budget)
+    local p0, c0, c1, p1 = self:getSegmentControlPoints(defA, defB)
     local prev = p0
 
     for i = 1, samples do
-        local t = i / samples
-        local current = self:getBezierPoint(p0, c0, c1, p1, t)
+        if used >= budget then break end
+
+        local current = self:getBezierPoint(p0, c0, c1, p1, i / samples)
         local nextUsed = used + 1
         if self:renderCurveSegmentLine(prev, current, nextUsed) then
             used = nextUsed
@@ -661,32 +909,77 @@ function spline:drawBezierPreviewSegment(defA, defB, samples, used)
     return used
 end
 
-function spline:updateCurvePreview()
-    local entity = self:getEntity()
-    if not entity then return end
-
-    local pointDefs = self:getPreviewSplineMarkerDefs()
-    local samples = self:getCurvePreviewSampling(pointDefs)
+---Draws the whole spline with `budget` evenly spaced samples instead of a fixed number per
+---segment. Only reached by splines with more segments than the safety ceiling: every sample
+---still sits on the real curve, the preview just gets coarser rather than stopping partway.
+---@param segments table
+---@param budget number
+---@return number used
+function spline:drawDecimatedCurvePreview(segments, budget)
     local used = 0
+    local prev = nil
 
-    if #pointDefs > 1 then
-        for i = 1, #pointDefs - 1 do
-            used = self:drawBezierPreviewSegment(pointDefs[i], pointDefs[i + 1], samples, used)
+    for step = 0, budget do
+        local position = (step / budget) * #segments
+        local index = math.min(#segments, math.floor(position) + 1)
+        local p0, c0, c1, p1 = self:getSegmentControlPoints(segments[index][1], segments[index][2])
+        local current = self:getBezierPoint(p0, c0, c1, p1, position - (index - 1))
+
+        if prev and used < budget then
+            local nextUsed = used + 1
+            if self:renderCurveSegmentLine(prev, current, nextUsed) then
+                used = nextUsed
+            end
         end
 
-        if self.looped then
-            used = self:drawBezierPreviewSegment(pointDefs[#pointDefs], pointDefs[1], samples, used)
+        prev = current
+    end
+
+    return used
+end
+
+function spline:updateCurvePreview()
+    if not self:getEntity() then return end
+
+    local used = 0
+    self._curvePreviewHostPending = false
+
+    -- A hidden preview draws nothing: no hosts get spawned for it, and any it already has are
+    -- left alone so toggling the preview back on is instant rather than a respawn.
+    if self.previewed then
+        local segments = self:getCurveSegments(self:getPreviewSplineMarkerDefs())
+        local quality = math.floor(math.max(minCurvePreviewSamples, math.min(maxCurvePreviewSamples, self.curvePreviewSamples or 12)))
+        local tolerance = getFlattenTolerance(quality)
+
+        if #segments > curvePreviewComponentCeiling then
+            self:ensureCurvePreviewHosts(math.ceil(curvePreviewComponentCeiling / curvePreviewComponentsPerHost))
+            used = self:drawDecimatedCurvePreview(segments, curvePreviewComponentCeiling)
+        else
+            local samplesPerSegment, total = self:getCurvePreviewPlan(segments, quality, tolerance)
+            self:ensureCurvePreviewHosts(math.ceil(math.min(total, curvePreviewComponentCeiling) / curvePreviewComponentsPerHost))
+
+            for i, segment in ipairs(segments) do
+                used = self:drawBezierPreviewSegment(segment[1], segment[2], samplesPerSegment[i], used, curvePreviewComponentCeiling)
+            end
         end
     end
 
+    -- While a host is still spawning the line count is not final: leave the components and the
+    -- hosts as they are, and let that host's assemble callback redraw with the real total.
+    if self._curvePreviewHostPending then return end
+
     for i = used + 1, self._curvePreviewComponentCount do
-        local line = entity:FindComponentByName("curvePreview" .. tostring(i))
+        local line = self:findCurvePreviewComponent(i)
         if line then
             line:Toggle(false)
         end
     end
 
     self._curvePreviewComponentCount = math.max(self._curvePreviewComponentCount, used)
+
+    if self.previewed then
+        self:trimCurvePreviewHosts(math.max(1, math.ceil(used / curvePreviewComponentsPerHost)))
+    end
 end
 
 function spline:onNPCSpawned(npc)
@@ -844,6 +1137,8 @@ end
 function spline:despawn()
     visualized.despawn(self)
 
+    self:despawnCurvePreviewHosts()
+
     if self.cronID then
         Cron.Halt(self.cronID)
         self.cronID = nil
@@ -866,6 +1161,7 @@ end
 function spline:update()
     self.rotation = EulerAngles.new(0, 0, 0)
     visualized.update(self)
+    self:updateCurvePreviewHostTransforms()
     self:updateCurvePreview()
 end
 
@@ -1022,7 +1318,7 @@ function spline:draw()
         ImGui.SetCursorPosX(previewPropertyWidth)
         local finished
         self.curvePreviewSamples, changed, finished = style.trackedDragInt(self.object, "##curvePreviewSamples", self.curvePreviewSamples, minCurvePreviewSamples, maxCurvePreviewSamples, 60)
-        style.tooltip("Number of curve samples per segment for preview drawing.")
+        style.tooltip("Preview accuracy. Samples are spent where the curve actually bends, so\nstraight runs stay cheap no matter how many points the spline has.")
         if changed then
             self:updateCurvePreview()
         end
