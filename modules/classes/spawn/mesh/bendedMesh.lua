@@ -5,6 +5,7 @@ local utils = require("modules/utils/core/utils")
 local history = require("modules/utils/project/history")
 local intersection = require("modules/utils/editor/intersection")
 local visualizer = require("modules/utils/preview/visualizer")
+local previewHosts = require("modules/utils/preview/previewHosts")
 local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
 
@@ -99,8 +100,10 @@ local PATH_PREVIEW_FOCUS_POINT = 1
 local PATH_PREVIEW_LINE_THICKNESS = 0.04
 local PATH_PREVIEW_POINT_SCALE = 0.01
 local PATH_PREVIEW_FRAME_LENGTH = 0.22
+-- A single entity crashes the game past roughly this many components, so the path preview
+-- is spread over host entities holding this many each rather than piled onto the mesh.
+local PATH_PREVIEW_COMPONENTS_PER_HOST = 256
 local PATH_PREVIEW_MAX_SEGMENTS = 320
-local PATH_PREVIEW_MAX_CONTROL_POINTS = 96
 local PATH_PREVIEW_MAX_FRAMES = 80
 local PATH_POINT_ANCHOR_COLOR = 0xFFE6D8AD
 local BEZIER_AUTO_HANDLE_FACTOR = 1 / 3
@@ -1523,13 +1526,31 @@ function bendedMesh.pathPointsFromMatrices(matrices, upAxisIndex)
     return pathPoints
 end
 
+---Pool of host entities the path preview lives on. A long path draws far more components than
+---one entity can hold, and all four families (segments, control points, subdivisions, frames)
+---share that ceiling, so none of them live on the mesh entity itself.
+---@return previewHostPool
+function bendedMesh:getPathPreviewHosts()
+    if not self._pathPreviewHosts then
+        self._pathPreviewHosts = previewHosts.new(PATH_PREVIEW_COMPONENTS_PER_HOST, function ()
+            self:updatePathVisualization()
+        end)
+    end
+
+    return self._pathPreviewHosts
+end
+
 function bendedMesh:getPathPreviewComponent(name, meshPath, appearance)
-    local entity = self:getEntity()
-    if not entity then
+    if not self:getEntity() then
         return nil
     end
 
-    local component = entity:FindComponentByName(name)
+    local host = self:getPathPreviewHosts():hostForName(name, self.position, self.rotation)
+    if not host then
+        return nil
+    end
+
+    local component = host:FindComponentByName(name)
     if component then
         return component
     end
@@ -1547,20 +1568,29 @@ function bendedMesh:getPathPreviewComponent(name, meshPath, appearance)
 
     -- Keep preview components bound to a stable placed parent so runtime-added
     -- components retain valid local transforms (same pattern as visualizer.lua).
-    visualizer.bindToPlacedParent(entity, component)
+    visualizer.bindToPlacedParent(host, component)
 
-    entity:AddComponent(component)
+    host:AddComponent(component)
     return component
 end
 
 function bendedMesh:togglePathPreviewComponent(name, state)
-    local entity = self:getEntity()
-    if not entity then return end
+    local component = self:getPathPreviewHosts():findComponentByName(name)
 
-    local component = entity:FindComponentByName(name)
     if component then
         component:Toggle(state)
     end
+end
+
+function bendedMesh:despawn()
+    self:getPathPreviewHosts():despawn()
+    mesh.despawn(self)
+end
+
+function bendedMesh:update()
+    mesh.update(self)
+    -- Hosts hold the preview in mesh-local coordinates, so they follow the mesh when it moves.
+    self:getPathPreviewHosts():updateTransforms(self.position, self.rotation)
 end
 
 function bendedMesh:hidePathPreviewOverflow(prefix, used, previousCount)
@@ -1739,17 +1769,6 @@ function bendedMesh:hideFrameTriplet(prefix, index)
     self:togglePathPreviewComponent(prefix .. "Z" .. tostring(index), false)
 end
 
-function bendedMesh:hideAllPathPreviewComponents()
-    self:hidePathPreviewOverflow("bendPathSeg", 0, self.pathPreviewSegmentCount)
-    self:hidePathPreviewOverflow("bendPathCtrl", 0, self.pathPreviewControlCount)
-    self:hidePathPreviewOverflow("bendPathDirMain", 0, self.pathPreviewSubdivisionCount)
-
-    for i = 1, self.pathPreviewFrameCount do
-        self:hideFrameTriplet("bendPathFrame", i)
-    end
-    self:hideFrameTriplet("bendPathFocusFrame", 1)
-end
-
 function bendedMesh:updatePathVisualization()
     local entity = self:getEntity()
     if not entity then return end
@@ -1757,7 +1776,13 @@ function bendedMesh:updatePathVisualization()
 
     local showPreview = (not self.isAssetPreview) and self.pathPreviewEnabled
     if not showPreview then
-        self:hideAllPathPreviewComponents()
+        -- Despawning the hosts drops every preview component with them, which is cheaper than
+        -- hiding them one by one and leaves nothing behind while the preview is off.
+        self:getPathPreviewHosts():despawn()
+        self.pathPreviewSegmentCount = 0
+        self.pathPreviewControlCount = 0
+        self.pathPreviewSubdivisionCount = 0
+        self.pathPreviewFrameCount = 0
         return
     end
 
@@ -1776,7 +1801,16 @@ function bendedMesh:updatePathVisualization()
     if #frames > 1 then
         requiredSegments = (#frames - 1) + (looped and 1 or 0)
     end
-    local maxSegments = math.max(PATH_PREVIEW_MAX_SEGMENTS, requiredSegments)
+
+    -- Spawn every host this pass needs up front, so a path that just grew converges in a single
+    -- redraw instead of one per host. Overshooting only costs a host the trim below gives back.
+    local requiredFrameComponents = 0
+    if self.pathPreviewShowFrames then
+        requiredFrameComponents = math.min(#frames, PATH_PREVIEW_MAX_SEGMENTS)
+            + 3 * math.min(#frames, PATH_PREVIEW_MAX_FRAMES) + 3
+    end
+    self:getPathPreviewHosts():ensure(requiredSegments + #self.pathPoints + requiredFrameComponents, self.position, self.rotation)
+    local maxSegments = requiredSegments
 
     if #frames > 1 and maxSegments > 0 then
         for i = 1, #frames - 1 do
@@ -1803,7 +1837,7 @@ function bendedMesh:updatePathVisualization()
     self.pathPreviewSegmentCount = usedSegments
 
     local usedControls = 0
-    local maxControls = math.max(PATH_PREVIEW_MAX_CONTROL_POINTS, #self.pathPoints)
+    local maxControls = #self.pathPoints
 
     for _, frame in ipairs(frames) do
         if usedControls >= maxControls then break end
@@ -1894,6 +1928,11 @@ function bendedMesh:updatePathVisualization()
         end
         self.pathPreviewSubdivisionCount = 0
         self.pathPreviewFrameCount = 0
+    end
+
+    local hosts = self:getPathPreviewHosts()
+    if not hosts.pending then
+        hosts:trim(math.max(1, hosts:getChunkCount(hosts.nextSlot)))
     end
 end
 

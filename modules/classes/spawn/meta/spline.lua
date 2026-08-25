@@ -9,6 +9,7 @@ local history = require("modules/utils/project/history")
 local settings = require("modules/utils/core/settings")
 local visualizer = require("modules/utils/preview/visualizer")
 local logger = require("modules/utils/core/logger")
+local previewHosts = require("modules/utils/preview/previewHosts")
 
 local minCurvePreviewSamples = 8
 local maxCurvePreviewSamples = 24
@@ -625,11 +626,10 @@ local function getFlattenTolerance(quality)
     return maxCurveFlattenTolerance * (minCurveFlattenTolerance / maxCurveFlattenTolerance) ^ t
 end
 
----Which host holds line `index`, and the component name it goes under.
 ---@param index number Global 1-based line index.
----@return number chunk, string name
-local function getCurvePreviewAddress(index)
-    return math.floor((index - 1) / curvePreviewComponentsPerHost) + 1, "curvePreview" .. tostring(index)
+---@return string
+local function getCurvePreviewName(index)
+    return "curvePreview" .. tostring(index)
 end
 
 ---Whether `entity` can take one more preview component without crossing the ceiling.
@@ -645,150 +645,26 @@ function spline:canAddPreviewComponent(entity)
     return count < maxEntityPreviewComponents
 end
 
----Host records the curve preview lines live on, keyed by chunk: `{ entityID, entity }`.
----@return table
+---Pool of host entities the curve preview lines live on. Kept off the spline node entity so its
+---own components never compete with them for the per-entity ceiling.
+---@return previewHostPool
 function spline:getCurvePreviewHosts()
-    self._curvePreviewHosts = self._curvePreviewHosts or {}
+    if not self._curvePreviewHosts then
+        self._curvePreviewHosts = previewHosts.new(curvePreviewComponentsPerHost, function ()
+            self:updateCurvePreview()
+        end)
+    end
 
     return self._curvePreviewHosts
-end
-
----Resolves a host record to a live entity. The entity system does not hand the entity back
----while it is still assembling, so the one the assemble callback captured is the fallback --
----the same two-step `spawnable:getEntity` uses.
----@param record table
----@return entEntity|nil
-function spline:resolveCurvePreviewHost(record)
-    local live = Game.GetStaticEntitySystem():GetEntity(record.entityID)
-    if live then return live end
-
-    if record.entity then
-        local ok, entityID = pcall(function ()
-            return record.entity:GetEntityID()
-        end)
-
-        if ok and entityID and entityID.hash == record.entityID.hash then
-            return record.entity
-        end
-    end
-
-    return nil
-end
-
----Fetches host `chunk`, spawning it when it does not exist yet. Hosts sit at the spline's own
----origin with no rotation, which is what lets every line keep using spline-local coordinates.
----@param chunk number 1-based host index.
----@return entEntity|nil entity `nil` while the host is still spawning; the assemble callback redraws.
-function spline:getCurvePreviewHost(chunk)
-    local hosts = self:getCurvePreviewHosts()
-
-    if hosts[chunk] then
-        return self:resolveCurvePreviewHost(hosts[chunk])
-    end
-
-    local spec = StaticEntitySpec.new()
-    spec.templatePath = curvePreviewHostTemplate
-    spec.position = self.position
-    spec.orientation = EulerAngles.new(0, 0, 0):ToQuat()
-    spec.attached = true
-
-    local entityID = Game.GetStaticEntitySystem():SpawnEntity(spec)
-    if not entityID or not entityID.hash or entityID.hash == 0 then
-        logger:warn("Failed to spawn a curve preview host for a Spline")
-        return nil
-    end
-
-    local record = { entityID = entityID }
-    hosts[chunk] = record
-
-    -- Components can only be added once the host has assembled. The builder fires this once and
-    -- then forgets it, so the entity it passes has to be kept: nothing else can hand it over
-    -- until the host finishes attaching, and the redraw below needs it now.
-    builder.registerAssembleCallback(entityID, function (entity)
-        if self:getCurvePreviewHosts()[chunk] ~= record then return end
-
-        record.entity = entity
-        self:updateCurvePreview()
-    end)
-
-    return nil
-end
-
----Spawns every host the next draw is going to need, so a spline that just outgrew its
----current hosts converges in a single redraw instead of one redraw per host.
----@param count number Number of hosts required.
-function spline:ensureCurvePreviewHosts(count)
-    for chunk = 1, count do
-        self:getCurvePreviewHost(chunk)
-    end
-end
-
----Despawns every host, taking all curve preview lines with them.
-function spline:despawnCurvePreviewHosts()
-    local hosts = self:getCurvePreviewHosts()
-
-    for chunk, record in pairs(hosts) do
-        Game.GetStaticEntitySystem():DespawnEntity(record.entityID)
-        hosts[chunk] = nil
-    end
-
-    self._curvePreviewComponentCount = 0
-end
-
----Despawns hosts the preview has outgrown, so shortening a spline gives the components back.
----@param usedChunks number Number of hosts the current preview actually fills.
-function spline:trimCurvePreviewHosts(usedChunks)
-    local hosts = self:getCurvePreviewHosts()
-
-    for chunk, record in pairs(hosts) do
-        if chunk > usedChunks then
-            Game.GetStaticEntitySystem():DespawnEntity(record.entityID)
-            hosts[chunk] = nil
-        end
-    end
-
-    self._curvePreviewComponentCount = math.min(self._curvePreviewComponentCount, usedChunks * curvePreviewComponentsPerHost)
-end
-
----Hosts carry lines in spline-local coordinates, so they have to follow the node when it moves.
-function spline:updateCurvePreviewHostTransforms()
-    for _, record in pairs(self:getCurvePreviewHosts()) do
-        local host = self:resolveCurvePreviewHost(record)
-
-        if host then
-            local transform = host:GetWorldTransform()
-            transform:SetPosition(self.position)
-            transform:SetOrientationEuler(EulerAngles.new(0, 0, 0))
-            host:SetWorldTransform(transform)
-        end
-    end
-end
-
----Existing line component for `index`, without spawning a host for it.
----@param index number
----@return entMeshComponent|nil
-function spline:findCurvePreviewComponent(index)
-    local chunk, name = getCurvePreviewAddress(index)
-    local record = self:getCurvePreviewHosts()[chunk]
-    if not record then return nil end
-
-    local host = self:resolveCurvePreviewHost(record)
-    if not host then return nil end
-
-    return host:FindComponentByName(name)
 end
 
 ---@param index number
 ---@return entMeshComponent|nil
 function spline:getCurvePreviewComponent(index)
-    local chunk, name = getCurvePreviewAddress(index)
-    local host = self:getCurvePreviewHost(chunk)
+    local host = self:getCurvePreviewHosts():hostFor(index, self.position)
+    if not host then return nil end
 
-    if not host then
-        self._curvePreviewHostPending = true
-        return nil
-    end
-
+    local name = getCurvePreviewName(index)
     local component = host:FindComponentByName(name)
     if component then
         return component
@@ -941,8 +817,9 @@ end
 function spline:updateCurvePreview()
     if not self:getEntity() then return end
 
+    local pool = self:getCurvePreviewHosts()
     local used = 0
-    self._curvePreviewHostPending = false
+    pool.pending = false
 
     -- A hidden preview draws nothing: no hosts get spawned for it, and any it already has are
     -- left alone so toggling the preview back on is instant rather than a respawn.
@@ -952,11 +829,11 @@ function spline:updateCurvePreview()
         local tolerance = getFlattenTolerance(quality)
 
         if #segments > curvePreviewComponentCeiling then
-            self:ensureCurvePreviewHosts(math.ceil(curvePreviewComponentCeiling / curvePreviewComponentsPerHost))
+            pool:ensure(curvePreviewComponentCeiling, self.position)
             used = self:drawDecimatedCurvePreview(segments, curvePreviewComponentCeiling)
         else
             local samplesPerSegment, total = self:getCurvePreviewPlan(segments, quality, tolerance)
-            self:ensureCurvePreviewHosts(math.ceil(math.min(total, curvePreviewComponentCeiling) / curvePreviewComponentsPerHost))
+            pool:ensure(math.min(total, curvePreviewComponentCeiling), self.position)
 
             for i, segment in ipairs(segments) do
                 used = self:drawBezierPreviewSegment(segment[1], segment[2], samplesPerSegment[i], used, curvePreviewComponentCeiling)
@@ -966,10 +843,10 @@ function spline:updateCurvePreview()
 
     -- While a host is still spawning the line count is not final: leave the components and the
     -- hosts as they are, and let that host's assemble callback redraw with the real total.
-    if self._curvePreviewHostPending then return end
+    if pool.pending then return end
 
     for i = used + 1, self._curvePreviewComponentCount do
-        local line = self:findCurvePreviewComponent(i)
+        local line = pool:findComponent(i, getCurvePreviewName(i))
         if line then
             line:Toggle(false)
         end
@@ -978,7 +855,10 @@ function spline:updateCurvePreview()
     self._curvePreviewComponentCount = math.max(self._curvePreviewComponentCount, used)
 
     if self.previewed then
-        self:trimCurvePreviewHosts(math.max(1, math.ceil(used / curvePreviewComponentsPerHost)))
+        local chunks = math.max(1, pool:getChunkCount(used))
+
+        pool:trim(chunks)
+        self._curvePreviewComponentCount = math.min(self._curvePreviewComponentCount, chunks * curvePreviewComponentsPerHost)
     end
 end
 
@@ -1137,7 +1017,8 @@ end
 function spline:despawn()
     visualized.despawn(self)
 
-    self:despawnCurvePreviewHosts()
+    self:getCurvePreviewHosts():despawn()
+    self._curvePreviewComponentCount = 0
 
     if self.cronID then
         Cron.Halt(self.cronID)
@@ -1161,7 +1042,7 @@ end
 function spline:update()
     self.rotation = EulerAngles.new(0, 0, 0)
     visualized.update(self)
-    self:updateCurvePreviewHostTransforms()
+    self:getCurvePreviewHosts():updateTransforms(self.position)
     self:updateCurvePreview()
 end
 
