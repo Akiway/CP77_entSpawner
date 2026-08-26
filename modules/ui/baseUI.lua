@@ -185,6 +185,90 @@ local function getTabLabel(tab, stableId, mode, includeHiddenText)
     return style.resolveActionLabel(tab.icon, tab.name, resolvedId, mode, includeHiddenText)
 end
 
+---@param tab {name: string, icon: string?}
+---@param mode integer
+---@return number
+local function getMainTabLabelWidth(tab, mode)
+    local visibleLabel = style.resolveActionLabel(tab.icon, tab.name, nil, mode)
+    local textWidth = ImGui.CalcTextSize(visibleLabel)
+
+    return textWidth + ImGui.GetStyle().FramePadding.x * 2 + 1
+end
+
+---@param editorActive boolean
+---@return number
+local function getMainTabRightControlsWidth(editorActive)
+    local dotsWidth = ImGui.CalcTextSize(IconGlyphs.DotsHorizontal)
+    local playWidth = ImGui.CalcTextSize(IconGlyphs.Play or ">")
+    local pauseWidth = ImGui.CalcTextSize(IconGlyphs.Pause or "||")
+    local pauseButtonWidth = math.max(playWidth, pauseWidth) + ImGui.GetStyle().FramePadding.x * 2
+    local controlsWidth = dotsWidth + pauseButtonWidth + ImGui.GetStyle().ItemSpacing.x * 4
+
+    if editorActive then
+        local dockLeftWidth = ImGui.CalcTextSize(IconGlyphs.DockLeft or "<")
+        local dockRightWidth = ImGui.CalcTextSize(IconGlyphs.DockRight or ">")
+        controlsWidth = controlsWidth + math.max(dockLeftWidth, dockRightWidth) + ImGui.GetStyle().ItemSpacing.x
+    end
+
+    return controlsWidth + ImGui.GetStyle().ItemSpacing.x
+end
+
+---@return integer[]
+local function getVisibleMainTabIndexes()
+    local visibleIndexes = {}
+
+    for key, tab in ipairs(tabs) do
+        if settings.windowStates[tab.id] ~= true then
+            table.insert(visibleIndexes, key)
+        end
+    end
+
+    return visibleIndexes
+end
+
+---@param labelModes table<integer, integer>
+---@param visibleIndexes integer[]
+---@return number
+local function getMainTabsWidth(labelModes, visibleIndexes)
+    local width = 0
+
+    for _, key in ipairs(visibleIndexes) do
+        width = width + getMainTabLabelWidth(tabs[key], labelModes[key])
+    end
+
+    return width
+end
+
+---@param editorActive boolean
+---@return table<integer, integer>
+local function getMainTabLabelModes(editorActive)
+    local baseMode = style.getActionLabelMode()
+    local labelModes = {}
+    local visibleIndexes = getVisibleMainTabIndexes()
+
+    for _, key in ipairs(visibleIndexes) do
+        labelModes[key] = baseMode
+    end
+
+    if baseMode == style.actionLabelDisplayModes.PreferIcon then
+        return labelModes
+    end
+
+    local availableWidth = math.max(0, ImGui.GetContentRegionAvail() - getMainTabRightControlsWidth(editorActive))
+    if getMainTabsWidth(labelModes, visibleIndexes) <= availableWidth then
+        return labelModes
+    end
+
+    for index = #visibleIndexes, 1, -1 do
+        labelModes[visibleIndexes[index]] = style.actionLabelDisplayModes.PreferIcon
+        if getMainTabsWidth(labelModes, visibleIndexes) <= availableWidth then
+            break
+        end
+    end
+
+    return labelModes
+end
+
 local function isOnlyTab(id)
     for tid, tab in pairs(settings.windowStates) do
         if not tab and tid ~= id then
@@ -379,6 +463,8 @@ function baseUI.draw(spawner)
         local xOffset = (settings.editorDockLeft and 1 or -1) * (x / screenWidth)
         editor.camera.updateXOffset(xOffset)
 
+        local mainTabLabelModes = getMainTabLabelModes(editorActive)
+
         if ImGui.BeginTabBar("Tabbar", ImGuiTabItemFlags.NoTooltip) then
             for key, tab in ipairs(tabs) do
                 if settings.windowStates[tab.id] == nil then
@@ -387,7 +473,7 @@ function baseUI.draw(spawner)
                 end
 
                 if not settings.windowStates[tab.id] then
-                    local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id), nil, true)
+                    local tabLabel, tabHiddenText = getTabLabel(tab, "mainTab:" .. tostring(tab.id), mainTabLabelModes[key], true)
                     local tabItemFlags = ImGuiTabItemFlags.None or 0
                     if baseUI.requestedTab == key then
                         tabItemFlags = tabItemFlags + (ImGuiTabItemFlags.SetSelected or 0)
