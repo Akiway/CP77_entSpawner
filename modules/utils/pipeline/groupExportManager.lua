@@ -664,6 +664,13 @@ local function finalizeExportRuntime(runtime)
                 end
             end
 
+            -- Sector-wide, unlike the checks above: a patrol spline and the workspots it drives
+            -- are referenced by NodeRef, so they routinely sit in different groups and land in
+            -- different sectors. The check gets the whole project to resolve those refs.
+            if runtime.request and runtime.request.collectInfinitePatrolWorkspots then
+                runtime.request.collectInfinitePatrolWorkspots(runtime.project.sectors or {})
+            end
+
             local alwaysLoaded = nil
             if runtime.request and runtime.request.handleCommunities then
                 alwaysLoaded = runtime.request.handleCommunities(runtime.project.name, runtime.state.communities, runtime.state.spotNodes, runtime.state.nodeRefs)
@@ -1011,6 +1018,7 @@ function groupExportManager.start(request)
         handleCommunities = request.handleCommunities,
         collectMissingSplineNodeRefs = request.collectMissingSplineNodeRefs,
         collectDuplicateNodeRefs = request.collectDuplicateNodeRefs,
+        collectInfinitePatrolWorkspots = request.collectInfinitePatrolWorkspots,
         hasBlockingIssues = request.hasBlockingIssues,
         ignoreHiddenDuringExport = request.ignoreHiddenDuringExport == true
     }

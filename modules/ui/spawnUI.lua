@@ -82,7 +82,8 @@ local types = {
             ["Static Marker"] = { class = require("modules/classes/spawn/meta/staticMarker"), index = 3 },
             ["Spline Point"] = { class = require("modules/classes/spawn/meta/splineMarker"), index = 4 },
             ["Spline"] = { class = require("modules/classes/spawn/meta/spline"), index = 5 },
-            ["Speed Spline"] = { class = require("modules/classes/spawn/meta/speedSpline"), index = 6 }
+            ["Speed Spline"] = { class = require("modules/classes/spawn/meta/speedSpline"), index = 6 },
+            ["Patrol Spline"] = { class = require("modules/classes/spawn/meta/patrolSpline"), index = 7 }
         },
         index = 6
     },

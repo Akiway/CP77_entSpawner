@@ -2552,6 +2552,15 @@ function spawnedUI.getStateIcons(element)
             end
         end
 
+        -- A spawnable can contribute its own row badges rather than have its specifics encoded
+        -- here; patrol splines use it to summarize their point types. After the linked path icon,
+        -- so the node's own status stays in the same column across every spline flavour.
+        if type(spawnable.getExtraStateIcons) == "function" then
+            for _, entry in ipairs(spawnable:getExtraStateIcons()) do
+                addStateIcon(stateIcons, entry.icon, entry.tooltip, entry.color)
+            end
+        end
+
         -- Lights, fog volumes, reflection probes and light channel areas all carry a channel selection,
         -- which otherwise only shows up inside the properties panel. Drawn last so it trails the linked
         -- path icon on light channel areas.

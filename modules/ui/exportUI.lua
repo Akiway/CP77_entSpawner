@@ -1,6 +1,7 @@
 local config = require("modules/utils/core/config")
 local utils = require("modules/utils/core/utils")
 local style = require("modules/ui/style")
+local history = require("modules/utils/project/history")
 local settings = require("modules/utils/core/settings")
 local field = require("modules/utils/ui/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
@@ -23,7 +24,8 @@ local issueOrder = {
     "spotEmptyRef",
     "spotReferencingEmpty",
     "markingUnresolved",
-    "missingInitialPhase"
+    "missingInitialPhase",
+    "patrolWorkspotInfinite"
 }
 local streamingPresetLabels = {
     "Interior",
@@ -56,7 +58,8 @@ exportUI = {
         spotEmptyRef = {},
         spotReferencingEmpty = {},
         markingUnresolved = {},
-        missingInitialPhase = {}
+        missingInitialPhase = {},
+        patrolWorkspotInfinite = {}
     },
     sectorPropertiesWidth = nil,
     mainPropertiesWidth = nil,
@@ -856,6 +859,115 @@ function exportUI.drawExportProgress()
     return groupExportManager.drawProgress(style)
 end
 
+---Strips the "[Type] " prefix `spawnable:export` puts in front of every exported node name.
+---@param name string?
+---@param fallback string
+---@return string
+local function cleanExportedNodeName(name, fallback)
+    return (tostring(name or fallback):gsub("^%[[^%]]*%]%s*", ""))
+end
+
+---Flags patrol point workspots left on "Is Infinite".
+---
+---A patrol spline drives its NPC from one workspot to the next, but an infinite workspot never
+---releases the actor, so the NPC stops at the first one it reaches and the rest of the route is
+---dead. The editor's AI Spot defaults `Is Infinite` to on, which is right for a standalone
+---workspot and wrong for every patrol point, hence the check.
+---
+---Runs over the whole project rather than one sector: patrol points reach their workspots by
+---NodeRef, so the two nodes are regularly authored in different groups.
+---@param sectors table[] Exported sectors of the current run.
+local function collectInfinitePatrolWorkspots(sectors)
+    local spotsByRef = {}
+
+    for _, sector in ipairs(sectors or {}) do
+        for _, node in ipairs(sector.nodes or {}) do
+            local ref = node.nodeRef or ""
+            if node.type == "worldAISpotNode" and ref ~= "" then
+                spotsByRef[ref] = node
+                -- A hand-typed ref can be stored as its hash; index both forms so it still matches.
+                spotsByRef[utils.nodeRefStringToHashString(ref)] = node
+            end
+        end
+    end
+
+    for _, sector in ipairs(sectors or {}) do
+        for _, node in ipairs(sector.nodes or {}) do
+            if node.type == "worldPatrolSplineNode" then
+                for index, pointDef in ipairs(node.data and node.data.patrolPointDefs or {}) do
+                    local def = pointDef.Data
+
+                    if def and def.pointType == "Workspot" then
+                        local ref = def.node and def.node["$value"] or ""
+                        local spot = spotsByRef[ref]
+
+                        if spot and spot.data and spot.data.isWorkspotInfinite == 1 then
+                            table.insert(exportUI.exportIssues.patrolWorkspotInfinite, {
+                                spline = cleanExportedNodeName(node.name, "Unnamed Patrol Spline"),
+                                point = index,
+                                spot = cleanExportedNodeName(spot.name, "Unnamed AISpot"),
+                                ref = ref,
+                                node = spot
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+---Clears `Is Infinite` on every AISpot the check flagged, in both places it has to be cleared:
+---the node already written into this export run, and the AISpot spawnable it came from, so the
+---fix sticks for the next export and shows up in the inspector. The spawnable edits go in as one
+---composite history action, undoable in a single step.
+local function fixInfinitePatrolWorkspots()
+    local issues = exportUI.exportIssues.patrolWorkspotInfinite
+    if #issues == 0 then return end
+
+    local spawnedUI = exportUI.spawner and exportUI.spawner.baseUI and exportUI.spawner.baseUI.spawnedUI or nil
+    local elementsByRef = {}
+
+    if spawnedUI then
+        spawnedUI.ensureCache()
+
+        for _, entry in pairs(spawnedUI.paths) do
+            local element = entry.ref
+            local spawnable = utils.isA(element, "spawnableElement") and element.spawnable or nil
+
+            if spawnable and spawnable.node == "worldAISpotNode" and (spawnable.nodeRef or "") ~= "" then
+                elementsByRef[spawnable.nodeRef] = element
+                elementsByRef[utils.nodeRefStringToHashString(spawnable.nodeRef)] = element
+            end
+        end
+    end
+
+    local pending = {}
+    local seen = {}
+
+    for _, issue in ipairs(issues) do
+        if issue.node and issue.node.data then
+            issue.node.data.isWorkspotInfinite = 0
+        end
+
+        local element = elementsByRef[issue.ref]
+        -- Several patrol points may share one workspot, so only track each element once.
+        if element and not seen[element] and element.spawnable.isWorkspotInfinite then
+            seen[element] = true
+            table.insert(pending, element)
+        end
+    end
+
+    if #pending > 0 then
+        -- Snapshots the pre-edit state, so it has to be built before the flags are cleared.
+        history.addAction(history.getMultiSelectChange(pending))
+
+        for _, element in ipairs(pending) do
+            element.spawnable.isWorkspotInfinite = false
+        end
+    end
+end
+
 local function resolveIssue(issueKey, forceExport)
     if not issueKey then
         return
@@ -876,12 +988,30 @@ local function resolveIssue(issueKey, forceExport)
     end
 end
 
-local function drawIssueButtons(issueKey)
+---@class issueFixButton
+---@field label string Button label.
+---@field tooltip string? Hover text.
+---@field action fun() Applies the fix. Runs before the issue list is cleared, so it can read it.
+
+---@param issueKey string
+---@param fix issueFixButton? Optional "repair it for me" button, shown only while the export waits.
+local function drawIssueButtons(issueKey, fix)
     if ImGui.Button("OK") then
         resolveIssue(issueKey, false)
     end
 
     if groupExportManager.isPaused() then
+        if fix then
+            ImGui.SameLine()
+            if ImGui.Button(fix.label) then
+                fix.action()
+                resolveIssue(issueKey, true)
+            end
+            if fix.tooltip then
+                style.tooltip(fix.tooltip)
+            end
+        end
+
         ImGui.SameLine()
         if style.warnButton("Force export") then
             resolveIssue(issueKey, true)
@@ -1118,6 +1248,42 @@ function exportUI.drawIssues()
             end
 
             drawIssueButtons("missingInitialPhase")
+            ImGui.EndPopup()
+        end
+    end
+    if exportUI.getCurrentIssue() == "patrolWorkspotInfinite" then
+        ImGui.OpenPopup("Infinite Patrol Workspot##wb-wui")
+        if ImGui.BeginPopupModal("Infinite Patrol Workspot##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.Text("The following AISpots are used as patrol points, but have \"Is Infinite\" enabled.")
+            style.mutedText("An infinite workspot never releases the NPC, so it stops at that point\nand never walks the rest of the route.")
+
+            ImGui.Separator()
+
+            for _, entry in pairs(exportUI.exportIssues.patrolWorkspotInfinite) do
+                style.mutedText("Patrol Spline:")
+                ImGui.SameLine()
+                ImGui.Text(entry.spline)
+
+                style.mutedText("Patrol Point:")
+                ImGui.SameLine()
+                ImGui.Text(string.format("%d (Workspot)", entry.point))
+
+                style.mutedText("AISpot:")
+                ImGui.SameLine()
+                ImGui.Text(entry.spot)
+
+                style.mutedText("NodeRef:")
+                ImGui.SameLine()
+                ImGui.Text(entry.ref)
+
+                ImGui.Separator()
+            end
+
+            drawIssueButtons("patrolWorkspotInfinite", {
+                label = "Fix & continue",
+                tooltip = "Disable \"Is Infinite\" on the AISpots listed above and continue the export.\nUndoable in one step.",
+                action = fixInfinitePatrolWorkspots
+            })
             ImGui.EndPopup()
         end
     end
@@ -1901,7 +2067,7 @@ local function collectMissingSplineNodeRefs(nodes)
     for _, node in ipairs(nodes or {}) do
         local nodeRef = node.nodeRef or ""
 
-        if (node.type == "worldSplineNode" or node.type == "worldSpeedSplineNode") and nodeRef == "" then
+        if (node.type == "worldSplineNode" or node.type == "worldSpeedSplineNode" or node.type == "worldPatrolSplineNode") and nodeRef == "" then
             local name = tostring(node.name or "Unnamed Spline"):gsub("^%[[^%]]*%]%s*", "")
             table.insert(exportUI.exportIssues.splineEmptyRef, name)
         end
@@ -1949,6 +2115,7 @@ function exportUI.export(mode)
         handleCommunities = exportUI.handleCommunities,
         collectMissingSplineNodeRefs = collectMissingSplineNodeRefs,
         collectDuplicateNodeRefs = collectDuplicateNodeRefs,
+        collectInfinitePatrolWorkspots = collectInfinitePatrolWorkspots,
         hasBlockingIssues = exportUI.hasBlockingIssues,
         mode = exportMode,
         ignoreHiddenDuringExport = settings.ignoreHiddenDuringExport == true
