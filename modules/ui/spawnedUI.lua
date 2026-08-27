@@ -426,6 +426,21 @@ local function restoreSpawnNewTarget(spawnUI, targetRef, targetId)
     spawnUI.selectedGroup = 0
 end
 
+---@param element element
+---@return string
+local function getElementSearchText(element)
+    local parts = {
+        tostring(element.name or ""),
+        tostring(element.modulePath or "")
+    }
+
+    if element.spawnable and element.spawnable.modulePath then
+        table.insert(parts, tostring(element.spawnable.modulePath))
+    end
+
+    return table.concat(parts, " ")
+end
+
 ---Rebuilds hierarchy cache state (paths, selections, filters, lock-descendant cache).
 function spawnedUI.cachePaths()
     local spawnUI = getActiveSpawnUI()
@@ -461,7 +476,7 @@ function spawnedUI.cachePaths()
                 ref = path.ref
             })
         end
-        if spawnedUI.filter ~= "" and not path.ref.expandable and utils.matchSearch(path.ref.name, spawnedUI.filter) then
+        if spawnedUI.filter ~= "" and not path.ref.expandable and utils.matchSearch(getElementSearchText(path.ref), spawnedUI.filter) then
             table.insert(spawnedUI.filteredPaths, {
                 path = path.path,
                 ref = path.ref,
