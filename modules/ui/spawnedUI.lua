@@ -3030,7 +3030,22 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
     local stateIconLeadPad = (#stateIcons > 0) and (STATE_ICON_GRID_PADDING * style.viewSize) or 0
     local rowMetaWidth = projectTagWidth + stateIconsWidth + projectTagLeadPad + stateIconLeadPad
 
-    local function drawRowIcon(icon, drawSameLine)
+    local function getRowIconTooltip()
+        if not utils.isA(element, "spawnableElement") or not element.spawnable then
+            return nil
+        end
+
+        local spawnUI = spawnedUI.spawner and spawnedUI.spawner.baseUI and spawnedUI.spawner.baseUI.spawnUI or nil
+        if not spawnUI or type(spawnUI.getVariantLabelByModulePath) ~= "function" then
+            return nil
+        end
+
+        return spawnUI.getVariantLabelByModulePath(element.spawnable.modulePath)
+    end
+
+    local rowIconTooltip = getRowIconTooltip()
+
+    local function drawRowIcon(icon, drawSameLine, tooltip)
         if icon == "" then
             return false
         end
@@ -3041,13 +3056,16 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
 
         ImGui.AlignTextToFramePadding()
         ImGui.Text(icon)
+        if tooltip and tooltip ~= "" then
+            style.tooltip(tooltip)
+        end
 
         return true
     end
 
     -- Icon or expand button
     if not element.expandable then
-        local drewPrimary = drawRowIcon(primaryIcon, false)
+        local drewPrimary = drawRowIcon(primaryIcon, false, rowIconTooltip)
         local drewSecondary = drawRowIcon(secondaryIcon, drewPrimary)
         if drewSecondary then
             leftOffset = leftOffset + 20 * style.viewSize
@@ -3065,7 +3083,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
             end
         end
 
-        local drewPrimary = drawRowIcon(primaryIcon, true)
+        local drewPrimary = drawRowIcon(primaryIcon, true, rowIconTooltip)
         local drewSecondary = drawRowIcon(secondaryIcon, true)
 
         if drewPrimary then
