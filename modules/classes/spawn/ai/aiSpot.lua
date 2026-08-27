@@ -208,14 +208,23 @@ local function getRigDisplayName(rigPath)
     return utils.getFileName(normalized)
 end
 
+local function isCharacterRig(rigPath)
+    local normalized = normalizeRigPath(rigPath)
+    if not normalized then
+        return false
+    end
+
+    return normalized:find("\\characters\\", 1, true) ~= nil
+        or normalized:sub(1, 11) == "characters\\"
+end
+
 local function getRigIcon(rigPath)
     local rig = tostring(rigPath or "")
     if rig == NO_WORKSPOT_RIG_KEY then
         return IconGlyphs.AlertOutline
     end
 
-    local normalized = rig:lower():gsub("/", "\\")
-    if normalized:find("\\characters\\", 1, true) then
+    if isCharacterRig(rig) then
         return IconGlyphs.Account
     end
 
@@ -385,6 +394,7 @@ aiSpot.getWorkspotRigsFromStore = getWorkspotRigsFromStore
 aiSpot.getWorkspotRigFilterKeys = getWorkspotRigFilterKeys
 aiSpot.getRigDisplayName = getRigDisplayName
 aiSpot.getRigIcon = getRigIcon
+aiSpot.isCharacterRig = isCharacterRig
 
 local function sanitizePreviewValue(value, fallback)
     return utils.sanitizeText(value, fallback or "")

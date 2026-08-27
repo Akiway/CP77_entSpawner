@@ -817,6 +817,7 @@ end
 ---@field defaultAndFilter boolean? Initial AND/OR mode for new filter state.
 ---@field formatOptionLabel fun(option: SpawnEntryFilterOption): string? Optional display label for an option.
 ---@field matchesOption fun(option: SpawnEntryFilterOption, searchValue: string, idx: integer): boolean? Optional option-list search matcher.
+---@field compareOptions fun(a: SpawnEntryFilterOption, b: SpawnEntryFilterOption): boolean? Optional option-list sort comparator.
 
 ---Default activity test: the filter constrains as soon as one option is picked.
 ---@param selections table<string, boolean>
@@ -1034,6 +1035,21 @@ local entryFilters = {
         formatOptionLabel = function (option)
             return aiSpotClass.getRigDisplayName(option.key)
         end,
+        compareOptions = function (a, b)
+            local aCharacter = aiSpotClass.isCharacterRig(a.key)
+            local bCharacter = aiSpotClass.isCharacterRig(b.key)
+            if aCharacter ~= bCharacter then
+                return aCharacter
+            end
+
+            local aLabel = string.lower(aiSpotClass.getRigDisplayName(a.key))
+            local bLabel = string.lower(aiSpotClass.getRigDisplayName(b.key))
+            if aLabel ~= bLabel then
+                return aLabel < bLabel
+            end
+
+            return string.lower(tostring(a.key or "")) < string.lower(tostring(b.key or ""))
+        end,
         matchesOption = function (option, searchValue)
             local search = string.lower(tostring(searchValue or ""))
             if search == "" then
@@ -1170,11 +1186,15 @@ local function getFilterOptions(filter, spawnList)
         end
     end
 
-    table.sort(options, function (a, b)
-        local aLabel = filter.formatOptionLabel and filter.formatOptionLabel(a) or a.key
-        local bLabel = filter.formatOptionLabel and filter.formatOptionLabel(b) or b.key
-        return string.lower(aLabel) < string.lower(bLabel)
-    end)
+    if filter.compareOptions then
+        table.sort(options, filter.compareOptions)
+    else
+        table.sort(options, function (a, b)
+            local aLabel = filter.formatOptionLabel and filter.formatOptionLabel(a) or a.key
+            local bLabel = filter.formatOptionLabel and filter.formatOptionLabel(b) or b.key
+            return string.lower(aLabel) < string.lower(bLabel)
+        end)
+    end
 
     filterOptionsCache[cacheKey] = { search = spawnUI.filter, options = options }
 
