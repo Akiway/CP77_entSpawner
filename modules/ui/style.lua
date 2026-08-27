@@ -539,11 +539,29 @@ function style.pushOutlinedInput()
     ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, INPUT_BORDER_SIZE)
 end
 
+---@param label string? Widget label / ID. Used to trim ImGui's full item rect back to the frame.
+---@return number? width
+local function getVisibleLabelWidth(label)
+    local visibleLabel = stripWidgetId(label)
+    if visibleLabel == "" then
+        return nil
+    end
+
+    local labelWidth = ImGui.CalcTextSize(visibleLabel)
+    if labelWidth == nil or labelWidth <= 0 then
+        return nil
+    end
+
+    return labelWidth
+end
+
 ---Pop the styling pushed by `style.pushOutlinedInput`, and mark the field as active or hovered if
 ---it is.
 ---
 ---Must be called immediately after the widget: both borders are read off the last item.
-function style.popOutlinedInput()
+---@param label string? Widget label / ID. Visible labels are part of ImGui's item rect, but not
+---the input frame, so the overlay border subtracts them before drawing.
+function style.popOutlinedInput(label)
     ImGui.PopStyleVar(1)
     ImGui.PopStyleColor(3)
 
@@ -571,6 +589,13 @@ function style.popOutlinedInput()
 
     local minX, minY = ImGui.GetItemRectMin()
     local maxX, maxY = ImGui.GetItemRectMax()
+    local labelWidth = getVisibleLabelWidth(label)
+
+    if labelWidth then
+        local styleData = ImGui.GetStyle()
+        local labelGap = (styleData.ItemInnerSpacing and styleData.ItemInnerSpacing.x) or styleData.ItemSpacing.x
+        maxX = math.max(minX, maxX - labelWidth - labelGap)
+    end
 
     ImGui.ImDrawListAddRect(
         drawList, minX, minY, maxX, maxY,
@@ -585,9 +610,10 @@ end
 ---@return string newValue
 ---@return boolean changed
 function style.inputTextWithHint(...)
+    local label = select(1, ...)
     style.pushOutlinedInput()
     local newValue, changed = ImGui.InputTextWithHint(...)
-    style.popOutlinedInput()
+    style.popOutlinedInput(label)
 
     return newValue, changed
 end
@@ -632,7 +658,7 @@ function style.searchInputTextWithHint(id, hint, value, maxLength, flags)
         newValue, changed = ImGui.InputTextWithHint(widgetId, hint, value, maxLength)
     end
 
-    style.popOutlinedInput()
+    style.popOutlinedInput(widgetId)
 
     local cleared = false
 
@@ -655,9 +681,10 @@ end
 ---@return string newValue
 ---@return boolean changed
 function style.inputText(...)
+    local label = select(1, ...)
     style.pushOutlinedInput()
     local newValue, changed = ImGui.InputText(...)
-    style.popOutlinedInput()
+    style.popOutlinedInput(label)
 
     return newValue, changed
 end
