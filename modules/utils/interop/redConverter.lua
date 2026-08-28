@@ -31,9 +31,22 @@ local handleIncludes = {
     "journalPath"
 }
 
+local handleClassExcludes = {
+    "gameIScriptableSystem",
+    "gameIGameSystem"
+}
+
 local CONVERSION_MAX_DEPTH = 64
 local CONVERSION_MAX_GUARD_WARNINGS = 10
 local CONVERSION_LOG_PATH_SEGMENTS = 24
+
+local function classIsA(class, typeName)
+    local ok, isA = pcall(function ()
+        return class and class:IsA(typeName)
+    end)
+
+    return ok and isA == true
+end
 
 local function getRedClass(data)
     local class = nil
@@ -133,11 +146,7 @@ local function getActiveConversionClass(ctx, class)
 
     for className, count in pairs(ctx.classStack) do
         if count and count > 0 then
-            local ok, isA = pcall(function ()
-                return class:IsA(className)
-            end)
-
-            if ok and isA then
+            if classIsA(class, className) then
                 return className
             end
 
@@ -146,17 +155,25 @@ local function getActiveConversionClass(ctx, class)
                 activeClass = Reflection.GetClass(className)
             end)
 
-            ok, isA = pcall(function ()
-                return activeClass and activeClass:IsA(targetClassName)
-            end)
-
-            if ok and isA then
+            if classIsA(activeClass, targetClassName) then
                 return className
             end
         end
     end
 
     return nil
+end
+
+local function isExcludedHandleClass(class)
+    if not class then return false end
+
+    for _, typeName in pairs(handleClassExcludes) do
+        if classIsA(class, typeName) then
+            return true
+        end
+    end
+
+    return false
 end
 
 local bitFieldDefinitionCache = {}
@@ -523,7 +540,11 @@ local function convertHandle(propValue, prop, name, ctx)
     end
     if propValue ~= nil then
         local handleClass = getRedClass(propValue)
-        if handleClass and handleClass:IsA("entEntity") then -- Will very likely lead to infinite recursion
+        if classIsA(handleClass, "entEntity") then -- Will very likely lead to infinite recursion
+            return nil
+        end
+
+        if isExcludedHandleClass(handleClass) then
             return nil
         end
 
