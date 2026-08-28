@@ -31,6 +31,134 @@ local handleIncludes = {
     "journalPath"
 }
 
+local CONVERSION_MAX_DEPTH = 64
+local CONVERSION_MAX_GUARD_WARNINGS = 10
+local CONVERSION_LOG_PATH_SEGMENTS = 24
+
+local function getRedClass(data)
+    local class = nil
+
+    pcall(function ()
+        class = Reflection.GetClassOf(ToVariant(data), true)
+    end)
+
+    return class
+end
+
+local function getConversionObjectKey(data, className)
+    local ok, value = pcall(function ()
+        return tostring(data)
+    end)
+
+    if ok and value then
+        return tostring(className or "unknown") .. ":" .. value
+    end
+
+    return nil
+end
+
+local function getConversionPathSegment(key)
+    if type(key) == "number" then
+        return "[" .. tostring(key) .. "]"
+    end
+
+    return tostring(key)
+end
+
+local function pushConversionPath(ctx, key)
+    if not ctx then return end
+
+    ctx.path = ctx.path or {}
+    table.insert(ctx.path, getConversionPathSegment(key))
+end
+
+local function popConversionPath(ctx)
+    if not ctx or not ctx.path then return end
+
+    table.remove(ctx.path)
+end
+
+local function getConversionPath(ctx)
+    if not ctx or not ctx.path or #ctx.path == 0 then
+        return "<root>"
+    end
+
+    local first = math.max(1, #ctx.path - CONVERSION_LOG_PATH_SEGMENTS + 1)
+    local parts = {}
+
+    for i = first, #ctx.path do
+        table.insert(parts, ctx.path[i])
+    end
+
+    local path = table.concat(parts, ".")
+    if first > 1 then
+        return "... " .. path
+    end
+
+    return path
+end
+
+local function warnConversionGuard(ctx, message)
+    if not ctx then
+        logger:warn(message)
+        return
+    end
+
+    ctx.guardWarnings = ctx.guardWarnings or {}
+    ctx.guardWarningCount = ctx.guardWarningCount or 0
+    ctx.maxGuardWarnings = ctx.maxGuardWarnings or CONVERSION_MAX_GUARD_WARNINGS
+
+    local fullMessage = string.format("%s at %s", message, getConversionPath(ctx))
+    if ctx.guardWarnings[fullMessage] then return end
+
+    ctx.guardWarnings[fullMessage] = true
+
+    if ctx.guardWarningCount < ctx.maxGuardWarnings then
+        logger:warn(fullMessage)
+    elseif ctx.guardWarningCount == ctx.maxGuardWarnings then
+        logger:warn("[Red Converter] Additional conversion guard warnings suppressed")
+    end
+
+    ctx.guardWarningCount = ctx.guardWarningCount + 1
+end
+
+local function getActiveConversionClass(ctx, class)
+    if not ctx or not ctx.classStack or not class then return nil end
+
+    local okName, targetClassName = pcall(function ()
+        return class:GetName().value
+    end)
+
+    if not okName or not targetClassName then return nil end
+
+    for className, count in pairs(ctx.classStack) do
+        if count and count > 0 then
+            local ok, isA = pcall(function ()
+                return class:IsA(className)
+            end)
+
+            if ok and isA then
+                return className
+            end
+
+            local activeClass = nil
+            pcall(function ()
+                activeClass = Reflection.GetClass(className)
+            end)
+
+            ok, isA = pcall(function ()
+                return activeClass and activeClass:IsA(targetClassName)
+            end)
+
+            if ok and isA then
+                return className
+            end
+        end
+    end
+
+    return nil
+end
+
 local bitFieldDefinitionCache = {}
 local knownBitFieldDefinitions = {
     rendLightChannel = {
@@ -367,7 +495,7 @@ local function convertBitField(propValue, propType)
     return nil
 end
 
-local function convertArray(propValue, prop)
+local function convertArray(propValue, prop, ctx)
     if not prop:GetType():GetInnerType() then return end
 
     local propData = {}
@@ -378,8 +506,10 @@ local function convertArray(propValue, prop)
         return propData
     end
 
-    for _, entry in pairs(propValue) do
-        local innerData = red.convertAny(innerType, prop:GetType():GetInnerType():GetName().value, entry, prop, propValue)
+    for index, entry in pairs(propValue) do
+        pushConversionPath(ctx, index)
+        local innerData = red.convertAny(innerType, prop:GetType():GetInnerType():GetName().value, entry, prop, propValue, ctx)
+        popConversionPath(ctx)
 
         table.insert(propData, innerData)
     end
@@ -387,18 +517,39 @@ local function convertArray(propValue, prop)
     return propData
 end
 
-local function convertHandle(propValue, prop, name)
+local function convertHandle(propValue, prop, name, ctx)
     if propValue == nil and utils.has_value(handleIncludes, name) then
         propValue = FromVariant(prop:GetType():GetInnerType():MakeInstance())
     end
     if propValue ~= nil then
-        if Reflection.GetClassOf(ToVariant(propValue)):IsA("entEntity") then -- Will very likely lead to infinite recursion
+        local handleClass = getRedClass(propValue)
+        if handleClass and handleClass:IsA("entEntity") then -- Will very likely lead to infinite recursion
             return nil
         end
 
+        local activeClassName = getActiveConversionClass(ctx, handleClass)
+        if activeClassName then
+            local okName, handleClassName = pcall(function ()
+                return handleClass:GetName().value
+            end)
+
+            if not okName then
+                handleClassName = "unknown"
+            end
+
+            warnConversionGuard(ctx, string.format("[Red Converter] Skipping recursive handle %s -> %s already active as %s", tostring(name), tostring(handleClassName), tostring(activeClassName)))
+            return nil
+        end
+
+        pushConversionPath(ctx, "Data")
+        local handleData = red.redDataToJSON(propValue, ctx)
+        popConversionPath(ctx)
+
+        if not handleData then return nil end
+
         return {
             HandleId = "0",
-            Data = red.redDataToJSON(propValue)
+            Data = handleData
         }
     end
 
@@ -456,7 +607,8 @@ end
 ---@param value ISerializable
 ---@param prop ReflectionProp
 ---@param data ISerializable Parent of value
-function red.convertAny(metaType, propType, value, prop, data)
+---@param ctx table?
+function red.convertAny(metaType, propType, value, prop, data, ctx)
     local propData = nil
 
     if metaType == ERTTIType.Name then
@@ -464,7 +616,7 @@ function red.convertAny(metaType, propType, value, prop, data)
     elseif metaType == ERTTIType.Fundamental then
         propData = convertFundamental(value, propType)
     elseif metaType == ERTTIType.Class then
-        propData = red.redDataToJSON(value)
+        propData = red.redDataToJSON(value, ctx)
     elseif metaType == ERTTIType.Simple then -- LocalizationString, Buffers, CRUID
         propData = convertSimple(value, propType, prop)
     elseif metaType == ERTTIType.Enum then
@@ -472,9 +624,9 @@ function red.convertAny(metaType, propType, value, prop, data)
     elseif metaType == ERTTIType.BitField then
         propData = convertBitField(value, propType)
     elseif metaType == ERTTIType.Array or metaType == ERTTIType.StaticArray or metaType == ERTTIType.NativeArray or metaType == ERTTIType.FixedArray then
-        propData = convertArray(value, prop)
+        propData = convertArray(value, prop, ctx)
     elseif metaType == ERTTIType.Handle or metaType == ERTTIType.WeakHandle then
-        propData = convertHandle(value, prop, prop:GetName().value)
+        propData = convertHandle(value, prop, prop:GetName().value, ctx)
     elseif metaType == ERTTIType.ResourceReference then
         propData = convertResRef(data, prop:GetName().value)
     elseif metaType == ERTTIType.ResourceAsyncReference then
@@ -488,18 +640,44 @@ end
 
 ---Converts a ISerializable instance to json data
 ---@param data ISerializable
+---@param ctx table?
 ---@return table
-function red.redDataToJSON(data)
-    local root
+function red.redDataToJSON(data, ctx)
+    if not data then return nil end
 
-    pcall(function ()
-       root = Reflection.GetClassOf(ToVariant(data), true)
-    end)
+    ctx = ctx or {}
+    ctx.stack = ctx.stack or {}
+    ctx.objectStack = ctx.objectStack or {}
+    ctx.classStack = ctx.classStack or {}
+    ctx.depth = ctx.depth or 0
+    ctx.maxDepth = ctx.maxDepth or CONVERSION_MAX_DEPTH
+
+    local root = getRedClass(data)
 
     if not root then return nil end
 
+    local className = root:GetName().value
+    local objectKey = getConversionObjectKey(data, className)
+
+    if ctx.stack[data] or (objectKey and ctx.objectStack[objectKey]) then
+        warnConversionGuard(ctx, string.format("[Red Converter] Skipping cyclic reference while converting %s", tostring(className)))
+        return nil
+    end
+
+    if ctx.depth >= ctx.maxDepth then
+        warnConversionGuard(ctx, string.format("[Red Converter] Max conversion depth reached (%d) while converting %s", ctx.maxDepth, tostring(className)))
+        return nil
+    end
+
+    ctx.stack[data] = true
+    if objectKey then
+        ctx.objectStack[objectKey] = true
+    end
+    ctx.classStack[className] = (ctx.classStack[className] or 0) + 1
+    ctx.depth = ctx.depth + 1
+
     local converted = {
-        ["$type"] = root:GetName().value
+        ["$type"] = className
     }
 
     local classes = {root}
@@ -511,19 +689,32 @@ function red.redDataToJSON(data)
     for _, class in pairs(classes) do
         for _, prop in pairs(class:GetProperties()) do
             local propData = nil
+            local propName = prop:GetName().value
             local metaType = prop:GetType():GetMetaType()
             local propType = prop:GetType():GetName().value
             local value = FromVariant(prop:GetValue(ToVariant(data)))
 
-            if not utils.has_value(exportExludes, prop:GetName().value) then
-                propData = red.convertAny(metaType, propType, value, prop, data)
+            if not utils.has_value(exportExludes, propName) then
+                pushConversionPath(ctx, propName)
+                propData = red.convertAny(metaType, propType, value, prop, data, ctx)
+                popConversionPath(ctx)
             end
 
             if propData then
-                converted[prop:GetName().value] = propData
+                converted[propName] = propData
             end
         end
     end
+
+    ctx.depth = ctx.depth - 1
+    ctx.classStack[className] = ctx.classStack[className] - 1
+    if ctx.classStack[className] <= 0 then
+        ctx.classStack[className] = nil
+    end
+    if objectKey then
+        ctx.objectStack[objectKey] = nil
+    end
+    ctx.stack[data] = nil
 
     return converted
 end
