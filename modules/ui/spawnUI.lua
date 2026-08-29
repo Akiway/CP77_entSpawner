@@ -16,6 +16,7 @@ local prefabPreview = require("modules/utils/preview/prefabPreview")
 local previewControls = require("modules/utils/preview/previewControls")
 local assetFavorites = require("modules/utils/project/assetFavorites")
 local assetValidation = require("modules/utils/game/assetValidation")
+local colorUtil = require("modules/utils/ui/color")
 
 local types = {
     ["Entity"] = {
@@ -118,6 +119,14 @@ local modulePathToSpawnList = {}
 local modulePathToVariantLabel = {}
 local spawnNewVisualizerClassGroups = {}
 local spawnNewVisualizerModuleSet = {}
+local STATIC_LIGHT_MODULE_PATH = "light/light"
+local DEFAULT_STATIC_LIGHT_COLOR = { 1, 0.99595707654953, 0.6502890586853 }
+local STATIC_LIGHT_TYPES = {
+    [0] = true,
+    [1] = true,
+    [2] = true
+}
+local applySpawnNewEntryDefaults
 -- Node type label -> icon, for variants hosting several spawnable classes. The entry filter
 -- receives only the label, so the icons cannot be read back off the spawn list.
 local hostedIconByLabel = {}
@@ -1946,6 +1955,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
             else
                 spawnUI.previewInstance = resolveEntryClass(activeSpawnList, entry):new()
                 data.modulePath = spawnUI.previewInstance.modulePath
+                applySpawnNewEntryDefaults(data)
             end
 
             local pos, _ = spawnUI.getSpawnNewPosition()
@@ -2934,6 +2944,26 @@ local function applySpawnNewVisualizerDefault(data)
     end
 end
 
+---@param data table?
+local function applySpawnNewLightDefaults(data)
+    if type(data) ~= "table" or data.modulePath ~= STATIC_LIGHT_MODULE_PATH then
+        return
+    end
+
+    local lightType = tonumber(data.lightType)
+    if lightType ~= nil and STATIC_LIGHT_TYPES[lightType] ~= true then
+        return
+    end
+
+    data.color = colorUtil.normalizeRGB(settings.defaultLightColor, data.color or DEFAULT_STATIC_LIGHT_COLOR)
+end
+
+---@param data table?
+applySpawnNewEntryDefaults = function(data)
+    applySpawnNewVisualizerDefault(data)
+    applySpawnNewLightDefaults(data)
+end
+
 ---Spawns a new entry (or favorite/group) and records history metadata.
 ---@param entry table|favorite
 ---@param class table
@@ -3027,7 +3057,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
 
     if not isFavorite then
         data.modulePath = targetModulePath
-        applySpawnNewVisualizerDefault(data)
+        applySpawnNewEntryDefaults(data)
         data.position = { x = pos.x, y = pos.y, z = pos.z, w = 0 }
         data.rotation = { roll = rot.roll, pitch = rot.pitch, yaw = rot.yaw }
     end

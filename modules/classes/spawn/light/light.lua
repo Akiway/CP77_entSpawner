@@ -6,6 +6,7 @@ local utils = require("modules/utils/core/utils")
 local gameUtils = require("modules/utils/game/gameUtils")
 local field = require("modules/utils/ui/field")
 local colorUtil = require("modules/utils/ui/color")
+local settings = require("modules/utils/core/settings")
 local lcHelper = require("modules/utils/ui/lightChannelHelper")
 local lightPreview = require("modules/utils/preview/previewUtils")
 local targeting = require("modules/utils/editor/targeting")
@@ -20,6 +21,7 @@ local AREA_SHAPE_SPHERE = 0
 local AREA_SHAPE_CAPSULE = 1
 
 local SHADOW_SOFTNESS_MODE_DEFAULT = 2
+local DEFAULT_STATIC_LIGHT_COLOR = { 1, 0.99595707654953, 0.6502890586853 }
 
 local PREVIEW_COLOR_SPOT = "blue"
 local PREVIEW_COLOR_SPOT_INNER = "yellow"
@@ -157,7 +159,7 @@ function light:new()
         }
     }
 
-    o.color = { 1, 1, 1 }
+    o.color = colorUtil.normalizeRGB(settings.defaultLightColor, DEFAULT_STATIC_LIGHT_COLOR)
     o.intensity = 100
     o.innerAngle = 20
     o.outerAngle = 60

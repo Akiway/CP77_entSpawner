@@ -7,6 +7,7 @@ local utils = require("modules/utils/core/utils")
 local perf = require("modules/utils/ui/perf")
 local rht = require("modules/utils/interop/rhtPlugin")
 local projectTag = require("modules/utils/ui/projectTag")
+local colorUtil = require("modules/utils/ui/color")
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 local previewControls = require("modules/utils/preview/previewControls")
 local keys = require("modules/utils/core/keys")
@@ -83,6 +84,7 @@ local settingsSectionSearchText = {
         "Default values",
         "Node properties",
         "NodeRef Prefix",
+        "Default light color",
         "Default Collider Material",
         "Default Streaming distance",
         table.concat(streamingPresetLabels, " "),
@@ -798,6 +800,11 @@ local function drawDefaultsSection()
     settings.nodeRefPrefix, changed = style.inputTextWithHint("NodeRef Prefix", "", settings.nodeRefPrefix, 128)
     if changed then settings.save() end
     style.tooltip("Prefix to add when auto generating NodeRef")
+
+    settings.defaultLightColor = colorUtil.normalizeRGB(settings.defaultLightColor, { 1, 0.99595707654953, 0.6502890586853 })
+    settings.defaultLightColor, changed = style.trackedColor(nil, "Default light color", settings.defaultLightColor, 58)
+    if changed then settings.save() end
+    style.tooltip("Default color used by newly spawned Lighting > Static Light entries: Point, Spot, and Area.")
 
     settings.defaultColliderMaterial = tonumber(settings.defaultColliderMaterial) or 0
     local selectedMaterial = colliderBase.getMaterialDisplayByIndex(settings.defaultColliderMaterial)

@@ -37,6 +37,7 @@ local config = require("modules/utils/core/config")
 ---@field public defaultAISpotNPC string
 ---@field public defaultAISpotAppearance string
 ---@field public defaultAISpotSpeed number
+---@field public defaultLightColor number[] Default RGB color for newly spawned static lights.
 ---@field public defaultSplineCurveQuality number
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
@@ -140,6 +141,7 @@ local settingsData = {
     defaultAISpotNPC = "Character.Judy",
     defaultAISpotAppearance = "default",
     defaultAISpotSpeed = 3,
+    defaultLightColor = { 1, 0.99595707654953, 0.6502890586853 },
     defaultSplineCurveQuality = 12,
     nodeRefPrefix = "mod",
     cacheExclusions = {},
