@@ -6,10 +6,12 @@ local history = require("modules/utils/project/history")
 local visualizer = require("modules/utils/preview/visualizer")
 local Cron = require("modules/utils/vendor/Cron")
 local quickElevatorSetupUI = require("modules/utils/ui/quickElevatorSetup")
+local quickSoundSystemSetupUI = require("modules/utils/ui/quickSoundSystemSetup")
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 local spawnableElement = require("modules/classes/editor/spawnableElement")
 local staticMarker = require("modules/classes/spawn/meta/staticMarker")
 local elevatorDoors = require("modules/utils/data/elevatorDoors")
+local soundSystemData = require("modules/utils/data/soundSystem")
 
 local POSITION_MARKER_COLOR = "blue"
 local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
@@ -17,6 +19,8 @@ local ELEVATOR_FLOOR_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
 local ELEVATOR_FLOOR_TERMINAL_PATH = "base\\gameplay\\devices\\elevators\\terminals\\elevator_floor_terminal_1.ent"
 local ELEVATOR_FLOOR_TERMINAL_COMPONENT_ID = "1394923055520256000"
 local DEFAULT_DOOR_CONNECTION_CLASS = "DoorControllerPS"
+local SOUND_SYSTEM_CONTROLLER_CLASS = soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS
+local SPEAKER_CONTROLLER_CLASS = soundSystemData.SPEAKER_CONTROLLER_CLASS
 local LIFT_FLOOR_DOOR_DEFINITIONS = {
     common = {
         key = "common",
@@ -49,6 +53,7 @@ local propertyNames = {
 ---@field public persistent boolean
 ---@field private maxPropertyWidth number?
 ---@field public controllerComponent string
+---@field public showSpeakerRangeSphere boolean Speaker only: draw a sphere at the audible radius
 local device = setmetatable({}, { __index = entity })
 
 ---@type fun(value: any, fallback: any?): string
@@ -173,6 +178,8 @@ function device:new()
     o.controllerComponent = ""
     o.positionMarkerColor = POSITION_MARKER_COLOR
     o.showDoorsHelper = true
+    o.showSpeakerHelper = true
+    o.showSpeakerRangeSphere = false
 
     setmetatable(o, { __index = self })
    	return o
@@ -193,6 +200,75 @@ function device:onAssemble(entRef)
     end
 
     self:updatePositionMarker()
+
+    -- Added on every speaker rather than on demand: `AddComponent` after the entity is attached is
+    -- unreliable, and a disabled mesh component costs nothing. The real radius is only read when
+    -- the sphere is actually wanted, so the common case never touches the persistent state here.
+    if self.deviceClassName == SPEAKER_CONTROLLER_CLASS then
+        local size = self.showSpeakerRangeSphere
+            and self:getSpeakerRangeSphereSize()
+            or { x = 0.01, y = 0.01, z = 0.01 }
+
+        visualizer.addSphere(entRef, size, soundSystemData.RANGE_SPHERE_COLOR, soundSystemData.RANGE_SPHERE_COMPONENT)
+        self:updateSpeakerRangeSphere(entRef)
+    end
+end
+
+---Size of the audible-range preview sphere, read off this speaker's own `speakerSetup.range`.
+---`base\spawner\sphere.mesh` is unit-radius, so the range goes in unscaled -- the same convention
+---the light radius preview uses.
+---@return { x: number, y: number, z: number }
+function device:getSpeakerRangeSphereSize()
+    local setup = self:getSpeakerSetup(self)
+    local range = math.max(0, tonumber(setup and setup.range) or 0)
+
+    return { x = range, y = range, z = range }
+end
+
+---Rescales and shows/hides the range sphere. Safe to call on a device that is not a speaker, or on
+---one that is not spawned.
+---@param entityRef entEntity? Defaults to this spawnable's live entity
+---@param rangeOverride number? Live drag value, so the sphere follows the slider before it commits
+function device:updateSpeakerRangeSphere(entityRef, rangeOverride)
+    local target = entityRef or self:getEntity()
+    if not target then
+        return
+    end
+
+    local sphere = target:FindComponentByName(soundSystemData.RANGE_SPHERE_COMPONENT)
+    if not sphere then
+        return
+    end
+
+    -- Reading the radius means reading the persistent state, so it only happens when the sphere is
+    -- going to be shown.
+    if self.deviceClassName ~= SPEAKER_CONTROLLER_CLASS or self.showSpeakerRangeSphere ~= true then
+        if sphere:IsEnabled() then
+            sphere:Toggle(false)
+        end
+
+        return
+    end
+
+    local override = tonumber(rangeOverride)
+    local size = override
+        and { x = math.max(0, override), y = math.max(0, override), z = math.max(0, override) }
+        or self:getSpeakerRangeSphereSize()
+
+    -- `updateScale` re-toggles an enabled component to make the new scale take, so scale first and
+    -- let the visibility check below settle the final state.
+    visualizer.updateScale(target, size, soundSystemData.RANGE_SPHERE_COMPONENT)
+
+    local shouldShow = size.x > 0
+    if sphere:IsEnabled() ~= shouldShow then
+        sphere:Toggle(shouldShow)
+    end
+end
+
+---@param state boolean
+function device:setSpeakerRangeSphereVisible(state)
+    self.showSpeakerRangeSphere = state == true
+    self:updateSpeakerRangeSphere()
 end
 
 function device:save()
@@ -202,6 +278,8 @@ function device:save()
     data.controllerComponent = self.controllerComponent
     data.showPositionMarker = self.showPositionMarker
     data.showDoorsHelper = self.showDoorsHelper
+    data.showSpeakerHelper = self.showSpeakerHelper
+    data.showSpeakerRangeSphere = self.showSpeakerRangeSphere
 
     return data
 end
@@ -386,6 +464,41 @@ function device:getComponentPathValue(targetSpawnable, componentID, path)
     end
 
     return nil
+end
+
+---Reads an array valued path without merging it onto the default.
+---`getComponentPathValue` merges by key, which is right for a struct but wrong for a variable
+---length array: an override holding one entry would keep the defaults second entry trailing behind
+---it, so deleting the last sound system entry would silently bring a shipped one back. An array is
+---owned whole by whichever source last wrote it.
+---@param targetSpawnable entity
+---@param componentID string
+---@param path table
+---@return table
+function device:getComponentPathArray(targetSpawnable, componentID, path)
+    if not targetSpawnable or not componentID then
+        return {}
+    end
+
+    componentID = tostring(componentID)
+
+    local changedRoot = targetSpawnable.instanceDataChanges and targetSpawnable.instanceDataChanges[componentID]
+    if changedRoot then
+        local changedValue = utils.getNestedValue(changedRoot, path)
+        if type(changedValue) == "table" then
+            return utils.deepcopy(changedValue)
+        end
+    end
+
+    local defaultRoot = targetSpawnable.defaultComponentData and targetSpawnable.defaultComponentData[componentID]
+    if defaultRoot then
+        local defaultValue = utils.getNestedValue(defaultRoot, path)
+        if type(defaultValue) == "table" then
+            return utils.deepcopy(defaultValue)
+        end
+    end
+
+    return {}
 end
 
 ---@param targetSpawnable entity
@@ -662,8 +775,10 @@ function device:getLiftDoorWorldPosition(doorIndex)
     return elevatorDoors.getMarkerWorldPosition(self, side)
 end
 
----@return element?, table?
-function device:ensureLiftParentGroup()
+---Guarantees this device sits inside a `positionableGroup`, wrapping it in a new one when it does
+---not, so quick setup has somewhere to put the nodes it creates.
+---@return element?, table? group, history action for the wrap (nil when no wrap was needed)
+function device:ensureOwnParentGroup()
     if not self.object or not self.object.parent then
         return nil, nil
     end
@@ -685,16 +800,21 @@ function device:ensureLiftParentGroup()
     parent.headerOpen = true
 
     local insertGroup = history.getInsert({ wrapper })
-    local removeLift = history.getRemove({ self.object })
+    local removeDevice = history.getRemove({ self.object })
     self.object:setParent(wrapper)
-    local insertLift = history.getInsert({ self.object })
+    local insertDevice = history.getInsert({ self.object })
 
     registry.invalidate()
     if self.object.sUI and self.object.sUI.cachePaths then
         self.object.sUI.cachePaths()
     end
 
-    return wrapper, history.getMoveToNewGroup(insertGroup, removeLift, insertLift)
+    return wrapper, history.getMoveToNewGroup(insertGroup, removeDevice, insertDevice)
+end
+
+---@return element?, table?
+function device:ensureLiftParentGroup()
+    return self:ensureOwnParentGroup()
 end
 
 ---@param parent element
@@ -1352,10 +1472,754 @@ function device:updateElevatorFloorSetup(entry, componentID, floorSetup)
     return normalized
 end
 
+-- Sound system / speaker chain -------------------------------------------------------------------
+
+---@return string?
+function device:getSoundSystemComponentID()
+    return self:getPersistentComponentID(
+        self,
+        SOUND_SYSTEM_CONTROLLER_CLASS,
+        soundSystemData.SOUND_SYSTEM_COMPONENT_ID
+    )
+end
+
+---Normalized `soundSystemSettings` entries, plus the component they live on.
+---@return table[], string?
+function device:getSoundSystemEntries()
+    local componentID = self:getSoundSystemComponentID()
+    if not componentID then
+        return {}, nil
+    end
+
+    local raw = self:getComponentPathArray(self, componentID, soundSystemData.SETTINGS_PATH)
+    local entries = {}
+
+    for index = 1, #raw do
+        table.insert(entries, soundSystemData.normalizeEntry(raw[index]))
+    end
+
+    return entries, componentID
+end
+
+---Writes the whole entry array back, clamping `defaultAction` so it can never point past the end.
+---@param entries table[]
+---@param componentID string?
+function device:setSoundSystemEntries(entries, componentID)
+    componentID = componentID or self:getSoundSystemComponentID()
+    if not componentID then
+        return
+    end
+
+    local normalized = {}
+    for index = 1, #entries do
+        table.insert(normalized, soundSystemData.normalizeEntry(entries[index]))
+    end
+
+    -- `defaultAction` indexes this array, so a delete has to pull it back in range. Suppressed here
+    -- so the array write below stays the single respawn of the operation.
+    local defaultAction = math.floor(tonumber(
+        self:getComponentPathValue(self, componentID, soundSystemData.DEFAULT_ACTION_PATH)
+    ) or 0)
+    local clampedAction = math.max(0, math.min(defaultAction, math.max(0, #normalized - 1)))
+
+    if clampedAction ~= defaultAction then
+        self:updateComponentPathValue(
+            self,
+            componentID,
+            soundSystemData.DEFAULT_ACTION_PATH,
+            clampedAction,
+            { suppressRespawn = true }
+        )
+    end
+
+    self:updateComponentPathValue(self, componentID, soundSystemData.SETTINGS_PATH, normalized)
+end
+
+---@param options table?
+function device:addSoundSystemEntry(options)
+    local entries, componentID = self:getSoundSystemEntries()
+    if not componentID then
+        return
+    end
+
+    history.addAction(history.getElementChange(self.object))
+    table.insert(entries, soundSystemData.createEntry(options))
+    self:setSoundSystemEntries(entries, componentID)
+end
+
+---@param index number
+function device:removeSoundSystemEntry(index)
+    local entries, componentID = self:getSoundSystemEntries()
+    if not componentID or not entries[index] then
+        return
+    end
+
+    history.addAction(history.getElementChange(self.object))
+    table.remove(entries, index)
+    self:setSoundSystemEntries(entries, componentID)
+end
+
+---@param index number
+---@param direction number
+function device:moveSoundSystemEntry(index, direction)
+    local targetIndex = index + direction
+    local entries, componentID = self:getSoundSystemEntries()
+
+    if not componentID or targetIndex < 1 or targetIndex > #entries or not entries[index] then
+        return
+    end
+
+    history.addAction(history.getElementChange(self.object))
+    entries[index], entries[targetIndex] = entries[targetIndex], entries[index]
+    self:setSoundSystemEntries(entries, componentID)
+end
+
+---Replaces one entry in place. The caller hands back a whole entry rather than a path, because the
+---`musicSettings` handle has to be written as a unit.
+---@param index number
+---@param entry table
+function device:updateSoundSystemEntry(index, entry)
+    local entries, componentID = self:getSoundSystemEntries()
+    if not componentID or not entries[index] then
+        return
+    end
+
+    entries[index] = soundSystemData.normalizeEntry(entry)
+    self:setSoundSystemEntries(entries, componentID)
+end
+
+---Speaker connections of this sound system, resolved to their spawnables where possible.
+---@return table[]
+function device:getSpeakerEntries()
+    registry.update()
+
+    local entries = {}
+
+    for connectionIndex, connection in ipairs(self.deviceConnections) do
+        local className = sanitizeConnectionValue(connection.deviceClassName)
+        local rawNodeRef = sanitizeConnectionValue(connection.nodeRef)
+
+        if className == SPEAKER_CONTROLLER_CLASS and rawNodeRef ~= "" then
+            local speakerSpawnable, resolvedNodeRef = self:resolveConnectionTargetSpawnable(rawNodeRef)
+            local definition = speakerSpawnable
+                and soundSystemData.resolveSpeakerDefinition(speakerSpawnable.spawnData)
+                or nil
+
+            table.insert(entries, {
+                connection = connection,
+                connectionIndex = connectionIndex,
+                rawNodeRef = rawNodeRef,
+                nodeRef = resolvedNodeRef ~= "" and resolvedNodeRef or rawNodeRef,
+                speakerSpawnable = speakerSpawnable,
+                speakerElement = speakerSpawnable and speakerSpawnable.object or nil,
+                definition = definition,
+                label = definition and definition.label or "Speaker"
+            })
+        end
+    end
+
+    return entries
+end
+
+---Connections on this sound system that point at something the game will not drive.
+---`SoundSystemControllerPS.RefreshSlaves` casts every immediate slave to `SpeakerControllerPS` and
+---skips the rest, so a radio or a jukebox wired here is silently ignored -- which looks exactly like
+---a broken speaker and is worth saying out loud.
+---@return { nodeRef: string, className: string, reason: string, element: element? }[]
+function device:getIgnoredSlaveConnections()
+    registry.update()
+
+    local ignored = {}
+
+    for _, connection in ipairs(self.deviceConnections) do
+        local className = sanitizeConnectionValue(connection.deviceClassName)
+        local rawNodeRef = sanitizeConnectionValue(connection.nodeRef)
+        local reason = className ~= "" and soundSystemData.getSlaveRejectionReason(className) or nil
+
+        if reason and rawNodeRef ~= "" then
+            local targetSpawnable, resolvedNodeRef = self:resolveConnectionTargetSpawnable(rawNodeRef)
+
+            table.insert(ignored, {
+                nodeRef = resolvedNodeRef ~= "" and resolvedNodeRef or rawNodeRef,
+                className = className,
+                reason = reason,
+                element = targetSpawnable and targetSpawnable.object or nil
+            })
+        end
+    end
+
+    return ignored
+end
+
+---First free `<prefix>_<n>` name under `parent`. Used for both speakers and masters.
+---@param parent element
+---@param namePrefix string
+---@return string
+function device:getNextChildName(parent, namePrefix)
+    local prefix = tostring(namePrefix or "Node")
+    local nextIndex = 0
+
+    while true do
+        local candidate = prefix .. "_" .. tostring(nextIndex)
+        local exists = false
+
+        for _, child in ipairs(parent.childs or {}) do
+            if tostring(child.name or "") == candidate then
+                exists = true
+                break
+            end
+        end
+
+        if not exists then
+            return candidate
+        end
+
+        nextIndex = nextIndex + 1
+    end
+end
+
+---Spawns a speaker next to this sound system, gives it a NodeRef and connects it.
+---@param speakerType string `speaker` or `virtual`
+function device:addSpeaker(speakerType)
+    if not self.object or not self.object.parent or self.object:isLocked() then
+        return
+    end
+
+    local definition = soundSystemData.SPEAKER_DEFINITIONS[string.lower(tostring(speakerType or ""))]
+    if not definition then
+        return
+    end
+
+    local actions = {}
+    local parent = self.object.parent
+
+    if not utils.isA(parent, "positionableGroup") then
+        local wrappedParent, wrapAction = self:ensureOwnParentGroup()
+        if wrappedParent then
+            parent = wrappedParent
+        end
+        if wrapAction then
+            table.insert(actions, wrapAction)
+        end
+    end
+
+    if not parent then
+        return
+    end
+
+    -- Nothing in the data says where a speaker belongs, so it starts on the system and gets dragged.
+    local position = Vector4.new(self.position.x, self.position.y, self.position.z, 0)
+    local rotation = EulerAngles.new(self.rotation.roll, self.rotation.pitch, self.rotation.yaw)
+
+    local speakerSeed = device:new()
+    speakerSeed:loadSpawnData({
+        spawnData = definition.spawnData,
+        app = definition.defaultApp,
+        nodeRef = "",
+        persistent = false,
+        deviceClassName = SPEAKER_CONTROLLER_CLASS,
+        deviceConnections = {},
+        instanceDataChanges = {},
+        defaultComponentData = {}
+    }, position, rotation)
+
+    local speakerElement = spawnableElement:new(self.object.sUI)
+    speakerElement:load({
+        name = self:getNextChildName(parent, definition.namePrefix),
+        spawnable = speakerSeed:save(),
+        modulePath = "modules/classes/editor/spawnableElement"
+    })
+    speakerElement:setParent(parent)
+    parent.headerOpen = true
+
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+    registry.invalidate()
+
+    local speakerSpawnable = speakerElement.spawnable
+    speakerSpawnable.nodeRef = registry.generate(speakerElement)
+    speakerSpawnable.deviceClassName = SPEAKER_CONTROLLER_CLASS
+    registry.invalidate()
+
+    table.insert(actions, history.getElementChange(self.object))
+    table.insert(self.deviceConnections, {
+        deviceClassName = SPEAKER_CONTROLLER_CLASS,
+        nodeRef = sanitizeConnectionValue(speakerSpawnable.nodeRef)
+    })
+
+    table.insert(actions, history.getInsert({ speakerElement }))
+
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+    registry.invalidate()
+
+    if #actions > 1 then
+        history.addAction(history.getComposite(actions))
+    elseif #actions == 1 then
+        history.addAction(actions[1])
+    end
+end
+
+---Keeps the speaker node and this systems connection row on the same NodeRef.
+---@param speakerEntry table
+---@param newNodeRef string
+function device:updateSpeakerNodeRef(speakerEntry, newNodeRef)
+    if not speakerEntry then
+        return
+    end
+
+    local normalizedNodeRef = sanitizeConnectionValue(newNodeRef)
+    if normalizedNodeRef == "" then
+        return
+    end
+
+    local currentNodeRef = sanitizeConnectionValue(
+        speakerEntry.connection and speakerEntry.connection.nodeRef
+        or speakerEntry.nodeRef
+        or speakerEntry.rawNodeRef
+        or ""
+    )
+    if normalizedNodeRef == currentNodeRef then
+        return
+    end
+
+    local changes = { history.getElementChange(self.object) }
+    if speakerEntry.speakerElement then
+        table.insert(changes, history.getElementChange(speakerEntry.speakerElement))
+    end
+
+    if #changes > 1 then
+        history.addAction(history.getComposite(changes))
+    else
+        history.addAction(changes[1])
+    end
+
+    if speakerEntry.connection then
+        speakerEntry.connection.nodeRef = normalizedNodeRef
+    end
+    if speakerEntry.speakerSpawnable then
+        speakerEntry.speakerSpawnable.nodeRef = normalizedNodeRef
+    end
+    speakerEntry.nodeRef = normalizedNodeRef
+    speakerEntry.rawNodeRef = normalizedNodeRef
+
+    registry.invalidate()
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+end
+
+---@param speakerEntry table
+function device:generateSpeakerNodeRef(speakerEntry)
+    if not speakerEntry or not speakerEntry.speakerElement then
+        return
+    end
+
+    self:updateSpeakerNodeRef(speakerEntry, registry.generate(speakerEntry.speakerElement))
+end
+
+---Removes the speaker node and its connection row.
+---@param speakerEntry table
+function device:removeSpeaker(speakerEntry)
+    if not speakerEntry then
+        return
+    end
+
+    local targetNodeRef = sanitizeConnectionValue(
+        speakerEntry.connection and speakerEntry.connection.nodeRef
+        or speakerEntry.nodeRef
+        or speakerEntry.rawNodeRef
+        or ""
+    )
+    local removedConnection = false
+
+    for index = #self.deviceConnections, 1, -1 do
+        local connection = self.deviceConnections[index]
+        local sameConnection = speakerEntry.connection and connection == speakerEntry.connection
+        local sameNodeRef = targetNodeRef ~= "" and sanitizeConnectionValue(connection.nodeRef) == targetNodeRef
+
+        if sameConnection or sameNodeRef then
+            self.connectionNodeRefSearch[tostring(connection)] = nil
+            table.remove(self.deviceConnections, index)
+            removedConnection = true
+            if sameConnection then
+                break
+            end
+        end
+    end
+
+    local removeAction = nil
+    if speakerEntry.speakerElement then
+        removeAction = history.getRemove({ speakerEntry.speakerElement })
+        speakerEntry.speakerElement:remove()
+    end
+
+    if not removedConnection and not removeAction then
+        return
+    end
+
+    local actions = { history.getElementChange(self.object) }
+    if removeAction then
+        table.insert(actions, removeAction)
+    end
+
+    if #actions > 1 then
+        history.addAction(history.getComposite(actions))
+    else
+        history.addAction(actions[1])
+    end
+
+    registry.invalidate()
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+end
+
+---@param speakerSpawnable entity
+---@return table?, string? setup, componentID
+function device:getSpeakerSetup(speakerSpawnable)
+    if not speakerSpawnable then
+        return nil, nil
+    end
+
+    local componentID = self:getPersistentComponentID(
+        speakerSpawnable,
+        SPEAKER_CONTROLLER_CLASS,
+        soundSystemData.SPEAKER_COMPONENT_ID
+    )
+    if not componentID then
+        return nil, nil
+    end
+
+    local setup = self:getComponentPathValue(speakerSpawnable, componentID, soundSystemData.SPEAKER_SETUP_PATH)
+
+    return soundSystemData.normalizeSpeakerSetup(setup), componentID
+end
+
+---@param speakerSpawnable entity
+---@param componentID string
+---@param setup table
+---@return table
+function device:updateSpeakerSetup(speakerSpawnable, componentID, setup)
+    local normalized = soundSystemData.normalizeSpeakerSetup(setup)
+
+    self:updateComponentPathValue(
+        speakerSpawnable,
+        componentID,
+        soundSystemData.SPEAKER_SETUP_PATH,
+        normalized
+    )
+
+    return normalized
+end
+
+---Devices in this project that drive this sound system.
+---The connection lives on the master, not here, so this is a reverse lookup over the hierarchy
+---rather than a read of `self.deviceConnections`.
+---@return table[]
+function device:getSoundSystemMasters()
+    local ownNodeRef = sanitizeConnectionValue(self.nodeRef)
+    if ownNodeRef == "" or not self.object or not self.object.getRootParent then
+        return {}
+    end
+
+    local ownHash = utils.nodeRefStringToHashString(ownNodeRef)
+    local root = self.object:getRootParent()
+    if not root or not root.getPathsRecursive then
+        return {}
+    end
+
+    local entries = {}
+
+    for _, path in ipairs(root:getPathsRecursive(true)) do
+        local ref = path.ref
+        local spawnable = utils.isA(ref, "spawnableElement") and ref.spawnable or nil
+
+        if spawnable and spawnable ~= self and type(spawnable.deviceConnections) == "table" then
+            for connectionIndex, connection in ipairs(spawnable.deviceConnections) do
+                local className = sanitizeConnectionValue(connection.deviceClassName)
+                local targetNodeRef = sanitizeConnectionValue(connection.nodeRef)
+
+                if className == SOUND_SYSTEM_CONTROLLER_CLASS
+                    and targetNodeRef ~= ""
+                    and (targetNodeRef == ownNodeRef or utils.nodeRefStringToHashString(targetNodeRef) == ownHash) then
+                    local definition = soundSystemData.resolveMasterDefinition(spawnable.spawnData)
+
+                    table.insert(entries, {
+                        connection = connection,
+                        connectionIndex = connectionIndex,
+                        nodeRef = sanitizeConnectionValue(spawnable.nodeRef),
+                        masterSpawnable = spawnable,
+                        masterElement = ref,
+                        definition = definition,
+                        label = definition and definition.label or sanitizeConnectionValue(spawnable.deviceClassName),
+                        isComputer = definition and definition.isComputer == true
+                    })
+
+                    break
+                end
+            end
+        end
+    end
+
+    return entries
+end
+
+---Updates the NodeRef on a master node. The link to this sound system is stored on the master's
+---connection row, so changing the master's own NodeRef does not touch the graph edge.
+---@param masterEntry table
+---@param newNodeRef string
+function device:updateSoundSystemMasterNodeRef(masterEntry, newNodeRef)
+    if not masterEntry or not masterEntry.masterSpawnable then
+        return
+    end
+
+    local normalizedNodeRef = sanitizeConnectionValue(newNodeRef)
+    if normalizedNodeRef == "" then
+        return
+    end
+
+    local currentNodeRef = sanitizeConnectionValue(masterEntry.masterSpawnable.nodeRef)
+    if normalizedNodeRef == currentNodeRef then
+        return
+    end
+
+    history.addAction(history.getElementChange(masterEntry.masterElement or self.object))
+
+    masterEntry.masterSpawnable.nodeRef = normalizedNodeRef
+    masterEntry.nodeRef = normalizedNodeRef
+
+    if self.soundSystemSelection and self.soundSystemSelection.kind == "master" then
+        self.soundSystemSelection = { kind = "master", key = "nodeRef:" .. normalizedNodeRef }
+    end
+
+    registry.invalidate()
+    if self.object and self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+end
+
+---@param masterEntry table
+function device:generateSoundSystemMasterNodeRef(masterEntry)
+    if not masterEntry or not masterEntry.masterElement then
+        return
+    end
+
+    self:updateSoundSystemMasterNodeRef(masterEntry, registry.generate(masterEntry.masterElement))
+end
+
+---Spawns a master next to this sound system, wires it up, and -- for a computer -- sets it to open
+---straight onto the sound system page.
+---@param masterType string Key from `soundSystemData.MASTER_DEFINITIONS`
+function device:addSoundSystemMaster(masterType)
+    if not self.object or not self.object.parent or self.object:isLocked() then
+        return
+    end
+
+    local definition = soundSystemData.MASTER_DEFINITIONS[tostring(masterType or "")]
+    if not definition then
+        return
+    end
+
+    -- The connection is stored on the master and points here, so this system needs a NodeRef first.
+    local ownNodeRef = sanitizeConnectionValue(self.nodeRef)
+    if ownNodeRef == "" then
+        return
+    end
+
+    local actions = {}
+    local parent = self.object.parent
+
+    if not utils.isA(parent, "positionableGroup") then
+        local wrappedParent, wrapAction = self:ensureOwnParentGroup()
+        if wrappedParent then
+            parent = wrappedParent
+        end
+        if wrapAction then
+            table.insert(actions, wrapAction)
+        end
+    end
+
+    if not parent then
+        return
+    end
+
+    local position = Vector4.new(self.position.x, self.position.y, self.position.z, 0)
+    local rotation = EulerAngles.new(self.rotation.roll, self.rotation.pitch, self.rotation.yaw)
+
+    local masterSeed = device:new()
+    masterSeed:loadSpawnData({
+        spawnData = definition.spawnData,
+        app = definition.defaultApp,
+        nodeRef = "",
+        persistent = true,
+        deviceClassName = definition.controllerClass,
+        deviceConnections = {},
+        instanceDataChanges = {},
+        defaultComponentData = {}
+    }, position, rotation)
+
+    local masterElement = spawnableElement:new(self.object.sUI)
+    masterElement:load({
+        name = self:getNextChildName(parent, definition.namePrefix),
+        spawnable = masterSeed:save(),
+        modulePath = "modules/classes/editor/spawnableElement"
+    })
+    masterElement:setParent(parent)
+    parent.headerOpen = true
+
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+    registry.invalidate()
+
+    local masterSpawnable = masterElement.spawnable
+    masterSpawnable.nodeRef = registry.generate(masterElement)
+    masterSpawnable.deviceClassName = definition.controllerClass
+    masterSpawnable.persistent = true
+    masterSpawnable.deviceConnections = {
+        {
+            deviceClassName = SOUND_SYSTEM_CONTROLLER_CLASS,
+            nodeRef = ownNodeRef
+        }
+    }
+    registry.invalidate()
+
+    if definition.isComputer then
+        self:applyComputerTerminalPreset(masterSpawnable)
+    end
+
+    table.insert(actions, history.getInsert({ masterElement }))
+
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+    registry.invalidate()
+
+    if #actions > 1 then
+        history.addAction(history.getComposite(actions))
+    elseif #actions == 1 then
+        history.addAction(actions[1])
+    end
+end
+
+---@param masterEntry table
+function device:removeSoundSystemMaster(masterEntry)
+    if not masterEntry or not masterEntry.masterElement then
+        return
+    end
+
+    local removeAction = history.getRemove({ masterEntry.masterElement })
+    masterEntry.masterElement:remove()
+    history.addAction(removeAction)
+
+    registry.invalidate()
+    if self.object.sUI and self.object.sUI.cachePaths then
+        self.object.sUI.cachePaths()
+    end
+end
+
+---@param masterSpawnable entity
+---@return table?, string? setup, componentID
+function device:getComputerSetup(masterSpawnable)
+    if not masterSpawnable then
+        return nil, nil
+    end
+
+    local componentID = self:getPersistentComponentID(
+        masterSpawnable,
+        soundSystemData.COMPUTER_CONTROLLER_CLASS,
+        soundSystemData.COMPUTER_COMPONENT_ID
+    )
+    if not componentID then
+        return nil, nil
+    end
+
+    local setup = self:getComponentPathValue(masterSpawnable, componentID, soundSystemData.COMPUTER_SETUP_PATH)
+
+    return soundSystemData.normalizeComputerSetup(setup), componentID
+end
+
+---@param masterSpawnable entity
+---@param componentID string
+---@param setup table
+---@return table
+function device:updateComputerSetup(masterSpawnable, componentID, setup)
+    local normalized = soundSystemData.normalizeComputerSetup(setup)
+
+    self:updateComponentPathValue(
+        masterSpawnable,
+        componentID,
+        soundSystemData.COMPUTER_SETUP_PATH,
+        normalized
+    )
+
+    return normalized
+end
+
+---Writes the sound-system terminal flags onto a computer, deferring until its persistent state is
+---readable when it has only just been spawned.
+---@param masterSpawnable entity
+function device:applyComputerTerminalPreset(masterSpawnable)
+    if not masterSpawnable then
+        return
+    end
+
+    local function applyNow(applyOptions)
+        local setup, componentID = self:getComputerSetup(masterSpawnable)
+        if not setup or not componentID then
+            return false
+        end
+
+        self:updateComponentPathValue(
+            masterSpawnable,
+            componentID,
+            soundSystemData.COMPUTER_SETUP_PATH,
+            soundSystemData.applyComputerTerminalPreset(setup),
+            { suppressRespawn = (applyOptions or {}).suppressRespawn == true }
+        )
+
+        return true
+    end
+
+    if applyNow() then
+        return
+    end
+
+    if masterSpawnable._pendingComputerTerminalPreset then
+        return
+    end
+
+    masterSpawnable._pendingComputerTerminalPreset = true
+    if masterSpawnable.registerSpawnedAndAttachedCallback then
+        masterSpawnable:registerSpawnedAndAttachedCallback(function ()
+            -- Deferred out of the attach callback, the way the lift floor setup is, to avoid the
+            -- respawn timing that hard-crashes the game there.
+            Cron.After(0.05, function ()
+                masterSpawnable._pendingComputerTerminalPreset = nil
+                if masterSpawnable.object then
+                    applyNow({ suppressRespawn = true })
+                end
+            end)
+        end)
+    else
+        masterSpawnable._pendingComputerTerminalPreset = nil
+    end
+end
+
 quickElevatorSetupUI.install(device, {
     liftControllerClass = LIFT_CONTROLLER_CLASS,
     elevatorFloorControllerClass = ELEVATOR_FLOOR_CONTROLLER_CLASS,
     elevatorFloorTerminalComponentID = ELEVATOR_FLOOR_TERMINAL_COMPONENT_ID,
+    sanitizeConnectionValue = sanitizeConnectionValue,
+    boolToInt = boolToInt
+})
+
+-- The class names live on the device methods, not in the popup, so only the two shared helpers
+-- need passing across.
+quickSoundSystemSetupUI.install(device, {
     sanitizeConnectionValue = sanitizeConnectionValue,
     boolToInt = boolToInt
 })
@@ -1373,6 +2237,14 @@ function device:draw()
         end
         style.tooltip("Open quick setup for LiftControllerPS and connected elevator floor terminals.")
         self:drawLiftSetupPopup()
+    end
+
+    if self.deviceClassName == SOUND_SYSTEM_CONTROLLER_CLASS then
+        if ImGui.Button("Quick Sound System Setup##openSoundSystemSetupPopup") then
+            ImGui.OpenPopup(quickSoundSystemSetupUI.POPUP_ID)
+        end
+        style.tooltip("Open quick setup for SoundSystemControllerPS entries and connected speakers.")
+        self:drawSoundSystemSetupPopup()
     end
 
     style.mutedText("Persistent")
@@ -1488,6 +2360,27 @@ function device:getProperties()
                 ImGui.SameLine()
                 self.showDoorsHelper, _ = style.toggleButton(IconGlyphs.Door, self.showDoorsHelper)
                 style.tooltip("Draw numbered door helper markers around the lift.")
+            end
+
+            if self.deviceClassName == SOUND_SYSTEM_CONTROLLER_CLASS then
+                style.mutedText("Show speaker helper")
+                ImGui.SameLine()
+                self.showSpeakerHelper, _ = style.toggleButton(IconGlyphs.Speaker, self.showSpeakerHelper)
+                style.tooltip("Draw a link line and audible range for each connected speaker.")
+            elseif self.deviceClassName == SPEAKER_CONTROLLER_CLASS then
+                style.mutedText("Show range helper")
+                ImGui.SameLine()
+                self.showSpeakerHelper, _ = style.toggleButton(IconGlyphs.CircleOutline, self.showSpeakerHelper)
+                style.tooltip("Draw this speaker's audible range.")
+
+                style.mutedText("Show range sphere")
+                ImGui.SameLine()
+                local newRangeSphere, rangeSphereToggled = style.toggleButton(IconGlyphs.CircleOpacity, self.showSpeakerRangeSphere)
+                if rangeSphereToggled then
+                    history.addAction(history.getElementChange(self.object))
+                    self:setSpeakerRangeSphereVisible(newRangeSphere)
+                end
+                style.tooltip("Draw a solid sphere at the audible radius, the way the light radius preview does.")
             end
         end
     })

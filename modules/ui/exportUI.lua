@@ -7,10 +7,12 @@ local field = require("modules/utils/ui/field")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 local pipelineCommon = require("modules/utils/pipeline/common")
+local soundSystemData = require("modules/utils/data/soundSystem")
 
 local minScriptVersion = "1.0.4"
 local sectorCategory
 local ELEVATOR_FLOOR_TERMINAL_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
+local SOUND_SYSTEM_CONTROLLER_CLASS = soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS
 local serializedGroupModulePaths = {
     ["modules/classes/editor/positionableGroup"] = true,
     ["modules/classes/editor/randomizedGroup"] = true
@@ -18,6 +20,7 @@ local serializedGroupModulePaths = {
 local issueOrder = {
     "nodeRefDuplicated",
     "missingElevatorFloorSetup",
+    "soundSystemSetup",
     "noOutlineMarkers",
     "noSplineMarker",
     "splineEmptyRef",
@@ -52,6 +55,7 @@ exportUI = {
     exportIssues = {
         nodeRefDuplicated = {},
         missingElevatorFloorSetup = {},
+        soundSystemSetup = {},
         noOutlineMarkers = {},
         noSplineMarker = {},
         splineEmptyRef = {},
@@ -1078,6 +1082,37 @@ function exportUI.drawIssues()
             ImGui.EndPopup()
         end
     end
+    if exportUI.getCurrentIssue() == "soundSystemSetup" then
+        ImGui.OpenPopup("Sound System Setup##wb-wui")
+        if ImGui.BeginPopupModal("Sound System Setup##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.Text("These sound systems export without error but will not play as set up.")
+
+            ImGui.Separator()
+
+            for _, entry in pairs(exportUI.exportIssues.soundSystemSetup) do
+                style.mutedText("Node Name:")
+                ImGui.SameLine()
+                ImGui.Text(entry.name)
+
+                style.mutedText("Group:")
+                ImGui.SameLine()
+                ImGui.Text(entry.group)
+
+                style.mutedText("NodeRef:")
+                ImGui.SameLine()
+                ImGui.Text(entry.nodeRef ~= "" and entry.nodeRef or "(empty)")
+
+                style.mutedText("Issue:")
+                ImGui.SameLine()
+                ImGui.Text(entry.reason)
+
+                ImGui.Separator()
+            end
+
+            drawIssueButtons("soundSystemSetup")
+            ImGui.EndPopup()
+        end
+    end
     if exportUI.getCurrentIssue() == "noOutlineMarkers" then
         ImGui.OpenPopup("Missing Outline Markers##wb-wui")
         if ImGui.BeginPopupModal("Missing Outline Markers##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
@@ -1600,6 +1635,153 @@ function exportUI.getSpawnableByNodeRef(nodeRefMap, nodeRef)
     return nodeRefMap[nodeRef]
 end
 
+---Interaction records referenced by this export that the game does not have. Collected while
+---walking the devices, written out as a TweakXL `.yaml` once the export finishes.
+---@type { id: string, caption: string?, name: string? }[]
+local pendingInteractionRecords = {}
+local pendingInteractionSeen = {}
+
+local function resetPendingInteractionRecords()
+    pendingInteractionRecords = {}
+    pendingInteractionSeen = {}
+end
+
+---@param interactionID string
+---@param entry table Normalized sound system entry, used to borrow a caption
+local function collectMissingInteractionRecord(interactionID, entry)
+    if pendingInteractionSeen[interactionID] then
+        return
+    end
+
+    pendingInteractionSeen[interactionID] = true
+    table.insert(pendingInteractionRecords, {
+        id = interactionID,
+        caption = soundSystemData.getGeneratedCaptionFor(entry)
+    })
+end
+
+---Writes the companion `.tweak` next to the exported sector, when anything needs one.
+---@param projectName string
+---@return string? path
+function exportUI.writeInteractionTweak(projectName)
+    local contents = soundSystemData.buildInteractionTweak(pendingInteractionRecords, projectName)
+    if not contents then
+        return nil
+    end
+
+    local path = "export/" .. tostring(projectName) .. "_interactions.yaml"
+    local ok = pcall(function ()
+        config.saveRaw(path, contents)
+    end)
+
+    if not ok then
+        return nil
+    end
+
+    return path
+end
+
+---@param object table
+---@param reason string
+local function addSoundSystemIssue(object, reason)
+    local ref = object and object.ref
+    local spawnable = ref and ref.spawnable
+    if not spawnable then
+        return
+    end
+
+    local root = ref and ref.getRootParent and ref:getRootParent() or nil
+    table.insert(exportUI.exportIssues.soundSystemSetup, {
+        name = tostring(ref and ref.name or "Unknown"),
+        group = tostring(root and root.name or "Unknown"),
+        nodeRef = utils.sanitizeText(spawnable.nodeRef),
+        reason = tostring(reason or "Sound system is not set up")
+    })
+end
+
+---Checks a sound system for the ways it can ship silent. Every one of these exports without error
+---and simply does nothing in game, which is why they are worth catching here.
+---@param object table
+---@param nodeRefMap table
+local function validateSoundSystem(object, nodeRefMap)
+    local spawnable = object and object.ref and object.ref.spawnable
+    if not spawnable or spawnable.getSoundSystemEntries == nil then
+        return
+    end
+
+    -- Speaker connections are plain project data, readable whether or not the node is spawned.
+    local speakers = spawnable:getSpeakerEntries()
+
+    if #speakers == 0 then
+        addSoundSystemIssue(object, "No speakers connected, so nothing carries the sound")
+    end
+
+    for _, speakerEntry in ipairs(speakers) do
+        if not exportUI.getSpawnableByNodeRef(nodeRefMap, speakerEntry.nodeRef) then
+            addSoundSystemIssue(object, string.format(
+                "Speaker connection '%s' matches no node being exported",
+                speakerEntry.nodeRef ~= "" and speakerEntry.nodeRef or "(empty)"
+            ))
+        end
+    end
+
+    -- The entry list lives in persistent state, which is only readable once the component has been
+    -- resolved. Without it there is nothing to judge, and guessing would report a working system as
+    -- empty.
+    local componentID = spawnable:getSoundSystemComponentID()
+    if not componentID then
+        return
+    end
+
+    local entries = spawnable:getSoundSystemEntries()
+
+    if #entries == 0 then
+        addSoundSystemIssue(object, "No entries: the device has no buttons and plays nothing")
+    else
+        local defaultAction = math.floor(tonumber(
+            spawnable:getComponentPathValue(spawnable, componentID, soundSystemData.DEFAULT_ACTION_PATH)
+        ) or 0)
+
+        if defaultAction < 0 or defaultAction > #entries - 1 then
+            addSoundSystemIssue(object, string.format(
+                "Starting entry is %d but there are only %d entries (0-%d)",
+                defaultAction, #entries, #entries - 1
+            ))
+        end
+
+        for index, entry in ipairs(entries) do
+            local interactionID = utils.sanitizeText(entry.interactionName["$value"])
+
+            if interactionID == "" then
+                addSoundSystemIssue(object, string.format("Entry %d has no interaction record, so its button has no caption", index))
+            elseif not soundSystemData.interactionExists(interactionID) then
+                collectMissingInteractionRecord(interactionID, entry)
+                addSoundSystemIssue(object, string.format(
+                    "Entry %d uses %s, which is not in TweakDB. World Builder will write it into %s_interactions.yaml",
+                    index, interactionID, tostring(exportUI.projectName)
+                ))
+            end
+
+            if soundSystemData.getEntrySource(entry) == "PlaySoundEvent" then
+                local eventName = tostring(entry.musicSettings.Data.soundEvent and entry.musicSettings.Data.soundEvent["$value"] or "")
+                if utils.sanitizeText(eventName) == "" or eventName == "None" then
+                    addSoundSystemIssue(object, string.format("Entry %d plays a sound event but none is set", index))
+                elseif soundSystemData.isMusicBusEvent(eventName) then
+                    addSoundSystemIssue(object, string.format(
+                        "Entry %d plays %s on the music bus, so it is heard everywhere rather than from the speakers",
+                        index, eventName
+                    ))
+                end
+            end
+        end
+
+        -- Entries only reach the game through the .psrep file, which is keyed on the NodeRef.
+        if not spawnable.persistent then
+            addSoundSystemIssue(object, "Persistent is off, so the entries above are not written and the system keeps its shipped behaviour")
+        end
+    end
+end
+
 ---@param object table
 ---@param reason string
 local function addMissingElevatorFloorSetupIssue(object, reason)
@@ -1645,6 +1827,12 @@ function exportUI.handleDevice(object, devices, psEntries, childs, nodeRefMap)
         parents = {},
         children = childHashes
     }
+
+    -- Outside the persistent gate below on purpose: a sound system with Persistent off is exactly
+    -- one of the cases worth reporting, and that gate would skip it.
+    if utils.sanitizeText(object.ref.spawnable.deviceClassName) == SOUND_SYSTEM_CONTROLLER_CLASS then
+        validateSoundSystem(object, nodeRefMap)
+    end
 
     if object.ref.spawnable.persistent and object.ref.spawnable.nodeRef ~= "" then
         local psData = object.ref.spawnable:getPSData()
@@ -2103,6 +2291,8 @@ function exportUI.export(mode)
         sectorCategory = utils.enumTable("worldStreamingSectorCategory")
     end
 
+    resetPendingInteractionRecords()
+
     groupExportManager.start({
         spawner = exportUI.spawner,
         projectName = exportUI.projectName,
@@ -2116,6 +2306,7 @@ function exportUI.export(mode)
         collectMissingSplineNodeRefs = collectMissingSplineNodeRefs,
         collectDuplicateNodeRefs = collectDuplicateNodeRefs,
         collectInfinitePatrolWorkspots = collectInfinitePatrolWorkspots,
+        writeInteractionTweak = exportUI.writeInteractionTweak,
         hasBlockingIssues = exportUI.hasBlockingIssues,
         mode = exportMode,
         ignoreHiddenDuringExport = settings.ignoreHiddenDuringExport == true

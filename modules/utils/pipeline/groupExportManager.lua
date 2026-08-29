@@ -698,6 +698,18 @@ local function finalizeExportRuntime(runtime)
                 queueToast("warning", 5000, "Export succeeded but metadata sidecar could not be saved")
             end
 
+            -- Written after the sector, so a failure here never costs the export itself.
+            if runtime.request and runtime.request.writeInteractionTweak then
+                local tweakOk, tweakPath = pcall(runtime.request.writeInteractionTweak, runtime.project.name)
+                if tweakOk and tweakPath then
+                    queueToast("info", 6000, string.format("Wrote %s -- copy it into r6/tweaks/", tostring(tweakPath)))
+                    logger:info("[Group Export Manager] Wrote interaction records to " .. tostring(tweakPath))
+                elseif not tweakOk then
+                    logExportError(runtime, "finalize_tweak", "Failed to write the interaction records file")
+                    queueToast("warning", 5000, "Export succeeded but the interaction records file could not be written")
+                end
+            end
+
             local projectLabel = runtime.request and runtime.request.projectName or runtime.project.name
             toastKind = "success"
             toastDuration = 2500

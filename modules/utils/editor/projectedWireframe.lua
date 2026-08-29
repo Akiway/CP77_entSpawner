@@ -514,6 +514,54 @@ function projectedWireframe.drawWorldCircle(drawList, screen, center, radius, op
     return true
 end
 
+---Draws a world-space segment, clipped against the near plane so a line running past the camera
+---does not wrap across the screen.
+---@param drawList table ImGui draw list obtained from `beginOverlay`.
+---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.
+---@param from Vector4 Segment start in world space.
+---@param to Vector4 Segment end in world space.
+---@param options table|nil `{ color, thickness }`
+---@return boolean drawn
+function projectedWireframe.drawWorldLine(drawList, screen, from, to, options)
+    options = options or {}
+
+    local color = options.color or 0xFF00CC66
+    local thickness = tonumber(options.thickness) or 1.5
+
+    local a = projectWorldPoint(screen, from)
+    local b = projectWorldPoint(screen, to)
+    if not a or not b then
+        return false
+    end
+
+    if a.behind and b.behind then
+        return false
+    end
+
+    if a.behind ~= b.behind then
+        local behindPoint = a.behind and from or to
+        local frontPoint = a.behind and to or from
+        local clipped = intersectLineWithPlane(frontPoint, behindPoint, screen.nearPlane)
+        if not clipped then
+            return false
+        end
+
+        local clippedProjection = projectWorldPoint(screen, clipped)
+        if not clippedProjection then
+            return false
+        end
+
+        if a.behind then
+            a = clippedProjection
+        else
+            b = clippedProjection
+        end
+    end
+
+    ImGui.ImDrawListAddLine(drawList, a.x, a.y, b.x, b.y, color, thickness)
+    return true
+end
+
 ---Draws an oriented 3D box projected to screen-space with edge/fill fading and distance badge.
 ---@param drawList table ImGui draw list obtained from `beginOverlay`.
 ---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.

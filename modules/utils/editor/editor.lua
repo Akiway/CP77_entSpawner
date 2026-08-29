@@ -8,6 +8,7 @@ local style = require("modules/ui/style")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local brushTool = require("modules/utils/editor/brush")
 local elevatorDoors = require("modules/utils/data/elevatorDoors")
+local soundSystemData = require("modules/utils/data/soundSystem")
 
 ---@class editor
 ---@field active boolean
@@ -1721,6 +1722,184 @@ local function drawElevatorDoorHelpers()
     projectedWireframe.endOverlay()
 end
 
+---Finds the selected device eligible for sound system helper rendering.
+---Accepts either end of the chain: selecting the system shows the whole chain, selecting one
+---speaker shows just its own range.
+---@return { spawnable: spawnable, isSystem: boolean }?
+local function resolveSelectedSoundSystemContext()
+    if not editor.spawnedUI then
+        return nil
+    end
+
+    editor.spawnedUI.ensureCache()
+
+    if #editor.spawnedUI.selectedPaths ~= 1 then
+        return nil
+    end
+
+    local selectedRef = editor.spawnedUI.selectedPaths[1] and editor.spawnedUI.selectedPaths[1].ref or nil
+    if not selectedRef or not utils.isA(selectedRef, "spawnableElement") then
+        return nil
+    end
+
+    local spawnable = selectedRef.spawnable
+    if not spawnable or spawnable.modulePath ~= "entity/device" then
+        return nil
+    end
+
+    if spawnable.showSpeakerHelper ~= true then
+        return nil
+    end
+
+    if not spawnable.isSpawned or not spawnable:isSpawned() then
+        return nil
+    end
+
+    local className = tostring(spawnable.deviceClassName or "")
+    if className == soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS then
+        return { spawnable = spawnable, isSystem = true }
+    end
+
+    if className == soundSystemData.SPEAKER_CONTROLLER_CLASS then
+        return { spawnable = spawnable, isSystem = false }
+    end
+
+    return nil
+end
+
+---@param spawnable spawnable
+---@return Vector4?
+local function getSpawnablePosition(spawnable)
+    local position = spawnable and spawnable.position or nil
+    if not position then
+        return nil
+    end
+
+    return Vector4.new(position.x, position.y, position.z, 0)
+end
+
+---Draws the sound system chain: a link line and numbered badge per connected speaker, a link line
+---per master driving the system, plus each speaker's audible range. The two link colors differ
+---because the connections run opposite ways -- the system owns its speaker connections, while a
+---master owns the one that names the system. A speaker whose NodeRef resolves to nothing simply has
+---no line, which is the point: a typo shows up as a missing link rather than as silence in game.
+local function drawSoundSystemHelpers()
+    local context = resolveSelectedSoundSystemContext()
+    if not context then
+        return
+    end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-sound-system-helper-overlay-wui")
+    if not screen then
+        return
+    end
+
+    local wireframeColorStyle = settings.wireframeColorStyle or 1
+    local highContrast = wireframeColorStyle == 2
+    local linkColor = soundSystemData.getChainColor("system", highContrast)
+    local rangeColor = soundSystemData.getChainColor("speaker", highContrast)
+    local masterColor = soundSystemData.getChainColor("master", highContrast)
+    local labelColor = highContrast and 0xFF000000 or 0xFFDCD8D1
+
+    ---@param spawnable spawnable
+    ---@param badge string?
+    local function drawSpeaker(spawnable, badge)
+        local speakerPosition = getSpawnablePosition(spawnable)
+        if not speakerPosition then
+            return
+        end
+
+        local setup = context.spawnable.getSpeakerSetup
+            and select(1, context.spawnable:getSpeakerSetup(spawnable))
+            or nil
+        local range = setup and tonumber(setup.range) or nil
+
+        if range and range > 0 then
+            projectedWireframe.drawWorldCircle(drawList, screen, speakerPosition, range, {
+                color = rangeColor,
+                thickness = 1.5
+            })
+        end
+
+        if badge then
+            projectedWireframe.drawWorldMarker(drawList, screen, speakerPosition, {
+                color = rangeColor,
+                labelColor = labelColor,
+                text = badge,
+                radius = 5 * style.viewSize,
+                innerRadius = 2.8 * style.viewSize,
+                badgeOffsetY = -16 * style.viewSize,
+                fontRatio = 0.8
+            })
+        end
+    end
+
+    if not context.isSystem then
+        drawSpeaker(context.spawnable, nil)
+        projectedWireframe.endOverlay()
+        return
+    end
+
+    local systemPosition = getSpawnablePosition(context.spawnable)
+    local speakers = context.spawnable.getSpeakerEntries and context.spawnable:getSpeakerEntries() or {}
+
+    for index, speakerEntry in ipairs(speakers) do
+        local speakerSpawnable = speakerEntry.speakerSpawnable
+        local speakerPosition = getSpawnablePosition(speakerSpawnable)
+
+        if speakerPosition then
+            if systemPosition then
+                projectedWireframe.drawWorldLine(drawList, screen, systemPosition, speakerPosition, {
+                    color = linkColor,
+                    thickness = 1.5
+                })
+            end
+
+            drawSpeaker(speakerSpawnable, tostring(index))
+        end
+    end
+
+    local masters = context.spawnable.getSoundSystemMasters and context.spawnable:getSoundSystemMasters() or {}
+
+    for _, masterEntry in ipairs(masters) do
+        local masterPosition = getSpawnablePosition(masterEntry.masterSpawnable)
+
+        if masterPosition then
+            if systemPosition then
+                projectedWireframe.drawWorldLine(drawList, screen, systemPosition, masterPosition, {
+                    color = masterColor,
+                    thickness = 1.5
+                })
+            end
+
+            local masterName = masterEntry.masterElement and tostring(masterEntry.masterElement.name or "") or ""
+            projectedWireframe.drawWorldMarker(drawList, screen, masterPosition, {
+                color = masterColor,
+                labelColor = labelColor,
+                text = masterName ~= "" and masterName or tostring(masterEntry.label or "Master"),
+                radius = 5 * style.viewSize,
+                innerRadius = 2.8 * style.viewSize,
+                badgeOffsetY = -16 * style.viewSize,
+                fontRatio = 0.8
+            })
+        end
+    end
+
+    if systemPosition then
+        projectedWireframe.drawWorldMarker(drawList, screen, systemPosition, {
+            color = linkColor,
+            labelColor = labelColor,
+            text = string.format("Sound System (%d)", #speakers),
+            radius = 6 * style.viewSize,
+            innerRadius = 3.2 * style.viewSize,
+            badgeOffsetY = -18 * style.viewSize,
+            fontRatio = 0.82
+        })
+    end
+
+    projectedWireframe.endOverlay()
+end
+
 ---Handles Ctrl+drag box selection in the viewport and draws selection rectangle.
 function editor.handleBoxSelect()
     if not editor.active then return end
@@ -1783,6 +1962,7 @@ function editor.onDraw()
     drawSpawnableStreamingRanges()
     drawSpawnableViewportOverlays()
     drawElevatorDoorHelpers()
+    drawSoundSystemHelpers()
     editor.updateArrowScale()
 
     if editor.active then
