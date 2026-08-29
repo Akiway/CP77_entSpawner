@@ -53,6 +53,11 @@ function spawnableElement:new(sUI)
 		randomizeAppearance = false
 	})
 
+	---Authored rotation that `updateRandomization` re-rolls from, as a serializable euler table.
+	---Cleared whenever the rotation is changed by anything else, so the edit becomes the new base.
+	o.randomizationBaseRotation = nil
+	o.applyingRandomRotation = false
+
 	setmetatable(o, { __index = self })
    	return o
 end
@@ -93,6 +98,10 @@ function spawnableElement:load(data, silent)
 
 		element.bumpWireframeEpoch(self)
 	end
+
+	-- Assigned last: the steps above write the rotation, which clears the base by design.
+	-- A payload without the field predates it, and the next randomization captures a fresh base.
+	self.randomizationBaseRotation = data.randomizationBaseRotation and utils.deepcopy(data.randomizationBaseRotation) or nil
 end
 
 function spawnableElement:getProperties()
@@ -242,6 +251,8 @@ end
 function spawnableElement:setRotation(rotation)
     if self.rotationLocked then return end
 
+    if not self.applyingRandomRotation then self.randomizationBaseRotation = nil end
+
     self.spawnable.rotation = rotation
     self.spawnable:update()
     invalidateParentAutoCenter(self)
@@ -251,6 +262,8 @@ end
 
 function spawnableElement:setRotationDelta(delta)
     if delta.roll == 0 and delta.pitch == 0 and delta.yaw == 0 or self.rotationLocked then return end
+
+    if not self.applyingRandomRotation then self.randomizationBaseRotation = nil end
 
 	if self.rotationRelative then
 		self.spawnable.rotation = utils.addEulerRelative(self.spawnable.rotation, delta)
@@ -320,7 +333,23 @@ function spawnableElement:getCenter()
 	return self.spawnable:getCenter()
 end
 
-function spawnableElement:dropToSurface(grouped, direction, excludeDict)
+---Whether a drop anchors on the low point of the bounding box instead of the asset's own origin.
+---Read at land time rather than passed down: the setting is global to every drop and the group drop
+---queue is asynchronous, so reading it here keeps an in-flight queue consistent with the UI.
+---@return boolean
+local function dropAnchorsToBoundingBox()
+	return settings.dropToFloorMode == 1
+end
+
+---@param grouped boolean? True when a caller already recorded a history action.
+---@param direction Vector4 Drop direction.
+---@param excludeDict table<number, boolean>? Spawnable element ids the drop raycast must ignore.
+---@param onComplete fun()? Invoked once the drop has settled, on every exit path.
+function spawnableElement:dropToSurface(grouped, direction, excludeDict, onComplete)
+	local function finish()
+		if onComplete then onComplete() end
+	end
+
 	local size = self.spawnable:getSize()
 	local bBox = {
 		min = Vector4.new(-size.x / 2, -size.y / 2, -size.z / 2, 0),
@@ -330,21 +359,19 @@ function spawnableElement:dropToSurface(grouped, direction, excludeDict)
 	local toOrigin = utils.multVector(direction, -999)
 	local origin = intersection.getBoxIntersection(utils.subVector(self.spawnable:getCenter(), toOrigin), utils.multVector(direction, -1), self.spawnable:getCenter(), self.spawnable.rotation, bBox)
 
-	if not origin.hit then return end
+	if not origin.hit then return finish() end
 
 	origin.position = utils.addVector(origin.position, utils.multVector(direction, 0.025))
 	local excludeIds = excludeDict or {}
 	excludeIds[self.id] = true
 	local hit = editor.getRaySceneIntersection(direction, origin.position, excludeIds, true)
 
-	if not hit.hit then return end
+	if not hit.hit then return finish() end
 
 	local target = utils.multVector(hit.result.normal, -1)
 	local current = origin.normal
 
-	local axis = current:Cross(target)
-	local angle = Vector4.GetAngleBetween(current, target)
-	local diff = Quaternion.SetAxisAngle(self.spawnable.rotation:ToQuat():TransformInverse(axis):Normalize(), math.rad(angle))
+	local diff = utils.getAlignmentQuat(current, target, self.spawnable.rotation)
 
 	if not grouped then
 		history.addAction(history.getElementChange(self))
@@ -355,13 +382,23 @@ function spawnableElement:dropToSurface(grouped, direction, excludeDict)
 		self:setRotation(newRotation:ToEulerAngles())
 	end
 	
-	local offset = utils.multVecXVec(newRotation:Transform(origin.normal), Vector4.new(size.x / 2, size.y / 2, size.z / 2, 0))
-	local newCenter = utils.addVector(hit.result.unscaledHit or hit.result.position, utils.multVector(hit.result.normal, offset:Length())) -- phyiscal hits dont have unscaledHit
+	local surfacePoint = hit.result.unscaledHit or hit.result.position -- phyiscal hits dont have unscaledHit
+	local newPosition = surfacePoint
+
+	if dropAnchorsToBoundingBox() then
+		-- Push back out along the half-extents so the low point of the bounding box rests on the
+		-- surface. Evaluated after `setRotation` above, since the rotation moves the center too.
+		local offset = utils.multVecXVec(newRotation:Transform(origin.normal), Vector4.new(size.x / 2, size.y / 2, size.z / 2, 0))
+		local newCenter = utils.addVector(surfacePoint, utils.multVector(hit.result.normal, offset:Length()))
+		newPosition = utils.addVector(newCenter, utils.subVector(self.spawnable.position, self.spawnable:getCenter()))
+	end
 
 	if hit.hit then
-		self:setPosition(utils.addVector(newCenter, utils.subVector(self.spawnable.position, self.spawnable:getCenter())))
+		self:setPosition(newPosition)
 		self:onEdited()
 	end
+
+	finish()
 end
 
 function spawnableElement:onEdited()
@@ -413,6 +450,12 @@ function spawnableElement:updateRandomization()
 	end
 
 	if self.randomizationSettings.randomizeRotation then
+		-- The random angle is applied as a delta, so it has to start from the authored rotation every
+		-- time. Without a remembered base, each re-randomization (seed edit, re-seed, adding a child
+		-- to the parent group) would stack another delta onto the previous result and the rotation
+		-- would drift instead of being reproducible from the seed.
+		local base = self.randomizationBaseRotation
+
 		local angle = math.random() * 360
 		local euler = EulerAngles.new(0, 0, 0)
 		if self.randomizationSettings.randomizeRotationAxis == 0 then
@@ -423,7 +466,16 @@ function spawnableElement:updateRandomization()
 			euler.yaw = angle
 		end
 
+		self.applyingRandomRotation = true
+		if base then
+			self:setRotation(utils.getEuler(base))
+		else
+			base = utils.fromEuler(self:getRotation())
+		end
 		self:setRotationDelta(euler)
+		self.applyingRandomRotation = false
+
+		self.randomizationBaseRotation = base
 	end
 
 	if self.randomizationSettings.randomizeAppearance then
@@ -440,6 +492,7 @@ end
 function spawnableElement:serialize(ctx)
 	local data = positionable.serialize(self, ctx)
 	data.spawnable = self.spawnable:save()
+	data.randomizationBaseRotation = self.randomizationBaseRotation and utils.deepcopy(self.randomizationBaseRotation) or nil
 
 	return data
 end

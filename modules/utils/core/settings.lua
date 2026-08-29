@@ -9,6 +9,7 @@ local config = require("modules/utils/core/config")
 ---@field public rotSteps number
 ---@field public rotationShiftClickStep number
 ---@field public applyRotationWhenDropped boolean Default "Apply Rotation When Dropped" state for newly created elements.
+---@field public dropToFloorMode integer Where a dropped element lands: 0 = asset origin on the surface, 1 = bounding box bottom on the surface.
 ---@field public despawnOnReload boolean
 ---@field public deleteConfirm boolean
 ---@field public moveCloneToParent integer
@@ -111,6 +112,7 @@ local settingsData = {
     rotSteps = 0.050,
     rotationShiftClickStep = 90,
     applyRotationWhenDropped = true,
+    dropToFloorMode = 0,
     despawnOnReload = true,
     deleteConfirm = true,
     moveCloneToParent = 2,
@@ -257,7 +259,9 @@ end
 
 local settings = {
     load = settingsFNs.load,
-    save = settingsFNs.save
+    save = settingsFNs.save,
+    -- Real key on the proxy rather than on `settingsData`, so the labels are not written to disk.
+    dropToFloorModes = { "Asset origin", "Bounding box bottom" }
 }
 
 settings = setmetatable(settings, {

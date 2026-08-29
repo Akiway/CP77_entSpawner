@@ -17,6 +17,8 @@ local BRUSH_MAX_INTENSITY = 40
 local BRUSH_RANDOM_ROTATION_MIN = -180
 local BRUSH_RANDOM_ROTATION_MAX = 180
 local BRUSH_DEFAULT_SCALE_VARIATION = 0
+-- How far above the painted surface point a spawn is lifted before it is dropped back onto it.
+local BRUSH_DROP_CLEARANCE = 0.25
 local BRUSH_MIN_SCALE_VARIATION = 0
 local BRUSH_MAX_SCALE_VARIATION = 2
 local BRUSH_RNG_MODULUS = 2147483647
@@ -1255,62 +1257,47 @@ end
 ---@param editor editor
 ---@param instance positionable
 local function applyBrushTransformVariation(editor, instance)
-    local targets = getBrushVariationTargets(instance)
-    if #targets == 0 then
+    if not instance or not utils.isA(instance, "positionable") then
         return
     end
 
+    local locked = instance.isLocked and instance:isLocked()
     local randomizeX = editor.getBrushRandomizeRotationAxis("x")
     local randomizeY = editor.getBrushRandomizeRotationAxis("y")
     local randomizeZ = editor.getBrushRandomizeRotationAxis("z")
     local scaleVariation = editor.getBrushScaleVariation and editor.getBrushScaleVariation() or BRUSH_DEFAULT_SCALE_VARIATION
 
-    for _, target in ipairs(targets) do
-        if not target or not utils.isA(target, "positionable") then
-            goto continue
+    if not locked and (randomizeX or randomizeY or randomizeZ) and EulerAngles and EulerAngles.new then
+        local deltaRoll = randomizeY and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
+        local deltaPitch = randomizeX and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
+        local deltaYaw = randomizeZ and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
+
+        -- Rotate the spawn as one unit. Turning each leaf of a painted group about its own origin
+        -- scrambles the group's internal arrangement rather than rotating the group.
+        if (deltaRoll ~= 0 or deltaPitch ~= 0 or deltaYaw ~= 0) and instance.setRotationDelta then
+            instance:setRotationDelta(EulerAngles.new(deltaRoll, deltaPitch, deltaYaw))
         end
+    end
 
-        if target.isLocked and target:isLocked() then
-            goto continue
-        end
+    if scaleVariation > 0 then
+        -- One factor for the whole spawn, so the parts of a painted group keep their proportions
+        -- relative to each other. Groups have no scale of their own, hence the walk over leafs.
+        local factor = math.max(0.001, 1 + ((nextBrushRandom(editor) * 2 - 1) * scaleVariation))
 
-        if (randomizeX or randomizeY or randomizeZ) and EulerAngles and EulerAngles.new then
-            local deltaRoll = randomizeY and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
-            local deltaPitch = randomizeX and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
-            local deltaYaw = randomizeZ and nextBrushRandomRange(editor, BRUSH_RANDOM_ROTATION_MIN, BRUSH_RANDOM_ROTATION_MAX) or 0
-
-            if deltaRoll ~= 0 or deltaPitch ~= 0 or deltaYaw ~= 0 then
-                if target.setRotationDelta then
-                    target:setRotationDelta(EulerAngles.new(deltaRoll, deltaPitch, deltaYaw))
-                else
-                    local currentRotation = target.getRotation and target:getRotation() or nil
-                    if currentRotation and target.setRotation then
-                        local randomizedRotation = EulerAngles.new(
-                            currentRotation.roll + deltaRoll,
-                            currentRotation.pitch + deltaPitch,
-                            currentRotation.yaw + deltaYaw
-                        )
-                        target:setRotation(randomizedRotation)
-                    end
+        for _, target in ipairs(getBrushVariationTargets(instance)) do
+            if utils.isA(target, "positionable")
+                and not (target.isLocked and target:isLocked())
+                and target.hasScale and target.setScale and target.getScale then
+                local scale = target:getScale()
+                if scale then
+                    target:setScale({
+                        x = scale.x * factor,
+                        y = scale.y * factor,
+                        z = scale.z * factor
+                    }, true)
                 end
             end
         end
-
-        if scaleVariation > 0 and target.hasScale and target.setScale and target.getScale then
-            local scale = target:getScale()
-            if scale then
-                local factor = 1 + ((nextBrushRandom(editor) * 2 - 1) * scaleVariation)
-                factor = math.max(0.001, factor)
-
-                target:setScale({
-                    x = scale.x * factor,
-                    y = scale.y * factor,
-                    z = scale.z * factor
-                }, true)
-            end
-        end
-
-        ::continue::
     end
 end
 
@@ -1364,30 +1351,66 @@ local function spawnBrushTemplate(editor, candidate, parent, position, excludeId
     local new = ctor:new(editor.spawnedUI)
     new:load(serialized, true)
 
+    local downDirection = getBrushDownDirection()
+
     if utils.isA(new, "positionable") then
         new:setPosition(position)
+
+        -- Placing the pivot on the surface leaves a centre-pivoted asset half buried, which starts
+        -- its drop raycast underneath the very surface it is supposed to land on: the ray then
+        -- misses the floor and either leaves the spawn buried or catches a downward-facing backface
+        -- and flips it. Lift the bounding box clear first; the drop puts it back down exactly.
+        if downDirection then
+            local size = new:getSize()
+            local center = new:getCenter()
+
+            if size and center then
+                local lift = (position.z + BRUSH_DROP_CLEARANCE) - (center.z - (size.z / 2))
+
+                if lift > 0 then
+                    local current = new:getPosition()
+                    new:setPosition(Vector4.new(current.x, current.y, current.z + lift, 0))
+                end
+            end
+        end
     end
 
     new:setSilent(false)
     new:setVisible(not hidden, true)
     new:setParent(parent)
 
-    local downDirection = getBrushDownDirection()
-    if utils.isA(new, "spawnableElement") then
-        new:updateRandomization()
-        if downDirection then
-            new:dropToSurface(true, downDirection, excludeIds)
-        end
-    elseif utils.isA(new, "positionableGroup") then
-        if downDirection then
-            new:dropChildrenToSurface(false, downDirection, true, excludeIds)
-        end
+    -- Transform variation has to run after the drop has settled, not after it was merely started:
+    -- a group drop is asynchronous, and randomizing rotation mid-queue leaves the children that
+    -- have not dropped yet aligning from an already-randomized rotation.
+    local function finishSpawn()
+        -- A group drop spans several frames, during which the paint can be erased or undone.
+        if new.parent == nil then return end
+
         if utils.isA(new, "randomizedGroup") then
             new:applyRandomization(true)
         end
+
+        applyBrushTransformVariation(editor, new)
     end
 
-    applyBrushTransformVariation(editor, new)
+    if utils.isA(new, "spawnableElement") then
+        new:updateRandomization()
+        if downDirection then
+            new:dropToSurface(true, downDirection, excludeIds, finishSpawn)
+        else
+            finishSpawn()
+        end
+    elseif utils.isA(new, "positionableGroup") then
+        if downDirection then
+            -- The stroke records a single insert action of its own, so the per-group drop must not
+            -- push one history entry per painted item.
+            new:dropChildrenToSurface(true, downDirection, true, excludeIds, finishSpawn)
+        else
+            finishSpawn()
+        end
+    else
+        finishSpawn()
+    end
 
     if hidden and new.setVisibleRecursive then
         new:setVisibleRecursive(false, true)
@@ -1867,6 +1890,21 @@ function brushTool.attach(editor)
         elseif axis == "z" then
             editor.brush.randomizeRotZ = nextState
         end
+    end
+
+    ---Whether a drop to the surface anchors on the asset's own origin (true, the default) or on the
+    ---low point of its bounding box (false). Backed by `settings.dropToFloorMode`, which the brush
+    ---toggle shares with the element General properties and the Settings tab.
+    ---@return boolean
+    function editor.getBrushDropToOrigin()
+        return settings.dropToFloorMode ~= 1
+    end
+
+    ---Sets the drop anchor mode.
+    ---@param state boolean
+    function editor.setBrushDropToOrigin(state)
+        settings.dropToFloorMode = state == true and 0 or 1
+        settings.save()
     end
 
     ---Returns brush scale variation factor (applied as random +/- multiplier).

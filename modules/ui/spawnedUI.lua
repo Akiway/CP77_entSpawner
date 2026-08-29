@@ -4058,7 +4058,7 @@ function spawnedUI.drawTop()
             format = "%.1f",
             shiftFormat = "%.1f",
             suffix = " m",
-            width = 70
+            width = 60
         })
 
         if radiusChanged and editor.setBrushRadius then
@@ -4078,7 +4078,7 @@ function spawnedUI.drawTop()
             format = "%.1f",
             shiftFormat = "%.1f",
             suffix = " /s",
-            width = 70
+            width = 60
         })
 
         if intensityChanged and editor.setBrushIntensity then
@@ -4115,7 +4115,7 @@ function spawnedUI.drawTop()
         end
 
         ImGui.Dummy(0, 2 * style.viewSize)
-        style.mutedText("Rotation variations")
+        style.mutedText("Variations")
 
         ImGui.SameLine()
         local randomRotX = editor.getBrushRandomizeRotationAxis and editor.getBrushRandomizeRotationAxis("x") or false
@@ -4142,7 +4142,7 @@ function spawnedUI.drawTop()
         style.tooltip("Randomize rotation around Z axis (Yaw).")
 
         sameLineDummy(8)
-        style.mutedText("Scale variations")
+        style.mutedText("Scale")
         ImGui.SameLine()
         local scaleVariation = editor.getBrushScaleVariation and editor.getBrushScaleVariation() or 0
         local nextScaleVariation, scaleVariationChanged = field.advancedTrackedFloat(nil, "##brushScaleVariation", scaleVariation, {
@@ -4153,12 +4153,20 @@ function spawnedUI.drawTop()
             format = "%.2f",
             shiftFormat = "%.2f",
             prefix = "+/- ",
-            width = 70
+            width = 60
         })
         if scaleVariationChanged and editor.setBrushScaleVariation then
             editor.setBrushScaleVariation(nextScaleVariation)
         end
         style.tooltip("Uniform scale variation range.\nExample: +/-0.20 => random scale factor between 0.80x and 1.20x.")
+
+        sameLineDummy(8)
+        local dropToOrigin = editor.getBrushDropToOrigin == nil or editor.getBrushDropToOrigin()
+        local nextDropToOrigin, dropAnchorChanged = style.toggleButton(IconGlyphs.ArrowCollapseDown, dropToOrigin)
+        if dropAnchorChanged and editor.setBrushDropToOrigin then
+            editor.setBrushDropToOrigin(nextDropToOrigin)
+        end
+        style.tooltip("Floor positioning.\nON: the asset's origin is used for positioning (recommended for trees and foliages).\nOFF: the lowest part of the asset is used for positioning.")
     end
 
     style.pushButtonNoBG(false)

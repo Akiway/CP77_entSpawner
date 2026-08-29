@@ -13,6 +13,7 @@ local preview = require("modules/utils/preview/previewUtils")
 local logger = require("modules/utils/core/logger")
 local settings = require("modules/utils/core/settings")
 local assetValidation = require("modules/utils/game/assetValidation")
+local Cron = require("modules/utils/vendor/Cron")
 
 ---Base class for any object / node that can be spawned
 ---@class spawnable
@@ -167,6 +168,9 @@ end
 function spawnable:onAttached(entity)
     self.spawned = true
     self.spawning = false
+
+    -- Before the callbacks, so they observe the corrected transform rather than the spawned one.
+    self:reconcileSpawnTransform()
 
     for _, callback in ipairs(self.spawnedAndCachedCallback) do
         callback(entity)
@@ -365,6 +369,15 @@ function spawnable:spawn(ignoreSpawning)
     }
     self.currentSpawnToken = token
     self.spawning = true
+    -- The spec above froze the transform at request time, but the entity does not exist until the
+    -- attach callback lands. `update()` needs a live entity, so anything that moves the spawnable in
+    -- between (the brush randomizing rotation, a drop to the surface) is silently discarded and the
+    -- entity stays at the transform it was spawned with, even though the spawnable holds the right
+    -- one. Remember what the game was actually given, so `onAttached` can tell whether it went stale.
+    self.spawnTransform = {
+        position = Vector4.new(self.position.x, self.position.y, self.position.z, self.position.w or 0),
+        rotation = EulerAngles.new(self.rotation.roll, self.rotation.pitch, self.rotation.yaw)
+    }
 
     builder.registerAssembleCallback(self.entityID, function (entity)
         if not self:isSpawnLifetimeTokenCurrent(token, entity) then return end
@@ -405,6 +418,7 @@ function spawnable:despawn()
     if entity then
         Game.GetStaticEntitySystem():DespawnEntity(self.entityID)
     end
+    self.spawnTransform = nil
     self.spawned = false
     self.entity = nil
 
@@ -441,6 +455,44 @@ function spawnable:convertSpawnableTo(target)
 end
 
 ---Update the position and rotation of the spawnable
+local TRANSFORM_RECONCILE_EPSILON = 0.0001
+
+---Pushes the current transform onto a freshly attached entity, but only when it drifted from the one
+---the entity was spawned with. Subclass `update()` overrides can be expensive (splines rebuild their
+---curve preview, bended meshes their preview hosts), so an unchanged transform stays untouched.
+---@protected
+function spawnable:reconcileSpawnTransform()
+    local spawnTransform = self.spawnTransform
+    self.spawnTransform = nil
+
+    if not spawnTransform then return end
+
+    local function differs(a, b)
+        return math.abs(a - b) > TRANSFORM_RECONCILE_EPSILON
+    end
+
+    local drifted = differs(spawnTransform.position.x, self.position.x)
+        or differs(spawnTransform.position.y, self.position.y)
+        or differs(spawnTransform.position.z, self.position.z)
+        or differs(spawnTransform.rotation.roll, self.rotation.roll)
+        or differs(spawnTransform.rotation.pitch, self.rotation.pitch)
+        or differs(spawnTransform.rotation.yaw, self.rotation.yaw)
+
+    if not drifted then return end
+
+    self:update()
+
+    -- Some node types finish their internal component setup after the attach callback and overwrite
+    -- what was just written, so the transform is applied once more a tick later. The lifetime token
+    -- makes this a no-op if the spawnable was despawned or respawned in the meantime.
+    local token = self:getSpawnLifetimeToken()
+    Cron.After(0.05, function ()
+        if not self:isSpawnLifetimeTokenCurrent(token, self:getEntity()) then return end
+
+        self:update()
+    end)
+end
+
 function spawnable:update()
     if not self:isSpawned() then return end
 

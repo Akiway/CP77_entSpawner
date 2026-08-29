@@ -74,6 +74,7 @@ local settingsSectionSearchText = {
         "Position controls step size",
         "Rotation controls step size",
         "Apply Rotation When Dropped",
+        "Drop to Floor Positioning asset origin bounding box bottom",
         "Quick Rotation Step",
         "Precision multiplier",
         "Coarse precision multiplier"
@@ -1275,6 +1276,14 @@ function settingsUI.draw(spawner)
         settings.applyRotationWhenDropped, changed = ImGui.Checkbox("Apply Rotation When Dropped", settings.applyRotationWhenDropped)
         if changed then settings.save() end
         style.tooltip("Default state of the \"Apply Rotation When Dropped\" option in an element's General properties.\nWhen enabled, dropping an element onto a surface also aligns its rotation to that surface.\nThis only sets the default for newly created elements, each one can still be changed individually.")
+
+        ImGui.SetNextItemWidth(200 * style.viewSize)
+        local dropMode, dropModeChanged = ImGui.Combo("Drop to Floor Positioning", settings.dropToFloorMode, settings.dropToFloorModes, #settings.dropToFloorModes)
+        if dropModeChanged then
+            settings.dropToFloorMode = dropMode
+            settings.save()
+        end
+        style.tooltip("Where an element lands when dropped to the floor.\nAsset origin: the element's own origin is placed on the surface.\nBounding box bottom: the lowest point of its bounding box rests on the surface.\nApplies to every drop to floor, including the brush.")
 
         settings.rotationShiftClickStep, changed = field.advancedTrackedFloat(nil, "Quick Rotation Step", settings.rotationShiftClickStep, {
             step = 0.5,

@@ -186,6 +186,47 @@ function intersection.getBoxIntersectionNormals(boxOrigin, boxRotation, box, hit
     return normals
 end
 
+---Outward normal of the box face whose plane `hitPosition` lies closest to.
+---
+---Fallback for `getBoxIntersectionNormals`, whose epsilon is an absolute world distance: for a box
+---far from the world origin, float precision on the hit position is coarser than that epsilon, so
+---the touching face can go undetected and leave the caller with no normal at all.
+---@param boxOrigin Vector4 Box origin in world space.
+---@param boxRotation EulerAngles Box orientation in world space.
+---@param box axisAlignedBBox Box local-space bounds.
+---@param hitPosition Vector4 World-space position on/near the box surface.
+---@return Vector4 normal Outward normal of the nearest face.
+function intersection.getNearestBoxFaceNormal(boxOrigin, boxRotation, box, hitPosition)
+    local matrix = Matrix.BuiltRTS(boxRotation, boxOrigin, Vector4.new(1, 1, 1, 0))
+    local delta = utils.subVector(hitPosition, boxOrigin)
+
+    local axis = {
+        ["x"] = matrix:GetAxisX(),
+        ["y"] = matrix:GetAxisY(),
+        ["z"] = matrix:GetAxisZ()
+    }
+
+    local best = nil
+    local bestDistance = nil
+
+    for _, axisName in ipairs({ "x", "y", "z" }) do
+        local axisDirection = axis[axisName]
+        local e = axisDirection:Dot(delta)
+
+        local toMin = math.abs(e - box.min[axisName])
+        if not bestDistance or toMin < bestDistance then
+            best, bestDistance = utils.multVector(axisDirection, -1), toMin
+        end
+
+        local toMax = math.abs(e - box.max[axisName])
+        if toMax < bestDistance then
+            best, bestDistance = axisDirection, toMax
+        end
+    end
+
+    return best or Vector4.new(0, 0, 0, 0)
+end
+
 --https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_custom.cpp
 ---Performs ray-vs-OBB intersection and returns the closest forward hit.
 ---@param rayOrigin Vector4 Ray origin in world space.
@@ -239,7 +280,8 @@ function intersection.getBoxIntersection(rayOrigin, ray, boxOrigin, boxRotation,
     end
 
     local position = utils.addVector(rayOrigin, utils.multVector(ray:Normalize(), tMin))
-    local normal = intersection.getBoxIntersectionNormals(boxOrigin, boxRotation, box, position)[1] or Vector4.new(0, 0, 0, 0)
+    local normal = intersection.getBoxIntersectionNormals(boxOrigin, boxRotation, box, position)[1]
+        or intersection.getNearestBoxFaceNormal(boxOrigin, boxRotation, box, position)
 
     return { hit = true, position = position, normal = normal, distance = tMin }
 end

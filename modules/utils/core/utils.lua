@@ -220,6 +220,57 @@ function miscUtils.multQuat(a, b)
     return Game['OperatorMultiply;QuaternionQuaternion;Quaternion'](a, b)
 end
 
+local ALIGNMENT_EPSILON = 0.000001
+
+---Rotation that turns `current` onto `target`, expressed in the local space of `rotation`.
+---
+---The naive `current:Cross(target)` form breaks on the two cases that matter most for dropping to a
+---surface: exactly parallel vectors (an object already flat on the floor, the common case) and
+---exactly antiparallel ones both give a zero-length cross product, and normalizing that yields a
+---degenerate axis and an arbitrary or non-finite rotation.
+---@param current Vector4 Direction to rotate away from.
+---@param target Vector4 Direction to rotate onto.
+---@param rotation EulerAngles Current world rotation the result is expressed relative to.
+---@return Quaternion diff Local-space rotation, identity when no well-defined rotation exists.
+function miscUtils.getAlignmentQuat(current, target, rotation)
+    local identity = EulerAngles.new(0, 0, 0):ToQuat()
+
+    if current:Length() < ALIGNMENT_EPSILON or target:Length() < ALIGNMENT_EPSILON then
+        return identity
+    end
+
+    current = current:Normalize()
+    target = target:Normalize()
+
+    -- Clamped so the acos below can never be handed an out-of-domain value through float error.
+    local dot = math.max(-1, math.min(1, current:Dot(target)))
+
+    if dot > 1 - ALIGNMENT_EPSILON then
+        return identity
+    end
+
+    local axis
+    if dot < -1 + ALIGNMENT_EPSILON then
+        -- Antiparallel: every perpendicular axis gives the same 180 degree result, so build one from
+        -- whichever base axis is least aligned with `current`.
+        local reference = math.abs(current.z) < 0.9 and Vector4.new(0, 0, 1, 0) or Vector4.new(1, 0, 0, 0)
+        axis = current:Cross(reference)
+    else
+        axis = current:Cross(target)
+    end
+
+    if axis:Length() < ALIGNMENT_EPSILON then
+        return identity
+    end
+
+    local localAxis = rotation:ToQuat():TransformInverse(axis:Normalize())
+    if localAxis:Length() < ALIGNMENT_EPSILON then
+        return identity
+    end
+
+    return Quaternion.SetAxisAngle(localAxis:Normalize(), math.acos(dot))
+end
+
 local SERIALIZED_SPAWNABLE_ELEMENT_PATH = "modules/classes/editor/spawnableElement"
 local SERIALIZED_POSITIONABLE_GROUP_PATH = "modules/classes/editor/positionableGroup"
 local SERIALIZED_RANDOMIZED_GROUP_PATH = "modules/classes/editor/randomizedGroup"

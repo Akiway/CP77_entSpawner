@@ -364,6 +364,16 @@ function positionable:drawGeneralProperties()
 	self.applyRotationWhenDropped, _ = style.trackedCheckbox(self, "##applyRotationWhenDropped", self.applyRotationWhenDropped)
 	style.tooltip("Align the rotation to the surface when dropping this element.\nThe default for new elements can be changed in the settings.")
 
+	style.mutedText("Drop to Floor Positioning")
+	ImGui.SameLine()
+	ImGui.SetNextItemWidth(160 * style.viewSize)
+	local dropMode, dropModeChanged = ImGui.Combo("##dropToFloorMode", settings.dropToFloorMode, settings.dropToFloorModes, #settings.dropToFloorModes)
+	if dropModeChanged then
+		settings.dropToFloorMode = dropMode
+		settings.save()
+	end
+	style.tooltip("Where an element lands when dropped to the floor.\nAsset origin: the element's own origin is placed on the surface.\nBounding box bottom: the lowest point of its bounding box rests on the surface.\nApplies to every drop to floor, including the brush.")
+
 	style.mutedText("Quick Rotation Step")
 	ImGui.SameLine()
 	local changed
@@ -1352,8 +1362,14 @@ function positionable:getDirection(direction)
 	end
 end
 
-function positionable:dropToSurface(grouped, direction, excludeDict)
-
+---Base no-op drop. Subclasses override this; the base still has to honor `onComplete`,
+---otherwise a non-droppable child stalls the async queue in `dropChildrenToSurface`.
+---@param grouped boolean? True when a caller already recorded a history action.
+---@param direction Vector4 Drop direction.
+---@param excludeDict table<number, boolean>? Spawnable element ids the drop raycast must ignore.
+---@param onComplete fun()? Invoked once the drop has settled.
+function positionable:dropToSurface(grouped, direction, excludeDict, onComplete)
+	if onComplete then onComplete() end
 end
 
 ---@param ctx serializeContext?

@@ -1024,10 +1024,29 @@ function positionableGroup:getSize()
 	return utils.subVector(max, min)
 end
 
-function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
-	if isMulti then self:dropChildrenToSurface(isMulti, direction); return end
+---Whether a drop anchors on the low point of the bounding box instead of the asset's own origin.
+---Read at land time rather than passed down: the setting is global to every drop and the group drop
+---queue is asynchronous, so reading it here keeps an in-flight queue consistent with the UI.
+---@return boolean
+local function dropAnchorsToBoundingBox()
+	return settings.dropToFloorMode == 1
+end
 
-	local excludeDict = excludeDict or {}
+---@param isMulti boolean? True to drop every child individually instead of the group as one box.
+---@param direction Vector4 Drop direction.
+---@param excludeDict table<number, boolean>? Spawnable element ids the drop raycast must ignore.
+---@param onComplete fun()? Invoked once the drop has settled, on every exit path.
+---@param skipHistory boolean? True when a caller already recorded a history action.
+function positionableGroup:dropToSurface(isMulti, direction, excludeDict, onComplete, skipHistory)
+	local function finish()
+		if onComplete then onComplete() end
+	end
+
+	-- Exclusions were already resolved by whoever asked for the multi drop, so they are forwarded
+	-- rather than rebuilt here; rebuilding would drop the caller's set on every nesting level.
+	if isMulti then self:dropChildrenToSurface(skipHistory, direction, false, excludeDict, onComplete); return end
+
+	excludeDict = excludeDict or {}
 	local leafs = self:getPositionableLeafs()
 	for _, entry in pairs(leafs) do
 		excludeDict[entry.id] = true
@@ -1042,21 +1061,19 @@ function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 	local toOrigin = utils.multVector(direction, -999)
 	local origin = intersection.getBoxIntersection(utils.subVector(self:getCenter(), toOrigin), utils.multVector(direction, -1), self:getCenter(), self:getRotation(), bBox --[[ -9 +9 ]])
 
-	if not origin.hit then return end
+	if not origin.hit then return finish() end
 
 	origin.position = utils.addVector(origin.position, utils.multVector(direction, 0.025))
 	local hit = editor.getRaySceneIntersection(direction, origin.position, excludeDict, true)
 
-	if not hit.hit then return end
+	if not hit.hit then return finish() end
 
 	local target = utils.multVector(hit.result.normal, -1)
 	local current = origin.normal
 
-	local axis = current:Cross(target)
-	local angle = Vector4.GetAngleBetween(current, target)
-	local diff = Quaternion.SetAxisAngle(self:getRotation():ToQuat():TransformInverse(axis):Normalize(), math.rad(angle))
+	local diff = utils.getAlignmentQuat(current, target, self:getRotation())
 
-	if not isMulti then
+	if not isMulti and not skipHistory then
 		history.addAction(history.getElementChange(self))
 	end
 
@@ -1065,40 +1082,82 @@ function positionableGroup:dropToSurface(isMulti, direction, excludeDict)
 		self:setRotation(newRotation:ToEulerAngles())
 	end
 
-	local offset = utils.multVecXVec(newRotation:Transform(origin.normal), Vector4.new(size.x / 2, size.y / 2, size.z / 2, 0))
-	local newCenter = utils.addVector(hit.result.unscaledHit or hit.result.position, utils.multVector(hit.result.normal, offset:Length())) -- phyiscal hits dont have unscaledHit
+	local surfacePoint = hit.result.unscaledHit or hit.result.position -- phyiscal hits dont have unscaledHit
+	local newPosition = surfacePoint
+
+	if dropAnchorsToBoundingBox() then
+		-- Push back out along the half-extents so the low point of the bounding box rests on the
+		-- surface. Evaluated after `setRotation` above, since the rotation moves the center too.
+		local offset = utils.multVecXVec(newRotation:Transform(origin.normal), Vector4.new(size.x / 2, size.y / 2, size.z / 2, 0))
+		local newCenter = utils.addVector(surfacePoint, utils.multVector(hit.result.normal, offset:Length()))
+		newPosition = utils.addVector(newCenter, utils.subVector(self:getPosition(), self:getCenter()))
+	end
 
 	if hit.hit then
-		self:setPosition(utils.addVector(newCenter, utils.subVector(self:getPosition(), self:getCenter())))
+		self:setPosition(newPosition)
 		self:onEdited()
 	end
+
+	finish()
 end
 
-function positionableGroup:dropChildrenToSurface(_, direction, excludeSelf, excludeDict)
-	local leafs = self.childs
-	table.sort(leafs, function (a, b)
+---Drops every child of this group individually, one per `taskDelay`, lowest child first.
+---
+---Runs asynchronously: children after the first land over the following frames. Callers that need
+---to act on the finished result (the brush applies its rotation/scale variation) must use
+---`onComplete` rather than assuming the drop is done when this returns.
+---@param skipHistory boolean? True when a caller already recorded a history action.
+---@param direction Vector4 Drop direction.
+---@param excludeSelf boolean? True to hide this group's own geometry from the drop raycasts.
+---@param excludeDict table<number, boolean>? Spawnable element ids the drop raycast must ignore.
+---@param onComplete fun()? Invoked once every child has settled.
+function positionableGroup:dropChildrenToSurface(skipHistory, direction, excludeSelf, excludeDict, onComplete)
+	-- Copy before sorting: `self.childs` is the hierarchy order shown in the UI and written to the
+	-- project file, and dropping must not reorder it.
+	local children = {}
+	for _, child in ipairs(self.childs) do
+		if utils.isA(child, "positionable") then
+			children[#children + 1] = child
+		end
+	end
+	table.sort(children, function (a, b)
 		return a:getPosition().z < b:getPosition().z
 	end)
 
-	local excludeDict = excludeDict or {}
+	excludeDict = excludeDict or {}
 	if excludeSelf then
-		for _, entry in pairs(leafs) do
-			excludeDict[entry.id] = true
+		-- The raycast only ever matches spawnable element ids, so excluding direct children is not
+		-- enough: a group id matches nothing, and its meshes would stay hittable.
+		for _, leaf in pairs(self:getPositionableLeafs()) do
+			excludeDict[leaf.id] = true
 		end
 	end
 
 	local task = require("modules/utils/pipeline/tasks"):new()
-	task.tasksTodo = #leafs
 	task.taskDelay = 0.03
+	task:onFinalize(function ()
+		if onComplete then onComplete() end
+	end)
 
-	for _, entry in pairs(leafs) do
+	for _, entry in ipairs(children) do
 		task:addTask(function ()
-			entry:dropToSurface(true, direction, excludeDict)
-			task:taskCompleted()
+			-- The queue spans several frames, so a child can be erased or undone out from under it.
+			if entry.parent == nil then
+				task:taskCompleted()
+				return
+			end
+
+			-- A child group drops asynchronously in turn, so completion is reported by callback
+			-- instead of assumed on return.
+			entry:dropToSurface(true, direction, excludeDict, function ()
+				task:taskCompleted()
+			end, true)
 		end)
 	end
 
-	history.addAction(history.getElementChange(self))
+	if not skipHistory then
+		history.addAction(history.getElementChange(self))
+	end
 
 	task:run(true)
 end
