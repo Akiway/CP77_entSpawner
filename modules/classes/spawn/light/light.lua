@@ -37,6 +37,7 @@ local PREVIEW_POINT_AREA_BASE_SCALE_MULTIPLIER = 4
 local PREVIEW_PRISM_MESH = "base\\spawner\\triangular_prism.mesh"
 local PREVIEW_PRISM_THICKNESS_MULTIPLIER = 2
 local CAMERA_FOLLOW_HIDE_PREVIEW_SPEED_THRESHOLD = 0.08
+local PHOTOMODE_PLAYER_RECORD_ID = "Character.Player_Puppet_Photomode"
 local PREVIEW_SIZE_CONFIG = {
     minIntensity = PREVIEW_INTENSITY_MIN,
     maxIntensity = PREVIEW_INTENSITY_MAX,
@@ -368,6 +369,153 @@ function light:updatePreviewShape()
     self.previewColor = spec.color or PREVIEW_COLOR_DEFAULT
     self.previewMesh = spec.mesh or ""
     self.previewMeshAppearance = spec.meshAppearance
+end
+
+---@return boolean
+local function isPhotoModeActive()
+    local ok, active = pcall(function ()
+        local blackboardDefs = Game.GetAllBlackboardDefs()
+        local blackboard = Game.GetBlackboardSystem():Get(blackboardDefs.PhotoMode)
+        return blackboard and blackboard:GetBool(blackboardDefs.PhotoMode.IsActive)
+    end)
+
+    return ok and active == true
+end
+
+---@param entity any
+---@return Vector4?
+local function getEntityWorldPosition(entity)
+    if not entity or type(entity.GetWorldPosition) ~= "function" then
+        return nil
+    end
+
+    local ok, position = pcall(function ()
+        return entity:GetWorldPosition()
+    end)
+
+    return ok and position or nil
+end
+
+---@param entity any
+---@return boolean
+local function isPhotoModePlayerPuppet(entity)
+    if not entity or type(entity.GetRecordID) ~= "function" then
+        return false
+    end
+
+    local okRecord, recordID = pcall(function ()
+        return entity:GetRecordID()
+    end)
+
+    if not okRecord or not recordID then
+        return false
+    end
+
+    local okValue, value = pcall(function ()
+        return recordID.value
+    end)
+
+    if okValue and value == PHOTOMODE_PLAYER_RECORD_ID then
+        return true
+    end
+
+    local okText, text = pcall(function ()
+        return tostring(recordID)
+    end)
+
+    return okText and text == PHOTOMODE_PLAYER_RECORD_ID
+end
+
+---@param handle any
+---@return any
+local function resolveEntityHandle(handle)
+    if getEntityWorldPosition(handle) then
+        return handle
+    end
+
+    if handle and type(handle.Get) == "function" then
+        local ok, entity = pcall(function ()
+            return handle:Get()
+        end)
+
+        if ok and getEntityWorldPosition(entity) then
+            return entity
+        end
+    end
+
+    local okValue, entity = pcall(function ()
+        return handle and handle.value or nil
+    end)
+
+    if okValue and getEntityWorldPosition(entity) then
+        return entity
+    end
+
+    return nil
+end
+
+---@return any
+local function getLocalPlayerControlledObject()
+    local ok, entity = pcall(function ()
+        local playerSystem = Game.GetPlayerSystem()
+        return playerSystem and playerSystem:GetLocalPlayerControlledGameObject()
+    end)
+
+    return ok and resolveEntityHandle(entity) or nil
+end
+
+---@param player any
+---@return Vector4?
+local function getPhotoModePlayerPosition(player)
+    if not player or not isPhotoModeActive() then
+        return nil
+    end
+
+    local controlledEntity = getLocalPlayerControlledObject()
+    local controlledPosition = getEntityWorldPosition(controlledEntity)
+    if controlledPosition and isPhotoModePlayerPuppet(controlledEntity) then
+        return controlledPosition
+    end
+
+    local fallbackPosition = controlledPosition
+
+    if type(player.GetComponents) ~= "function" then
+        return fallbackPosition
+    end
+
+    local okComponents, components = pcall(function ()
+        return player:GetComponents()
+    end)
+
+    if not okComponents or not components then
+        return fallbackPosition
+    end
+
+    for _, component in pairs(components) do
+        local okIsPhotoComponent, isPhotoComponent = pcall(function ()
+            return component and type(component.IsA) == "function" and component:IsA("PhotoModePlayerEntityComponent")
+        end)
+
+        if okIsPhotoComponent and isPhotoComponent then
+            for _, fieldName in ipairs({ "fakePuppet", "currentPuppet" }) do
+                local okField, handle = pcall(function ()
+                    return component[fieldName]
+                end)
+                local entity = okField and resolveEntityHandle(handle) or nil
+                local position = getEntityWorldPosition(entity)
+
+                if position then
+                    if isPhotoModePlayerPuppet(entity) then
+                        return position
+                    end
+
+                    fallbackPosition = fallbackPosition or position
+                end
+            end
+        end
+    end
+
+    return fallbackPosition
 end
 
 ---@return { x: number, y: number, z: number }
@@ -1279,8 +1427,9 @@ function light:draw()
             local aimAtPlayerLabel, aimAtPlayerHiddenText = style.resolveActionLabel(IconGlyphs.TargetAccount, "Aim at Player", "lightAimAtPlayer", nil, true)
             if ImGui.Button(aimAtPlayerLabel) then
                 local player = GetPlayer()
-                if player then
-                    targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
+                local targetPosition = getPhotoModePlayerPosition(player) or getEntityWorldPosition(player)
+                if targetPosition then
+                    targeting.aimElementAtWorldPosition(self.object, targetPosition)
                 end
             end
             ImGui.EndDisabled()
