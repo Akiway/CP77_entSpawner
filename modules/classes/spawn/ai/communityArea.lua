@@ -400,8 +400,8 @@ function community:save()
     return data
 end
 
-local function drawBoldMutedText(text)
-    local label = tostring(text or "")
+local function drawSectionHeader(title, count)
+    local label = string.format("%s (%d)", title, count)
     local screenX, screenY = ImGui.GetCursorScreenPos()
     local drawList = ImGui.GetWindowDrawList()
     local fontSize = ImGui.GetFontSize()
@@ -415,10 +415,6 @@ local function drawBoldMutedText(text)
     end
 
     ImGui.PopStyleColor()
-end
-
-local function drawSectionHeader(title, count)
-    drawBoldMutedText(string.format("%s (%d)", title, count))
 end
 
 local function drawIconActionButton(icon, id, tooltipText)
@@ -1003,6 +999,7 @@ function community:drawEntries()
     style.pushButtonNoBG(false)
     ImGui.Spacing()
 
+    ImGui.Unindent(hierarchyIndent())
     drawSectionHeader("Entries", #self.entries)
     ImGui.SameLine()
     if ImGui.Button("+##addEntry") then
@@ -1079,7 +1076,7 @@ function community:drawEntries()
                 recordOptions,
                 {
                     element = self.object,
-                    width = 200,
+                    width = 160,
                     matchContentWidth = true,
                     allowCustom = true,
                     tooltip = "Select the character record (TweakDBID) for this community entry, or type one and choose 'Use custom: ...'."
