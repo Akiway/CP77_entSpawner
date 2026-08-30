@@ -838,10 +838,6 @@ function style.drawHorizontalDivider(id, state)
         ImGui.ResetMouseDragDelta()
     end
 
-    if state.hovered or state.dragging then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS)
-    end
-
     return delta, reset
 end
 
@@ -870,10 +866,6 @@ function style.drawVerticalDivider(id, height, state)
         local dx = ImGui.GetMouseDragDelta(0, 0)
         delta = dx
         ImGui.ResetMouseDragDelta()
-    end
-
-    if state.hovered or state.dragging then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW)
     end
 
     return delta, reset

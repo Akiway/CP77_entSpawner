@@ -1426,9 +1426,6 @@ function spawnedUI.handleDrag(element, indentX)
     local reorderMode = spawnedUI.rangeSelectActive()
 
     if element:isLocked() then
-        if itemHovered and spawnedUI.draggingSelected then
-            ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
-        end
         return
     end
 
@@ -1453,9 +1450,9 @@ function spawnedUI.handleDrag(element, indentX)
                 local insert = history.getInsert(roots)
                 history.addAction(history.getMove(remove, insert))
             else
-                -- The cursor already said no while hovering, but a refused drop with no explanation
-                -- reads as the drag having missed. Only linked projects get a message; every other
-                -- rejection (dropping a group into itself) is self-evident.
+                -- A refused drop with no explanation reads as the drag having missed. Only linked
+                -- projects get a message; every other rejection (dropping a group into itself) is
+                -- self-evident.
                 local prospectiveParent = reorderMode and element.parent or element
                 local blocked = {}
 
@@ -1469,19 +1466,8 @@ function spawnedUI.handleDrag(element, indentX)
             end
         end
     elseif itemHovered and spawnedUI.draggingSelected then
-        if element.selected then
-            ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
-        elseif reorderMode then
-            if element:isValidDropTarget(spawnedUI.selectedPaths, false) then
-                spawnedUI.captureReorderPreview(indentX)
-                ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
-            else
-                ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
-            end
-        elseif not element:isValidDropTarget(spawnedUI.selectedPaths, true) then
-            ImGui.SetMouseCursor(ImGuiMouseCursor.NotAllowed)
-        else
-            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
+        if not element.selected and reorderMode and element:isValidDropTarget(spawnedUI.selectedPaths, false) then
+            spawnedUI.captureReorderPreview(indentX)
         end
     end
 end
@@ -1724,8 +1710,6 @@ end
 
 function spawnedUI.drawDragWindow()
     if spawnedUI.draggingSelected then
-        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
-
         local x, y = ImGui.GetMousePos()
         ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Always)
         if ImGui.Begin("##wb-drag-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then

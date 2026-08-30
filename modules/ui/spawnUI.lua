@@ -2024,8 +2024,6 @@ end
 function spawnUI.drawDragWindow()
     if not spawnUI.dragging then return end
 
-    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
-
     local x, y = ImGui.GetMousePos()
     ImGui.SetNextWindowPos(x + 10 * style.viewSize, y + 10 * style.viewSize, ImGuiCond.Always)
     if ImGui.Begin("##wb-drag-wui", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoMove + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoBackground + ImGuiWindowFlags.AlwaysAutoResize) then

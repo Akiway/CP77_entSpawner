@@ -940,19 +940,7 @@ local function drawTimelineCanvas(section, entries)
                     beginTimelineDrag(entry, mode, mouseX)
                 end
 
-                if previewTimeline.drag.active and previewTimeline.drag.id == entry.id then
-                    if previewTimeline.drag.mode == "resizeRight" then
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW)
-                    else
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
-                    end
-                elseif itemHovered then
-                    if rightHandleHighlighted then
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW)
-                    else
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
-                    end
-
+                if itemHovered and not (previewTimeline.drag.active and previewTimeline.drag.id == entry.id) then
                     style.tooltip(string.format(
                         "%s\nPath: %s\nLoop: %s\nEffective Delay: %s\nStart Delay: %s\nGroup Delay: %s\nInterval: %s\n\nDrag bar to move start delay.\nDrag right edge to resize loop interval.",
                         entry.name,

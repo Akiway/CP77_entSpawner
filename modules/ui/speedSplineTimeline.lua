@@ -711,8 +711,6 @@ local function drawCanvas(spline)
 
                     local dragging = speedSplineTimeline.drag.active and speedSplineTimeline.drag.track == "speed" and speedSplineTimeline.drag.index == index
                     if dragging or hovered then
-                        local mode = dragging and speedSplineTimeline.drag.mode or (localX <= edgeZone and "resizeLeft" or ((barW - localX) <= edgeZone and "resizeRight" or "move"))
-                        ImGui.SetMouseCursor(mode == "move" and ImGuiMouseCursor.Hand or ImGuiMouseCursor.ResizeEW)
                         -- Emphasise the grabbable edges.
                         ImGui.ImDrawListAddLine(drawList, sx1 + 2, sy1 + 3, sx1 + 2, sy2 - 3, 0xCCFFFFFF, 2)
                         ImGui.ImDrawListAddLine(drawList, sx2 - 2, sy1 + 3, sx2 - 2, sy2 - 3, 0xCCFFFFFF, 2)
@@ -753,14 +751,9 @@ local function drawCanvas(spline)
                     local btnW = 16 * vs
                     ImGui.SetCursorPos(cx - btnW * 0.5, topLocal)
                     ImGui.InvisibleButton("##" .. track.key .. "Evt" .. index, btnW, botLocal - topLocal)
-                    local hovered = ImGui.IsItemHovered()
-                    local dragging = speedSplineTimeline.drag.active and speedSplineTimeline.drag.track == track.key and speedSplineTimeline.drag.index == index
                     if ImGui.IsItemActivated() then
                         selectEvent(track.key, index)
                         beginDrag(track.key, index, "move", select(1, ImGui.GetMousePos()))
-                    end
-                    if hovered or dragging then
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand)
                     end
 
                     if ImGui.IsItemHovered() and ImGui.IsMouseReleased(ImGuiMouseButton.Right) then
