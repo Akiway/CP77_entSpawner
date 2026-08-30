@@ -1942,10 +1942,10 @@ function spawnedUI.drawContextMenu(element, path)
             ImGui.BeginDisabled(isLocked)
 
             ImGui.BeginDisabled(isEmptyGroup)
-            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DownloadMultiple, "Drop Children to Floor")) then
+            local dropChildrenClicked = ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.DownloadMultiple, "Drop Children to Floor", "dropChildrenToFloor"))
+            if dropChildrenClicked then
                 element:dropChildrenToSurface(false, Vector4.new(0, 0, -1, 0))
-            end
-            if ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.SortAlphabeticalAscending, "Sort children alphabetically")) then
+            elseif ImGui.MenuItem(style.resolveActionLabelNoIconOnly(IconGlyphs.SortAlphabeticalAscending, "Sort children alphabetically", "sortChildrenAlphabetically")) then
                 spawnedUI.sortChildren(element)
             end
             ImGui.EndDisabled()
