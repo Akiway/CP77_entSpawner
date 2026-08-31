@@ -47,6 +47,10 @@ function triggerArea:loadSpawnData(data, position, rotation)
         self.trigger = utils.deepcopy(data.trigger)
     end
 
+    -- `spawnable.loadSpawnData` assigns tables by reference, and its payloads outlive the load
+    -- (project cache, clipboard), so two nodes would otherwise share one channel table.
+    self.channels = utils.deepcopy(self.channels)
+
     if not self.trigger or next(self.trigger) == nil then
         local triggers = self:getAvailableTriggers()
         if triggers[self.triggerType] then
@@ -80,7 +84,7 @@ function triggerArea:drawInterior(changed)
     ImGui.SetCursorPosX(max)
     self.trigger.treatAsInterior, _ = style.trackedCheckbox(self.object, "##treatAsInterior", self.trigger.treatAsInterior)
 
-    if ImGui.TreeNodeEx("Game Restrictions", ImGuiTreeNodeFlags.SpanFullWidth) then
+    if style.treeNodeWithCount("Game Restrictions", #self.trigger.gameRestrictionIDs) then
         for index, restriction in pairs(self.trigger.gameRestrictionIDs) do
             ImGui.PushID(index)
             restriction["$value"], _ = style.trackedTextField(self.object, "##restriction", restriction["$value"], "GameplayRestriction.", 230)
@@ -296,7 +300,14 @@ function triggerArea:getAvailableTriggers()
 end
 
 function triggerArea:drawChannelSelect()
-    if ImGui.TreeNodeEx("Trigger Channels", ImGuiTreeNodeFlags.SpanFullWidth) then
+    local enabledChannels = 0
+    for _, enabled in pairs(self.channels) do
+        if enabled then
+            enabledChannels = enabledChannels + 1
+        end
+    end
+
+    if style.treeNodeWithCount("Trigger Channels", enabledChannels) then
         self.channels = style.drawTriggerChannelsSelector(self.object, self.channels)
         ImGui.TreePop()
     end

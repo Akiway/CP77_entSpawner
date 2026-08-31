@@ -639,21 +639,8 @@ function spawnUI.getVariantLabelByModulePath(modulePath)
     return modulePathToVariantLabel[modulePath]
 end
 
-local pathOriginTagInfoByKey = {
-    base = { label = "Base game", tag = "Base", color = 0xFF00A6B2 },
-    plDlc = {
-        label = "PL DLC",
-        tag = "DLC",
-        color = 0xFF0808A9,
-        tooltip = "Phantom Liberty DLC\nUsing these assets means the player will require the DLC for your mod."
-    },
-    modded = {
-        label = "Modded",
-        tag = "Mod",
-        color = 0xFFA55987,
-        tooltip = "Only assets with starting path 'mod/' or 'mods/' are recognized as modded."
-     }
-}
+-- Defined in `style` so resource selectors outside this browser tag paths the same way.
+local pathOriginTagInfoByKey = style.pathOriginTagInfo
 
 ---Returns true when at least one option is selected in a filter map.
 ---@param selections table<string, boolean>?
@@ -749,36 +736,7 @@ local function createHierarchyTreeNode(label, key)
     }
 end
 
----Resolves a normalized path origin key from the first segment of a path.
----Supported roots: `base`, `ep1`, `mod`, `mods`.
----@param path string
----@return string?
-local function getPathOriginKeyFromPath(path)
-    local normalizedPath = utils.normalizePath(path, { separator = "backslash" })
-    if normalizedPath == "" then
-        return nil
-    end
-
-    local firstSegment = normalizedPath:match("^([^\\]+)")
-    if not firstSegment then
-        return nil
-    end
-
-    local segment = string.lower(firstSegment)
-    if segment == "base" then
-        return "base"
-    end
-
-    if segment == "ep1" then
-        return "plDlc"
-    end
-
-    if segment == "mod" or segment == "mods" then
-        return "modded"
-    end
-
-    return nil
-end
+local getPathOriginKeyFromPath = style.getPathOriginKeyFromPath
 
 ---Gets the path origin key for one search-list entry.
 ---@param entry table
@@ -1229,59 +1187,10 @@ local function formatSearchResultButtonText(text, width, secondaryIcon)
     return iconPrefix .. utils.shortenPath(text, contentWidth, true)
 end
 
-local PATH_ORIGIN_TAG_TEXT_COLOR = style.regularColor
 -- Same tone as the "Base" asset origin tag
 local FAVORITE_STAR_COLOR = pathOriginTagInfoByKey.base.color
 
----Draws a non-clickable rounded tag chip styled like a compact button.
----@param tagInfo table?
-local function drawPathOriginTagChip(tagInfo)
-    if not tagInfo then
-        return
-    end
-
-    local label = tostring(tagInfo.tag or "")
-    if label == "" then
-        return
-    end
-
-    local scale = style.viewSize or 1
-    local textWidth, textHeight = ImGui.CalcTextSize(label)
-    local frameHeight = ImGui.GetFrameHeight()
-    local paddingX = 7 * scale
-    local chipWidth = math.max(textWidth + (paddingX * 2), 34 * scale)
-    local chipX, chipY = ImGui.GetCursorScreenPos()
-    local drawList = ImGui.GetWindowDrawList()
-    local cornerRadius = 6 * scale
-    local borderSize = math.max(1, math.floor(1 * scale))
-    local borderColor = 0xCC000000
-
-    ImGui.ImDrawListAddRectFilled(
-        drawList,
-        chipX,
-        chipY,
-        chipX + chipWidth,
-        chipY + frameHeight,
-        borderColor,
-        cornerRadius
-    )
-
-    ImGui.ImDrawListAddRectFilled(
-        drawList,
-        chipX + borderSize,
-        chipY + borderSize,
-        chipX + chipWidth - borderSize,
-        chipY + frameHeight - borderSize,
-        tagInfo.color,
-        math.max(0, cornerRadius - borderSize)
-    )
-
-    local textX = chipX + math.floor((chipWidth - textWidth) / 2)
-    local textY = chipY + math.floor((frameHeight - textHeight) / 2)
-    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), textX, textY, PATH_ORIGIN_TAG_TEXT_COLOR, label)
-
-    ImGui.Dummy(chipWidth, frameHeight)
-end
+local drawPathOriginTagChip = style.drawPathOriginTagChip
 
 ---Persists Spawn New search text only when it actually changed.
 local function saveSpawnUIFilterIfChanged()

@@ -23,6 +23,7 @@ local issueOrder = {
     "soundSystemSetup",
     "noOutlineMarkers",
     "noSplineMarker",
+    "noConversationWorkspots",
     "splineEmptyRef",
     "spotEmptyRef",
     "spotReferencingEmpty",
@@ -58,6 +59,7 @@ exportUI = {
         soundSystemSetup = {},
         noOutlineMarkers = {},
         noSplineMarker = {},
+        noConversationWorkspots = {},
         splineEmptyRef = {},
         spotEmptyRef = {},
         spotReferencingEmpty = {},
@@ -1148,6 +1150,25 @@ function exportUI.drawIssues()
             end
 
             drawIssueButtons("noSplineMarker")
+            ImGui.EndPopup()
+        end
+    end
+    if exportUI.getCurrentIssue() == "noConversationWorkspots" then
+        ImGui.OpenPopup("Missing Conversation Workspots##wb-wui")
+        if ImGui.BeginPopupModal("Missing Conversation Workspots##wb-wui", true, ImGuiWindowFlags.AlwaysAutoResize) then
+            ImGui.Text("The following conversation areas have no workspots assigned, so they have no actors to play their scenes on!")
+
+            ImGui.Separator()
+
+            for _, name in pairs(exportUI.exportIssues.noConversationWorkspots) do
+                style.mutedText("Area Name:")
+                ImGui.SameLine()
+                ImGui.Text(name)
+
+                ImGui.Separator()
+            end
+
+            drawIssueButtons("noConversationWorkspots")
             ImGui.EndPopup()
         end
     end

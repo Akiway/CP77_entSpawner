@@ -123,6 +123,10 @@ end
 function area:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
 
+    -- `spawnable.loadSpawnData` assigns tables by reference, and its payloads outlive the load
+    -- (project cache, clipboard), so two areas would otherwise share one marker table.
+    self.markers = utils.deepcopy(self.markers)
+
     -- Loading a project, pasting, or undoing an edit can all point this area at a different outline.
     area.invalidateOutlineConsumers()
 end

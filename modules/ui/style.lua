@@ -877,6 +877,35 @@ function style.mutedText(text)
     style.styledText(text, style.mutedColor)
 end
 
+---Draws a section tree node followed by a muted count of what it holds.
+---
+---The count is drawn as separate text rather than baked into the label, because the tree node
+---derives its ID from that label: folding the count in would collapse the section every time an
+---entry is added or removed.
+---@param label string Section label, also the node ID.
+---@param count number Number of entries in the section.
+---@param flags number? `ImGuiTreeNodeFlags`, defaults to `SpanFullWidth`.
+---@return boolean open True while the section is expanded, meaning the caller owes a `TreePop`.
+---Draws a tree node followed by a muted note, so a collapsed section still says what is in it.
+---@param label string Tree node label.
+---@param note string? Muted text drawn after the label. Omitted when `nil` or empty.
+---@param flags integer? Tree node flags, defaults to `SpanFullWidth`.
+---@return boolean open
+function style.treeNodeWithNote(label, note, flags)
+    local open = ImGui.TreeNodeEx(label, flags or ImGuiTreeNodeFlags.SpanFullWidth)
+
+    if note and note ~= "" then
+        ImGui.SameLine()
+        style.mutedText(note)
+    end
+
+    return open
+end
+
+function style.treeNodeWithCount(label, count, flags)
+    return style.treeNodeWithNote(label, string.format("(%d)", count or 0), flags)
+end
+
 ---Draw text with optional color override and font scale.
 ---@param text string Text to display.
 ---@param color number? Optional color for `ImGuiCol.Text`.
@@ -1694,6 +1723,184 @@ function style.getMultiSelectPreviewLabel(selections, allLabel, multiLabelFormat
     return string.format(multiLabelFormat, #selected)
 end
 
+--- Asset path origin tags -----------------------------------------------------
+--
+-- One definition of the Base / DLC / Mod chip, shared by the Spawn New asset browser and by any
+-- other resource selector that shows depot paths.
+
+---@class PathOriginTagInfo
+---@field label string Full name, used by the browser's origin filter.
+---@field tag string Short name shown inside the chip.
+---@field color number Chip fill color.
+---@field tooltip string? Extra explanation shown by the origin filter.
+
+---@type table<string, PathOriginTagInfo>
+style.pathOriginTagInfo = {
+    base = { label = "Base game", tag = "Base", color = 0xFF00A6B2 },
+    plDlc = {
+        label = "PL DLC",
+        tag = "DLC",
+        color = 0xFF0808A9,
+        tooltip = "Phantom Liberty DLC\nUsing these assets means the player will require the DLC for your mod."
+    },
+    modded = {
+        label = "Modded",
+        tag = "Mod",
+        color = 0xFFA55987,
+        tooltip = "Only assets with starting path 'mod/' or 'mods/' are recognized as modded."
+     }
+}
+
+---Resolves a normalized path origin key from the first segment of a path.
+---Supported roots: `base`, `ep1`, `mod`, `mods`.
+---@param path string?
+---@return string?
+function style.getPathOriginKeyFromPath(path)
+    local normalizedPath = utils.normalizePath(path, { separator = "backslash" })
+    if normalizedPath == "" then
+        return nil
+    end
+
+    local firstSegment = normalizedPath:match("^([^\\]+)")
+    if not firstSegment then
+        return nil
+    end
+
+    local segment = string.lower(firstSegment)
+    if segment == "base" then
+        return "base"
+    end
+
+    if segment == "ep1" then
+        return "plDlc"
+    end
+
+    if segment == "mod" or segment == "mods" then
+        return "modded"
+    end
+
+    return nil
+end
+
+---Gets the tag display metadata for a depot path, or nil when the root is not recognized.
+---@param path string?
+---@return PathOriginTagInfo?
+function style.getPathOriginTagInfo(path)
+    local originKey = style.getPathOriginKeyFromPath(path)
+    if not originKey then
+        return nil
+    end
+
+    return style.pathOriginTagInfo[originKey]
+end
+
+---Width one chip takes for a given tag text.
+---@param label string
+---@return number
+local function getPathOriginChipWidth(label)
+    local scale = style.viewSize or 1
+    local textWidth = ImGui.CalcTextSize(label)
+
+    return math.max(textWidth + (2 * 7 * scale), 34 * scale)
+end
+
+local pathOriginChipMaxWidth = nil
+local pathOriginChipMaxWidthStamp = nil
+
+---Widest chip across every origin tag, so a column of them lines up whatever the tag is.
+---Memoized on the current scale and font, since a long option list calls this once per row.
+---@return number
+function style.getPathOriginChipMaxWidth()
+    local stamp = string.format("%s:%s", tostring(style.viewSize), tostring(ImGui.GetFontSize()))
+
+    if pathOriginChipMaxWidthStamp ~= stamp then
+        local width = 0
+
+        for _, tagInfo in pairs(style.pathOriginTagInfo) do
+            width = math.max(width, getPathOriginChipWidth(tostring(tagInfo.tag or "")))
+        end
+
+        pathOriginChipMaxWidth = width
+        pathOriginChipMaxWidthStamp = stamp
+    end
+
+    return pathOriginChipMaxWidth
+end
+
+---Draws a non-clickable rounded tag chip styled like a compact button.
+---Leaves the cursor after the chip, so callers follow it with `ImGui.SameLine()`.
+---@param tagInfo PathOriginTagInfo?
+---@param widthOverride number? Fixed chip width, for callers aligning a column of chips.
+---@param heightOverride number? Chip height, defaulting to `GetFrameHeight()`. Pass the height of
+---the item the chip sits next to, or the chip overhangs it and its centered label drifts off the row.
+function style.drawPathOriginTagChip(tagInfo, widthOverride, heightOverride)
+    if not tagInfo then
+        return
+    end
+
+    local label = tostring(tagInfo.tag or "")
+    if label == "" then
+        return
+    end
+
+    local scale = style.viewSize or 1
+    local textWidth, textHeight = ImGui.CalcTextSize(label)
+    local frameHeight = heightOverride or ImGui.GetFrameHeight()
+    local chipWidth = widthOverride or getPathOriginChipWidth(label)
+    local chipX, chipY = ImGui.GetCursorScreenPos()
+    local drawList = ImGui.GetWindowDrawList()
+    local cornerRadius = 6 * scale
+    local borderSize = math.max(1, math.floor(1 * scale))
+    local borderColor = 0xCC000000
+
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        chipX,
+        chipY,
+        chipX + chipWidth,
+        chipY + frameHeight,
+        borderColor,
+        cornerRadius
+    )
+
+    ImGui.ImDrawListAddRectFilled(
+        drawList,
+        chipX + borderSize,
+        chipY + borderSize,
+        chipX + chipWidth - borderSize,
+        chipY + frameHeight - borderSize,
+        tagInfo.color,
+        math.max(0, cornerRadius - borderSize)
+    )
+
+    local textX = chipX + math.floor((chipWidth - textWidth) / 2)
+    local textY = chipY + math.floor((frameHeight - textHeight) / 2)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), textX, textY, style.regularColor, label)
+
+    ImGui.Dummy(chipWidth, frameHeight)
+end
+
+---Draws the origin chip for a depot path as a fixed-width column, so the text that follows lines
+---up across rows whether the row is tagged Base, DLC, Mod, or nothing at all.
+---Shaped as an `optionDecoratorFn` for `style.trackedSearchDropdown`.
+---
+---Sized to one text line rather than the frame height, since the item it precedes is the option
+---`Selectable`, which is exactly that tall. A frame-height chip would sit lower than the label.
+---@param path string?
+function style.drawPathOriginPrefix(path)
+    local width = style.getPathOriginChipMaxWidth()
+    local height = ImGui.GetTextLineHeight()
+    local tagInfo = style.getPathOriginTagInfo(path)
+
+    if tagInfo then
+        style.drawPathOriginTagChip(tagInfo, width, height)
+    else
+        ImGui.Dummy(width, height)
+    end
+
+    ImGui.SameLine()
+end
+
 -- Query-syntax help shared by every search field supporting `utils.matchSearch`.
 style.searchQuerySyntaxTooltip = "Supports custom search query syntax:\n- | (OR), includes any terms including the word after the |\n- ! (NOT), excludes any terms including the word after the !\n- & (AND), terms must include the word after the &\n- E.g. table|chair!poor&low to match any terms that include 'table' or 'chair', but not 'poor', and must include 'low'"
 
@@ -1798,8 +2005,11 @@ end
 ---@field optionTooltipFn fun(optionText: string, optionLabel: string): string? Optional tooltip resolver for each option row.
 ---@field optionExistsFn fun(optionText: string): boolean? Optional existence test used for custom-value dedupe.
 ---@field optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
+---@field optionDecoratorFn fun(optionText: string, optionLabel: string)? Optional prefix drawn in front of each option row, e.g. `style.drawPathOriginPrefix`. Responsible for leaving the cursor on the row (`ImGui.SameLine()`).
+---@field listHeight number? Height of the scrollable option list in unscaled style units (default `120`). Worth raising for long lists.
 ---@field tooltip string? Optional helper text appended after the current value.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
+---@field clearable boolean? When true, right-clicking the combo resets the selection to `""`.
 ---@param text string Combo label / ID.
 ---@param searchHint string Placeholder for the filter input.
 ---@param value string Current selected value.
@@ -1823,6 +2033,8 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     local optionTooltipFn = opts.optionTooltipFn
     local optionExistsFn = opts.optionExistsFn
     local optionFilterFn = opts.optionFilterFn
+    local optionDecoratorFn = opts.optionDecoratorFn
+    local listHeight = opts.listHeight or 120
 
     local finished = false
     local selectedValue = tostring(value)
@@ -1841,6 +2053,18 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     copySelectorValueOnMiddleClick(selectedValue, opts.currentValueTooltip)
     if tooltipText then
         style.tooltip(tooltipText)
+    end
+
+    -- Right click clears, matching how the search inputs behave. Checked here, while the combo is
+    -- still the current item, for the same reason the tooltip and middle-click copy are.
+    if opts.clearable and selectedValue ~= "" and ImGui.IsItemClicked(ImGuiMouseButton.Right) then
+        if element then
+            history.addAction(history.getElementChange(element))
+        end
+
+        value = ""
+        selectedValue = ""
+        finished = true
     end
 
     if comboOpen then
@@ -1870,7 +2094,7 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
         local showCustomOption = allowCustom and customValue ~= "" and not customExists
         local query = string.lower(searchValue or "")
         local hasQuery = query ~= ""
-        if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 120 * style.viewSize) then
+        if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, listHeight * style.viewSize) then
             if showCustomOption then
                 local customLabel = resolveSearchDropdownOptionLabel(customValue, optionDisplayFn)
                 if ImGui.Selectable("Use custom: " .. customLabel) then
@@ -1927,6 +2151,13 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                 end
 
                 ImGui.PushID(tostring(optionIndex or optionText))
+
+                -- Drawn after the selection highlight so the highlight still spans the whole row,
+                -- and before the selectable so the decorator sits in front of the label.
+                if type(optionDecoratorFn) == "function" then
+                    pcall(optionDecoratorFn, optionText, optionLabel)
+                end
+
                 if ImGui.Selectable(optionLabel) then
                     if element then
                         history.addAction(history.getElementChange(element))

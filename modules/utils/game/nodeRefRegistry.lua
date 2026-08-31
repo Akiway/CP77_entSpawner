@@ -197,11 +197,13 @@ end
 ---@param ref string Current NodeRef value and search text.
 ---@param object positionable Context object used for root scoping and self-ref exclusion.
 ---@param record boolean? When true, push a history action before user-driven changes (selection/clear).
+---@param excluded table<string, boolean>? Refs hidden from the list, e.g. the ones already picked by sibling rows.
 ---@return string ref Updated NodeRef/search value.
 ---@return boolean finished True when user commits a value (selects, clears, or finishes text edit).
-function registry.drawNodeRefSelector(width, ref, object, record)
+function registry.drawNodeRefSelector(width, ref, object, record, excluded)
     local finished = false
     ref = registry.resolveDisplayRef(object, ref)
+    excluded = excluded or {}
 
     ImGui.SetNextItemWidth(width * style.viewSize)
     if (ImGui.BeginCombo("##nodeRefSelector", ref)) then
@@ -225,7 +227,7 @@ function registry.drawNodeRefSelector(width, ref, object, record)
         if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, 100 * style.viewSize) then
             for _, node in pairs(registry.refs[object:getRootParent().name] or {}) do
                 -- Show everything when "0" is selected, treat it like a wildcard
-                if (ref == "0" or node.ref:match(ref)) and node.ref ~= object.spawnable.nodeRef and ImGui.Selectable(utils.shortenPath(node.ref, ((width - 2 * ImGui.GetStyle().FramePadding.x) * style.viewSize) - (ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0), false)) then
+                if (ref == "0" or node.ref:match(ref)) and node.ref ~= object.spawnable.nodeRef and not excluded[node.ref] and ImGui.Selectable(utils.shortenPath(node.ref, ((width - 2 * ImGui.GetStyle().FramePadding.x) * style.viewSize) - (ImGui.GetScrollMaxY() > 0 and ImGui.GetStyle().ScrollbarSize or 0), false)) then
                     if record then
                         history.addAction(history.getElementChange(object))
                     end
