@@ -3,157 +3,61 @@ local utils = require("modules/utils/core/utils")
 local pipelineCommon = require("modules/utils/pipeline/common")
 
 local groupExportSidecar = {}
-groupExportSidecar.SCHEMA_VERSION = 1
+-- 2: entries are keyed by project file rather than display name, and the source revision is a
+-- content hash rather than a timestamp. Both make a version 1 sidecar unusable for comparison.
+groupExportSidecar.SCHEMA_VERSION = 2
 groupExportSidecar.SIDECAR_SUFFIX = ".metadata"
 groupExportSidecar.LEGACY_SIDECAR_SUFFIX = "_metadata.json"
-
-local function safeDir(path)
-    local ok, listed = pcall(function ()
-        return dir(path)
-    end)
-
-    if ok and type(listed) == "table" then
-        return listed
-    end
-
-    return {}
-end
-
-local function normalizeTimestampString(value)
-    local trimmed = utils.trimString(value)
-    if trimmed == "" then
-        return nil
-    end
-
-    local normalized = trimmed:gsub("T", " "):gsub("Z$", "")
-    local y, m, d, hh, mm, ss = normalized:match("^(%d%d%d%d)%-(%d%d)%-(%d%d) (%d%d):(%d%d):(%d%d)")
-    if y then
-        return string.format("%s-%s-%s %s:%s:%s", y, m, d, hh, mm, ss)
-    end
-
-    return trimmed
-end
-
-local function formatFromEpoch(value)
-    if type(value) ~= "number" or value <= 0 then
-        return nil
-    end
-
-    local ok, formatted = pcall(function ()
-        return os.date("%Y-%m-%d %H:%M:%S", math.floor(value))
-    end)
-    if ok and type(formatted) == "string" and formatted ~= "" then
-        return formatted
-    end
-
-    return nil
-end
-
-local function normalizeTimeValue(value)
-    if value == nil then
-        return nil
-    end
-
-    if type(value) == "string" then
-        local normalized = normalizeTimestampString(value)
-        if normalized then
-            return normalized
-        end
-
-        local asNumber = tonumber(value)
-        if asNumber then
-            return normalizeTimeValue(asNumber)
-        end
-
-        return nil
-    end
-
-    if type(value) == "number" then
-        if value >= 1e18 then
-            return formatFromEpoch(value / 1000000000)
-        end
-
-        if value >= 1e15 then
-            local unixSeconds = (value / 10000000) - 11644473600
-            return formatFromEpoch(unixSeconds)
-        end
-
-        if value >= 1e12 then
-            return formatFromEpoch(value / 1000)
-        end
-
-        return formatFromEpoch(value)
-    end
-
-    if type(value) == "table" then
-        local year = tonumber(value.year)
-        local month = tonumber(value.month)
-        local day = tonumber(value.day)
-        local hour = tonumber(value.hour) or 0
-        local min = tonumber(value.min) or 0
-        local sec = tonumber(value.sec) or 0
-
-        if year and month and day then
-            return string.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec)
-        end
-    end
-
-    return nil
-end
-
----Delegates to the shared scan, keeping this module's own `normalizeTimeValue` semantics.
----@param entry table?
----@return string?
-local function getEntryTimeValue(entry)
-    return config.getEntryTimeValue(entry, normalizeTimeValue)
-end
-
-local function getFileTimeFromDir(path)
-    local parent, fileName = path:match("^(.*)/([^/]+)$")
-    if not parent or not fileName then
-        return nil
-    end
-
-    for _, entry in pairs(safeDir(parent)) do
-        if entry and entry.name == fileName then
-            return getEntryTimeValue(entry)
-        end
-    end
-
-    return nil
-end
 
 local function normalizeNumber(value)
     local num = tonumber(value) or 0
     return string.format("%.17g", num)
 end
 
-function groupExportSidecar.resolveGroupSourceRevision(groupName)
-    local normalizedName = utils.trimString(groupName)
+---Resolves which project file an export entry refers to.
+---
+---Entries carry the uID (`fileName`) since project files stopped being named after their group; the
+---name is the display text and only matches the file for entries that predate the split.
+---@param group table? Export list entry, or `{ name = ... }`.
+---@return string fileName Including the extension.
+function groupExportSidecar.resolveGroupFileName(group)
+    local fileName = utils.trimString(group and group.fileName)
+    if fileName ~= "" then
+        return fileName
+    end
+
+    return utils.trimString(group and group.name) .. ".json"
+end
+
+---Identifies the on-disk state of a project file, so a group whose content changed can be told apart
+---from one that can be reused as-is.
+---
+---A hash of the file's bytes, not its `lastEditedAt`: the timestamp is absent from files written
+---through paths that never injected it, and the `dir()` entries CET hands out carry no modification
+---time to fall back on -- both of which made this collapse to one constant value, and a constant
+---revision means every group looks unchanged forever. The timestamp is stripped before hashing, so
+---re-saving a group without editing it does not force a pointless re-export either.
+---@param fileName string? Project file name, including the extension.
+---@return string revision
+function groupExportSidecar.resolveGroupSourceRevision(fileName)
+    local normalizedName = utils.trimString(fileName)
     if normalizedName == "" then
         return "missing"
     end
 
-    local path = "data/objects/" .. normalizedName .. ".json"
+    local path = "data/objects/" .. normalizedName
     if not config.fileExists(path) then
         return "missing"
     end
 
     local raw = config.readAll(path)
-    if raw and raw ~= "" then
-        local editedAt = raw:match('"lastEditedAt"%s*:%s*"([^"]+)"')
-        editedAt = normalizeTimestampString(editedAt)
-        if editedAt and editedAt ~= "" then
-            return editedAt
-        end
+    if type(raw) ~= "string" or raw == "" then
+        return "unreadable"
     end
 
-    local fileTime = getFileTimeFromDir(path)
-    if fileTime and fileTime ~= "" then
-        return fileTime
-    end
+    local canonical = raw:gsub('"lastEditedAt"%s*:%s*"[^"]*"%s*,?', "")
 
-    return "unknown"
+    return string.format("%s:%d", (tostring(FNV1a64(canonical)):gsub("ULL", "")), #canonical)
 end
 
 function groupExportSidecar.getExportPath(projectSlug)
@@ -210,10 +114,11 @@ function groupExportSidecar.buildGroupSignature(group, options)
         return al < bl
     end)
 
-    table.insert(parts, "sourceRevision=" .. groupExportSidecar.resolveGroupSourceRevision(group and group.name or ""))
+    table.insert(parts, "sourceRevision=" .. groupExportSidecar.resolveGroupSourceRevision(groupExportSidecar.resolveGroupFileName(group)))
     table.insert(parts, "scriptVersion=" .. tostring(opts.version or ""))
     table.insert(parts, "ignoreHiddenDuringExport=" .. ((opts.ignoreHiddenDuringExport and true) and "1" or "0"))
     table.insert(parts, "name=" .. tostring(group and group.name or ""))
+    table.insert(parts, "fileName=" .. groupExportSidecar.resolveGroupFileName(group))
     table.insert(parts, "category=" .. tostring(group and group.category or ""))
     table.insert(parts, "level=" .. tostring(group and group.level or ""))
     table.insert(parts, "streamingX=" .. normalizeNumber(group and group.streamingX))

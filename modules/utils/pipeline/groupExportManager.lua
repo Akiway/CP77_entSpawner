@@ -169,11 +169,19 @@ local function queueBuildEntry(current, data, parent)
 end
 
 local function registerGroupContribution(runtime, group, contribution)
-    if not runtime or not group or not group.name then
+    if not runtime or not group then
         return
     end
 
-    runtime.groupContributions[group.name] = {
+    -- Keyed by the project file, not the display name: two export entries may show the same name,
+    -- and a renamed group would otherwise lose the entry it was exported under.
+    local key = groupExportSidecar.resolveGroupFileName(group)
+    if key == ".json" then
+        -- Neither a file nor a name to fall back on: nothing a later export could match this by.
+        return
+    end
+
+    runtime.groupContributions[key] = {
         signature = group.signature or "",
         sectorName = contribution and contribution.sectorName or "",
         deviceHashes = utils.deepcopy(contribution and contribution.deviceHashes or {}),
@@ -373,13 +381,14 @@ local function prepareIncrementalRuntime(runtime)
     end
 
     local sectorsByName = mapSectorsByName(existingProject.sectors)
-    local knownNames = {}
+    local knownFiles = {}
     local changed = 0
     local unchanged = 0
 
     for _, group in ipairs(runtime.groups) do
-        knownNames[group.name] = true
-        local sidecarGroup = meta.groups[group.name]
+        local key = groupExportSidecar.resolveGroupFileName(group)
+        knownFiles[key] = true
+        local sidecarGroup = meta.groups[key]
         local matchesSignature = sidecarGroup and sidecarGroup.signature == group.signature
 
         if matchesSignature and isReusableGroupEntry(sidecarGroup, sectorsByName, existingProject) then
@@ -396,8 +405,8 @@ local function prepareIncrementalRuntime(runtime)
     end
 
     local removed = 0
-    for previousGroupName, _ in pairs(meta.groups or {}) do
-        if not knownNames[previousGroupName] then
+    for previousFile, _ in pairs(meta.groups or {}) do
+        if not knownFiles[previousFile] then
             removed = removed + 1
         end
     end
@@ -453,9 +462,10 @@ local function buildSidecarDocument(runtime)
     )
 
     for _, group in ipairs(runtime.groups or {}) do
-        local contribution = runtime.groupContributions[group.name]
+        local key = groupExportSidecar.resolveGroupFileName(group)
+        local contribution = runtime.groupContributions[key]
         if contribution then
-            sidecarDocument.groups[group.name] = utils.deepcopy(contribution)
+            sidecarDocument.groups[key] = utils.deepcopy(contribution)
         end
     end
 
@@ -465,8 +475,22 @@ end
 local function finalizeDeviceParents(project, childs)
     for hash, device in pairs(project.devices) do
         for _, childHash in pairs(device.children) do
-            if project.devices[childHash] then
-                table.insert(project.devices[childHash].parents, hash)
+            local child = project.devices[childHash]
+            if child then
+                -- A reused group brings its devices back from the previous export, where this pass
+                -- already ran and left `parents` filled in. Without the guard every incremental
+                -- export would append the same parent to them again.
+                local known = false
+                for _, existing in pairs(child.parents) do
+                    if existing == hash then
+                        known = true
+                        break
+                    end
+                end
+
+                if not known then
+                    table.insert(child.parents, hash)
+                end
             end
         end
     end
@@ -790,7 +814,7 @@ beginNextGroup = function (runtime)
 
     -- The project file, not the group's name: since the two were split, a renamed group would
     -- otherwise look like a missing project and be skipped.
-    local path = "data/objects/" .. (group.fileName or (tostring(group.name) .. ".json"))
+    local path = "data/objects/" .. groupExportSidecar.resolveGroupFileName(group)
     if not config.fileExists(path) then
         queueToast("warning", 3500, string.format("Skipped missing group \"%s\"", tostring(group.name)))
         advanceGroup(runtime, false)

@@ -828,6 +828,15 @@ function saveState.stepBuild(job, budgetMs)
         if frame.state == "enter" then
             local cache = node.__jsonCache
 
+            -- Injected root fields are deliberately kept out of every cache entry, so a cache hit on
+            -- the root frame would emit bytes that never had them -- a document with no
+            -- `lastEditedAt` at all. Another job (a session snapshot, a verify) routinely caches the
+            -- root without them, so the entry has to be bypassed rather than trusted. Costs one
+            -- re-emitted node; every child rope is still reused.
+            if job.extraRootFields and #job.stack == 1 then
+                cache = nil
+            end
+
             if useCache and cache and cache.valid then
                 saveState.stats.reused = saveState.stats.reused + 1
                 completeFrame(job, cache.pieces, cache.elementCount, cache.contentHash, cache.kind)
