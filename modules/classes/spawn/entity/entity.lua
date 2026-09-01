@@ -151,7 +151,7 @@ function entity:new()
     o.deviceClassName = ""
     o.secondaryIcon = ""
     o.instanceDataSearch = ""
-    o.instanceDataSearchInProperties = false
+    o.instanceDataSearchInProperties = true
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
@@ -2493,7 +2493,7 @@ function entity:drawInstanceData()
         end
     end
 
-    self.instanceDataSearchInProperties = self.instanceDataSearchInProperties == true
+    self.instanceDataSearchInProperties = self.instanceDataSearchInProperties ~= false
 
     if style.drawSearchClearButton('##searchComponentClear', self.instanceDataSearch ~= "", 'Search for component') then
         self.instanceDataSearch = ""
