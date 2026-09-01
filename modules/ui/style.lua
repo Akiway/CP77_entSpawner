@@ -2007,6 +2007,7 @@ end
 ---@field optionFilterFn fun(optionText: string, query: string): boolean? Optional search matcher (query is already lowercased).
 ---@field optionDecoratorFn fun(optionText: string, optionLabel: string)? Optional prefix drawn in front of each option row, e.g. `style.drawPathOriginPrefix`. Responsible for leaving the cursor on the row (`ImGui.SameLine()`).
 ---@field listHeight number? Height of the scrollable option list in unscaled style units (default `120`). Worth raising for long lists.
+---@field comboFlags number? Optional `ImGuiComboFlags`; defaults to `HeightLargest` when available so the popup does not add a second scrollbar around the internal option list.
 ---@field tooltip string? Optional helper text appended after the current value.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
 ---@field clearable boolean? When true, right-clicking the combo resets the selection to `""`.
@@ -2035,6 +2036,10 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     local optionFilterFn = opts.optionFilterFn
     local optionDecoratorFn = opts.optionDecoratorFn
     local listHeight = opts.listHeight or 120
+    local comboFlags = opts.comboFlags
+    if comboFlags == nil and ImGuiComboFlags and ImGuiComboFlags.HeightLargest then
+        comboFlags = ImGuiComboFlags.HeightLargest
+    end
 
     local finished = false
     local selectedValue = tostring(value)
@@ -2048,7 +2053,12 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     end
 
     ImGui.SetNextItemWidth(comboWidth)
-    local comboOpen = ImGui.BeginCombo(text, previewValue)
+    local comboOpen
+    if comboFlags ~= nil then
+        comboOpen = ImGui.BeginCombo(text, previewValue, comboFlags)
+    else
+        comboOpen = ImGui.BeginCombo(text, previewValue)
+    end
     local tooltipText = buildSelectorTooltip(selectedValue, opts.tooltip, opts.currentValueTooltip)
     copySelectorValueOnMiddleClick(selectedValue, opts.currentValueTooltip)
     if tooltipText then
@@ -2111,27 +2121,33 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                 end
             end
 
-            local function drawOptionRow(optionText, optionIndex)
-                if hasQuery then
-                    if type(optionFilterFn) == "function" then
-                        local ok, matched = pcall(optionFilterFn, optionText, query)
-                        if not ok or matched ~= true then
-                            return
-                        end
-                    else
-                        local optionTextLower = string.lower(optionText)
-                        local matchesRaw = utils.safePatternMatch(optionTextLower, query)
-
-                        if not matchesRaw then
-                            local optionLabelForMatch = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
-                            local matchesLabel = optionLabelForMatch ~= optionText and utils.safePatternMatch(string.lower(optionLabelForMatch), query)
-                            if not matchesLabel then
-                                return
-                            end
-                        end
-                    end
+            ---Search test for one option, resolved before the rows are drawn so the clipper below
+            ---knows how many rows there are. Falls back to matching the display label, so an option
+            ---the author only ever sees through `optionDisplayFn` is still findable by what it says.
+            ---@param optionText string
+            ---@return boolean
+            local function optionMatchesQuery(optionText)
+                if not hasQuery then
+                    return true
                 end
 
+                if type(optionFilterFn) == "function" then
+                    local ok, matched = pcall(optionFilterFn, optionText, query)
+
+                    return ok and matched == true
+                end
+
+                if utils.safePatternMatch(string.lower(optionText), query) then
+                    return true
+                end
+
+                local optionLabelForMatch = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
+
+                return optionLabelForMatch ~= optionText
+                    and utils.safePatternMatch(string.lower(optionLabelForMatch), query)
+            end
+
+            local function drawOptionRow(optionText, optionIndex)
                 local optionLabel = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
                 local selected = optionText == selectedValue
                 if selected then
@@ -2176,11 +2192,30 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                 ImGui.PopID()
             end
 
+            -- Matching rows are collected before any of them is drawn, which is what lets
+            -- `ImGuiListClipper` seek: the popup costs a screenful of `Selectable`s no matter how
+            -- long the option list is, so a catalogue of thousands needs no browse cap. Every row is
+            -- one line of the same height, which the clipper relies on to seek without measuring.
             if not finished then
+                local visibleOptions = {}
+                local visibleIndices = {}
+
                 for optionIndex, option in pairs(options) do
-                    drawOptionRow(tostring(option), optionIndex)
-                    if finished then
-                        break
+                    local optionText = tostring(option)
+                    if optionMatchesQuery(optionText) then
+                        table.insert(visibleOptions, optionText)
+                        table.insert(visibleIndices, optionIndex)
+                    end
+                end
+
+                local clipper = ImGuiListClipper.new()
+                clipper:Begin(#visibleOptions, -1)
+
+                -- No early break once a row is picked: the popup is already closing, and stepping
+                -- the clipper to the end is cheaper than the bookkeeping to stop it short.
+                while (clipper:Step()) do
+                    for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
+                        drawOptionRow(visibleOptions[i], visibleIndices[i])
                     end
                 end
             end

@@ -308,12 +308,15 @@ function quickSoundSystemSetupUI.install(device, options)
                 "Search audio event...",
                 eventName,
                 eventSearch,
-                soundSystemData.getSoundEventOptions(eventName, eventSearch),
+                soundSystemData.getSoundEventOptions(eventName),
                 {
                     element = self.object,
                     width = getRowFieldWidth({ IconGlyphs.Play }, 220),
                     allowCustom = true,
-                    tooltip = "Audio event fired on the connected speakers.\nBrowses the Static Audio Emitter list, or takes any event name you type."
+                    -- The catalogue runs to a thousand-odd events, so the list gets more than the
+                    -- default height to scroll in. The rows are clipped either way.
+                    listHeight = 260,
+                    tooltip = "Audio event fired on the connected speakers.\nBrowses the whole Static Audio Emitter list, or takes any event name you type."
                 }
             )
             self.soundSystemEventSearch[eventSearchKey] = eventSearchValue
@@ -517,7 +520,9 @@ function quickSoundSystemSetupUI.install(device, options)
             { label = "Appearance" },
             { icon = IconGlyphs.SignalDistanceVariant, label = "Range" },
             { icon = IconGlyphs.Radio, label = "Default Station" },
-            { icon = IconGlyphs.AlertCircleOutline, label = "Distraction Station" }
+            { icon = IconGlyphs.BugPlayOutline, label = "Glitch SFX" },
+            { icon = IconGlyphs.MusicNoteOff, label = "Use Only Glitch SFX" },
+            { icon = IconGlyphs.MusicNote, label = "Distraction Station" }
         })
 
         local stateKey = getSpeakerKey(speakerEntry, index)
@@ -682,21 +687,99 @@ function quickSoundSystemSetupUI.install(device, options)
             style.tooltip(defaultNote)
         end
 
-        style.drawIconLabelRow(IconGlyphs.AlertCircleOutline, "Distraction Station")
+        local glitchSFX = tostring(setup.glitchSFX and setup.glitchSFX["$value"] or "")
+
+        style.drawIconLabelRow(IconGlyphs.BugPlayOutline, "Glitch SFX")
         ImGui.SameLine()
         ImGui.SetCursorPosX(labelX)
+
+        self.soundSystemGlitchSFXSearch = self.soundSystemGlitchSFXSearch or {}
+        local glitchSFXSearch = self.soundSystemGlitchSFXSearch[draftKey] or ""
+        local editedGlitchSFX, glitchSFXSearchValue, glitchSFXFinished = style.trackedSearchDropdown(
+            "##soundSystemSpeakerGlitchSFX",
+            "Search audio event...",
+            glitchSFX,
+            glitchSFXSearch,
+            soundSystemData.getSoundEventOptions(glitchSFX),
+            {
+                element = speakerEntry.speakerElement or self.object,
+                width = getRowFieldWidth({ IconGlyphs.Play }, 220),
+                allowCustom = true,
+                listHeight = 260,
+                tooltip = "Audio event played when this speaker glitches during the Malfunction quickhack.\nBrowses the whole Static Audio Emitter list, or takes any event name you type."
+            }
+        )
+        self.soundSystemGlitchSFXSearch[draftKey] = glitchSFXSearchValue
+
+        ImGui.SameLine()
+        style.pushButtonNoBG(true)
+        local testGlitchSFX = utils.trimString(glitchSFX)
+        local canTestGlitchSFX = testGlitchSFX ~= "" and testGlitchSFX ~= "None"
+        ImGui.BeginDisabled(not canTestGlitchSFX)
+        if ImGui.Button(IconGlyphs.Play .. "##soundSystemSpeakerGlitchSFXTest") and canTestGlitchSFX then
+            soundSystemData.testSoundEvent(testGlitchSFX)
+        end
+        ImGui.EndDisabled()
+        style.pushButtonNoBG(false)
+        style.tooltip("Play this glitch SFX on the player right now.")
+
+        if glitchSFXFinished and utils.trimString(tostring(editedGlitchSFX)) ~= glitchSFX then
+            local updated = utils.deepcopy(setup)
+            local normalizedGlitchSFX = utils.trimString(tostring(editedGlitchSFX))
+            updated.glitchSFX = updated.glitchSFX or {}
+            updated.glitchSFX["$type"] = "CName"
+            updated.glitchSFX["$storage"] = "string"
+            updated.glitchSFX["$value"] = normalizedGlitchSFX ~= "" and normalizedGlitchSFX or "None"
+            setup = self:updateSpeakerSetup(speakerSpawnable, componentID, updated)
+            glitchSFX = tostring(setup.glitchSFX and setup.glitchSFX["$value"] or "")
+        end
+
+        style.drawIconLabelRow(IconGlyphs.MusicNoteOff, "Use Only Glitch SFX")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(labelX)
+        local useOnlyGlitchSFX = boolToInt(setup.useOnlyGlitchSFX, 0) == 1
+        local newUseOnlyGlitchSFX, useOnlyGlitchSFXChanged = style.trackedCheckbox(
+            speakerEntry.speakerElement or self.object,
+            "##soundSystemSpeakerUseOnlyGlitchSFX",
+            useOnlyGlitchSFX
+        )
+        style.tooltip("Skip the distraction station during the Malfunction quickhack and play only the glitch SFX.")
+        if useOnlyGlitchSFXChanged then
+            local updated = utils.deepcopy(setup)
+            updated.useOnlyGlitchSFX = newUseOnlyGlitchSFX and 1 or 0
+            setup = self:updateSpeakerSetup(speakerSpawnable, componentID, updated)
+            useOnlyGlitchSFX = newUseOnlyGlitchSFX
+        end
+
+        style.drawIconLabelRow(IconGlyphs.MusicNote, "Distraction Station")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(labelX)
+        style.pushGreyedOut(useOnlyGlitchSFX)
+        ImGui.BeginDisabled(useOnlyGlitchSFX)
         local newDistraction, distractionChanged = style.trackedCombo(
             speakerEntry.speakerElement or self.object,
             "##soundSystemSpeakerDistractionMusic",
             soundSystemData.getStationComboIndex(setup.distractionMusic),
             stationLabels,
             220,
-            { tooltip = soundSystemData.DISTRACTION_STATION_NOTE }
+            {
+                tooltip = useOnlyGlitchSFX
+                    and (soundSystemData.DISTRACTION_STATION_NOTE .. "\nIgnored while useOnlyGlitchSFX is enabled.")
+                    or soundSystemData.DISTRACTION_STATION_NOTE
+            }
         )
+        ImGui.EndDisabled()
+        style.popGreyedOut(useOnlyGlitchSFX)
         if distractionChanged then
             local updated = utils.deepcopy(setup)
             updated.distractionMusic = soundSystemData.getStationByComboIndex(newDistraction)
             self:updateSpeakerSetup(speakerSpawnable, componentID, updated)
+        end
+
+        if useOnlyGlitchSFX then
+            ImGui.SetCursorPosX(labelX)
+            style.mutedText(IconGlyphs.InformationOutline .. " Ignored while useOnlyGlitchSFX is enabled")
+            style.tooltip("The Malfunction quickhack will play glitchSFX only.")
         end
 
         ImGui.PopID()

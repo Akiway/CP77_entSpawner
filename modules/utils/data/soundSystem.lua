@@ -551,13 +551,11 @@ end
 ---catalogue -- far better than asking the author to remember an event name.
 soundSystem.STATIC_AUDIO_EMITTER_PATH = "data/spawnables/visual/sounds/"
 
----Rows rendered when the picker is opened with an empty search box. The full catalogue is only
----filtered in once the author types, so the list stays responsive.
-soundSystem.SOUND_EVENT_BROWSE_LIMIT = 150
----Cap on how many catalogue matches one search shows.
-soundSystem.SOUND_EVENT_MATCH_LIMIT = 200
-
 local staticAudioEmitterEvents = nil
+local staticAudioEmitterEventSet = nil
+-- Option lists for a value that is not in the catalogue, keyed by that value. Built once per
+-- value rather than per frame, because the picker asks for its options on every frame it draws.
+local soundEventOptionsByCustomValue = {}
 
 ---Every audio event from the Static Audio Emitter spawn list, sorted, loaded once.
 ---@return string[]
@@ -571,8 +569,8 @@ function soundSystem.getStaticAudioEmitterEvents()
         return config.loadLists(soundSystem.STATIC_AUDIO_EMITTER_PATH)
     end)
 
+    local seen = {}
     if ok and type(entries) == "table" then
-        local seen = {}
         for _, entry in ipairs(entries) do
             local name = utils.trimString(tostring(entry and entry.name or ""))
             if name ~= "" and not seen[name] then
@@ -583,42 +581,32 @@ function soundSystem.getStaticAudioEmitterEvents()
     end
 
     staticAudioEmitterEvents = events
+    staticAudioEmitterEventSet = seen
 
     return staticAudioEmitterEvents
 end
 
----Options for the sound event picker: the head of the Static Audio Emitter catalogue while the
----search box is empty, its matches once the author types. Both are capped, because
----`trackedSearchDropdown` draws every option it is handed on every frame the popup is open.
+---Options for the sound event picker: the whole Static Audio Emitter catalogue, plus the current
+---value when it is something the author typed by hand rather than picked. Uncapped and unfiltered,
+---because `trackedSearchDropdown` clips the rows it draws and does its own searching.
+---The returned table is shared and must not be modified by the caller.
 ---@param currentValue string?
----@param query string?
 ---@return string[]
-function soundSystem.getSoundEventOptions(currentValue, query)
-    local options = {}
-    local seen = {}
+function soundSystem.getSoundEventOptions(currentValue)
+    local events = soundSystem.getStaticAudioEmitterEvents()
+    local custom = utils.trimString(tostring(currentValue or ""))
 
-    local function push(name)
-        name = utils.trimString(tostring(name or ""))
-        if name ~= "" and name ~= "None" and not seen[name] then
-            seen[name] = true
-            table.insert(options, name)
-        end
+    if custom == "" or custom == "None" or staticAudioEmitterEventSet[custom] then
+        return events
     end
 
-    push(currentValue)
-
-    local normalizedQuery = string.lower(utils.trimString(tostring(query or "")))
-    local limit = normalizedQuery == ""
-        and soundSystem.SOUND_EVENT_BROWSE_LIMIT
-        or soundSystem.SOUND_EVENT_MATCH_LIMIT
-
-    for _, name in ipairs(soundSystem.getStaticAudioEmitterEvents()) do
-        if #options >= limit then
-            break
+    local options = soundEventOptionsByCustomValue[custom]
+    if not options then
+        options = { custom }
+        for _, name in ipairs(events) do
+            table.insert(options, name)
         end
-        if normalizedQuery == "" or string.find(string.lower(name), normalizedQuery, 1, true) then
-            push(name)
-        end
+        soundEventOptionsByCustomValue[custom] = options
     end
 
     return options

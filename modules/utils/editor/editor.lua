@@ -1747,21 +1747,23 @@ local function resolveSelectedSoundSystemContext()
         return nil
     end
 
-    if spawnable.showSpeakerHelper ~= true then
-        return nil
-    end
-
     if not spawnable.isSpawned or not spawnable:isSpawned() then
         return nil
     end
 
     local className = tostring(spawnable.deviceClassName or "")
     if className == soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS then
-        return { spawnable = spawnable, isSystem = true }
+        return spawnable.showSpeakerHelper == true
+            and { spawnable = spawnable, isSystem = true }
+            or nil
     end
 
+    -- A selected speaker has nothing to draw but its own range, so the range toggle is the whole
+    -- gate here rather than a second switch in front of it.
     if className == soundSystemData.SPEAKER_CONTROLLER_CLASS then
-        return { spawnable = spawnable, isSystem = false }
+        return spawnable.showSpeakerRangeSphere == true
+            and { spawnable = spawnable, isSystem = false }
+            or nil
     end
 
     return nil
@@ -1779,7 +1781,8 @@ local function getSpawnablePosition(spawnable)
 end
 
 ---Draws the sound system chain: a link line and numbered badge per connected speaker, a link line
----per master driving the system, plus each speaker's audible range. The two link colors differ
+---per master driving the system, plus the audible range of each speaker whose range toggle is on --
+---the chain is the system's to draw, the radius stays the speaker's. The two link colors differ
 ---because the connections run opposite ways -- the system owns its speaker connections, while a
 ---master owns the one that names the system. A speaker whose NodeRef resolves to nothing simply has
 ---no line, which is the point: a typo shows up as a missing link rather than as silence in game.
@@ -1809,16 +1812,21 @@ local function drawSoundSystemHelpers()
             return
         end
 
-        local setup = context.spawnable.getSpeakerSetup
-            and select(1, context.spawnable:getSpeakerSetup(spawnable))
-            or nil
-        local range = setup and tonumber(setup.range) or nil
+        -- The ring and the world sphere are one visualization behind one toggle, so a system that is
+        -- drawing its chain does not ring speakers whose range is switched off. Reading the range
+        -- means reading the persistent state, so it only happens when the circle is going to be drawn.
+        if spawnable.showSpeakerRangeSphere == true then
+            local setup = context.spawnable.getSpeakerSetup
+                and select(1, context.spawnable:getSpeakerSetup(spawnable))
+                or nil
+            local range = setup and tonumber(setup.range) or nil
 
-        if range and range > 0 then
-            projectedWireframe.drawWorldCircle(drawList, screen, speakerPosition, range, {
-                color = rangeColor,
-                thickness = 1.5
-            })
+            if range and range > 0 then
+                projectedWireframe.drawWorldCircle(drawList, screen, speakerPosition, range, {
+                    color = rangeColor,
+                    thickness = 1.5
+                })
+            end
         end
 
         if badge then

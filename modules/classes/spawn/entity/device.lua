@@ -53,7 +53,7 @@ local propertyNames = {
 ---@field public persistent boolean
 ---@field private maxPropertyWidth number?
 ---@field public controllerComponent string
----@field public showSpeakerRangeSphere boolean Speaker only: draw a sphere at the audible radius
+---@field public showSpeakerRangeSphere boolean Speaker only: draw the audible radius, as a sphere in the world and a ring on screen
 local device = setmetatable({}, { __index = entity })
 
 ---@type fun(value: any, fallback: any?): string
@@ -2366,21 +2366,18 @@ function device:getProperties()
                 style.mutedText("Show speaker helper")
                 ImGui.SameLine()
                 self.showSpeakerHelper, _ = style.toggleButton(IconGlyphs.Speaker, self.showSpeakerHelper)
-                style.tooltip("Draw a link line and audible range for each connected speaker.")
+                style.tooltip("Draw a link line and numbered badge for each connected speaker.\nEach speaker's audible range follows that speaker's own range toggle.")
             elseif self.deviceClassName == SPEAKER_CONTROLLER_CLASS then
-                style.mutedText("Show range helper")
-                ImGui.SameLine()
-                self.showSpeakerHelper, _ = style.toggleButton(IconGlyphs.CircleOutline, self.showSpeakerHelper)
-                style.tooltip("Draw this speaker's audible range.")
-
-                style.mutedText("Show range sphere")
+                -- One toggle for one thing: the sphere in the world and the ring on screen are two
+                -- renderings of the same audible radius, so they switch together.
+                style.mutedText("Show range")
                 ImGui.SameLine()
                 local newRangeSphere, rangeSphereToggled = style.toggleButton(IconGlyphs.CircleOpacity, self.showSpeakerRangeSphere)
                 if rangeSphereToggled then
                     history.addAction(history.getElementChange(self.object))
                     self:setSpeakerRangeSphereVisible(newRangeSphere)
                 end
-                style.tooltip("Draw a solid sphere at the audible radius, the way the light radius preview does.")
+                style.tooltip("Draw this speaker's audible radius: a solid sphere in the world, the way the light radius preview does, and a ring on screen.")
             end
         end
     })
