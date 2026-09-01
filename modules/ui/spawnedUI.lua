@@ -3003,6 +3003,8 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
 
     -- Styles
     ImGui.SameLine()
+    local rowFramePaddingX = ImGui.GetStyle().FramePadding.x
+    local rowFramePaddingY = ImGui.GetStyle().FramePadding.y
     ImGui.PushStyleColor(ImGuiCol.Button, 0)
     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1, 1, 1, 0.2)
     ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0, 0)
@@ -3094,18 +3096,39 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
     local nameStartX = rowDepth * 17 * style.viewSize + leftOffset
     ImGui.SetCursorPosX(nameStartX)
     ImGui.AlignTextToFramePadding()
-    if element.editName then
+    local nameTextY = ImGui.GetCursorPosY()
+    local editingName = element.editName
+    local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
+    local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.divider.dragging) and ImGui.GetStyle().ScrollbarSize or 0
+    local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
+    local rowItemGap = ImGui.GetStyle().ItemSpacing.x
+
+    local function alignFollowingContentAfterEdit()
+        if editingName then
+            ImGui.SetCursorPosY(nameTextY)
+        end
+    end
+
+    if editingName then
         input.windowHovered = false
+        -- Row content uses zero frame padding for icon buttons; restore the normal input padding
+        -- and move the frame so the editable text lands where the plain row label was.
+        local editFrameX = math.max(0, nameStartX - rowFramePaddingX)
+        local editFrameWidth = math.max(20 * style.viewSize, rightButtonsStartX - editFrameX - rowItemGap)
+
+        ImGui.SetCursorPosX(editFrameX)
+        ImGui.SetCursorPosY(math.max(0, nameTextY - rowFramePaddingY))
         if element.focusNameEdit > 0 then
             ImGui.SetKeyboardFocusHere()
             element.focusNameEdit = element.focusNameEdit - 1
         end
+        ImGui.SetNextItemWidth(editFrameWidth)
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, rowFramePaddingX, rowFramePaddingY)
         element:drawName()
+        ImGui.PopStyleVar()
+        ImGui.SetCursorPosY(nameTextY)
     else
-        local sideButtonsWidth = spawnedUI.getSideButtonsWidth(element)
-        local scrollBarAddition = (ImGui.GetScrollMaxY() > 0 and not spawnedUI.divider.dragging) and ImGui.GetStyle().ScrollbarSize or 0
-        local rightButtonsStartX = ImGui.GetWindowWidth() - sideButtonsWidth - ImGui.GetStyle().CellPadding.x / 2 - scrollBarAddition + ImGui.GetScrollX()
-        local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - ImGui.GetStyle().ItemSpacing.x - rowMetaWidth)
+        local maxNameWidth = math.max(20 * style.viewSize, rightButtonsStartX - nameStartX - rowItemGap - rowMetaWidth)
 
         local fittedName, wasClipped = spawnedUI.fitTextWithEllipsis(element.name, maxNameWidth)
         ImGui.SetNextItemAllowOverlap()
@@ -3114,7 +3137,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
             style.tooltip(element.name)
         end
     end
-    if not element.editName then
+    if not editingName then
         spawnedUI.drawStateIcons(stateIcons)
         spawnedUI.drawProjectTag(projectTag)
     end
@@ -3129,12 +3152,14 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
 
     if spawnedUI.filter ~= "" then
         ImGui.SameLine()
+        alignFollowingContentAfterEdit()
         local pathColumnX = spawnedUI.filteredWidestName + 25 * style.viewSize + 5 * style.viewSize
         ImGui.SetCursorPosX(math.max(pathColumnX, ImGui.GetCursorPosX()))
         style.mutedText("[" .. elementPath .. "]")
     end
 
     ImGui.SameLine()
+    alignFollowingContentAfterEdit()
 
     spawnedUI.drawSideButtons(element, isHovered)
 
