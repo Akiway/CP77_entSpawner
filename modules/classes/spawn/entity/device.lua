@@ -2372,7 +2372,7 @@ function device:getProperties()
                 -- renderings of the same audible radius, so they switch together.
                 style.mutedText("Show range")
                 ImGui.SameLine()
-                local newRangeSphere, rangeSphereToggled = style.toggleButton(IconGlyphs.CircleOpacity, self.showSpeakerRangeSphere)
+                local newRangeSphere, rangeSphereToggled = style.toggleButton(IconGlyphs.HospitalMarker, self.showSpeakerRangeSphere)
                 if rangeSphereToggled then
                     history.addAction(history.getElementChange(self.object))
                     self:setSpeakerRangeSphereVisible(newRangeSphere)

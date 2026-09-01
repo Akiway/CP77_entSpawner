@@ -18,6 +18,7 @@ local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
 local lcHelper = require("modules/utils/ui/lightChannelHelper")
+local soundSystemData = require("modules/utils/data/soundSystem")
 
 local wu
 
@@ -109,6 +110,7 @@ spawnedUI = {
     stateIconValidOutlinePathsByRoot = {},
     stateIconConnectionCountByRoot = {},
     stateIconSelectedGroupRef = nil,
+    stateIconSoundSystemMasterCounts = nil,
     stateIconPlayerPosition = nil,
     stateIconIconWidthByGlyph = {},
     stateIconWidthCacheViewSize = nil,
@@ -2114,6 +2116,8 @@ local PROJECT_TAG_FONT_SCALE = 0.75
 local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
 local ELEVATOR_FLOOR_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
 local DOOR_CONTROLLER_CLASS = "DoorControllerPS"
+local SOUND_SYSTEM_CONTROLLER_CLASS = soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS
+local SPEAKER_CONTROLLER_CLASS = soundSystemData.SPEAKER_CONTROLLER_CLASS
 local CONNECTION_COUNT_ICONS = {
     [0] = IconGlyphs.Numeric0CircleOutline,
     [1] = IconGlyphs.Numeric1CircleOutline,
@@ -2247,6 +2251,87 @@ local function getRootId(element)
     return root and root.id or -1
 end
 
+---@param rootId number
+---@param nodeRef string
+---@return string
+local function getSoundSystemMasterKey(rootId, nodeRef)
+    return tostring(rootId) .. "|" .. utils.nodeRefStringToHashString(nodeRef)
+end
+
+---How many devices drive each sound system, keyed by root and target NodeRef hash.
+---The connection lives on the master rather than on the system, so this is the same reverse lookup
+---`device:getSoundSystemMasters` does -- built once for the whole tree instead of once per row.
+---@return table<string, number>
+local function buildSoundSystemMasterCounts()
+    local counts = {}
+
+    for _, entry in pairs(spawnedUI.paths) do
+        local ref = entry.ref
+        local spawnable = utils.isA(ref, "spawnableElement") and ref.spawnable or nil
+
+        if spawnable and type(spawnable.deviceConnections) == "table" then
+            local rootId = getRootId(ref)
+            local ownHash = utils.nodeRefStringToHashString(utils.sanitizeText(spawnable.nodeRef))
+            -- A master wired to two systems counts for both, but a single master never counts twice
+            -- for the same system, however many connection rows point at it.
+            local counted = {}
+
+            for _, connection in ipairs(spawnable.deviceConnections) do
+                if type(connection) == "table" and utils.sanitizeText(connection.deviceClassName) == SOUND_SYSTEM_CONTROLLER_CLASS then
+                    local targetNodeRef = utils.sanitizeText(connection.nodeRef)
+
+                    if targetNodeRef ~= "" and utils.nodeRefStringToHashString(targetNodeRef) ~= ownHash then
+                        local key = getSoundSystemMasterKey(rootId, targetNodeRef)
+
+                        if not counted[key] then
+                            counted[key] = true
+                            counts[key] = (counts[key] or 0) + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return counts
+end
+
+---Built on demand and kept for the frame: most projects hold no sound system at all, and the scan
+---is over the whole tree.
+---@param element element
+---@param spawnable spawnable
+---@return number
+local function getSoundSystemMasterCount(element, spawnable)
+    local ownNodeRef = utils.sanitizeText(spawnable.nodeRef)
+    if ownNodeRef == "" then
+        return 0
+    end
+
+    if not spawnedUI.stateIconSoundSystemMasterCounts then
+        spawnedUI.stateIconSoundSystemMasterCounts = buildSoundSystemMasterCounts()
+    end
+
+    return spawnedUI.stateIconSoundSystemMasterCounts[getSoundSystemMasterKey(getRootId(element), ownNodeRef)] or 0
+end
+
+---Speaker connections of a sound system, counted the way `device:getSpeakerEntries` collects them:
+---by class and NodeRef, whether or not the target resolves to a node in this project.
+---@param connections table[]?
+---@return number
+local function getSoundSystemSpeakerCount(connections)
+    local count = 0
+
+    for _, connection in ipairs(connections or {}) do
+        if type(connection) == "table"
+            and utils.sanitizeText(connection.deviceClassName) == SPEAKER_CONTROLLER_CLASS
+            and utils.sanitizeText(connection.nodeRef) ~= "" then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
 function spawnedUI.refreshStateIconCaches()
     if spawnedUI.stateIconCacheEpoch == spawnedUI.cacheEpoch and spawnedUI.stateIconWireframeEpoch == spawnedUI.wireframeEpoch then
         return
@@ -2325,6 +2410,9 @@ function spawnedUI.prepareStateIconFrame()
 
     local player = GetPlayer()
     spawnedUI.stateIconPlayerPosition = player and player:GetWorldPosition() or nil
+    -- Connection edits do not bump the hierarchy cache epoch, so the master lookup is rebuilt per
+    -- frame rather than cached alongside the epoch-keyed maps -- but only if a row asks for it.
+    spawnedUI.stateIconSoundSystemMasterCounts = nil
 
     local spawnUI = spawnedUI.spawner and spawnedUI.spawner.baseUI and spawnedUI.spawner.baseUI.spawnUI or nil
     local selectedGroup = spawnUI and spawnUI.selectedGroup or 0
@@ -2408,6 +2496,32 @@ function spawnedUI.getStateIcons(element)
                 IconGlyphs.DoorSliding,
                 "Terminal has a door connected to it",
                 style.mutedColor
+            )
+        end
+
+        -- Both halves of a sound system chain live outside the node itself: the masters connect to
+        -- it, and the speakers are NodeRefs on its own connection list. Counting them on the row
+        -- makes a half-wired system visible without opening the quick setup.
+        if spawnable.modulePath == "entity/device" and tostring(spawnable.deviceClassName or "") == SOUND_SYSTEM_CONTROLLER_CLASS then
+            local masterCount = getSoundSystemMasterCount(element, spawnable)
+            local speakerCount = getSoundSystemSpeakerCount(spawnable.deviceConnections)
+
+            addStateIcon(
+                stateIcons,
+                string.format("%d%s", masterCount, IconGlyphs.DesktopClassic),
+                masterCount == 0
+                    and "No master wired to this system"
+                    or string.format("%d master%s wired to this system", masterCount, masterCount == 1 and "" or "s"),
+                masterCount == 0 and STATE_COLOR_ORANGE or style.mutedColor
+            )
+
+            addStateIcon(
+                stateIcons,
+                string.format("%d%s", speakerCount, IconGlyphs.Speaker),
+                speakerCount == 0
+                    and "No speaker connected, nothing will be audible"
+                    or string.format("%d speaker%s connected", speakerCount, speakerCount == 1 and "" or "s"),
+                speakerCount == 0 and STATE_COLOR_ORANGE or style.mutedColor
             )
         end
 
