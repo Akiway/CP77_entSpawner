@@ -3928,7 +3928,7 @@ function spawnedUI.drawTop()
 
                 shortcutMenuItem(IconGlyphs.AxisZRotateClockwise, "Rotate camera", "Hold MMB", "cameraRotate")
                 shortcutMenuItem(IconGlyphs.CameraControl, "Move camera", "SHIFT + Hold MMB", "cameraMove")
-                shortcutMenuItem(IconGlyphs.Magnify, "Zoom", "CTRL + Hold MMB", "cameraZoom")
+                shortcutMenuItem(IconGlyphs.Magnify, "Zoom", "CTRL + Hold MMB / Wheel", "cameraZoom")
                 shortcutMenuItem(IconGlyphs.Target, "Center camera on selected", "TAB", "cameraCenter")
                 
                 ImGui.Dummy(0, 8 * style.viewSize)

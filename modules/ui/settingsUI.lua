@@ -1369,6 +1369,7 @@ function settingsUI.draw(spawner)
 
         settings.cameraZoomSpeed, changed = ImGui.InputFloat("Camera Zoom Speed", settings.cameraZoomSpeed, 0, 10, "%.2f")
         if changed then settings.save() end
+        style.tooltip("Zoom speed for both 3D-Editor zoom bindings, CTRL + hold MMB and the mouse wheel.")
 
         ImGui.Dummy(0, 4 * style.viewSize)
         ImGui.TreePop()

@@ -980,7 +980,9 @@ end
 function editor.updateDrag()
     local dragging = ImGui.IsMouseDragging(0, style.draggingThreshold) and not (editor.grab or editor.rotate or editor.scale)
     if dragging then
-        if editor.hoveredArrow ~= "none" then
+        -- `hoveredArrow` keeps the value it had when the cursor last left the viewport, so a drag
+        -- owned by a UI widget must not be allowed to latch onto it, see editor.handleBoxSelect.
+        if editor.hoveredArrow ~= "none" and not input.isUIInputActive() then
             editor.currentAxis = editor.hoveredArrow
         end
     elseif not editor.grab and not editor.rotate and not editor.scale then
@@ -1481,6 +1483,7 @@ end
 ---Draws bounds overlays for selected or hovered groups when enabled.
 local function drawHoveredGroupBounds()
     if not settings.groupWireframeEnabled then return end
+    if not editor.spawnedUI or not GetPlayer() then return end
     editor.spawnedUI.ensureCache()
 
     local targets = getOverlayTargets()
@@ -1912,7 +1915,13 @@ function editor.handleBoxSelect()
     if not editor.active then return end
 
     local x, y = ImGui.GetMousePos()
-    if ImGui.IsKeyDown(ImGuiKey.LeftCtrl) and ImGui.IsMouseDragging(0, style.draggingThreshold) and not editor.boxSelectActive and input.context.viewport.hovered then
+    local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
+    -- `isUIInputActive`: a drag that started on a widget keeps ImGui's active id for its whole
+    -- duration, including the part where the cursor is pulled out over the viewport. Without this
+    -- a Ctrl + drag on any value field in the editor panel would start a box select here, and the
+    -- unselectAll below would drop the very element being edited. It discounts the wheel probe
+    -- window's move id, so a genuine Ctrl + drag on the bare viewport still gets through.
+    if ctrlDown and ImGui.IsMouseDragging(0, style.draggingThreshold) and not editor.boxSelectActive and input.context.viewport.hovered and not input.isUIInputActive() then
         editor.boxSelectActive = true
         editor.boxSelectStart = { x = x, y = y }
         editor.spawnedUI.unselectAll()
@@ -1955,6 +1964,18 @@ function editor.handleBoxSelect()
     end
 end
 
+---Whether a viewport interaction is already running, and so has to keep being updated even while
+---the cursor sits over the editor panel - a gizmo drag pulled across the panel would otherwise
+---freeze mid move and never record its change.
+---@return boolean active
+function editor.hasActiveViewportInteraction()
+    return editor.currentAxis ~= "none"
+        or editor.grab == true
+        or editor.rotate == true
+        or editor.scale == true
+        or editor.boxSelectActive == true
+end
+
 ---Per-frame editor update/draw entrypoint invoked from the main draw loop.
 function editor.onDraw()
     if editor.spawnedUI and editor.spawnedUI.updateModifierState then
@@ -1976,7 +1997,7 @@ function editor.onDraw()
         if editor.isBrushActive() then
             -- Keep brush overlays (hidden-dot markers) visible even when hovering WB UI.
             editor.updateBrush()
-        elseif input.context.viewport.hovered then
+        elseif input.context.viewport.hovered or editor.hasActiveViewportInteraction() then
             editor.checkArrow()
             editor.updateDrag()
             editor.drawDepthSelect()
