@@ -69,7 +69,7 @@ function spawnableElement:load(data, silent)
 		self.spawnable:despawn()
 	end
 
-	self.spawnable = require("modules/classes/spawn/" .. data.spawnable.modulePath):new()
+	self.spawnable = utils.requireSpawnable(data.spawnable.modulePath):new()
     self.spawnable.object = self
     self.spawnable:loadSpawnData(data.spawnable, ToVector4(data.spawnable.position), ToEulerAngles(data.spawnable.rotation))
 	self.icon = self.spawnable.icon

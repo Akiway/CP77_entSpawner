@@ -145,6 +145,13 @@ local PREVIEW_MODULE_REMAP = {
 ---@param modulePath string
 ---@return string?
 local function resolvePreviewModulePath(modulePath)
+    if type(modulePath) ~= "string" then
+        return nil
+    end
+
+    -- Saved data names the path the class had when it was written, which may have moved since.
+    modulePath = utils.resolveSpawnableModulePath(modulePath)
+
     if COLLISION_MODULE_PATHS[modulePath] then
         return nil
     end

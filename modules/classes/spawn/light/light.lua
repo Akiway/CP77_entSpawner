@@ -24,6 +24,15 @@ local AREA_SHAPE_CAPSULE = 1
 local SHADOW_SOFTNESS_MODE_DEFAULT = 2
 local DEFAULT_STATIC_LIGHT_COLOR = { 1, 0.99595707654953, 0.6502890586853 }
 
+-- Light type -> icon / label, keyed by ELightType index. Built once and shared by every
+-- instance: the maps are only ever read, and the spawn list resolves icons without one.
+local LIGHT_TYPE_ICONS = {}
+local LIGHT_TYPE_LABELS = {}
+for _, typeOption in ipairs(style.lightTypeOptions) do
+    LIGHT_TYPE_ICONS[typeOption.index] = typeOption.icon
+    LIGHT_TYPE_LABELS[typeOption.index] = typeOption.label
+end
+
 local PREVIEW_COLOR_SPOT = "blue"
 local PREVIEW_COLOR_SPOT_INNER = "yellow"
 local PREVIEW_COLOR_DEFAULT = "yellow"
@@ -174,12 +183,8 @@ function light:new()
     o.localShadows = true
     o.localShadowsForceStaticsOnly = false
     o.lightTypeNames = utils.enumTable("ELightType")
-    o.lightTypeIcons = {}
-    o.lightTypeLabels = {}
-    for _, typeOption in ipairs(style.lightTypeOptions) do
-        o.lightTypeIcons[typeOption.index] = typeOption.icon
-        o.lightTypeLabels[typeOption.index] = typeOption.label
-    end
+    o.lightTypeIcons = LIGHT_TYPE_ICONS
+    o.lightTypeLabels = LIGHT_TYPE_LABELS
     -- Defaults below match the engine defaults of worldStaticLightNode / entLightComponent, so
     -- setting them explicitly does not change how a light looks compared to leaving them untouched.
     o.unit = 0
@@ -257,6 +262,16 @@ function light:new()
     o:updateLightTypeIcon()
     o:updatePreviewShape()
     	return o
+end
+
+---Row icon of one Spawn New entry: the light type its preset places, so Point / Spot / Area
+---read off the browser the way they do off a spawned light in the hierarchy. Static, because
+---the spawn list resolves row icons from the entry alone, without instantiating the class.
+---@param entry table?
+---@return string
+function light.resolveEntrySecondaryIcon(entry)
+    local lightType = tonumber(entry and entry.data and entry.data.lightType)
+    return lightType and LIGHT_TYPE_ICONS[lightType] or ""
 end
 
 ---@param typeIndex integer?

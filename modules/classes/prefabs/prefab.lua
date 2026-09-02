@@ -100,7 +100,7 @@ local function resolveIconKeyFromModulePath(data)
     if modulePath == SPAWNABLE_ELEMENT_MODULE_PATH then
         local spawnablePath = data.spawnable and data.spawnable.modulePath
         if type(spawnablePath) == "string" and spawnablePath ~= "" then
-            local okRequire, spawnableClass = pcall(require, "modules/classes/spawn/" .. spawnablePath)
+            local okRequire, spawnableClass = pcall(utils.requireSpawnable, spawnablePath)
             if okRequire and spawnableClass and spawnableClass.new then
                 local okNew, spawnable = pcall(function ()
                     return spawnableClass:new()

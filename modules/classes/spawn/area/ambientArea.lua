@@ -54,7 +54,7 @@ local INTERIOR_PRESET = {
     priority = 11
 }
 
----Four corner events, in the order the engine reads them. Shipped quads either use one `*_quad`
+---Four corner events, in the order the engine reads them. Shipped areas either use one `*_quad`
 ---event four times or a matching `_FL`/`_FR`/`_RR`/`_RL` set.
 local QUAD_CORNERS = { "Front left", "Front right", "Rear right", "Rear left" }
 
@@ -201,14 +201,18 @@ function ambientArea:ensureQuadSettings()
     return settings.quadSettings
 end
 
----Quad emitters place four corner sources around the area instead of one at its centre, which is how
----shipped areas do wide crowds, wind and foliage. All six shipped ones use radius 2-6 and angle 0.
+---Quad emitters place four corner sources around the area instead of one at its centre - crowds,
+---wind, rain and foliage. CDPR authored the four corner events on plenty of shipped areas, but
+---`Enabled` is false on every one of them: 0 enabled out of ~4,900 ambient areas sampled across
+---~19% of the shipped sectors (every interior, quest and always sector included), 0 out of ~13,000
+---static sound emitters, and 0 of the 11 cooked metadata presets. So the corner events below match
+---what CDPR authored, but nothing in the game ships with the emitter switched on.
 function ambientArea:drawQuadSettings()
     local quad = self.trigger.Settings.Data.quadSettings
     local enabled = type(quad) == "table" and quad.Enabled == true
 
     local open = style.treeNodeWithNote("Quad Emitter", enabled and "(on)" or "")
-    style.tooltip("Play four corner sources around the area rather than one in the middle.\nShipped areas use this for wide crowds, wind and foliage.")
+    style.tooltip("Play four corner sources around the area rather than one in the middle.\nShipped areas author corner events for crowds, wind, rain and foliage, but not one of\nthem ships with Enabled ticked - so this switch is untested against vanilla behaviour.")
     if not open then return end
 
     quad = self:ensureQuadSettings()
@@ -219,18 +223,19 @@ function ambientArea:drawQuadSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
     quad.Enabled, _ = style.trackedCheckbox(self.object, "##quadEnabled", quad.Enabled == true)
+    style.tooltip("No shipped ambient area or static emitter has this ticked, even the ones that have\nall four corner events filled in. Verify in game that it does what you expect.")
 
     style.mutedText("Radius")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
     quad.Radius, _ = style.trackedDragFloat(self.object, "##quadRadius", quad.Radius, 0.01, 0, 9999, "%.2f", 75)
-    style.tooltip("How far the four corners sit from the centre. Shipped quads use 2 to 6.")
+    style.tooltip("How far the four corners sit from the centre. Shipped areas use 1 to 6.")
 
     style.mutedText("Angle")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
     quad.Angle, _ = style.trackedDragFloat(self.object, "##quadAngle", quad.Angle, 0.1, -360, 360, "%.1f", 75)
-    style.tooltip("Rotates the four corners around the centre. Every shipped quad leaves this at 0.")
+    style.tooltip("Rotates the four corners around the centre.\nMost shipped areas leave this at 0, a few use 90, 145 or 250.")
 
     style.mutedText("Interleaved")
     ImGui.SameLine()
@@ -258,7 +263,7 @@ function ambientArea:drawQuadSettings()
                 style.tooltip(summary)
             end
 
-            -- Shipped quads either repeat one `*_quad` event or use a matching corner set, so
+            -- Shipped areas either repeat one `*_quad` event or use a matching corner set, so
             -- copying the first corner outward is the common case.
             if index == 1 then
                 ImGui.SameLine()
@@ -297,7 +302,6 @@ function ambientArea:drawAmbient(changed)
                         ["$value"] = ""
                     },
                     ["verticalOuterDistance"] = 1,
-                    ["isMusic"] = false,
                     ["MetadataParent"] = {
                         ["$type"] = "CName",
                         ["$storage"] = "string",
@@ -310,7 +314,7 @@ function ambientArea:drawAmbient(changed)
         return
     end
 
-    local max = utils.getTextMaxWidth({"Outer Distance", "Priority", "Reverb", "Vertical Outer Distance", "Is Music", "Metadata Parent"}) + 8 * ImGui.GetStyle().ItemSpacing.x
+    local max = utils.getTextMaxWidth({"Outer Distance", "Priority", "Reverb", "Vertical Outer Distance", "Metadata Parent"}) + 8 * ImGui.GetStyle().ItemSpacing.x
 
     if ImGui.Button("Interior defaults") then
         history.addAction(history.getElementChange(self.object))
@@ -394,18 +398,6 @@ function ambientArea:drawAmbient(changed)
             })
             table.insert(self.parameterSearchValues, "")
         end
-
-        ImGui.TreePop()
-    end
-
-    -- Not one of the 949 shipped ambient areas sets this, so it stays out of the main list rather
-    -- than sitting between fields that matter.
-    if ImGui.TreeNodeEx("Advanced", ImGuiTreeNodeFlags.SpanFullWidth) then
-        style.mutedText("Is Music")
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(max)
-        self.trigger.Settings.Data.isMusic, _ = style.trackedCheckbox(self.object, "##isMusic", self.trigger.Settings.Data.isMusic)
-        style.tooltip("Route the area's events through the music bus.\nNo shipped ambient area enables this.")
 
         ImGui.TreePop()
     end

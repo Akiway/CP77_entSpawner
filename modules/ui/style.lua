@@ -1461,26 +1461,49 @@ local function resolveComboDisabledTooltip(disabledTooltip, optionText, index)
     return nil
 end
 
----Combo drawn from selectables, so that individual options can be greyed out and made unselectable.
+---Combo drawn from selectables, so popup sizing/flags and disabled options can be customized.
 ---@param text string Combo label / ID.
 ---@param selected number Current zero-based selected index.
 ---@param options table Array-like table of option labels.
 ---@param comboWidth number Combo width in pixels.
----@param disabledOptions table Keys are 1-based option indices and / or option labels.
+---@param disabledOptions table? Keys are 1-based option indices and / or option labels.
 ---@param opts TrackedComboOpts
 ---@return number newValue
 ---@return boolean changed
 local function drawComboWithDisabledOptions(text, selected, options, comboWidth, disabledOptions, opts)
+    selected = selected or 0
+    options = options or {}
+    disabledOptions = disabledOptions or {}
+
     local newValue = selected
     local changed = false
     local previewValue = tostring(options[(selected or 0) + 1] or "")
+    local maxPopupHeight = opts.maxPopupHeight or opts.popupMaxHeight
+    local comboFlags = opts.comboFlags
+
+    if maxPopupHeight ~= nil then
+        ImGui.SetNextWindowSizeConstraints(1, 1, 10000, maxPopupHeight)
+        if comboFlags == nil and ImGuiComboFlags and ImGuiComboFlags.HeightLargest then
+            comboFlags = ImGuiComboFlags.HeightLargest
+        end
+    end
 
     ImGui.SetNextItemWidth(comboWidth)
-    local comboOpen = ImGui.BeginCombo(text, previewValue)
-    local tooltipText = buildSelectorTooltip(previewValue, opts.tooltip, opts.currentValueTooltip)
-    copySelectorValueOnMiddleClick(previewValue, opts.currentValueTooltip)
-    if tooltipText then
-        style.tooltip(tooltipText)
+    local comboOpen
+    if comboFlags ~= nil then
+        comboOpen = ImGui.BeginCombo(text, previewValue, comboFlags)
+    else
+        comboOpen = ImGui.BeginCombo(text, previewValue)
+    end
+
+    if type(opts.tooltipFn) == "function" then
+        opts.tooltipFn(previewValue)
+    else
+        local tooltipText = buildSelectorTooltip(previewValue, opts.tooltip, opts.currentValueTooltip)
+        copySelectorValueOnMiddleClick(previewValue, opts.currentValueTooltip)
+        if tooltipText then
+            style.tooltip(tooltipText)
+        end
     end
 
     if comboOpen then
@@ -1497,9 +1520,15 @@ local function drawComboWithDisabledOptions(text, selected, options, comboWidth,
                     style.tooltip(disabledTooltip, ImGuiHoveredFlags.AllowWhenDisabled)
                 end
             else
-                if ImGui.Selectable(optionText, isSelected) then
-                    newValue = index - 1
-                    changed = newValue ~= selected
+                -- CET's Selectable returns the resulting selected state, so a currently selected row
+                -- reports true even when it was only drawn. Compare with the input state to detect a click.
+                if ImGui.Selectable(optionText, isSelected) ~= isSelected then
+                    if not isSelected then
+                        newValue = index - 1
+                        changed = newValue ~= selected
+                    end
+
+                    ImGui.CloseCurrentPopup()
                 end
                 if isSelected then
                     ImGui.SetItemDefaultFocus()
@@ -1514,13 +1543,17 @@ local function drawComboWithDisabledOptions(text, selected, options, comboWidth,
     return newValue, changed
 end
 
----Draw a combo box and record history when selection changes.
+---Draw a combo box and optionally record history when selection changes.
 ---@class TrackedComboOpts
 ---@field tooltip string? Optional helper text appended after the current value.
+---@field tooltipFn fun(currentValue: string)? Custom tooltip/copy handler for the combo item. When set, `tooltip` and `currentValueTooltip` are skipped.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
 ---@field disabledOptions table<number|string, boolean>? Options that are greyed out and can not be picked, keyed by 1-based index and / or option label. The currently selected option is never disabled.
 ---@field disabledTooltip (string|fun(optionText: string, index: number): string?)? Tooltip shown when hovering a disabled option.
----@param element table Element used for undo history tracking.
+---@field comboFlags number? Optional `ImGuiComboFlags`; switches to the selectable combo path.
+---@field maxPopupHeight number? Optional max popup height in pixels; switches to the selectable combo path.
+---@field popupMaxHeight number? Alias for `maxPopupHeight`.
+---@param element table? Element used for undo history tracking. When nil, no history action is recorded.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
 ---@param options table Array-like table of option labels.
@@ -1536,24 +1569,35 @@ function style.trackedCombo(element, text, selected, options, width, opts)
 
     width = width or 100
     opts = opts or {}
+    selected = selected or 0
+    options = options or {}
 
     local disabledOptions = opts.disabledOptions
     local newValue, changed
 
-    if type(disabledOptions) == "table" and next(disabledOptions) ~= nil then
+    if (type(disabledOptions) == "table" and next(disabledOptions) ~= nil)
+        or opts.comboFlags ~= nil
+        or opts.maxPopupHeight ~= nil
+        or opts.popupMaxHeight ~= nil
+        or opts.tooltipFn ~= nil then
         newValue, changed = drawComboWithDisabledOptions(text, selected, options, width * style.viewSize, disabledOptions, opts)
     else
         ImGui.SetNextItemWidth(width * style.viewSize)
 
         newValue, changed = ImGui.Combo(text, selected, options, #options)
-        local tooltipText = buildSelectorTooltip(options[(newValue or selected or 0) + 1], opts.tooltip, opts.currentValueTooltip)
-        copySelectorValueOnMiddleClick(options[(newValue or selected or 0) + 1], opts.currentValueTooltip)
-        if tooltipText then
-            style.tooltip(tooltipText)
+        local currentValue = options[(newValue or selected or 0) + 1]
+        if type(opts.tooltipFn) == "function" then
+            opts.tooltipFn(currentValue)
+        else
+            local tooltipText = buildSelectorTooltip(currentValue, opts.tooltip, opts.currentValueTooltip)
+            copySelectorValueOnMiddleClick(currentValue, opts.currentValueTooltip)
+            if tooltipText then
+                style.tooltip(tooltipText)
+            end
         end
     end
 
-    if changed then
+    if changed and element then
         history.addAction(history.getElementChange(element))
     end
     return newValue, changed

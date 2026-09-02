@@ -29,8 +29,8 @@ function sound:new()
 
     o.spawnListType = "list"
     o.dataType = "Sounds"
-    o.spawnDataPath = "data/spawnables/visual/sounds/"
-    o.modulePath = "visual/audio"
+    o.spawnDataPath = "data/spawnables/audio/sounds/"
+    o.modulePath = "audio/audio"
     o.node = "worldStaticSoundEmitterNode"
     o.description = "Plays a sound"
     o.previewNote = "The list holds every event that keeps playing on an emitter.\nRadius is set from the event's own range when you spawn it,\nand can be previewed at true scale."

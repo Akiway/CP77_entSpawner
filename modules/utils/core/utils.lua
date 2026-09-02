@@ -275,6 +275,54 @@ local SERIALIZED_SPAWNABLE_ELEMENT_PATH = "modules/classes/editor/spawnableEleme
 local SERIALIZED_POSITIONABLE_GROUP_PATH = "modules/classes/editor/positionableGroup"
 local SERIALIZED_RANDOMIZED_GROUP_PATH = "modules/classes/editor/randomizedGroup"
 
+---Spawnable classes that have moved, old path -> new path. Projects, prefabs and favorites store
+---the module path a spawnable had when they were written, so a class that moves keeps answering
+---to where it used to live. What is loaded reports the new path and re-saves under it.
+local movedSpawnableModules = {
+    ["visual/audio"] = "audio/audio",
+    ["visual/audioTag"] = "audio/audioTag"
+}
+
+---Where a stored spawnable module path lives today.
+---@param modulePath string?
+---@return string
+function miscUtils.resolveSpawnableModulePath(modulePath)
+    local path = tostring(modulePath or "")
+    return movedSpawnableModules[path] or path
+end
+
+---Requires a spawnable class by a stored module path, following any move it made. Raises the
+---same way a bare `require` does, so callers that tolerate unknown classes still need a pcall.
+---@param modulePath string?
+---@return table class
+function miscUtils.requireSpawnable(modulePath)
+    return require("modules/classes/spawn/" .. miscUtils.resolveSpawnableModulePath(modulePath))
+end
+
+---Re-keys a settings map keyed by spawnable module path onto the paths those classes live at
+---now, so a class that moved keeps the toggles the user set for it instead of silently
+---reverting to its defaults.
+---@param byModulePath table<string, any>? Mutated in place.
+---@return boolean changed Whether anything was re-keyed, so the caller can save once.
+function miscUtils.migrateMovedSpawnableModuleKeys(byModulePath)
+    if type(byModulePath) ~= "table" then return false end
+
+    local changed = false
+
+    for oldPath, newPath in pairs(movedSpawnableModules) do
+        if byModulePath[oldPath] ~= nil then
+            -- A value already stored under the new path was set deliberately, and wins.
+            if byModulePath[newPath] == nil then
+                byModulePath[newPath] = byModulePath[oldPath]
+            end
+            byModulePath[oldPath] = nil
+            changed = true
+        end
+    end
+
+    return changed
+end
+
 ---Whether a serialized node (favorite/exported data) represents a single spawnable element.
 ---@param data table?
 ---@return boolean

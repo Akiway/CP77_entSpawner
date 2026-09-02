@@ -54,7 +54,9 @@ local types = {
                     { modulePath = "physics/destructibleMesh", label = "Instanced Destructible Mesh" },
                     { modulePath = "physics/physicalDestruction", label = "Physical Destruction Mesh" },
                     { modulePath = "physics/bakedDestruction", label = "Baked Destruction Mesh" }
-                }
+                },
+                hostedNote = "The asset decides which node is placed; the Node type filter narrows the list down to one.",
+                previewNote = "Destruction is not simulated in-editor. The intact mesh and its physics body are previewed."
             },
             ["Bended Mesh"] = { class = require("modules/classes/spawn/mesh/bendedMesh"), index = 6 },
             ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 7 }
@@ -66,54 +68,70 @@ local types = {
             ["Collision Shape"] = { class = require("modules/classes/spawn/collision/collider"), index = 1 },
             ["Collision Mesh"] = { class = require("modules/classes/spawn/collision/meshCollider"), index = 2 }
         },
-        index = 5
+        index = 6
     },
     ["Deco"] = {
         variants = {
-            ["Particles"] = { class = require("modules/classes/spawn/visual/particle"), index = 2 },
             ["Decals"] = { class = require("modules/classes/spawn/visual/decal"), index = 1 },
+            ["Particles"] = { class = require("modules/classes/spawn/visual/particle"), index = 2 },
             ["Effects"] = { class = require("modules/classes/spawn/visual/effect"), index = 3 },
-            ["Static Audio Emitter"] = { class = require("modules/classes/spawn/visual/audio"), index = 4 },
-            ["Audio Tag"] = { class = require("modules/classes/spawn/visual/audioTag"), index = 5 },
-            ["Water Patch"] = { class = require("modules/classes/spawn/visual/waterPatch"), index = 6 }
+            ["Water Patch"] = { class = require("modules/classes/spawn/visual/waterPatch"), index = 4 }
         },
         index = 4
+    },
+    ["Audio"] = {
+        variants = {
+            ["Static Audio Emitter"] = { class = require("modules/classes/spawn/audio/audio"), index = 1 },
+            ["Ambient Area"] = { class = require("modules/classes/spawn/area/ambientArea"), index = 2 },
+            ["Audio Signpost Area"] = { class = require("modules/classes/spawn/area/audioSignpost"), index = 3 },
+            ["Audio Attract Area"] = { class = require("modules/classes/spawn/area/audioAttractArea"), index = 4 },
+            ["Audio Tag"] = { class = require("modules/classes/spawn/audio/audioTag"), index = 5 }
+        },
+        index = 5
     },
     ["Meta"] = {
         variants = {
             ["Occluder"] = { class = require("modules/classes/spawn/meta/occluder"), index = 1 },
-            ["Static Marker"] = { class = require("modules/classes/spawn/meta/staticMarker"), index = 3 },
-            ["Spline Point"] = { class = require("modules/classes/spawn/meta/splineMarker"), index = 4 },
-            ["Spline"] = { class = require("modules/classes/spawn/meta/spline"), index = 5 },
-            ["Speed Spline"] = { class = require("modules/classes/spawn/meta/speedSpline"), index = 6 },
-            ["Patrol Spline"] = { class = require("modules/classes/spawn/meta/patrolSpline"), index = 7 }
+            ["Static Marker"] = { class = require("modules/classes/spawn/meta/staticMarker"), index = 2 }
         },
-        index = 6
+        index = 7
     },
     ["Area"] = {
         variants = {
             ["Outline Marker"] = { class = require("modules/classes/spawn/area/outlineMarker"), index = 1 },
             ["Trigger Area"] = { class = require("modules/classes/spawn/area/triggerArea"), index = 2 },
-            ["Ambient Area"] = { class = require("modules/classes/spawn/area/ambientArea"), index = 3 },
-            ["Kill Area"] = { class = require("modules/classes/spawn/area/killArea"), index = 4 },
-            ["Prevention Free"] = { class = require("modules/classes/spawn/area/preventionFree"), index = 5 },
-            ["Water Null"] = { class = require("modules/classes/spawn/area/waterNull"), index = 6 },
-            ["Conversation Area"] = { class = require("modules/classes/spawn/area/conversationArea"), index = 7 },
-            ["Crowd Null Area"] = { class = require("modules/classes/spawn/area/crowdNull"), index = 8 },
-            ["Dummy Area"] = { class = require("modules/classes/spawn/area/dummyArea"), index = 9 },
-            ["World Boundary"] = { class = require("modules/classes/spawn/area/worldBoundary"), index = 10 },
-            ["Guard Area"] = { class = require("modules/classes/spawn/area/guardArea"), index = 11 },
-            ["Audio Signpost Area"] = { class = require("modules/classes/spawn/area/audioSignpost"), index = 12 },
-            ["Audio Attract Area"] = { class = require("modules/classes/spawn/area/audioAttractArea"), index = 13 }
+            ["Kill Area"] = { class = require("modules/classes/spawn/area/killArea"), index = 3 },
+            ["Prevention Free"] = { class = require("modules/classes/spawn/area/preventionFree"), index = 4 },
+            ["Water Null"] = { class = require("modules/classes/spawn/area/waterNull"), index = 5 },
+            ["Crowd Null Area"] = { class = require("modules/classes/spawn/area/crowdNull"), index = 6 },
+            ["Dummy Area"] = { class = require("modules/classes/spawn/area/dummyArea"), index = 7 },
+            ["World Boundary"] = { class = require("modules/classes/spawn/area/worldBoundary"), index = 8 }
         },
-        index = 7
+        index = 8
     },
     ["AI"] = {
         variants = {
             ["AI Spot"] = { class = aiSpotClass, index = 1 },
-            ["Community"] = { class = require("modules/classes/spawn/ai/communityArea"), index = 2 }
+            ["Community"] = { class = require("modules/classes/spawn/ai/communityArea"), index = 2 },
+            ["Spline Point"] = { class = require("modules/classes/spawn/meta/splineMarker"), index = 3 },
+            -- One browser over all three spline nodes. They share the basic spline's path
+            -- pipeline and differ only in what the node adds on top, so the entry picks the
+            -- node type and the row icon tells them apart. Three rows show every node type at
+            -- once, so there is nothing for a node type filter to narrow down.
+            ["Spline"] = {
+                class = require("modules/classes/spawn/meta/spline"),
+                index = 4,
+                sources = {
+                    { modulePath = "meta/spline", label = "Spline" },
+                    { modulePath = "meta/speedSpline", label = "Speed Spline" },
+                    { modulePath = "meta/patrolSpline", label = "Patrol Spline" }
+                },
+                hideNodeTypeFilter = true
+            },
+            ["Conversation Area"] = { class = require("modules/classes/spawn/area/conversationArea"), index = 5 },
+            ["Guard Area"] = { class = require("modules/classes/spawn/area/guardArea"), index = 6 }
         },
-        index = 8
+        index = 9
     }
 }
 
@@ -296,8 +314,8 @@ end
 ---hosted sources on the spawn list.
 ---
 ---Used when one browser covers more than one world node type: the node types have separate
----spawnable classes and separate path lists, but the user picks an asset first and the node
----type follows from it. Every entry is tagged with the module that spawns it, so
+---spawnable classes and separate lists, but the user picks a row first and the node type
+---follows from it. Every entry is tagged with the module that spawns it, so
 ---`resolveEntryClass` can hand the right class to `spawnNew`, and with a label the
 ---`nodeType` entry filter groups by.
 ---@param spawnList table
@@ -318,7 +336,11 @@ local function mergeHostedSpawnSources(spawnList, sources)
             icon = instance.icon,
             node = instance.node,
             description = instance.description,
-            groupsNote = class.nodeTypeGroupsNote
+            groupsNote = class.nodeTypeGroupsNote,
+            -- Each hosted class keeps its own Spawn New visualizer default, the host's does
+            -- not stand in for it: they are separate node types with separate previews.
+            supportsVisualizer = supportsSpawnNewVisualizerDefault(instance) == true,
+            defaultPreviewed = instance.previewed == true
         })
         hostedIconByLabel[label] = instance.icon
 
@@ -332,7 +354,10 @@ local function mergeHostedSpawnSources(spawnList, sources)
             hostedGroupResolverByModule[source.modulePath] = class.resolveNodeTypeGroup
         end
 
-        for _, entry in ipairs(config.loadLists(instance.spawnDataPath)) do
+        -- Hosted classes need not agree on how their list is stored: an asset browser reads
+        -- path lists, a preset browser reads exported files. Both yield the same entry shape.
+        local loadSpawnDataFn = instance.spawnListType == "list" and config.loadLists or config.loadFiles
+        for _, entry in ipairs(loadSpawnDataFn(instance.spawnDataPath)) do
             entry.modulePath = source.modulePath
             entry.nodeTypeLabel = label
             table.insert(merged, entry)
@@ -345,8 +370,10 @@ end
 ---Info tooltip of a variant hosting several spawnable classes: one line per hosted node
 ---type, instead of the host class's own description which only covers one of them.
 ---@param spawnList table
+---@param variant table The `types` entry declaring the hosted sources.
+---@param variantInstance spawnable The host class instance, for the notes the variant leaves out.
 ---@return table info {node, description, previewNote}
-local function buildHostedSpawnInfo(spawnList)
+local function buildHostedSpawnInfo(spawnList, variant, variantInstance)
     local nodes = {}
     local descriptions = {}
 
@@ -360,11 +387,16 @@ local function buildHostedSpawnInfo(spawnList)
         table.insert(descriptions, description)
     end
 
+    local defaultNote = spawnList.hideNodeTypeFilter
+        and "Each entry places one of these nodes."
+        or "The Node type filter narrows the list down to one."
+
     return {
         node = table.concat(nodes, ", "),
-        description = table.concat(descriptions, "\n\n") ..
-            "\n\nThe asset decides which node is placed; the Node type filter narrows the list down to one.",
-        previewNote = "Destruction is not simulated in-editor. The intact mesh and its physics body are previewed."
+        description = table.concat(descriptions, "\n\n") .. "\n\n" .. (variant.hostedNote or defaultNote),
+        -- The host's own preview note only covers its own node, so a variant spanning several
+        -- says it once for all of them; without one the host's still beats leaving it blank.
+        previewNote = variant.previewNote or variantInstance.previewNote
     }
 end
 
@@ -393,6 +425,27 @@ local function getHostedEntryIcon(entry)
     return hostedIconByLabel[resolveHostedNodeType(entry)] or ""
 end
 
+---Trailing icon of one spawn list row, marking which flavor of node the entry places. Hosted
+---browsers mark the node type; a class covering several flavors of one node (a static light's
+---point/spot/area) names its own; device entities fall back to their device class. Only one of
+---the three ever applies to a given list.
+---@param entry table?
+---@param spawnList table
+---@return string
+local function getEntryRowIcon(entry, spawnList)
+    local icon = getHostedEntryIcon(entry)
+
+    if icon == "" and spawnList.resolveEntrySecondaryIcon then
+        icon = spawnList.resolveEntrySecondaryIcon(entry) or ""
+    end
+
+    if icon == "" then
+        icon = entity.getEntrySecondaryIcon(entry, spawnList.modulePath)
+    end
+
+    return icon
+end
+
 ---The spawnable class that spawns a given entry. Entries of a variant hosting several
 ---classes carry their own module path; everything else uses the variant's class.
 ---@param spawnList table?
@@ -401,7 +454,7 @@ end
 local function resolveEntryClass(spawnList, entry)
     local modulePath = entry and entry.modulePath
     if type(modulePath) == "string" and modulePath ~= "" then
-        return require("modules/classes/spawn/" .. modulePath)
+        return utils.requireSpawnable(modulePath)
     end
 
     return spawnList.class
@@ -523,6 +576,15 @@ function spawnUI.loadSpawnData(spawner)
         settingsChanged = true
     end
 
+    -- Both maps below are keyed by module path, so a class that has moved would come back with
+    -- its defaults instead of what the user set for it. Re-keyed once, before anything reads them.
+    if utils.migrateMovedSpawnableModuleKeys(settings.assetPreviewEnabled) then
+        settingsChanged = true
+    end
+    if utils.migrateMovedSpawnableModuleKeys(settings.spawnNewVisualizerEnabledByModule) then
+        settingsChanged = true
+    end
+
     for _, dataName in ipairs(typeNames) do
         spawnData[dataName] = {}
         local visualizerEntries = {}
@@ -544,15 +606,17 @@ function spawnUI.loadSpawnData(spawner)
                 assetPreviewDelay = variantInstance.assetPreviewDelay,
                 assetPreviewType = variantInstance.assetPreviewType,
                 entryFilter = variantInstance.entryFilter,
-                entryNote = variantInstance.entryNote
+                entryNote = variantInstance.entryNote,
+                hideNodeTypeFilter = variant.hideNodeTypeFilter == true,
+                resolveEntrySecondaryIcon = variant.class.resolveEntrySecondaryIcon
             }
 
-            -- A variant may host several spawnable classes in one browser, when they cover different
-            -- world nodes over non-overlapping asset sets. Every entry then carries the module that
-            -- spawns it, and an entry filter narrows the list to one node type.
+            -- A variant may host several spawnable classes in one browser, when they cover closely
+            -- related world nodes. Every entry then carries the module that spawns it, and an
+            -- entry filter narrows the list to one node type.
             if variant.sources then
                 spawnList.data = mergeHostedSpawnSources(spawnList, variant.sources)
-                spawnList.info = buildHostedSpawnInfo(spawnList)
+                spawnList.info = buildHostedSpawnInfo(spawnList, variant, variantInstance)
             end
 
             if variantInstance.collapseSpawnList then
@@ -577,18 +641,33 @@ function spawnUI.loadSpawnData(spawner)
                 settingsChanged = true
             end
 
-            if supportsSpawnNewVisualizerDefault(variantInstance) then
-                local defaultPreviewed = variantInstance.previewed == true
-
-                table.insert(visualizerEntries, {
+            -- A hosted browser has no single class to preview, so its node types are cataloged
+            -- one by one under their own labels; every other variant contributes its own class.
+            local visualizerClasses = {}
+            if spawnList.hostedSources then
+                for _, source in ipairs(spawnList.hostedSources) do
+                    if source.supportsVisualizer then
+                        table.insert(visualizerClasses, {
+                            name = source.label,
+                            modulePath = source.modulePath,
+                            defaultPreviewed = source.defaultPreviewed
+                        })
+                    end
+                end
+            elseif supportsSpawnNewVisualizerDefault(variantInstance) then
+                visualizerClasses[1] = {
                     name = variantName,
                     modulePath = modulePath,
-                    defaultPreviewed = defaultPreviewed
-                })
-                visualizerModuleSet[modulePath] = true
+                    defaultPreviewed = variantInstance.previewed == true
+                }
+            end
 
-                if type(settings.spawnNewVisualizerEnabledByModule[modulePath]) ~= "boolean" then
-                    settings.spawnNewVisualizerEnabledByModule[modulePath] = defaultPreviewed
+            for _, visualizerClass in ipairs(visualizerClasses) do
+                table.insert(visualizerEntries, visualizerClass)
+                visualizerModuleSet[visualizerClass.modulePath] = true
+
+                if type(settings.spawnNewVisualizerEnabledByModule[visualizerClass.modulePath]) ~= "boolean" then
+                    settings.spawnNewVisualizerEnabledByModule[visualizerClass.modulePath] = visualizerClass.defaultPreviewed
                     settingsChanged = true
                 end
             end
@@ -962,7 +1041,9 @@ local entryFilters = {
         unselectAllTooltip = "Unselect all node types (default behavior: show all)",
         clearTooltip = "Clear selected node-type filters",
         comboWidth = 220,
-        supports = function (spawnList) return spawnList.hostedSources ~= nil end,
+        -- A short hosted list shows every node type at once, so filtering it buys nothing and
+        -- the variant opts out; the row icons still say which node each entry places.
+        supports = function (spawnList) return spawnList.hostedSources ~= nil and not spawnList.hideNodeTypeFilter end,
         resolveKey = function (entry) return resolveHostedNodeType(entry) end,
         -- resolveIcon only receives the key, so the icons are looked up in the map the
         -- hosted sources filled in rather than off the spawn list.
@@ -1929,7 +2010,7 @@ function spawnUI.handleAssetPreviewHovered(entry, isFavorite, spawnListOverride)
 
             local data = utils.deepcopy(entry.data)
             if isFavorite then
-                spawnUI.previewInstance = require("modules/classes/spawn/" .. data.spawnable.modulePath):new()
+                spawnUI.previewInstance = utils.requireSpawnable(data.spawnable.modulePath):new()
                 data = data.spawnable
             else
                 spawnUI.previewInstance = resolveEntryClass(activeSpawnList, entry):new()
@@ -2152,12 +2233,7 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
         favoriteMarkerWidth = starWidth + ImGui.GetStyle().ItemSpacing.x
     end
 
-    -- In a browser hosting several node types the node type is the useful marker; elsewhere
-    -- the device class icon is, and only one of the two ever applies to a given list.
-    local secondaryIcon = getHostedEntryIcon(entry)
-    if secondaryIcon == "" then
-        secondaryIcon = entity.getEntrySecondaryIcon(entry, activeSpawnList.modulePath)
-    end
+    local secondaryIcon = getEntryRowIcon(entry, activeSpawnList)
     -- Reserved the same way the favorite star is: the row is one full-width button, so a trailing
     -- annotation has to be taken out of the button before it is drawn.
     local note = getEntryNote(entry, activeSpawnList)
@@ -2755,24 +2831,30 @@ function spawnUI.drawAll()
 
     style.spacedSeparator()
 
-    ImGui.PushItemWidth(120 * style.viewSize)
 	local typeChanged
-	spawnUI.selectedType, typeChanged = ImGui.Combo("Object type", spawnUI.selectedType, typeNames, #typeNames)
-    style.comboValueTooltip(spawnUI.selectedType, typeNames)
+    style.fieldLabel("Object type")
+	spawnUI.selectedType, typeChanged = style.trackedCombo(nil, "##objectType", spawnUI.selectedType, typeNames, 120, {
+        maxPopupHeight = style.getPopupMaxHeight()
+    })
     if typeChanged then
         spawnUI.updateCategory()
     end
 
     ImGui.SameLine()
+    style.mutedText(IconGlyphs.ChevronRight)
+    ImGui.SameLine()
 
 	local variantChanged
-	spawnUI.selectedVariant, variantChanged = ImGui.Combo("Object variant", spawnUI.selectedVariant, variantNames, #variantNames)
+    style.fieldLabel("variant")
+	spawnUI.selectedVariant, variantChanged = style.trackedCombo(nil, "##objectVariant", spawnUI.selectedVariant, variantNames, 120, {
+        maxPopupHeight = style.getPopupMaxHeight(),
+        tooltipFn = function (currentValue)
+            style.spawnableInfo(spawnUI.getActiveSpawnList().info, currentValue)
+        end
+    })
     if variantChanged then
         spawnUI.updateVariant()
     end
-    style.spawnableInfo(spawnUI.getActiveSpawnList().info, variantNames[spawnUI.selectedVariant + 1])
-
-	ImGui.PopItemWidth()
 
     if variantNames[spawnUI.selectedVariant + 1] == "Template (AMM)" then
         ImGui.SameLine()
@@ -3201,10 +3283,7 @@ function spawnUI.drawPopupVariant(typeName, variantName)
             while (clipper:Step()) do
                 for i = clipper.DisplayStart + 1, clipper.DisplayEnd, 1 do
                     ImGui.PushID(spawnUI.popupData[i].name)
-                    local secondaryIcon = getHostedEntryIcon(spawnUI.popupData[i])
-                    if secondaryIcon == "" then
-                        secondaryIcon = entity.getEntrySecondaryIcon(spawnUI.popupData[i], popupSpawnList.modulePath)
-                    end
+                    local secondaryIcon = getEntryRowIcon(spawnUI.popupData[i], popupSpawnList)
                     local popupButtonText = formatSearchResultButtonText(
                         spawnUI.popupData[i].name,
                         xSpace - ImGui.GetStyle().ItemSpacing.x * 3,

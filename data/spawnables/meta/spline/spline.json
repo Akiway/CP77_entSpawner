@@ -16,7 +16,7 @@
     "visible": true,
     "spawnable": {
         "rotationRelative": false,
-        "modulePath": "meta/data/spawnables/meta/spline",
+        "modulePath": "meta/spline",
         "dataType": "Spline",
         "position": {
             "y": 0,

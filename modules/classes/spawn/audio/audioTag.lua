@@ -31,8 +31,8 @@ function audioTag:new()
 
     o.spawnListType = "files"
     o.dataType = "Audio Tag"
-    o.spawnDataPath = "data/spawnables/visual/audioTag/"
-    o.modulePath = "visual/audioTag"
+    o.spawnDataPath = "data/spawnables/audio/audioTag/"
+    o.modulePath = "audio/audioTag"
     o.node = "worldAudioTagNode"
     o.description = "Marks a spherical volume with an audio tag, biasing which exploration music plays inside it."
     o.previewNote = "The tag has no effect in the editor.\nRadius can be previewed at true scale."

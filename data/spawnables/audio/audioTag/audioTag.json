@@ -16,7 +16,7 @@
     "visible": true,
     "spawnable": {
         "rotationRelative": false,
-        "modulePath": "meta/data/spawnables/visual/audioTag",
+        "modulePath": "audio/audioTag",
         "dataType": "Audio Tag",
         "position": {
             "y": 0,

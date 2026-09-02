@@ -129,7 +129,7 @@ local function getModuleIcon(modulePath)
     -- New variant may host several spawnable classes, so its class is not necessarily the
     -- one this module path names.
     local okInstance, instance = pcall(function ()
-        return require("modules/classes/spawn/" .. modulePath):new()
+        return utils.requireSpawnable(modulePath):new()
     end)
 
     if okInstance and instance and type(instance.icon) == "string" then
