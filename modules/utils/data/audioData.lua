@@ -76,6 +76,7 @@ local emitterNames = nil
 local emitterLabels = nil
 local emitterTooltips = nil
 local emitterEventNames = nil
+local allEventNames = nil
 
 ---Formats a number without a trailing `.0`, so `3` reads as `3` and `0.2` as `0.2`.
 ---@param value number
@@ -142,6 +143,26 @@ function audioData.getEventTagList()
     return type(tags) == "table" and tags or {}
 end
 
+---Every audio event the game knows, sorted. Used where the field is not an emitter: a door's
+---`openEvent` is a one-shot and would never appear in the emitter list.
+---@return string[] names
+function audioData.getAllEventNames()
+    if allEventNames then return allEventNames end
+
+    allEventNames = {}
+
+    local events = cache.staticData.soundEvents
+    if type(events) == "table" then
+        for name in pairs(events) do
+            table.insert(allEventNames, name)
+        end
+    end
+
+    table.sort(allEventNames)
+
+    return allEventNames
+end
+
 ---Every event that keeps playing on a positional emitter, sorted.
 ---These are the only events worth offering for a static emitter or an ambient area's active events.
 ---@return string[] names
@@ -196,6 +217,50 @@ function audioData.describeEvent(name)
     end
 
     return table.concat(parts, "  |  ")
+end
+
+---Compact, context-neutral summary of an event: what it is, without judging whether it suits an
+---emitter. A one-shot is the right answer for a door's `openEvent`, so nothing is flagged here.
+---@param name string? Event name.
+---@return string note Empty when the event is unknown.
+function audioData.getEventShortNote(name)
+    local event = audioData.getEvent(name)
+    if not event then return "" end
+    if event.unknown then return "no metadata" end
+
+    local parts = {}
+
+    if event.looping then
+        table.insert(parts, "loop")
+    else
+        local duration = tonumber(event.duration)
+        table.insert(parts, (duration and duration > 0) and (formatNumber(duration) .. "s") or "one-shot")
+    end
+
+    local attenuation = tonumber(event.attenuation) or 0
+    table.insert(parts, attenuation > 0 and (formatNumber(attenuation) .. "m") or "2D")
+
+    return table.concat(parts, ", ")
+end
+
+---Annotation for one row of the Sounds browser: the event's range, or a warning when it will not
+---keep playing on an emitter. Range is the fact worth seeing while choosing, because it separates a
+---5 m interior hum from a 130 m city element long before either is placed.
+---@param name string? Event name.
+---@return { text: string, tooltip: string, warn: boolean? }? note `nil` when there is nothing to say.
+function audioData.getEventRowNote(name)
+    local event = audioData.getEvent(name)
+    if not event then return nil end
+
+    local warning = audioData.getEmitterWarning(name)
+    if warning then
+        return { text = IconGlyphs.AlertOutline, tooltip = warning, warn = true }
+    end
+
+    local attenuation = tonumber(event.attenuation) or 0
+    if attenuation <= 0 then return nil end
+
+    return { text = formatNumber(attenuation) .. "m", tooltip = audioData.describeEvent(name) }
 end
 
 ---Why an event will not behave on a static emitter, if it will not.
@@ -320,7 +385,7 @@ end
 --- Vocabularies ---------------------------------------------------------------------------------
 
 ---Closed name set for a field that only accepts entries from the cooked metadata.
----@param key "reverbs"|"ambientAreaPresets"|"gameParameters"|"acousticZones"|"playlists"|"radioStations"
+---@param key "reverbs"|"ambientAreaPresets"|"gameParameters"|"acousticZones"|"playlists"|"radioStations"|"attractAreas"|"ambientPalettes"
 ---@return string[] names
 function audioData.getVocabulary(key)
     local vocab = cache.staticData.audioVocabularies
@@ -362,12 +427,163 @@ function audioData.getMergedVocabulary(key, harvested)
     return audioData.mergeNames(audioData.getVocabulary(key), harvested)
 end
 
+--- Audio fields on arbitrary instance data ------------------------------------------------------
+--
+-- Audio fields are plain `CName` everywhere in the engine, so the generic instance-data editor draws
+-- them as free text: the names are not guessable and a wrong one is silently dropped. What kind of
+-- name a field wants is encoded only in its name and its owning class, so that is what is matched
+-- here. Recognition is deliberately conservative - being wrong costs a needless dropdown, but the
+-- selectors all allow a custom value, so nothing becomes uneditable.
+
+---Property names whose vocabulary is known exactly, on any class.
+---@type table<string, string>
+local fieldKindsByName = {
+    -- Named entries in the cooked metadata.
+    emitterMetadataName = "emitterMetadata",
+    EmitterDecorator = "emitterMetadata",
+    emitterDecoratorMetadata = "emitterMetadata",
+    defaultEmitterName = "emitterMetadata",
+    trafficEmitterMetadata = "emitterMetadata",
+    Reverb = "reverb",
+    MetadataParent = "ambientAreaPreset",
+    playlistMetadataName = "playlist",
+    -- Sound events, named unambiguously.
+    event = "event",
+    soundName = "event",
+    soundEvent = "event",
+    audioEvent = "event",
+    audioEventName = "event",
+    soundEventName = "event",
+    loopSound = "event",
+    loopAudioEvent = "event",
+    spammingSound = "event",
+    reflectionEvent = "event",
+    trackEventName = "event",
+    blipEventName = "event",
+    voEventOverride = "event"
+}
+
+---Never treated as audio, despite matching a rule below: these carry a different vocabulary.
+---`audioTag` is the clearest trap - it is a material tag on `CMaterialInstance`, a grouping tag on
+---`gameaudioeventsPlaySound`, and a radio cue on `worldAudioTagNode`, all with different values.
+---@type table<string, boolean>
+local fieldKindDenyList = {
+    audioTag = true,
+    soundBank = true,
+    revSoundbankName = true,
+    revElectricSoundbankName = true,
+    reverbSoundbankName = true,
+    interiorReverbBus = true,
+    audioMetadata = true,
+    audioMetadataName = true,
+    voiceTag = true,
+    voiceTagName = true,
+    voTrigger = true,
+    voTriggerVariations = true,
+    eventName = true,
+    eventAction = true,
+    eventSource = true,
+    eventGenerate = true,
+    eventReceive = true,
+    eventExecutionTag = true,
+    emitter = true,
+    emitterName = true,
+    EmitterName = true,
+    inputEmitterName = true,
+    -- A gameplay event name, not a Wwise one, despite sitting on an `audio*` class.
+    gameplayEvent = true
+}
+
+---Suffixes that mark a `CName` as a sound event. `Event` alone is far too common outside audio
+---(anim graphs, quest nodes, particle systems), so it only counts on an `audio*` class - where every
+---such property in the shipped class dump genuinely is one.
+local eventSuffixesAnywhere = { "Sound", "SFX", "Sfx", "AudioEvent", "SoundEvent" }
+local eventSuffixesOnAudioClass = { "Event" }
+
+---@param name string
+---@param suffix string
+---@return boolean
+local function endsWith(name, suffix)
+    return #name >= #suffix and name:sub(-#suffix) == suffix
+end
+
+---What kind of audio name a property wants, if any.
+---@param propertyName string? Property key as it appears in the instance data.
+---@param ownerClass string? `$type` of the struct the property sits on.
+---@return "event"|"emitterMetadata"|"reverb"|"ambientAreaPreset"|"playlist"|nil kind
+function audioData.getFieldKind(propertyName, ownerClass)
+    local name = tostring(propertyName or "")
+    if name == "" or fieldKindDenyList[name] then return nil end
+
+    local exact = fieldKindsByName[name]
+    if exact then return exact end
+
+    for _, suffix in ipairs(eventSuffixesAnywhere) do
+        if endsWith(name, suffix) then return "event" end
+    end
+
+    if type(ownerClass) == "string" and ownerClass:sub(1, 5) == "audio" then
+        for _, suffix in ipairs(eventSuffixesOnAudioClass) do
+            if endsWith(name, suffix) then return "event" end
+        end
+    end
+
+    return nil
+end
+
+---Selector configuration for one field kind.
+---@param kind string
+---@return { options: string[], hint: string, tooltip: string, displayFn: function?, tooltipFn: function?, matchWidth: boolean? }? config
+function audioData.getFieldSelector(kind)
+    if kind == "event" then
+        return {
+            options = audioData.getAllEventNames(),
+            hint = "Search sound event...",
+            tooltip = "Wwise audio event. Hover an entry for whether it loops, how long it lasts and how far it carries.",
+            tooltipFn = audioData.describeEvent
+        }
+    elseif kind == "emitterMetadata" then
+        return {
+            options = audioData.getEmitterMetadataNames(),
+            hint = "Search preset...",
+            tooltip = "Named emitter preset from the cooked audio metadata.",
+            displayFn = audioData.getEmitterMetadataLabel,
+            tooltipFn = audioData.getEmitterMetadataTooltip,
+            matchWidth = true
+        }
+    elseif kind == "reverb" then
+        return {
+            options = audioData.getVocabulary("reverbs"),
+            hint = "Search reverb...",
+            tooltip = "Reverb preset. Base name only - the engine appends the size suffix at runtime.",
+            matchWidth = true
+        }
+    elseif kind == "ambientAreaPreset" then
+        return {
+            options = audioData.getVocabulary("ambientAreaPresets"),
+            hint = "Search preset...",
+            tooltip = "Ambient area preset to inherit settings from.",
+            matchWidth = true
+        }
+    elseif kind == "playlist" then
+        return {
+            options = audioData.getVocabulary("playlists"),
+            hint = "Search playlist...",
+            tooltip = "Radio playlist from the cooked audio metadata.",
+            matchWidth = true
+        }
+    end
+
+    return nil
+end
+
 ---Drops the cached selector lists, so a data reload is picked up.
 function audioData.invalidate()
     emitterNames = nil
     emitterLabels = nil
     emitterTooltips = nil
     emitterEventNames = nil
+    allEventNames = nil
 end
 
 return audioData

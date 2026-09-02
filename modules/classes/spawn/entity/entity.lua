@@ -17,6 +17,7 @@ local logger = require("modules/utils/core/logger")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 local tweakDb = require("modules/utils/game/tweakDbUtils")
 local saveState = require("modules/utils/project/saveState")
+local audioData = require("modules/utils/data/audioData")
 
 local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
@@ -144,6 +145,7 @@ local deviceClassSourceByModulePath = {
 ---@field protected instanceDataSearch string
 ---@field protected instanceDataSearchInProperties boolean
 ---@field protected nullHandleSearch table Search text per null-handle class picker, keyed by path
+---@field protected audioFieldSearch table Search text per audio-name selector, keyed by path
 ---@field protected psControllerID string
 local entity = setmetatable({}, { __index = spawnable })
 
@@ -175,6 +177,7 @@ function entity:new()
     o.instanceDataSearch = ""
     o.instanceDataSearchInProperties = true
     o.nullHandleSearch = {}
+    o.audioFieldSearch = {}
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
@@ -1956,6 +1959,86 @@ function entity:drawStringProp(componentID, key, data, path, type, width, max)
     return value
 end
 
+---`$type` of the struct a property sits on, which is what decides whether an ambiguously named
+---field is an audio one. An empty path resolves to the component itself.
+---@param componentID number
+---@param path table Path to the property, from the component root
+---@return string? ownerClass
+function entity:getPropOwnerClass(componentID, path)
+    local ownerPath = utils.deepcopy(path)
+    table.remove(ownerPath)
+
+    local owner = utils.getNestedValue(self.instanceDataChanges[componentID] or {}, ownerPath)
+    if type(owner) ~= "table" or owner["$type"] == nil then
+        owner = utils.getNestedValue(self.defaultComponentData[componentID] or {}, ownerPath)
+    end
+
+    if type(owner) ~= "table" then return nil end
+
+    return type(owner["$type"]) == "string" and owner["$type"] or nil
+end
+
+---Draws an audio `CName` property as a searchable selector over the vocabulary its name implies,
+---instead of the free text box the generic editor would give it. Every audio field in the engine is
+---a plain `CName`, so without this an event, a reverb and an emitter preset all look identical and
+---a wrong name is silently dropped at runtime.
+---@param componentID number
+---@param key string|number Property key
+---@param data table The `CName` wrapper
+---@param path table Path to the wrapper, from the component root. Extended in place, as elsewhere.
+---@param max number Label column width
+---@param kind string Value from `audioData.getFieldKind`
+function entity:drawAudioNameProp(componentID, key, data, path, max, kind)
+    local selector = audioData.getFieldSelector(kind)
+    if not selector then return end
+
+    table.insert(path, "$value")
+
+    local keyName = tostring(key)
+    local current = tostring(data["$value"] or "")
+    local searchKey = tostring(componentID) .. "/" .. table.concat(path, "/")
+
+    ImGui.Text(keyName)
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(keyName) + max)
+
+    local value, searchValue, finished = style.trackedSearchDropdown(
+        "##" .. searchKey,
+        selector.hint,
+        current,
+        self.audioFieldSearch[searchKey] or "",
+        selector.options,
+        {
+            element = self.object,
+            width = 250,
+            listHeight = 200,
+            allowCustom = true,
+            matchContentWidth = selector.matchWidth == true,
+            optionDisplayFn = selector.displayFn,
+            optionTooltipFn = selector.tooltipFn,
+            tooltip = selector.tooltip
+        }
+    )
+    self.audioFieldSearch[searchKey] = searchValue
+
+    self:drawResetProp(componentID, path)
+
+    if kind == "event" then
+        local note = audioData.getEventShortNote(current)
+        if note ~= "" then
+            ImGui.SameLine()
+            style.mutedText(note)
+            style.tooltip(audioData.describeEvent(current))
+        end
+    end
+
+    if finished and value ~= current then
+        data["$storage"] = "string"
+        history.addAction(history.getElementChange(self.object))
+        self:updatePropValue(componentID, path, value)
+    end
+end
+
 ---@param componentID number
 ---@param path table
 ---@param typeName table?
@@ -2317,8 +2400,18 @@ function entity:drawTableProp(componentID, key, data, path, max, modified, prope
 
     local info = self:getPropTypeInfo(componentID, path, key)
 
+    -- Audio names are all plain `CName`, so which vocabulary a field wants is decided by its name
+    -- and the class it sits on. Resolved before the generic CName branch below claims it.
+    local audioKind = info.typeName == "CName"
+        and audioData.getFieldKind(key, self:getPropOwnerClass(componentID, path))
+        or nil
+
     style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
-    if data["DepotPath"] then
+    if audioKind then
+        self:drawAudioNameProp(componentID, key, data, path, max, audioKind)
+        style.popStyleColor(modified)
+        return
+    elseif data["DepotPath"] then
         table.insert(path, "DepotPath")
         table.insert(path, "$value")
         self:drawStringProp(componentID, key, data["DepotPath"]["$value"], path, "Resource", 300, max)

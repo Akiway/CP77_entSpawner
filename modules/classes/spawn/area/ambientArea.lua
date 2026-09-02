@@ -44,9 +44,33 @@ local function getEventOptions(eventKey)
     return optionCache[eventKey]
 end
 
+---What most shipped interior areas do, measured over 949 of them: 61% ramp `amb_interior`, and the
+---modal setup pairs it with `revb_interior_default` at priority 11. Applied as one action, because
+---setting the three by hand is the main thing that makes an interior tedious to author.
+local INTERIOR_PRESET = {
+    parameter = "amb_interior",
+    parameterValue = 0.3,
+    reverb = "revb_interior_default",
+    priority = 11
+}
+
+---Four corner events, in the order the engine reads them. Shipped quads either use one `*_quad`
+---event four times or a matching `_FL`/`_FR`/`_RR`/`_RL` set.
+local QUAD_CORNERS = { "Front left", "Front right", "Rear right", "Rear left" }
+
 ---Class for worldAmbientAreaNode
 ---@class ambientArea : triggerArea
 local ambientArea = setmetatable({}, { __index = triggerArea })
+
+---@return table cname
+local function cname(value)
+    return { ["$type"] = "CName", ["$storage"] = "string", ["$value"] = value or "" }
+end
+
+---@return table eventStruct
+local function eventStruct(value)
+    return { ["$type"] = "audioAudEventStruct", ["event"] = cname(value) }
+end
 
 function ambientArea:new()
 	local o = triggerArea.new(self)
@@ -66,6 +90,7 @@ function ambientArea:new()
     o.reverbSearch = ""
     o.metadataParentSearch = ""
     o.parameterSearchValues = {}
+    o.quadSearchValues = {}
 
     setmetatable(o, { __index = self })
    	return o
@@ -118,19 +143,139 @@ function ambientArea:drawEvents(eventKey, default)
 
         if ImGui.Button("+") then
             history.addAction(history.getElementChange(self.object))
-            table.insert(self.trigger.Settings.Data[eventKey], {
-                ["$type"] = "audioAudEventStruct",
-                ["event"] = {
-                    ["$type"] = "CName",
-                    ["$storage"] = "string",
-                    ["$value"] = ""
-                }
-            })
+            table.insert(self.trigger.Settings.Data[eventKey], eventStruct(""))
             table.insert(self.eventSearchValues[eventKey], "")
         end
 
         ImGui.TreePop()
     end
+end
+
+---Applies the setup most shipped interiors use: the `amb_interior` ramp, an interior reverb and the
+---priority they sit at. Existing values are left alone, so it fills gaps rather than overwriting.
+function ambientArea:applyInteriorPreset()
+    local settings = self.trigger.Settings.Data
+
+    local hasParameter = false
+    for _, parameter in pairs(settings.Parameters) do
+        if parameter["name"] and parameter["name"]["$value"] == INTERIOR_PRESET.parameter then
+            hasParameter = true
+            break
+        end
+    end
+
+    if not hasParameter then
+        table.insert(settings.Parameters, {
+            ["$type"] = "audioAudParameter",
+            ["name"] = cname(INTERIOR_PRESET.parameter),
+            ["value"] = INTERIOR_PRESET.parameterValue
+        })
+        table.insert(self.parameterSearchValues, "")
+    end
+
+    if settings.Reverb["$value"] == "" or settings.Reverb["$value"] == "None" then
+        settings.Reverb["$value"] = INTERIOR_PRESET.reverb
+    end
+
+    settings.Priority = INTERIOR_PRESET.priority
+end
+
+---The quad emitter struct, created on first use. It is left absent otherwise so the export keeps the
+---engine defaults rather than writing a disabled block.
+---@return table quadSettings
+function ambientArea:ensureQuadSettings()
+    local settings = self.trigger.Settings.Data
+
+    if type(settings.quadSettings) ~= "table" then
+        settings.quadSettings = {
+            ["$type"] = "audioQuadEmitterSettings",
+            ["Angle"] = 0,
+            ["Enabled"] = false,
+            ["Events"] = { ["Elements"] = { eventStruct(""), eventStruct(""), eventStruct(""), eventStruct("") } },
+            ["Interleaved"] = false,
+            ["Offset"] = { ["$type"] = "Vector3", ["X"] = 0, ["Y"] = 0, ["Z"] = 0 },
+            ["Radius"] = 5
+        }
+    end
+
+    return settings.quadSettings
+end
+
+---Quad emitters place four corner sources around the area instead of one at its centre, which is how
+---shipped areas do wide crowds, wind and foliage. All six shipped ones use radius 2-6 and angle 0.
+function ambientArea:drawQuadSettings()
+    local quad = self.trigger.Settings.Data.quadSettings
+    local enabled = type(quad) == "table" and quad.Enabled == true
+
+    local open = style.treeNodeWithNote("Quad Emitter", enabled and "(on)" or "")
+    style.tooltip("Play four corner sources around the area rather than one in the middle.\nShipped areas use this for wide crowds, wind and foliage.")
+    if not open then return end
+
+    quad = self:ensureQuadSettings()
+
+    local max = utils.getTextMaxWidth({ "Enabled", "Radius", "Angle", "Interleaved", "Front right" }) + 8 * ImGui.GetStyle().ItemSpacing.x
+
+    style.mutedText("Enabled")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(max)
+    quad.Enabled, _ = style.trackedCheckbox(self.object, "##quadEnabled", quad.Enabled == true)
+
+    style.mutedText("Radius")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(max)
+    quad.Radius, _ = style.trackedDragFloat(self.object, "##quadRadius", quad.Radius, 0.01, 0, 9999, "%.2f", 75)
+    style.tooltip("How far the four corners sit from the centre. Shipped quads use 2 to 6.")
+
+    style.mutedText("Angle")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(max)
+    quad.Angle, _ = style.trackedDragFloat(self.object, "##quadAngle", quad.Angle, 0.1, -360, 360, "%.1f", 75)
+    style.tooltip("Rotates the four corners around the centre. Every shipped quad leaves this at 0.")
+
+    style.mutedText("Interleaved")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(max)
+    quad.Interleaved, _ = style.trackedCheckbox(self.object, "##quadInterleaved", quad.Interleaved == true)
+
+    self.quadSearchValues = self.quadSearchValues or {}
+
+    for index, corner in ipairs(QUAD_CORNERS) do
+        local element = quad.Events.Elements[index]
+        if element then
+            ImGui.PushID("quadEvent" .. index)
+            style.mutedText(corner)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(max)
+
+            local search = self.quadSearchValues[index] or ""
+            element["event"]["$value"], search, _ = style.trackedSearchDropdown("##quadEvent", "Search...", element["event"]["$value"], search, getEventOptions("EventsOnActive"), { element = self.object, width = style.getMaxWidth(250) - 30, allowCustom = true })
+            self.quadSearchValues[index] = search
+
+            local summary = audioData.describeEvent(element["event"]["$value"])
+            if summary ~= "" then
+                ImGui.SameLine()
+                style.mutedText(IconGlyphs.InformationOutline)
+                style.tooltip(summary)
+            end
+
+            -- Shipped quads either repeat one `*_quad` event or use a matching corner set, so
+            -- copying the first corner outward is the common case.
+            if index == 1 then
+                ImGui.SameLine()
+                if ImGui.Button(IconGlyphs.ContentCopy) then
+                    history.addAction(history.getElementChange(self.object))
+                    for other = 2, #QUAD_CORNERS do
+                        quad.Events.Elements[other]["event"]["$value"] = element["event"]["$value"]
+                    end
+                end
+                style.tooltip("Copy this event to the other three corners")
+            end
+
+            ImGui.PopID()
+        end
+    end
+
+    ImGui.TreePop()
 end
 
 function ambientArea:drawAmbient(changed)
@@ -167,6 +312,14 @@ function ambientArea:drawAmbient(changed)
 
     local max = utils.getTextMaxWidth({"Outer Distance", "Priority", "Reverb", "Vertical Outer Distance", "Is Music", "Metadata Parent"}) + 8 * ImGui.GetStyle().ItemSpacing.x
 
+    if ImGui.Button("Interior defaults") then
+        history.addAction(history.getElementChange(self.object))
+        self:applyInteriorPreset()
+    end
+    style.tooltip(string.format(
+        "Fill in what most shipped interiors do:\n  %s = %s\n  Reverb = %s\n  Priority = %d\nExisting values are kept.",
+        INTERIOR_PRESET.parameter, tostring(INTERIOR_PRESET.parameterValue), INTERIOR_PRESET.reverb, INTERIOR_PRESET.priority))
+
     style.mutedText("Priority")
     ImGui.SameLine()
     ImGui.SetCursorPosX(max)
@@ -174,6 +327,7 @@ function ambientArea:drawAmbient(changed)
     if changed then
         self.trigger.Settings.Data.Priority = math.floor(self.trigger.Settings.Data.Priority)
     end
+    style.tooltip("Which area wins where several overlap.\nShipped areas only ever use 0 to 12, so the default of 16 deliberately beats all of them.")
 
     style.mutedText("Outer Distance")
     ImGui.SameLine()
@@ -199,14 +353,10 @@ function ambientArea:drawAmbient(changed)
     self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, _ = style.trackedSearchDropdown("##metadataParent", "Search...", self.trigger.Settings.Data.MetadataParent["$value"], self.metadataParentSearch, getOptions("ambientAreaPresets", cache.staticData.ambientMetadataAll), { element = self.object, width = style.getMaxWidth(250), allowCustom = true })
     style.tooltip("Inherit a shipped interior preset - room, office, corridor, staircase, elevator.\nOne field gets you a correct interior without setting reverb and parameters by hand.")
 
-    style.mutedText("Is Music")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(max)
-    self.trigger.Settings.Data.isMusic, _ = style.trackedCheckbox(self.object, "##isMusic", self.trigger.Settings.Data.isMusic)
-
     self:drawEvents("EventsOnActive", "amb_int_roomtone_office_med_01_aircon")
     self:drawEvents("EventsOnEnter", "mus_e3_amb_silent")
     self:drawEvents("EventsOnExit", "mus_e3_amb_megabuilding")
+    self:drawQuadSettings()
 
     local parametersOpen = ImGui.TreeNodeEx("Parameters", ImGuiTreeNodeFlags.SpanFullWidth)
     style.tooltip("Wwise parameters ramped while the player is inside the area.\nThis is how most shipped areas do their work: 'amb_interior' at 1 is what tells the game it is indoors.")
@@ -244,6 +394,18 @@ function ambientArea:drawAmbient(changed)
             })
             table.insert(self.parameterSearchValues, "")
         end
+
+        ImGui.TreePop()
+    end
+
+    -- Not one of the 949 shipped ambient areas sets this, so it stays out of the main list rather
+    -- than sitting between fields that matter.
+    if ImGui.TreeNodeEx("Advanced", ImGuiTreeNodeFlags.SpanFullWidth) then
+        style.mutedText("Is Music")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(max)
+        self.trigger.Settings.Data.isMusic, _ = style.trackedCheckbox(self.object, "##isMusic", self.trigger.Settings.Data.isMusic)
+        style.tooltip("Route the area's events through the music bus.\nNo shipped ambient area enables this.")
 
         ImGui.TreePop()
     end

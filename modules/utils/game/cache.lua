@@ -653,50 +653,83 @@ end
 
 ---Builds normalized full audio datasets from raw extracted audio files.
 function cache.generateAudioFiles()
-    local ambientData = config.loadFile("data/audio/ambientData.json")
-    local ambientMetadata = config.loadFile("data/audio/ambientMetadata.json")
-    local ambientQuad = config.loadFile("data/audio/ambientQuad.json")
-    local signposts = config.loadFile("data/audio/signposts.json")
-    local staticData = config.loadFile("data/audio/staticData.json")
-    local staticMetadata = config.loadFile("data/audio/staticMetadata.json")
+    -- `config.loadFile` returns an empty table for a file that is missing or unparseable, so every
+    -- derived file below is only rewritten when its source actually holds something. Most of these
+    -- raw sector harvests are no longer in the repo; without this guard, running the regeneration
+    -- would overwrite the shipped datasets with empty ones.
+    ---@param path string Source file to read.
+    ---@return table? source `nil` when the file is missing or empty.
+    local function loadSource(path)
+        local data = config.loadFile(path)
 
-    config.saveFile("data/audio/signpostsData.json", {
-        enter = removeDuplicatesTable(signposts.enter),
-        exit = removeDuplicatesTable(signposts.exit)
-    })
-
-    -- Keyed by the `audioAmbientAreaSettings` field names, because that is what `ambientArea`
-    -- looks the lists up by when it draws one event group per field.
-    config.saveFile("data/audio/ambientDataFull.json", {
-        EventsOnEnter = removeDuplicatesTable(ambientData.onEnter),
-        EventsOnActive = removeDuplicatesTable(ambientData.onActive),
-        EventsOnExit = removeDuplicatesTable(ambientData.onExit),
-        parameters = removeDuplicatesTable(ambientData.parameters),
-        reverb = removeDuplicatesTable(ambientData.reverb)
-    })
-
-    config.saveFile("data/audio/staticDataFull.json", {
-        onEnter = removeDuplicatesTable(staticData.onEnter),
-        onActive = removeDuplicatesTable(staticData.onActive),
-        onExit = removeDuplicatesTable(staticData.onExit),
-        parameters = removeDuplicatesTable(staticData.parameters),
-        reverb = removeDuplicatesTable(staticData.reverb)
-    })
-
-    local quads = {}
-    for _, entry in pairs(ambientQuad) do
-        if not quads[entry.events[1]] then
-            quads[entry.events[1]] = entry.events
+        if type(data) ~= "table" or next(data) == nil then
+            logger:warn("Skipping audio regeneration from " .. path .. ": source is missing or empty")
+            return nil
         end
-    end
-    config.saveFile("data/audio/ambientQuadFull.json", quads)
 
-    local amb, ambAll = extractMetadata(ambientMetadata)
-    local stat, statAll = extractMetadata(staticMetadata)
-    config.saveFile("data/audio/ambientMetadataFull.json", amb)
-    config.saveFile("data/audio/staticMetadataFull.json", stat)
-    config.saveFile("data/audio/ambientMetadataAll.json", ambAll)
-    config.saveFile("data/audio/staticMetadataAll.json", statAll)
+        return data
+    end
+
+    local signposts = loadSource("data/audio/signposts.json")
+    if signposts then
+        config.saveFile("data/audio/signpostsData.json", {
+            enter = removeDuplicatesTable(signposts.enter or {}),
+            exit = removeDuplicatesTable(signposts.exit or {})
+        })
+    end
+
+    local ambientData = loadSource("data/audio/ambientData.json")
+    if ambientData then
+        -- Keyed by the `audioAmbientAreaSettings` field names, because that is what `ambientArea`
+        -- looks the lists up by when it draws one event group per field.
+        config.saveFile("data/audio/ambientDataFull.json", {
+            EventsOnEnter = removeDuplicatesTable(ambientData.onEnter or {}),
+            EventsOnActive = removeDuplicatesTable(ambientData.onActive or {}),
+            EventsOnExit = removeDuplicatesTable(ambientData.onExit or {}),
+            parameters = removeDuplicatesTable(ambientData.parameters or {}),
+            reverb = removeDuplicatesTable(ambientData.reverb or {})
+        })
+    end
+
+    local staticData = loadSource("data/audio/staticData.json")
+    if staticData then
+        config.saveFile("data/audio/staticDataFull.json", {
+            onEnter = removeDuplicatesTable(staticData.onEnter or {}),
+            onActive = removeDuplicatesTable(staticData.onActive or {}),
+            onExit = removeDuplicatesTable(staticData.onExit or {}),
+            parameters = removeDuplicatesTable(staticData.parameters or {}),
+            reverb = removeDuplicatesTable(staticData.reverb or {})
+        })
+    end
+
+    local ambientQuad = loadSource("data/audio/ambientQuad.json")
+    if ambientQuad then
+        local quads = {}
+        for _, entry in pairs(ambientQuad) do
+            if entry.events and entry.events[1] and not quads[entry.events[1]] then
+                quads[entry.events[1]] = entry.events
+            end
+        end
+        config.saveFile("data/audio/ambientQuadFull.json", quads)
+    end
+
+    local ambientMetadata = loadSource("data/audio/ambientMetadata.json")
+    if ambientMetadata then
+        local amb, ambAll = extractMetadata(ambientMetadata)
+        config.saveFile("data/audio/ambientMetadataFull.json", amb)
+        config.saveFile("data/audio/ambientMetadataAll.json", ambAll)
+    end
+
+    local staticMetadata = loadSource("data/audio/staticMetadata.json")
+    if staticMetadata then
+        local stat, statAll = extractMetadata(staticMetadata)
+        config.saveFile("data/audio/staticMetadataFull.json", stat)
+        config.saveFile("data/audio/staticMetadataAll.json", statAll)
+    end
+
+    -- `soundEvents.json`, `emitterMetadata.json`, `audioVocabularies.json` and the Sounds browser
+    -- list are generated from the game's own audio tables instead of harvested sector data, by
+    -- `script/audio/build_audio_data.py`. They are deliberately not touched here.
 end
 
 ---Checks whether any key in a lookup request is excluded from cache reuse.

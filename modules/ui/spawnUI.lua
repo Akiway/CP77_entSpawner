@@ -74,7 +74,8 @@ local types = {
             ["Decals"] = { class = require("modules/classes/spawn/visual/decal"), index = 1 },
             ["Effects"] = { class = require("modules/classes/spawn/visual/effect"), index = 3 },
             ["Static Audio Emitter"] = { class = require("modules/classes/spawn/visual/audio"), index = 4 },
-            ["Water Patch"] = { class = require("modules/classes/spawn/visual/waterPatch"), index = 5 }
+            ["Audio Tag"] = { class = require("modules/classes/spawn/visual/audioTag"), index = 5 },
+            ["Water Patch"] = { class = require("modules/classes/spawn/visual/waterPatch"), index = 6 }
         },
         index = 4
     },
@@ -101,7 +102,9 @@ local types = {
             ["Crowd Null Area"] = { class = require("modules/classes/spawn/area/crowdNull"), index = 8 },
             ["Dummy Area"] = { class = require("modules/classes/spawn/area/dummyArea"), index = 9 },
             ["World Boundary"] = { class = require("modules/classes/spawn/area/worldBoundary"), index = 10 },
-            ["Guard Area"] = { class = require("modules/classes/spawn/area/guardArea"), index = 11 }
+            ["Guard Area"] = { class = require("modules/classes/spawn/area/guardArea"), index = 11 },
+            ["Audio Signpost Area"] = { class = require("modules/classes/spawn/area/audioSignpost"), index = 12 },
+            ["Audio Attract Area"] = { class = require("modules/classes/spawn/area/audioAttractArea"), index = 13 }
         },
         index = 7
     },
@@ -540,7 +543,8 @@ function spawnUI.loadSpawnData(spawner)
                 isPaths = isPaths,
                 assetPreviewDelay = variantInstance.assetPreviewDelay,
                 assetPreviewType = variantInstance.assetPreviewType,
-                entryFilter = variantInstance.entryFilter
+                entryFilter = variantInstance.entryFilter,
+                entryNote = variantInstance.entryNote
             }
 
             -- A variant may host several spawnable classes in one browser, when they cover different
@@ -1211,6 +1215,46 @@ local function formatSearchResultButtonText(text, width, secondaryIcon)
     local contentWidth = math.max(1, width - iconWidth)
 
     return iconPrefix .. utils.shortenPath(text, contentWidth, true)
+end
+
+--- Spawn New per-entry notes -------------------------------------------------------------------
+--
+-- A short annotation drawn at the right edge of a result row, for lists where one fact decides the
+-- choice and only shows up after spawning otherwise. Same shape as `entryFilters`: one descriptor
+-- here plus an `entryNote` field on the spawnable class.
+
+---@class SpawnEntryNote
+---@field id string Value a spawnable's `entryNote` field must carry.
+---@field resolve fun(entry: table, spawnList: table): { text: string, tooltip: string, warn: boolean? }?
+
+---@type SpawnEntryNote[]
+local entryNotes = {
+    {
+        -- How far a sound event carries, and a warning on the handful that do not keep playing.
+        id = "audioRange",
+        resolve = function (entry, spawnList)
+            return audioData.getEventRowNote(getEntryAssetPath(entry, spawnList))
+        end
+    }
+}
+
+---@param entry table
+---@param spawnList table
+---@return { text: string, tooltip: string, warn: boolean? }? note
+local function getEntryNote(entry, spawnList)
+    if not spawnList or not spawnList.entryNote then
+        return nil
+    end
+
+    for _, descriptor in ipairs(entryNotes) do
+        if descriptor.id == spawnList.entryNote then
+            local ok, note = pcall(descriptor.resolve, entry, spawnList)
+
+            return ok and note or nil
+        end
+    end
+
+    return nil
 end
 
 -- Same tone as the "Base" asset origin tag
@@ -2114,7 +2158,16 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
     if secondaryIcon == "" then
         secondaryIcon = entity.getEntrySecondaryIcon(entry, activeSpawnList.modulePath)
     end
-    local buttonWidth = xSpace - ImGui.GetCursorPosX() - favoriteMarkerWidth
+    -- Reserved the same way the favorite star is: the row is one full-width button, so a trailing
+    -- annotation has to be taken out of the button before it is drawn.
+    local note = getEntryNote(entry, activeSpawnList)
+    local noteWidth = 0
+    if note then
+        local textWidth, _ = ImGui.CalcTextSize(note.text)
+        noteWidth = textWidth + ImGui.GetStyle().ItemSpacing.x
+    end
+
+    local buttonWidth = xSpace - ImGui.GetCursorPosX() - favoriteMarkerWidth - noteWidth
     local buttonLabel = formatSearchResultButtonText(buttonText, buttonWidth, secondaryIcon)
 
     local clicked = ImGui.Button(buttonLabel) and not ImGui.IsMouseDragging(0, style.draggingThreshold)
@@ -2154,6 +2207,13 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
         )
 
         ImGui.EndPopup()
+    end
+
+    if note then
+        ImGui.SameLine()
+        ImGui.AlignTextToFramePadding()
+        style.styledText(note.text, note.warn and style.warnColor or style.mutedColor)
+        style.tooltip(note.tooltip)
     end
 
     if isFavorite then

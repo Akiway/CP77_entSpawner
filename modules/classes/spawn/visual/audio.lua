@@ -4,6 +4,7 @@ local utils = require("modules/utils/core/utils")
 local cache = require("modules/utils/game/cache")
 local audioData = require("modules/utils/data/audioData")
 local history = require("modules/utils/project/history")
+local radiusSphere = require("modules/utils/preview/radiusSphere")
 
 ---Class for worldStaticSoundEmitterNode
 ---
@@ -20,6 +21,7 @@ local history = require("modules/utils/project/history")
 ---@field private useDoppler boolean
 ---@field private emitterMetadataName string
 ---@field private emitterMetadataSearch string
+---@field private radiusPreviewed boolean
 local sound = setmetatable({}, { __index = visualized })
 
 function sound:new()
@@ -31,9 +33,10 @@ function sound:new()
     o.modulePath = "visual/audio"
     o.node = "worldStaticSoundEmitterNode"
     o.description = "Plays a sound"
-    o.previewNote = "Radius is not previewed.\nThe list holds every event that keeps playing on an emitter.\nRadius is set from the event's own range when you spawn it."
+    o.previewNote = "The list holds every event that keeps playing on an emitter.\nRadius is set from the event's own range when you spawn it,\nand can be previewed at true scale."
     o.icon = IconGlyphs.VolumeHigh
     o.entryFilter = "audioTag"
+    o.entryNote = "audioRange"
 
     o.radius = 5
     o.previewColor = "mediumvioletred"
@@ -46,6 +49,7 @@ function sound:new()
     -- emitter that moves relative to the listener.
     o.useDoppler = false
     o.previewed = true
+    o.radiusPreviewed = false
     o.assetPreviewType = "position"
 
     setmetatable(o, { __index = self })
@@ -87,10 +91,32 @@ function sound:spawn()
     self.spawnData = audio
 end
 
+---@param entity entEntity
+function sound:onAfterPreviewAssemble(entity)
+    visualized.onAfterPreviewAssemble(self, entity)
+
+    radiusSphere.attach(self, entity)
+end
+
+---@param entity entEntity
+function sound:onAfterPreviewScale(entity)
+    visualized.onAfterPreviewScale(self, entity)
+
+    radiusSphere.update(self, entity)
+end
+
+function sound:setPreview(state)
+    visualized.setPreview(self, state)
+
+    -- Not in `visualizer.toggleAll`'s component list, so it needs settling by hand.
+    radiusSphere.update(self)
+end
+
 function sound:save()
     local data = visualized.save(self)
 
     data.radius = self.radius
+    data.radiusPreviewed = self.radiusPreviewed
     data.emitterMetadataName = self.emitterMetadataName
     data.occlusionEnabled = self.occlusionEnabled
     data.usePhysicsObstruction = self.usePhysicsObstruction
@@ -138,6 +164,8 @@ function sound:draw()
     if change then
         self:updateScale()
     end
+
+    radiusSphere.toggleButton(self, history, style)
 
     local attenuation = audioData.getEventAttenuation(self.spawnData)
     if attenuation then
