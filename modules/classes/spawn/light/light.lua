@@ -10,6 +10,7 @@ local settings = require("modules/utils/core/settings")
 local lcHelper = require("modules/utils/ui/lightChannelHelper")
 local lightPreview = require("modules/utils/preview/previewUtils")
 local targeting = require("modules/utils/editor/targeting")
+local photoMode = require("modules/utils/game/photoMode")
 local iesProfiles = require("modules/utils/data/iesProfiles")
 local Cron = require("modules/utils/vendor/Cron")
 
@@ -1278,9 +1279,11 @@ function light:draw()
             ImGui.BeginDisabled(directTargetingDisabled)
             local aimAtPlayerLabel, aimAtPlayerHiddenText = style.resolveActionLabel(IconGlyphs.TargetAccount, "Aim at Player", "lightAimAtPlayer", nil, true)
             if ImGui.Button(aimAtPlayerLabel) then
-                local player = GetPlayer()
-                if player then
-                    targeting.aimElementAtWorldPosition(self.object, player:GetWorldPosition())
+                -- In photo mode the player is hidden and replaced by a puppet which can be moved
+                -- independently, so that puppet is the thing to aim at.
+                local targetPosition = photoMode.getTargetPosition()
+                if targetPosition then
+                    targeting.aimElementAtWorldPosition(self.object, targetPosition)
                 end
             end
             ImGui.EndDisabled()
@@ -1299,7 +1302,9 @@ function light:draw()
                     style.tooltip(tooltipText)
                 end
             else
-                local tooltipText = "Rotate this light to point at the player's current world position."
+                local tooltipText = photoMode.hasPuppet()
+                    and "Rotate this light to point at the photo mode character's current world position."
+                    or "Rotate this light to point at the player's current world position."
                 if aimAtPlayerHiddenText then
                     style.tooltipActionLabel(aimAtPlayerHiddenText, aimAtPlayerHiddenText .. "\n" .. tooltipText)
                 else
