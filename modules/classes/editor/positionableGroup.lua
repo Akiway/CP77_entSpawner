@@ -577,7 +577,7 @@ function positionableGroup:drawGeneralProperties()
 	style.mutedText("Show Group Wireframe")
 	ImGui.SameLine()
 	settings.groupWireframeEnabled, _ = style.trackedCheckbox(self, "##showGroupWireframe", settings.groupWireframeEnabled)
-	style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin.")
+	style.tooltip("Show boundaries and origin.")
 
     if ImGui.TreeNodeEx("Preview Sync", ImGuiTreeNodeFlags.SpanFullWidth) then
         if not self.previewSyncPropertyWidth then

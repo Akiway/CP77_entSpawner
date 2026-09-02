@@ -1480,7 +1480,6 @@ end
 
 ---Draws bounds overlays for selected or hovered groups when enabled.
 local function drawHoveredGroupBounds()
-    if not editor.active or not editor.camera then return end
     if not settings.groupWireframeEnabled then return end
     editor.spawnedUI.ensureCache()
 

@@ -1377,7 +1377,7 @@ function settingsUI.draw(spawner)
     if drawSettingsTreeNode("visualizers", "Visualizers") then
         settings.groupWireframeEnabled, changed = ImGui.Checkbox("Show Group Wireframe", settings.groupWireframeEnabled)
         if changed then settings.save() end
-        style.tooltip("Only visible in 3D-Editor mode, show boundaries and origin of selected group with a colored outline.")
+        style.tooltip("Show boundaries and origin of selected or hovered groups with a colored outline.")
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Positioning Helpers")
