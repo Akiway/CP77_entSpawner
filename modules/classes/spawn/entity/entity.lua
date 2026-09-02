@@ -22,6 +22,27 @@ local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
 local POSITION_MARKER_DEFAULT_COLOR = "blue"
 
+-- Handle properties that ship null and whose declared type is abstract, so `handleIncludes` in the
+-- red converter cannot materialise them: constructing the declared type yields the abstract base. The concrete
+-- class has to be chosen, which is what `drawNullHandlePickers` offers.
+-- `DeviceActionOperationTriggerData.action` is read purely for its class name
+-- (`m_triggerData.action.GetClassName()`), so the picked class is the entire payload; the instance
+-- carries no data of its own and a null one makes the trigger dereference null at evaluation time.
+local nullHandlePickers = {
+    DeviceActionOperationTriggerData = {
+        { prop = "action", base = "ScriptableDeviceAction" }
+    }
+}
+
+-- Handle properties that ship null with a *concrete* declared type, offered as an explicit "create"
+-- row. Deliberately not synthesized during conversion: inventing one in `defaultComponentData` would
+-- leak it into `instanceDataChanges` on any unrelated edit under the same root (see redConverter.lua).
+-- Creating it has to be something the user asked for, because a device whose PS goes from a null
+-- container to a real one is a behavioural change -- `deviceBase` starts calling Initialize on it.
+local nullHandleCreators = {
+    deviceOperationsSetup = "DeviceOperationsContainer"
+}
+
 local deviceClassSecondaryIconByName = {
     LiftControllerPS = IconGlyphs.ElevatorPassengerOutline,
     ForkliftControllerPS = IconGlyphs.Forklift,
@@ -122,6 +143,7 @@ local deviceClassSourceByModulePath = {
 ---@field protected assetPreviewBackplane mesh?
 ---@field protected instanceDataSearch string
 ---@field protected instanceDataSearchInProperties boolean
+---@field protected nullHandleSearch table Search text per null-handle class picker, keyed by path
 ---@field protected psControllerID string
 local entity = setmetatable({}, { __index = spawnable })
 
@@ -152,6 +174,7 @@ function entity:new()
     o.secondaryIcon = ""
     o.instanceDataSearch = ""
     o.instanceDataSearchInProperties = true
+    o.nullHandleSearch = {}
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
@@ -1936,6 +1959,86 @@ end
 ---@param componentID number
 ---@param path table
 ---@param typeName table?
+---Remove one entry from an array valued property.
+---`setNestedValue` assigns, so writing nil at a numeric index punches a hole in the array rather than
+---shortening it: `#array` then stops being meaningful, `drawAddArrayEntry`'s `#data + 1` can collide
+---with a surviving entry, and the table no longer encodes as a JSON array on export. Rebuild the
+---array with `table.remove` and write it back whole instead.
+---@param componentID number
+---@param path table Path ending in the numeric index to remove
+function entity:removeArrayEntry(componentID, path)
+    local arrayPath = utils.deepcopy(path)
+    local index = table.remove(arrayPath)
+
+    if type(index) ~= "number" then return end
+
+    local current = utils.getNestedValue(self.instanceDataChanges[componentID] or {}, arrayPath)
+    if current == nil then
+        current = utils.getNestedValue(self.defaultComponentData[componentID] or {}, arrayPath)
+    end
+
+    if type(current) ~= "table" then return end
+
+    local updated = utils.deepcopy(current)
+    table.remove(updated, index)
+
+    self:updatePropValue(componentID, arrayPath, updated)
+end
+
+---Is the last segment of `path` a structural wrapper rather than a property of its own?
+---@param componentID number
+---@param path table
+---@return boolean
+function entity:isStructuralPathSegment(componentID, path)
+    local last = path[#path]
+
+    if last == "$value" or last == "value" then
+        return true
+    end
+
+    if last ~= "Data" then
+        return false
+    end
+
+    -- `Data` is only a wrapper when it sits inside a handle; a class may legitimately own a property
+    -- by that name.
+    local parentPath = utils.deepcopy(path)
+    table.remove(parentPath)
+
+    local parent = utils.getNestedValue(self.instanceDataChanges[componentID] or {}, parentPath)
+    if type(parent) ~= "table" then
+        parent = utils.getNestedValue(self.defaultComponentData[componentID] or {}, parentPath)
+    end
+
+    return type(parent) == "table" and parent.HandleId ~= nil
+end
+
+---Reset a property that has no counterpart in `defaultComponentData`, i.e. one that exists only
+---because the user added it. Restoring "the default" by writing nil would delete the key outright,
+---and a key that is gone is no longer drawn -- taking its `+` button with it, so nothing can put it
+---back and the surrounding structure is stranded.
+---@param componentID number
+---@param path table
+---@param typeName string?
+function entity:resetPropWithoutDefault(componentID, path, typeName)
+    local current = utils.getNestedValue(self.instanceDataChanges[componentID] or {}, path)
+
+    -- A handle the entity does not actually have: remove it, so the property goes back to the null
+    -- it started as and its "create" row comes back.
+    if type(current) == "table" and current.HandleId ~= nil then
+        self:updatePropValue(componentID, path, nil)
+        return
+    end
+
+    -- An array property: empty is its neutral state, and it keeps the row (and its "+") drawable.
+    if type(typeName) == "string" and typeName:sub(1, 6) == "array:" then
+        self:updatePropValue(componentID, path, {})
+        return
+    end
+
+    -- Anything else has no meaningful "unset" value here, and deleting it would be unrecoverable.
+end
+
 function entity:drawResetProp(componentID, path, typeName)
     local modified = self.instanceDataChanges[componentID] ~= nil and utils.getNestedValue(self.instanceDataChanges[componentID], path) ~= nil
 
@@ -1956,7 +2059,13 @@ function entity:drawResetProp(componentID, path, typeName)
         local isArray = type(path[#path]) == "number"
 
         -- Might be array of handles, so check one path index up (.../->index<-/Data)
-        if not isArray and #path > 1 then
+        --
+        -- Only step up past a *structural* segment: the `Data` of a handle, or the `$value`/`value`
+        -- of a CName/TweakDBID/LocalizationString wrapper. Those are not properties in their own
+        -- right, so the thing worth resetting is the one above them. This used to step up past any
+        -- segment at all, which meant resetting a plain property reset the struct containing it --
+        -- resetting one array of a DeviceOperationsContainer wiped the whole container.
+        if not isArray and #path > 1 and self:isStructuralPathSegment(componentID, path) then
             isArray = type(path[#path - 1]) == "number"
             path = utils.deepcopy(path)
             table.remove(path, #path)
@@ -1965,10 +2074,17 @@ function entity:drawResetProp(componentID, path, typeName)
 
         if ImGui.MenuItem(text) and modified then
             history.addAction(history.getElementChange(self.object))
-            if not isArray then
-                self:updatePropValue(componentID, path, utils.deepcopy(utils.getNestedValue(self.defaultComponentData[componentID], path)))
+
+            if isArray then
+                self:removeArrayEntry(componentID, path)
             else
-                self:updatePropValue(componentID, path, nil)
+                local default = utils.getNestedValue(self.defaultComponentData[componentID], path)
+
+                if default ~= nil then
+                    self:updatePropValue(componentID, path, utils.deepcopy(default))
+                else
+                    self:resetPropWithoutDefault(componentID, path, typeName)
+                end
             end
         end
 
@@ -2018,20 +2134,168 @@ function entity:drawAddArrayEntry(prop, componentID, path, data)
                     ImGui.Text(string.format("%s not yet supported", base:GetName().value))
                 end
             else
-                for _, class in pairs(utils.getDerivedClasses(base:GetName().value)) do
+                for _, class in pairs(utils.getConcreteDerivedClasses(base:GetName().value)) do
                     if ImGui.MenuItem(class) then
                         local newPath = utils.deepcopy(path)
                         table.insert(newPath, #data + 1)
+                        -- `synthesizeNullHandles` only for objects the user just created: it is
+                        -- what fills in concrete sub-handles like a trigger's `triggerData`, and it
+                        -- must never run while reading the defaults (see redConverter.lua).
                         if isHandle then
-                            self:updatePropValue(componentID, newPath, { HandleId = "0", Data = red.redDataToJSON(NewObject(class)) })
+                            self:updatePropValue(componentID, newPath, { HandleId = "0", Data = red.redDataToJSON(NewObject(class), { synthesizeNullHandles = true }) })
                         else
-                            self:updatePropValue(componentID, newPath, red.redDataToJSON(NewObject(class)))
+                            self:updatePropValue(componentID, newPath, red.redDataToJSON(NewObject(class), { synthesizeNullHandles = true }))
                         end
                     end
                 end
             end
             ImGui.EndPopup()
         end
+    end
+end
+
+---Concrete subclass lists are stable for a game session but cost a recursive reflection walk over
+---hundreds of classes, which is far too much for a draw loop to redo every frame.
+local concreteClassCache = {}
+
+---@param base string
+---@return string[]
+local function getCachedConcreteClasses(base)
+    if not concreteClassCache[base] then
+        concreteClassCache[base] = utils.getConcreteDerivedClasses(base)
+    end
+
+    return concreteClassCache[base]
+end
+
+---Does `className` declare a property called `propName`? Cached: this runs per drawn row.
+local classPropertyCache = {}
+
+---@param className string
+---@param propName string
+---@return boolean
+local function classDeclaresProperty(className, propName)
+    local key = className .. "/" .. propName
+    local cached = classPropertyCache[key]
+
+    if cached == nil then
+        local ok, prop = pcall(function ()
+            local class = Reflection.GetClass(className)
+            return class and class:GetProperty(propName) or nil
+        end)
+
+        cached = ok and prop ~= nil
+        classPropertyCache[key] = cached
+    end
+
+    return cached
+end
+
+---Offer a "create" row for concrete handle properties that are null and so absent from the JSON.
+---@param componentID number
+---@param path table Path to the class holding the property
+---@param data table
+---@param max number Maximum width of a label text
+---@param propertySearch string?
+---@param showAllChildren boolean?
+function entity:drawNullHandleCreators(componentID, path, data, max, propertySearch, showAllChildren)
+    if type(data) ~= "table" then return end
+
+    local className = data["$type"]
+    if type(className) ~= "string" then return end
+
+    local filterActive = type(propertySearch) == "string" and propertySearch ~= "" and not showAllChildren
+
+    for propName, handleClass in pairs(nullHandleCreators) do
+        if data[propName] == nil
+            and classDeclaresProperty(className, propName)
+            and not (filterActive and not string.find(propName:lower(), propertySearch:lower(), 1, true)) then
+
+            ImGui.Text(propName)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(propName) + max)
+
+            if ImGui.Button(IconGlyphs.Plus .. " Create " .. handleClass .. "##" .. tostring(componentID) .. table.concat(path, "/") .. propName) then
+                local newPath = utils.deepcopy(path)
+                table.insert(newPath, propName)
+
+                history.addAction(history.getElementChange(self.object))
+                self:updatePropValue(componentID, newPath, {
+                    HandleId = "0",
+                    Data = red.redDataToJSON(NewObject(handleClass), { synthesizeNullHandles = true })
+                })
+            end
+            style.tooltip(string.format("This property is null on the entity, so it has nothing to edit yet.\nCreating it writes a %s into this device's instance data.", handleClass))
+        end
+    end
+end
+
+---Draw a class picker for handle properties that ship null with an abstract declared type, which the
+---red converter cannot materialise on its own. Picking a class writes a handle holding nothing but
+---the `$type`: these properties are matched by class name, so the defaults the engine fills in on
+---load are exactly right and a fully serialized instance would only bloat the sector.
+---@param componentID number
+---@param path table Path to the class holding the properties
+---@param data table
+---@param max number Maximum width of a label text
+---@param propertySearch string?
+---@param showAllChildren boolean?
+function entity:drawNullHandlePickers(componentID, path, data, max, propertySearch, showAllChildren)
+    if type(data) ~= "table" then return end
+
+    local className = data["$type"]
+    local pickers = type(className) == "string" and nullHandlePickers[className] or nil
+    if not pickers then return end
+
+    -- The picker is a synthetic row, so it has to honour the property filter the same way the real
+    -- rows drawn above it do, or searching would surface a control for a property that was hidden.
+    local filterActive = type(propertySearch) == "string" and propertySearch ~= "" and not showAllChildren
+
+    for _, picker in ipairs(pickers) do
+        if filterActive and not string.find(picker.prop:lower(), propertySearch:lower(), 1, true) then
+            goto continue
+        end
+
+        local entry = data[picker.prop]
+        local current = ""
+
+        if type(entry) == "table" and type(entry.Data) == "table" and type(entry.Data["$type"]) == "string" then
+            current = entry.Data["$type"]
+        end
+
+        local searchKey = tostring(componentID) .. "/" .. table.concat(path, "/") .. "/" .. picker.prop
+
+        ImGui.Text(picker.prop)
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(picker.prop) + max)
+
+        local value, searchValue, finished = style.trackedSearchDropdown(
+            "##" .. searchKey,
+            "Search class...",
+            current,
+            self.nullHandleSearch[searchKey] or "",
+            getCachedConcreteClasses(picker.base),
+            {
+                element = self.object,
+                width = style.getMaxWidth(250),
+                matchContentWidth = true,
+                listHeight = 200,
+                tooltip = string.format("Concrete %s to match. Only the class name is compared, so the instance itself stays empty.", picker.base)
+            }
+        )
+        self.nullHandleSearch[searchKey] = searchValue
+
+        if finished and value ~= "" and value ~= current then
+            local newPath = utils.deepcopy(path)
+            table.insert(newPath, picker.prop)
+
+            self:updatePropValue(componentID, newPath, {
+                HandleId = "0",
+                Data = { ["$type"] = value }
+            })
+        end
+
+        ::continue::
     end
 end
 
@@ -2221,6 +2485,8 @@ function entity:drawTableProp(componentID, key, data, path, max, modified, prope
             self:drawInstanceDataProperty(componentID, propKey, entry, propPath, max, propertySearch, showAllChildren)
         end
 
+        self:drawNullHandlePickers(componentID, path, data, max, propertySearch, showAllChildren)
+        self:drawNullHandleCreators(componentID, path, data, max, propertySearch, showAllChildren)
         self:drawAddArrayEntry(info.propType, componentID, path, data)
 
         ImGui.TreePop()

@@ -31,6 +31,19 @@ local handleIncludes = {
     "journalPath"
 }
 
+-- Same, but ONLY while converting an object the editor just constructed (`ctx.synthesizeNullHandles`).
+-- These must never be synthesized into `defaultComponentData`: `entity:updatePropValue` deep-copies
+-- the whole `persistentState` root out of the defaults the first time any property under it is
+-- edited, so a handle invented here would ride along into `instanceDataChanges` and be applied to
+-- the live device -- turning an unrelated edit into a silent change of what the game is told.
+-- Only safe for properties whose declared inner type is concrete: constructing an abstract base
+-- yields nothing the editor can fill in (see `nullHandlePickers` in entity.lua for those).
+local synthesizedHandleIncludes = {
+    -- Every `XOperationsTrigger` declares its own concrete `XOperationTriggerData`, so materialising
+    -- by name is unambiguous. Only those 11 trigger classes declare a property called this.
+    "triggerData"
+}
+
 local handleClassExcludes = {
     "gameIScriptableSystem",
     "gameIGameSystem"
@@ -534,9 +547,47 @@ local function convertArray(propValue, prop, ctx)
     return propData
 end
 
+---Construct an instance of a handle property's inner type, for a handle that is null.
+---
+---Deliberately NOT `ReflectionType:MakeInstance()`. That returns `Red::Variant{type}`, which
+---default-constructs the object *owned by the Variant* with no `Handle<>` wrapper. For an
+---`ISerializable` descendant -- which every device-operations class is -- the instance is freed when
+---that Variant dies, so walking its properties afterwards reads freed memory: a native crash with no
+---log line. CET's `NewObject` goes through `RTTIHelper::NewHandle`, which wraps `ISerializable`
+---descendants in a real `Handle<>` and hands Lua an owning reference.
+---@param prop ReflectionProp
+---@return ISerializable?
+local function makeHandleInstance(prop)
+    local typeName = nil
+
+    local ok = pcall(function ()
+        typeName = prop:GetType():GetInnerType():GetName().value
+    end)
+
+    if not ok or type(typeName) ~= "string" or typeName == "" then
+        return nil
+    end
+
+    local instance = nil
+    local created = pcall(function ()
+        instance = NewObject(typeName)
+    end)
+
+    if not created then
+        return nil
+    end
+
+    return instance
+end
+
 local function convertHandle(propValue, prop, name, ctx)
-    if propValue == nil and utils.has_value(handleIncludes, name) then
-        propValue = FromVariant(prop:GetType():GetInnerType():MakeInstance())
+    if propValue == nil then
+        local synthesize = utils.has_value(handleIncludes, name)
+            or (ctx and ctx.synthesizeNullHandles and utils.has_value(synthesizedHandleIncludes, name))
+
+        if synthesize then
+            propValue = makeHandleInstance(prop)
+        end
     end
     if propValue ~= nil then
         local handleClass = getRedClass(propValue)

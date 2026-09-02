@@ -7,11 +7,13 @@ local visualizer = require("modules/utils/preview/visualizer")
 local Cron = require("modules/utils/vendor/Cron")
 local quickElevatorSetupUI = require("modules/utils/ui/quickElevatorSetup")
 local quickSoundSystemSetupUI = require("modules/utils/ui/quickSoundSystemSetup")
+local quickDeviceOperationsSetupUI = require("modules/utils/ui/quickDeviceOperationsSetup")
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 local spawnableElement = require("modules/classes/editor/spawnableElement")
 local staticMarker = require("modules/classes/spawn/meta/staticMarker")
 local elevatorDoors = require("modules/utils/data/elevatorDoors")
 local soundSystemData = require("modules/utils/data/soundSystem")
+local deviceOperationsData = require("modules/utils/data/deviceOperations")
 
 local POSITION_MARKER_COLOR = "blue"
 local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
@@ -2224,6 +2226,13 @@ quickSoundSystemSetupUI.install(device, {
     boolToInt = boolToInt
 })
 
+-- Not gated on a specific controller class: any device whose PS derives from
+-- `ScriptableDeviceComponentPS` carries a `deviceOperationsSetup`, which is most of them.
+quickDeviceOperationsSetupUI.install(device, {
+    sanitizeConnectionValue = sanitizeConnectionValue,
+    boolToInt = boolToInt
+})
+
 function device:draw()
     self:drawEntityBaseProperties()
 
@@ -2245,6 +2254,14 @@ function device:draw()
         end
         style.tooltip("Open quick setup for SoundSystemControllerPS entries and connected speakers.")
         self:drawSoundSystemSetupPopup()
+    end
+
+    if deviceOperationsData.supportsDeviceOperations(self.deviceClassName) then
+        if ImGui.Button("Device Operations##openDeviceOperationsPopup") then
+            ImGui.OpenPopup(quickDeviceOperationsSetupUI.POPUP_ID)
+        end
+        style.tooltip("Sound, VFX, animations and component toggles driven by device state, actions, quest facts or volumes, with no scripting.")
+        self:drawDeviceOperationsSetupPopup()
     end
 
     style.mutedText("Persistent")

@@ -865,6 +865,38 @@ function miscUtils.getDerivedClasses(base)
     return classes
 end
 
+---Same as `getDerivedClasses`, minus the classes that cannot be instantiated, sorted by name.
+---`getDerivedClasses` includes the base itself, so an abstract base like `DeviceOperationBase` would
+---otherwise be offered as a choice in every "add array entry" menu and produce a null entry.
+---@param base string Base class name.
+---@return string[]
+function miscUtils.getConcreteDerivedClasses(base)
+    local classes = {}
+
+    for _, name in ipairs(miscUtils.getDerivedClasses(base)) do
+        local class = Reflection.GetClass(name)
+        local abstract = false
+
+        if class then
+            local ok, isAbstract = pcall(function ()
+                return class:IsAbstract()
+            end)
+
+            abstract = ok and isAbstract == true
+        end
+
+        if not abstract then
+            table.insert(classes, name)
+        end
+    end
+
+    table.sort(classes, function (a, b)
+        return string.lower(a) < string.lower(b)
+    end)
+
+    return classes
+end
+
 ---Converts node-ref text/number into a normalized FNV1a64 hash string.
 ---@param data string|number
 ---@return string Hash without `#` or `ULL` suffix.
