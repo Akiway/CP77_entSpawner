@@ -345,7 +345,9 @@ end
 ---Constrain the next popup to the viewport and place it near the cursor when appearing.
 ---Call right before `ImGui.BeginPopup`, guarded by `ImGui.IsPopupOpen(popupId)`.
 ---@param popupId string Popup ID to test for.
-function style.constrainPopupToViewport(popupId)
+---@param minWidth number? Minimum width in view-size units, defaults to 320.
+---@param minHeight number? Minimum height in view-size units, defaults to 160.
+function style.constrainPopupToViewport(popupId, minWidth, minHeight)
     if not ImGui.IsPopupOpen(popupId) then return end
 
     style.setCursorRelativeAppearing(-5, -5)
@@ -356,8 +358,8 @@ function style.constrainPopupToViewport(popupId)
     local maxHeight = math.max(200, screenHeight - margin * 2)
 
     ImGui.SetNextWindowSizeConstraints(
-        math.min(320 * style.viewSize, maxWidth),
-        math.min(160 * style.viewSize, maxHeight),
+        math.min((minWidth or 320) * style.viewSize, maxWidth),
+        math.min((minHeight or 160) * style.viewSize, maxHeight),
         maxWidth,
         maxHeight
     )

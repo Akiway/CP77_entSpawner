@@ -1303,7 +1303,7 @@ function light:draw()
                 end
             else
                 local tooltipText = photoMode.hasPuppet()
-                    and "Rotate this light to point at the photo mode character's current world position."
+                    and "Rotate this light to point at the photomode character's current world position."
                     or "Rotate this light to point at the player's current world position."
                 if aimAtPlayerHiddenText then
                     style.tooltipActionLabel(aimAtPlayerHiddenText, aimAtPlayerHiddenText .. "\n" .. tooltipText)
@@ -1373,6 +1373,52 @@ function light:draw()
                     style.tooltipActionLabel(hierarchyHiddenText, hierarchyHiddenText .. "\n" .. tooltipText)
                 else
                     style.tooltip(tooltipText)
+                end
+            end
+
+            -- Photo mode NPCs are spawned and despawned as the user adds, swaps and removes them,
+            -- so the list is rebuilt every frame and the button only exists while one is in scene.
+            local photoModeNPCs = photoMode.getNPCs()
+            if #photoModeNPCs > 0 then
+                local npcPopupId = "##lightAimAtPhotoNPCPopup" .. tostring(self.object and self.object.id or "")
+
+                ImGui.BeginDisabled(directTargetingDisabled)
+                local npcLabel, npcHiddenText = style.resolveActionLabel(IconGlyphs.AccountArrowRight, "Aim at Photomode NPC", "lightAimAtPhotoNPC", nil, true)
+                if ImGui.Button(npcLabel) then
+                    ImGui.OpenPopup(npcPopupId)
+                end
+                ImGui.EndDisabled()
+
+                local npcTooltip
+                if targetingDisabledByCameraFollow then
+                    npcTooltip = "Disable Follow Camera to target a photomode NPC manually."
+                elseif rotationTargetingDisabled and self.object and self.object.rotationLocked then
+                    npcTooltip = "Unlock rotation to target a photomode NPC."
+                else
+                    npcTooltip = "Pick a photomode NPC to rotate this light toward."
+                end
+
+                if npcHiddenText then
+                    style.tooltipActionLabel(npcHiddenText, npcHiddenText .. "\n" .. npcTooltip)
+                else
+                    style.tooltip(npcTooltip)
+                end
+                ImGui.SameLine()
+                style.mutedText(IconGlyphs.InformationOutline)
+                style.tooltip("Some Photomode NPCs cannot be targeted because they are not proper photomode entities (eg. Nibbles, Brenda, Iguana)")
+
+                style.constrainPopupToViewport(npcPopupId, 1, 1)
+                if ImGui.BeginPopup(npcPopupId) then
+                    for index, npc in ipairs(photoModeNPCs) do
+                        if ImGui.Selectable(npc.name .. "##lightAimAtPhotoNPC" .. index, false) then
+                            local npcPosition = photoMode.getPuppetPosition(npc)
+                            if npcPosition then
+                                targeting.aimElementAtWorldPosition(self.object, npcPosition)
+                            end
+                        end
+                        style.tooltip("Rotate this light to point at " .. npc.name .. "'s current world position.")
+                    end
+                    ImGui.EndPopup()
                 end
             end
         style.sectionHeaderEnd(false)
