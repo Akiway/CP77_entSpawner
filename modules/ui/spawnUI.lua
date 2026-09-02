@@ -11,6 +11,7 @@ local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local aiSpotClass = require("modules/classes/spawn/ai/aiSpot")
+local audioData = require("modules/utils/data/audioData")
 local logger = require("modules/utils/core/logger")
 local prefabPreview = require("modules/utils/preview/prefabPreview")
 local previewControls = require("modules/utils/preview/previewControls")
@@ -1030,6 +1031,31 @@ local entryFilters = {
         end,
         showAndFilterToggle = true,
         andFilterTooltip = "Require every selected rig instead of any selected rig.",
+        andFilterIcon = IconGlyphs.SetCenter,
+        isActive = anySelected
+    },
+    {
+        -- Audio events carry the Wwise authoring hierarchy they sit in as tags, which is the only
+        -- category system the game ships for them. Name prefixes split the same kind of sound
+        -- across `amb_bl_`, `amb_g_` and `amb_int_`, so tags group the list far better.
+        id = "audioTag",
+        label = "Sound category",
+        allLabel = "All categories",
+        multiLabel = "%d categories selected",
+        searchHint = "Search category...",
+        emptyText = "No categories available",
+        noMatchText = "No matching categories",
+        selectAllTooltip = "Select all categories",
+        unselectAllTooltip = "Unselect all categories (default behavior: show all)",
+        clearTooltip = "Clear selected category filters",
+        comboWidth = 260,
+        supports = function (spawnList) return spawnList.entryFilter == "audioTag" end,
+        resolveKeys = function (entry, spawnList)
+            return audioData.getEventTags(getEntryAssetPath(entry, spawnList))
+        end,
+        resolveIcon = function () return IconGlyphs.TagOutline end,
+        showAndFilterToggle = true,
+        andFilterTooltip = "Require every selected category instead of any selected category.",
         andFilterIcon = IconGlyphs.SetCenter,
         isActive = anySelected
     }

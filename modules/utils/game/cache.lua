@@ -23,6 +23,10 @@ local CACHE_SAVE_MAX_DELAY = 2.0
 ---@field staticMetadata table
 ---@field ambientMetadataAll table
 ---@field staticMetadataAll table
+---@field soundEvents table<string, { attenuation: number, looping: boolean, duration: number?, tags: string[]?, unknown: boolean? }>
+---@field soundEventTags string[]
+---@field emitterMetadata table<string, table>
+---@field audioVocabularies table<string, string[]>
 ---@field signposts table
 ---@field bendedRigMatrices table
 ---@field spawnSets table
@@ -40,6 +44,10 @@ local cache = {
         staticMetadata = {},
         ambientMetadataAll = {},
         staticMetadataAll = {},
+        soundEvents = {},
+        soundEventTags = {},
+        emitterMetadata = {},
+        audioVocabularies = {},
         signposts = {},
         bendedRigMatrices = {},
         spawnSets = {},
@@ -252,6 +260,16 @@ function cache.loadStaticData()
     cache.staticData.ambientMetadataAll = config.loadFile("data/audio/ambientMetadataAll.json")
     cache.staticData.staticMetadataAll = config.loadFile("data/audio/staticMetadataAll.json")
     cache.staticData.signposts = config.loadFile("data/audio/signpostsData.json")
+
+    -- Extracted from the game's own audio tables rather than harvested from placed nodes, so these
+    -- cover every event and preset the engine knows, not only the ones CDPR happened to use.
+    -- See `modules/utils/data/audioData.lua` for what the fields mean.
+    local soundEvents = config.loadFile("data/audio/soundEvents.json")
+    cache.staticData.soundEvents = soundEvents.events or {}
+    cache.staticData.soundEventTags = soundEvents.tags or {}
+    cache.staticData.emitterMetadata = config.loadFile("data/audio/emitterMetadata.json")
+    cache.staticData.audioVocabularies = config.loadFile("data/audio/audioVocabularies.json")
+
     cache.staticData.spawnSets = cache.staticData.spawnSets or {}
     cache.staticData.bendedRigMatrices = cache.staticData.bendedRigMatrices or {}
 
@@ -647,10 +665,12 @@ function cache.generateAudioFiles()
         exit = removeDuplicatesTable(signposts.exit)
     })
 
+    -- Keyed by the `audioAmbientAreaSettings` field names, because that is what `ambientArea`
+    -- looks the lists up by when it draws one event group per field.
     config.saveFile("data/audio/ambientDataFull.json", {
-        onEnter = removeDuplicatesTable(ambientData.onEnter),
-        onActive = removeDuplicatesTable(ambientData.onActive),
-        onExit = removeDuplicatesTable(ambientData.onExit),
+        EventsOnEnter = removeDuplicatesTable(ambientData.onEnter),
+        EventsOnActive = removeDuplicatesTable(ambientData.onActive),
+        EventsOnExit = removeDuplicatesTable(ambientData.onExit),
         parameters = removeDuplicatesTable(ambientData.parameters),
         reverb = removeDuplicatesTable(ambientData.reverb)
     })
