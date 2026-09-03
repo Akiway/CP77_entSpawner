@@ -1041,18 +1041,35 @@ function soundSystem.buildInteractionTweak(records, projectName)
     return table.concat(lines, "\n")
 end
 
----Plays a sound event on the player, so the author can hear it without leaving the editor.
+---Plays a sound event so the author can hear it without leaving the editor.
+---
+---`target` decides where it comes from. On the player it is always audible, which is what a bare
+---audition wants; on the spawned device it goes through the emitter's position and attenuation,
+---which is the only way to judge an event that will be heard from across a room. Falls back to the
+---player when the target is gone, so a preview never silently does nothing.
 ---@param eventName string?
+---@param target userdata? Game object to emit from, default the player
 ---@return boolean played
-function soundSystem.testSoundEvent(eventName)
+function soundSystem.testSoundEvent(eventName, target)
     local normalized = utils.trimString(tostring(eventName or ""))
     if normalized == "" then
         return false
     end
 
+    local emitter = target or Game.GetPlayer()
+    if not emitter then
+        return false
+    end
+
     local ok = pcall(function ()
-        GameObject.PlaySoundEvent(Game.GetPlayer(), normalized)
+        GameObject.PlaySoundEvent(emitter, normalized)
     end)
+
+    if not ok and target then
+        ok = pcall(function ()
+            GameObject.PlaySoundEvent(Game.GetPlayer(), normalized)
+        end)
+    end
 
     return ok
 end

@@ -8,12 +8,14 @@ local Cron = require("modules/utils/vendor/Cron")
 local quickElevatorSetupUI = require("modules/utils/ui/quickElevatorSetup")
 local quickSoundSystemSetupUI = require("modules/utils/ui/quickSoundSystemSetup")
 local quickDeviceOperationsSetupUI = require("modules/utils/ui/quickDeviceOperationsSetup")
+local quickTransformAnimationSetupUI = require("modules/utils/ui/quickTransformAnimationSetup")
 local positionableGroup = require("modules/classes/editor/positionableGroup")
 local spawnableElement = require("modules/classes/editor/spawnableElement")
 local staticMarker = require("modules/classes/spawn/meta/staticMarker")
 local elevatorDoors = require("modules/utils/data/elevatorDoors")
 local soundSystemData = require("modules/utils/data/soundSystem")
 local deviceOperationsData = require("modules/utils/data/deviceOperations")
+local transformAnimationsData = require("modules/utils/data/transformAnimations")
 
 local POSITION_MARKER_COLOR = "blue"
 local LIFT_CONTROLLER_CLASS = "LiftControllerPS"
@@ -2233,6 +2235,14 @@ quickDeviceOperationsSetupUI.install(device, {
     boolToInt = boolToInt
 })
 
+-- Gated on the entity carrying a `gameTransformAnimatorComponent`, never on a device class: some
+-- TRANSFORM doors ship without one (`q113_sliding_wall.ent`), and instance data overrides existing
+-- components only, so the panel would have nothing to write to.
+quickTransformAnimationSetupUI.install(device, {
+    sanitizeConnectionValue = sanitizeConnectionValue,
+    boolToInt = boolToInt
+})
+
 function device:draw()
     self:drawEntityBaseProperties()
 
@@ -2262,6 +2272,14 @@ function device:draw()
         end
         style.tooltip("Sound, VFX, animations and component toggles driven by device state, actions, quest facts or volumes, with no scripting.")
         self:drawDeviceOperationsSetupPopup()
+    end
+
+    if transformAnimationsData.supportsTransformAnimations(self) then
+        if ImGui.Button("Transform Animations##openTransformAnimationsPopup") then
+            ImGui.OpenPopup(quickTransformAnimationSetupUI.POPUP_ID)
+        end
+        style.tooltip("Swing angle, travel distance, duration and easing for the entity's motion clips.")
+        self:drawTransformAnimationSetupPopup()
     end
 
     style.mutedText("Persistent")

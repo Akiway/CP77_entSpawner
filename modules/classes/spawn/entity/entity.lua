@@ -138,6 +138,7 @@ local deviceClassSourceByModulePath = {
 ---@field public instanceDataChanges table Changes to the default data, regardless of app (Matched by ID)
 ---@field public defaultComponentData table Default data for each component, regardless of whether it was changed. Keeps up to date with app changes
 ---@field public deviceClassName string
+---@field public hasTransformAnimator boolean Derived at assemble: the entity carries a (root) transform animator
 ---@field public propertiesWidth table?
 ---@field protected appSearch string
 ---@field protected assetPreviewTimer number
@@ -173,6 +174,7 @@ function entity:new()
     o.enumInfo = {}
     o.locKeyPreviewCache = {}
     o.deviceClassName = ""
+    o.hasTransformAnimator = false
     o.secondaryIcon = ""
     o.instanceDataSearch = ""
     o.instanceDataSearchInProperties = true
@@ -526,6 +528,24 @@ function entity:loadInstanceData(entity, forceLoadDefault)
     local components = entity:GetComponents()
     self.defaultComponentData["0"] = red.redDataToJSON(entity)
 
+    -- The entity's own chunk, applied the same way and in the same order as a component's below:
+    -- default captured first, then the change written onto the live object. Without this, entity
+    -- level properties (`Door.animationType`, `doorOpeningType`) reached the exported sector but
+    -- never the preview, so the editor showed one door and the game showed another.
+    --
+    -- Guarded because the entity is a scripted object whose properties are far more varied than a
+    -- component's: a payload the converter cannot write back must not take the whole assemble down
+    -- with it.
+    if self.instanceDataChanges["0"] then
+        local applyOk, applyErr = pcall(function ()
+            red.JSONToRedData(utils.deepcopy(self.instanceDataChanges["0"]), entity)
+        end)
+        if not applyOk then
+            logger:error(string.format("[entity] Failed to apply entity instance data for \"%s\": %s",
+                self.spawnData or "unknown", tostring(applyErr)))
+        end
+    end
+
     for _, component in pairs(components) do
         local ignore = false
 
@@ -648,11 +668,23 @@ function entity:onAssemble(entRef)
 
     self:applyComponentOverrides(entRef)
 
+    self.hasTransformAnimator = false
+
     for _, component in pairs(entRef:GetComponents()) do
         if component:IsA("gameDeviceComponent") then
             if self.deviceClassName == "" and component.persistentState then
                 self.deviceClassName = sanitizeDeviceClassName(component.persistentState:GetClassName().value)
             end
+        end
+
+        -- Noted here rather than looked up on demand: `defaultComponentData` holds only the PS
+        -- controller until something forces a full load, so a panel gated on finding the animator in
+        -- there would never show its button. Two extra IsA per component on an existing loop; the
+        -- root variant derives from entIMoverComponent, not from the placed one, so it needs its own
+        -- test even though it carries the identical `animations` array.
+        if not self.hasTransformAnimator
+            and (component:IsA("gameTransformAnimatorComponent") or component:IsA("gameRootTransformAnimatorComponent")) then
+            self.hasTransformAnimator = true
         end
     end
 
@@ -1576,49 +1608,64 @@ function entity:export(index, length)
     local data = spawnable.export(self)
 
     if utils.tableLength(self.instanceDataChanges) > 0 then
-        local dict = {}
-
-        local i = 0
-        if self.instanceDataChanges["0"] then -- Make sure "0" is always first
-            dict[tostring(i)] = "0"
-            i = i + 1
-        end
-
+        -- `CruidDict` maps chunk *index* to CRUID, so the dict and the chunk list have to be built
+        -- from one ordered key list. They used to come from two independent `pairs()` walks -- one
+        -- over `instanceDataChanges`, one over `defaultComponentData` -- which agree only while
+        -- there is a single entry. With two or more, every override landed on whichever component
+        -- happened to share its index.
+        --
+        -- A key with no matching default is dropped from both, rather than from the chunks alone:
+        -- emitting a dict entry for a chunk that is never written shifts every later chunk by one.
+        local orderedKeys = {}
         for key, _ in pairs(self.instanceDataChanges) do
-            if key ~= "0" then
-                dict[tostring(i)] = key
-                i = i + 1
+            if key ~= "0" and self.defaultComponentData[key] then
+                table.insert(orderedKeys, key)
             end
         end
+        table.sort(orderedKeys)
 
+        -- The entity chunk is always index 0, which is what `CruidIndex` below points at.
+        if self.instanceDataChanges["0"] and self.defaultComponentData["0"] then
+            table.insert(orderedKeys, 1, "0")
+        end
+
+        local dict = {}
         local combinedData = {}
 
-        for key, data in pairs(self.defaultComponentData) do
-            if self.instanceDataChanges[key] then
-                local assembled = utils.deepcopy(self.instanceDataChanges[key])
-                assembleInstanceData(data, assembled)
-                table.insert(combinedData, assembled)
-            end
+        for index, key in ipairs(orderedKeys) do
+            dict[tostring(index - 1)] = key
+
+            local assembled = utils.deepcopy(self.instanceDataChanges[key])
+            assembleInstanceData(self.defaultComponentData[key], assembled)
+            combinedData[index] = assembled
         end
 
         self:prepareInstanceData(combinedData)
 
-        data.data.instanceData = {
-            ["Data"] = {
-                ["$type"] = "entEntityInstanceData",
-                ["buffer"] = {
-                    ["BufferId"] = utils.nextExportBufferId("EntityBuffer"),
-                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4",
-                    ["Data"] = {
-                        ["Version"] = 4,
-                        ["Sections"] = 6,
-                        ["CruidIndex"] = self.instanceDataChanges["0"] and 0 or -1,
-                        ["CruidDict"] = dict,
-                        ["Chunks"] = combinedData
+        -- Every key was stale: writing an empty package would give the node an instanceData handle
+        -- with nothing in it, which is worse than leaving the node alone.
+        if #combinedData > 0 then
+            data.data.instanceData = {
+                ["Data"] = {
+                    ["$type"] = "entEntityInstanceData",
+                    ["buffer"] = {
+                        ["BufferId"] = utils.nextExportBufferId("EntityBuffer"),
+                        ["Type"] = "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4",
+                        ["Data"] = {
+                            ["Version"] = 4,
+                            ["Sections"] = 6,
+                            -- Index of the entity chunk, or -1 when the package holds only
+                            -- components. Read off `orderedKeys`, not off `instanceDataChanges`:
+                            -- a "0" entry with no matching default is dropped above, and claiming
+                            -- index 0 for it would point at whatever component took that slot.
+                            ["CruidIndex"] = orderedKeys[1] == "0" and 0 or -1,
+                            ["CruidDict"] = dict,
+                            ["Chunks"] = combinedData
+                        }
                     }
                 }
             }
-        }
+        end
     end
 
     return data
@@ -2039,9 +2086,6 @@ function entity:drawAudioNameProp(componentID, key, data, path, max, kind)
     end
 end
 
----@param componentID number
----@param path table
----@param typeName table?
 ---Remove one entry from an array valued property.
 ---`setNestedValue` assigns, so writing nil at a numeric index punches a hole in the array rather than
 ---shortening it: `#array` then stops being meaningful, `drawAddArrayEntry`'s `#data + 1` can collide
@@ -2827,6 +2871,40 @@ function entity:getComponentCount()
     end
 
     return count
+end
+
+---Component IDs whose loaded instance data is of the given RED class, in no particular order.
+---
+---`defaultComponentData` is keyed by CRUID, so anything that needs a component by what it *is*
+---rather than by its id has to walk the table. Matches the exact class name, not derived classes:
+---the JSON carries the concrete `$type` the engine instantiated, and a caller that wants a base
+---class can pass the concrete names it accepts.
+---
+---The `"0"` entry is the entity itself, not a component, and is never returned -- callers that want
+---the entity chunk already know its key.
+---@param typeName string
+---@return string[]
+function entity:findComponentIDsByType(typeName)
+    local ids = {}
+
+    for id, component in pairs(self.defaultComponentData) do
+        if id ~= "0" and type(component) == "table" and component["$type"] == typeName then
+            table.insert(ids, id)
+        end
+    end
+
+    -- pairs() order is undefined, and these ids end up in UI labels and saved paths; sort so the
+    -- same entity always yields the same order across sessions.
+    table.sort(ids)
+
+    return ids
+end
+
+---First component ID whose loaded instance data is of the given RED class, or nil.
+---@param typeName string
+---@return string?
+function entity:findComponentIDByType(typeName)
+    return self:findComponentIDsByType(typeName)[1]
 end
 
 ---Draws the component counter next to the "Entity Instance Data" header, once components have been loaded
