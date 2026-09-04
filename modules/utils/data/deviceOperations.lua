@@ -547,6 +547,22 @@ deviceOperations.TEMPLATES = {
 
 -- Validation ------------------------------------------------------------------------------------
 
+---An operation name with its whitespace folded into underscores.
+---
+---A trigger reaches an operation only through an exact CName match, so a space makes a name nothing
+---can ever reference -- and typing one is the easiest slip to make, because the name reads as a
+---label. Converted rather than refused: the intent behind `fan look off` is not in doubt, and a
+---field that quietly rejects the keystroke would be harder to understand than one that shows what
+---it stored. Runs are collapsed, and the ends trimmed, so no name gains a leading or doubled `_`.
+---@param name string?
+---@return string
+function deviceOperations.sanitizeOperationName(name)
+    return (tostring(name or "")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
+        :gsub("%s+", "_"))
+end
+
 ---@param name string
 ---@return string? problem
 function deviceOperations.checkOperationName(name)

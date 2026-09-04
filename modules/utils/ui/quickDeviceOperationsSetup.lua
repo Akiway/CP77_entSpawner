@@ -827,7 +827,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
         self.deviceOperationsTemplatePrefix = style.trackedTextField(
             self.object, "##deviceOperationsPrefix", self.deviceOperationsTemplatePrefix, "e.g. fan", 160
         )
-        style.tooltip("Used to name the operations the template creates.")
+        style.tooltip("Used to name the operations the template creates.\nSpaces are stored as underscores, since a name with one can never be matched.")
 
         for _, template in ipairs(data.TEMPLATES) do
             ImGui.Dummy(0, 4 * style.viewSize)
@@ -852,7 +852,9 @@ function quickDeviceOperationsSetupUI.install(device, options)
     ---@param componentID string
     ---@param template table
     function device:applyDeviceOperationsTemplate(componentID, template)
-        local built = template.build(utils.sanitizeText(self.deviceOperationsTemplatePrefix or ""))
+        -- Folded the same way a typed operation name is: the prefix ends up inside every name the
+        -- template creates, and there is no name field here for the author to notice a space in.
+        local built = template.build(data.sanitizeOperationName(utils.sanitizeText(self.deviceOperationsTemplatePrefix or "")))
 
         local operations = self:hasDeviceOperationsContainer(componentID) and self:getDeviceOperationsList(componentID) or {}
         local triggers = self:hasDeviceOperationsContainer(componentID) and self:getDeviceOperationTriggerList(componentID) or {}
@@ -1057,6 +1059,11 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     style.mutedText("Name")
                     ImGui.SameLine()
                     local newName, _, finished = style.trackedTextField(self.object, "##operationName", name, "Operation name...", 240)
+                    if finished then
+                        -- Folded before it is stored, so a typed space cannot produce a name no
+                        -- trigger can reference. The field shows the stored form on the next frame.
+                        newName = data.sanitizeOperationName(newName)
+                    end
                     if finished and newName ~= name then
                         -- Rename both sides at once: leaving the references behind is exactly the
                         -- silent breakage this panel exists to prevent.
@@ -1064,7 +1071,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
                         retargetReferences(triggers, operations, name, newName)
                         commit(operations, true, triggers)
                     end
-                    style.tooltip("Referenced by triggers. The match is exact and case-sensitive.")
+                    style.tooltip("Referenced by triggers. The match is exact and case-sensitive.\nSpaces are stored as underscores, since a name with one can never be matched.")
 
                     local problem = data.checkOperationName(name)
                     if problem then
