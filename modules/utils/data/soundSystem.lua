@@ -285,6 +285,12 @@ for index, station in ipairs(soundSystem.STATIONS) do
     stationIndexByEnum[station.enum] = index
 end
 
+---Record IDs of the fourteen shipped stations, so any other `RadioStation` record is mod added.
+local vanillaStationRecords = {}
+for _, station in ipairs(soundSystem.STATIONS) do
+    vanillaStationRecords[string.lower(station.record)] = true
+end
+
 local stationLabelCache = {}
 local locKeyCache = {}
 ---Interaction captions and record existence are read once per entry per frame while the popup is
@@ -456,32 +462,178 @@ function soundSystem.getInteractionOptionTooltip(interactionID, resolveLocKey)
     return soundSystem.interactionExists(id) and "Record has no caption." or "Not in TweakDB yet."
 end
 
+--- Custom stations ------------------------------------------------------------------------------
+--
+-- `radioStation` is an `ERadioStationList`, and the engine ships fourteen members, so a station a
+-- mod adds has no member of its own. What it does have is a `RadioStation` record whose `index`
+-- flat carries the ordinal the mod hands the enum -- that record is the only place the station is
+-- named, so the picker reads the records rather than the enum.
+--
+-- The value stored on the entry is the enum member name whenever the ordinal has one (Codeware's
+-- `ReflectionEnum.AddConstant` lets a mod register one) and the bare ordinal otherwise. Both round
+-- trip: RED JSON reads an enum as a member name, and the .NET parser behind it also takes a decimal
+-- string, so `"14"` exports as cleanly as `"AGGRO_INDUSTRIAL"`.
+
+---Live `ERadioStationList` members by ordinal, or `nil` while reflection is not available yet.
+---@type table<number, string>?
+local stationEnumNames = nil
+
+---@return table<number, string>
+local function getStationEnumNames()
+    if stationEnumNames then
+        return stationEnumNames
+    end
+
+    local names = {}
+    local ok = pcall(function ()
+        for _, constant in pairs(Reflection.GetEnum("ERadioStationList"):GetConstants()) do
+            names[tonumber(constant:GetValue())] = constant:GetName().value
+        end
+    end)
+
+    if ok and next(names) ~= nil then
+        stationEnumNames = names
+    end
+
+    return names
+end
+
+---@type table[]?
+local customStations = nil
+---@type table<string, table>
+local customStationByValue = {}
+
+---Every `RadioStation` record in the live TweakDB that is not one of the fourteen shipped stations.
+---Sorted by ordinal, so the picker lists them in the order the mods claimed.
+---@return table[] `{ value: string, record: string, index: number, name: string }[]`
+function soundSystem.getCustomStations()
+    if customStations then
+        return customStations
+    end
+
+    local enumNames = getStationEnumNames()
+    local found = {}
+
+    local ok = pcall(function ()
+        for _, record in pairs(TweakDB:GetRecords("gamedataRadioStation_Record")) do
+            local id = record:GetID().value
+            if type(id) == "string" and id ~= "" and not vanillaStationRecords[string.lower(id)] then
+                local ordinal = nil
+                pcall(function () ordinal = tonumber(record:Index()) end)
+
+                -- An ordinal inside the shipped range belongs to a station that already has a row
+                -- of its own, so the record is a second name for it rather than a new station.
+                if ordinal and ordinal >= #soundSystem.STATIONS then
+                    table.insert(found, {
+                        value = enumNames[ordinal] or tostring(ordinal),
+                        record = id,
+                        index = ordinal,
+                        name = id:match("%.([^%.]+)$") or id
+                    })
+                end
+            end
+        end
+    end)
+
+    if not ok then
+        -- TweakDB was not ready. Nothing is cached, so the next call tries again.
+        return {}
+    end
+
+    table.sort(found, function (a, b) return a.index < b.index end)
+
+    customStations = found
+    customStationByValue = {}
+    for _, station in ipairs(found) do
+        customStationByValue[station.value] = station
+        customStationByValue[tostring(station.index)] = station
+    end
+
+    return customStations
+end
+
+---The mod added station a stored value names, found by enum member name or by ordinal.
+---@param value string?
+---@return table?
+function soundSystem.getCustomStation(value)
+    soundSystem.getCustomStations()
+
+    return customStationByValue[tostring(value or "")]
+end
+
+---Drops the cached station data, so a TweakDB reload brings in stations added since.
+function soundSystem.invalidateStations()
+    customStations = nil
+    customStationByValue = {}
+    stationEnumNames = nil
+    stationLabelCache = {}
+end
+
+---True when the value names a station this game session actually knows about.
+---A value can be perfectly valid and still fail this: a project authored against a radio mod that
+---is not loaded right now keeps its station and only loses the name for it.
+---@param value string?
+---@return boolean
+function soundSystem.stationExists(value)
+    local text = tostring(value or "")
+
+    return stationIndexByEnum[text] ~= nil or soundSystem.getCustomStation(text) ~= nil
+end
+
+---Keeps a station value this session cannot resolve, and only replaces one that could never be a
+---station at all. Rewriting an unresolved value would silently retune every entry of a project
+---opened without the radio mod it was authored against.
+---@param value string?
+---@param fallback string?
+---@return string
+function soundSystem.normalizeStation(value, fallback)
+    local text = utils.trimString(tostring(value or ""))
+    fallback = fallback or soundSystem.STATIONS[1].enum
+
+    if text == "" or text == "None" then
+        return fallback
+    end
+
+    if soundSystem.stationExists(text) then
+        return text
+    end
+
+    -- An ordinal, or an enum member name belonging to a mod that is not loaded right now.
+    if text:match("^%d+$") or text:match("^[%a_][%w_]*$") then
+        return text
+    end
+
+    return fallback
+end
+
 ---Localized display name of a station, resolved live so it follows the players language.
 ---Falls back to the English station name when TweakDB or the localization system is not ready.
----@param enumName string `ERadioStationList` member
+---@param value string? `ERadioStationList` member, or the ordinal of a mod added station
 ---@return string
-function soundSystem.getStationLabel(enumName)
-    enumName = tostring(enumName or "")
+function soundSystem.getStationLabel(value)
+    value = tostring(value or "")
 
-    local cached = stationLabelCache[enumName]
+    local cached = stationLabelCache[value]
     if cached then
         return cached
     end
 
-    local index = stationIndexByEnum[enumName]
+    local index = stationIndexByEnum[value]
     local station = index and soundSystem.STATIONS[index] or nil
-    if not station then
-        return enumName ~= "" and enumName or "None"
+    local custom = not station and soundSystem.getCustomStation(value) or nil
+
+    if not station and not custom then
+        return value ~= "" and value or "None"
     end
 
-    ---@param value string?
+    ---@param text string?
     ---@return string?
-    local function localize(value)
-        if type(value) ~= "string" then
+    local function localize(text)
+        if type(text) ~= "string" then
             return nil
         end
 
-        local localized = gameUtils.resolveLocKey(utils.trimString(value), locKeyCache)
+        local localized = gameUtils.resolveLocKey(utils.trimString(text), locKeyCache)
         if type(localized) ~= "string" then
             return nil
         end
@@ -492,15 +644,17 @@ function soundSystem.getStationLabel(enumName)
     end
 
     -- The `gamedataRadioStation_Record` is the authority: its `displayName` is the same LocKey the
-    -- radio UI prints, so the picker reads as the station name in the player's language.
-    local label = localize(readFlatAsText(station.record .. ".displayName"))
+    -- radio UI prints, so the picker reads as the station name in the player's language. A mod
+    -- added station has nothing else, which is why stations are looked up by record at all.
+    local label = localize(readFlatAsText((station or custom).record .. ".displayName"))
 
     -- `RadioStationDataProvider.GetChannelName` hands back a localization *key*
     -- ("Gameplay-Devices-Radio-RadioStationElectroIndie"), not a name, so it has to go through the
-    -- same lookup. Only a fallback, for a station whose record cannot be read.
-    if not label then
+    -- same lookup. Only a fallback, for a shipped station whose record cannot be read: its switch
+    -- knows nothing else.
+    if not label and station then
         local okProvider, providerKey = pcall(function ()
-            return RadioStationDataProvider.GetChannelName(enumName)
+            return RadioStationDataProvider.GetChannelName(value)
         end)
         if okProvider then
             label = localize(providerKey)
@@ -509,10 +663,10 @@ function soundSystem.getStationLabel(enumName)
 
     if not label then
         -- Do not cache the fallback, so the real name is picked up once TweakDB is ready.
-        return station.fallback
+        return station and station.fallback or custom.name
     end
 
-    stationLabelCache[enumName] = label
+    stationLabelCache[value] = label
     return label
 end
 
@@ -526,6 +680,45 @@ function soundSystem.getStationLabels()
     end
 
     return labels
+end
+
+---Every station value the picker offers: the fourteen shipped ones, then whatever the loaded mods
+---registered. A value already on the entry that matches none of them is added by the caller, so an
+---unresolved station still has a row of its own to sit on.
+---@return string[]
+function soundSystem.getStationValues()
+    local values = {}
+
+    for _, station in ipairs(soundSystem.STATIONS) do
+        table.insert(values, station.enum)
+    end
+
+    for _, custom in ipairs(soundSystem.getCustomStations()) do
+        table.insert(values, custom.value)
+    end
+
+    return values
+end
+
+---Row tooltip for the station picker: what the value actually is, since the label only ever shows
+---the station name.
+---@param value string?
+---@return string
+function soundSystem.getStationTooltip(value)
+    local text = tostring(value or "")
+    local index = stationIndexByEnum[text]
+
+    if index then
+        return string.format("Base game station.\n%s  (%s)", soundSystem.STATIONS[index].record, text)
+    end
+
+    local custom = soundSystem.getCustomStation(text)
+    if custom then
+        return string.format("Added by a mod.\n%s  (index %d)", custom.record, custom.index)
+    end
+
+    return "No station with this name or index is loaded right now.\nKept as authored, so a project "
+        .. "made against a radio mod survives a session without it."
 end
 
 ---Zero-based combo index of a station enum member.
@@ -652,10 +845,7 @@ function soundSystem.createMusicSettings(sourceKey, previous)
         }
     end
 
-    local radioStation = tostring(previous.radioStation or "")
-    if stationIndexByEnum[radioStation] == nil then
-        radioStation = soundSystem.STATIONS[1].enum
-    end
+    local radioStation = soundSystem.normalizeStation(previous.radioStation)
 
     return {
         ["$type"] = "PlayRadio",
@@ -931,7 +1121,7 @@ end
 ---@return string?
 function soundSystem.getStationCaptionLocKey(enumName)
     local index = stationIndexByEnum[tostring(enumName or "")]
-    local station = index and soundSystem.STATIONS[index] or nil
+    local station = index and soundSystem.STATIONS[index] or soundSystem.getCustomStation(enumName)
     if not station then
         return nil
     end

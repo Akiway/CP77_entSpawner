@@ -274,21 +274,64 @@ function quickSoundSystemSetupUI.install(device, options)
             style.drawIconLabelRow(IconGlyphs.Radio, "Station")
             ImGui.SameLine()
             ImGui.SetCursorPosX(labelX)
-            local stationLabels = soundSystemData.getStationLabels()
-            local newStation, stationChanged = style.trackedCombo(
-                self.object,
+
+            self.soundSystemStationSearch = self.soundSystemStationSearch or {}
+            local currentStation = utils.trimString(tostring(musicData.radioStation or ""))
+            local stationOptions = soundSystemData.getStationValues()
+
+            -- A station belonging to a mod that is not loaded resolves to nothing, and would drop
+            -- out of the list the moment the popup is opened without that mod -- leaving the row
+            -- showing a value the picker itself claims does not exist.
+            if currentStation ~= "" and utils.indexValue(stationOptions, currentStation) == -1 then
+                table.insert(stationOptions, currentStation)
+            end
+
+            local editedStation, stationSearch, stationChanged = style.trackedSearchDropdown(
                 "##soundSystemEntryStation",
-                soundSystemData.getStationComboIndex(musicData.radioStation),
-                stationLabels,
-                220,
-                { tooltip = "Base game stations only. A station added by a mod cannot be selected here:\nthe field is an engine enum, not a record reference." }
+                "Search station...",
+                currentStation,
+                self.soundSystemStationSearch[searchKey] or "",
+                stationOptions,
+                {
+                    element = self.object,
+                    width = getRowFieldWidth({}, 220),
+                    matchContentWidth = true,
+                    allowCustom = true,
+                    -- Rows read as station names, not as enum members: the name is what the author
+                    -- knows the station by, and a mod added one has no member name to show anyway.
+                    optionDisplayFn = function (optionValue)
+                        return soundSystemData.getStationLabel(optionValue)
+                    end,
+                    optionTooltipFn = function (optionValue)
+                        return soundSystemData.getStationTooltip(optionValue)
+                    end,
+                    optionExistsFn = function (optionValue)
+                        return soundSystemData.stationExists(optionValue)
+                    end,
+                    tooltip = "Station this entry streams.\nThe fourteen base game stations, plus every "
+                        .. "station a loaded mod registered as a RadioStation record.\nA station whose mod "
+                        .. "is not loaded right now can still be typed in, by its ERadioStationList member "
+                        .. "name or by its index."
+                }
             )
-            if stationChanged then
+            self.soundSystemStationSearch[searchKey] = stationSearch
+
+            if stationChanged and utils.trimString(tostring(editedStation)) ~= currentStation then
                 commit(function (draft)
-                    draft.musicSettings.Data.radioStation = soundSystemData.getStationByComboIndex(newStation)
+                    draft.musicSettings.Data.radioStation =
+                        soundSystemData.normalizeStation(editedStation, currentStation)
                 end)
                 ImGui.PopID()
                 return false
+            end
+
+            if not soundSystemData.stationExists(currentStation) then
+                ImGui.SetCursorPosX(labelX)
+                style.styledTextWrapped(
+                    IconGlyphs.AlertOutline .. " No station loaded under this name, so nothing plays until its mod is.",
+                    style.warnColor
+                )
+                style.tooltip("Written to the entry as authored. Load the radio mod that owns it and the name resolves.")
             end
         else
             local eventName = tostring(musicData.soundEvent and musicData.soundEvent["$value"] or "")
@@ -1658,8 +1701,14 @@ function quickSoundSystemSetupUI.install(device, options)
         local blankGraphHovered = overVisibleGraphContent and not graphControlHovered
         local canvasHovered = false
         if blankGraphHovered or self.soundSystemGraphPanButton ~= nil then
-            ImGui.SetCursorPos(startX, startY)
-            ImGui.InvisibleButton("##soundSystemGraphCanvas", availableWidth, contentHeight)
+            -- The width stops one pixel short of the extent the dummy above reserved. Overrunning
+            -- it would grow the scroll range by the width of the catcher every frame the graph is
+            -- panned to its right edge, which reads as the graph running away from the cursor.
+            local catcherWidth = math.max(1, math.min(availableWidth, layoutWidth - scrollX - 1))
+            local catcherHeight = math.max(1, contentHeight - scrollY)
+
+            ImGui.SetCursorPos(startX + scrollX, startY + scrollY)
+            ImGui.InvisibleButton("##soundSystemGraphCanvas", catcherWidth, catcherHeight)
             canvasHovered = ImGui.IsItemHovered()
             ImGui.SetCursorPos(startX, startY)
         end

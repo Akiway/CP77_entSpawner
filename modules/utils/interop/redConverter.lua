@@ -859,13 +859,30 @@ local function importClass(value, propType)
     return propData
 end
 
+---RED JSON writes an enum as a member name, so that is matched first. A value a mod adds to an
+---enum at runtime has no name in the data it was authored against, which is why a bare ordinal is
+---accepted too -- but only one the live enum actually carries: `Enum.new` silently falls back to
+---zero for an ordinal it does not know, and quietly writing the wrong member is worse than leaving
+---the property on whatever the entity shipped with.
 local function importEnum(value, propType, enumName)
     local propData = nil
+    local text = tostring(value)
+    local constants = Reflection.GetTypeOf(ToVariant(Enum.new(propType, 0))):GetConstants()
 
-    for _, enum in pairs(Reflection.GetTypeOf(ToVariant(Enum.new(propType, 0))):GetConstants()) do
-        if enum:GetName().value == value then
+    for _, enum in pairs(constants) do
+        if enum:GetName().value == text then
             propData = Enum.new(enumName, tonumber(enum:GetValue()))
             break
+        end
+    end
+
+    local ordinal = propData == nil and text:match("^%-?%d+$") and tonumber(text) or nil
+    if ordinal then
+        for _, enum in pairs(constants) do
+            if tonumber(enum:GetValue()) == ordinal then
+                propData = Enum.new(enumName, ordinal)
+                break
+            end
         end
     end
 
