@@ -608,10 +608,27 @@ function light:updateArrowVisibilityForCameraFollow(entity)
     end
 end
 
+---Resolves the editor module through the owning element, which is how this spawnable reaches it.
+---@return editor?
+function light:getEditorModule()
+    return self.object and self.object.sUI and self.object.sUI.spawner and self.object.sUI.spawner.editor or nil
+end
+
 function light:teleportPlayerToLightCameraAligned()
     local player = GetPlayer()
     if not player or not self.position then
         return false
+    end
+
+    -- With the editor camera detached from the player there is no player -> camera offset to
+    -- compensate for: the camera can be placed on the light directly, and a zero boom puts the
+    -- eye on the light itself rather than the boom distance behind it.
+    local editorModule = self:getEditorModule()
+    if editorModule and editorModule.isCameraTeleportTarget() then
+        local targetPitch = self.rotation and self.rotation.pitch or 0
+        local targetYaw = self.rotation and self.rotation.yaw or 0
+
+        return editorModule.teleportToPosition(Vector4.new(self.position), EulerAngles.new(0, targetPitch, targetYaw), nil, 0)
     end
 
     local targetPlayerPosition = Vector4.new(self.position)
@@ -1479,12 +1496,13 @@ function light:draw()
 
         ImGui.SameLine()
 
-        local teleportDisabledByEditor = self.object and self.object.sUI and self.object.sUI.spawner.editor.active == true or false
-        local teleportDisabled = teleportDisabledByEditor or self.cameraFollowEnabled == true
+        local editorModule = self:getEditorModule()
+        local cameraTeleport = editorModule and editorModule.isCameraTeleportTarget() == true
+        local teleportDisabled = self.cameraFollowEnabled == true
         if style.warnButton(IconGlyphs.RunFast .. "##lightTeleportCameraAligned", {
-            tooltip = "Teleport player so camera position and look direction match this light.",
+            tooltip = cameraTeleport and "Move the camera so its position and look direction match this light." or "Teleport player so camera position and look direction match this light.",
             disabled = teleportDisabled,
-            disabledTooltip = teleportDisabledByEditor and "Teleportation disabled while in 3D-Editor mode" or "Disable Follow Camera to teleport to this light"
+            disabledTooltip = "Disable Follow Camera to teleport to this light"
         }) then
             self:teleportPlayerToLightCameraAligned()
         end

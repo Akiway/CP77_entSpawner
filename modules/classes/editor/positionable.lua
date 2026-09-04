@@ -1,5 +1,4 @@
 local utils = require("modules/utils/core/utils")
-local gameUtils = require("modules/utils/game/gameUtils")
 local settings = require("modules/utils/core/settings")
 local history = require("modules/utils/project/history")
 local style = require("modules/ui/style")
@@ -1111,15 +1110,12 @@ function positionable:drawPosition(position, axes)
     ImGui.EndDisabled()
 
 	ImGui.SameLine()
-    local teleportDisabledByEditor = editor.active == true
 	if style.warnButton(IconGlyphs.RunFast, {
-        tooltip = "Teleport player to asset",
-        disabled = teleportDisabledByEditor,
-        disabledTooltip = "Teleportation disabled while in 3D-Editor mode",
+        tooltip = editor.isCameraTeleportTarget() and "Teleport camera to asset" or "Teleport player to asset",
         tooltipOffsetX = 5,
         tooltipOffsetY = 5
     }) then
-		gameUtils.teleportPlayer(self:getPosition())
+		editor.teleportToPosition(self:getPosition())
 	end
 
     style.pushButtonNoBG(false)

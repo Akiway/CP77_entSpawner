@@ -253,6 +253,43 @@ function camera.resetPosition()
     return true
 end
 
+---Instantly moves the free camera to a world position, without a transition.
+---This is the editor camera counterpart of `gameUtils.teleportPlayer`: the position lands on the
+---camera pivot, so the eye ends up the current boom distance behind it, looking at the target.
+---@param position Vector4 Target world position for the camera pivot.
+---@param rotationLike any? Optional target rotation; the current camera rotation is kept when omitted.
+---@param distance number? Optional boom distance to apply, for example `0` to put the eye on the target itself.
+---@return boolean moved `true` when the camera was moved, `false` when camera mode is not usable.
+function camera.teleportTo(position, rotationLike, distance)
+    if not camera.active or not position or not GetPlayer() or not camera.cameraTransform then
+        return false
+    end
+
+    -- A running transition rewrites cameraTransform every frame from its own tween subject, so
+    -- leaving it in place would drag the camera straight back off the target.
+    camera.transitionTween = nil
+
+    camera.cameraTransform.position = Vector4.new(position)
+
+    local rotation = gameUtils.toEulerAnglesSafe(rotationLike)
+    if rotation then
+        camera.cameraTransform.rotation = EulerAngles.new(rotation.roll or 0, rotation.pitch or 0, rotation.yaw or 0)
+    end
+
+    if isFinite(distance) and distance >= 0 then
+        camera.distance = distance
+    end
+
+    GetPlayer():GetFPPCameraComponent().pitchMax = camera.cameraTransform.rotation.pitch
+    GetPlayer():GetFPPCameraComponent().pitchMin = camera.cameraTransform.rotation.pitch
+
+    applyBoom()
+    Game.GetTeleportationFacility():Teleport(GetPlayer(), camera.cameraTransform.position, camera.cameraTransform.rotation)
+    gameUtils.setSceneTier(4)
+
+    return true
+end
+
 ---Updates horizontal camera offset so the editor viewport center maps to world center ray.
 ---Used by docked UI layouts where the viewport center is not screen center.
 ---@param adjustedCenterX number Normalized horizontal viewport center in NDC space (typically `[-1, 1]`).

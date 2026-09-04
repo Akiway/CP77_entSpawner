@@ -2184,13 +2184,17 @@ function savedUI.drawGroup(group, spawner, fileName, projectMap, projectOptions)
             style.popGreyedOut(groupLoadActive)
 
             ImGui.SameLine()
-            local teleportDisabledByEditor = spawner.editor and spawner.editor.active == true
+            local editorModule = spawner.editor
+            local cameraTeleport = editorModule and editorModule.isCameraTeleportTarget() == true
             if style.warnButton(IconGlyphs.RunFast, {
-                tooltip = "Teleport player to group",
-                disabled = teleportDisabledByEditor,
-                disabledTooltip = "Teleportation disabled while in 3D-Editor mode"
+                tooltip = cameraTeleport and "Teleport camera to group" or "Teleport player to group"
             }) then
-                gameUtils.teleportPlayer(utils.getVector(group.pos))
+                local target = utils.getVector(group.pos)
+                if editorModule then
+                    editorModule.teleportToPosition(target)
+                else
+                    gameUtils.teleportPlayer(target)
+                end
             end
 
             ImGui.SameLine()

@@ -9,6 +9,7 @@ local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local brushTool = require("modules/utils/editor/brush")
 local elevatorDoors = require("modules/utils/data/elevatorDoors")
 local soundSystemData = require("modules/utils/data/soundSystem")
+local gameUtils = require("modules/utils/game/gameUtils")
 
 ---@class editor
 ---@field active boolean
@@ -324,6 +325,33 @@ function editor.getCameraFOV()
     local player = GetPlayer()
     local camera = player and player:GetFPPCameraComponent() or nil
     return camera and camera:GetFOV() or nil
+end
+
+---Returns whether a teleport would move a camera this mod controls rather than the player.
+---Only the built-in editor camera can be placed independently of the player: the other detached
+---camera sources (XUtils, Freefly) ride the player entity, so for those moving the player is what
+---moves the view.
+---@return boolean
+function editor.isCameraTeleportTarget()
+    return editor.camera ~= nil and editor.camera.active == true
+end
+
+---Teleports to a world position, moving whatever the view is currently attached to.
+---With the editor camera detached from the player that is the camera; otherwise it is the player.
+---@param position Vector4 Target world position.
+---@param rotationLike any? Optional target rotation; the current one is kept when omitted.
+---@param opts table? Forwarded to `gameUtils.teleportPlayer` on the player path.
+---@param cameraDistance number? Optional editor camera boom distance, see `camera.teleportTo`.
+---@return boolean teleported
+function editor.teleportToPosition(position, rotationLike, opts, cameraDistance)
+    if not position then return false end
+
+    if editor.isCameraTeleportTarget() then
+        return editor.camera.teleportTo(position, rotationLike, cameraDistance)
+    end
+
+    gameUtils.teleportPlayer(position, rotationLike, opts)
+    return true
 end
 
 ---Ends active group-rotation drag state when the current selection is a group.
