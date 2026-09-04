@@ -206,6 +206,25 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     or string.format("This device's controller is %s, not GenericDeviceController, which is the only one that carries custom actions. Nothing here can fire.", tostring(self.deviceClassName))
             }
 
+        elseif field.selector == "interactionTag" then
+            -- The tags come from the `.interaction` descriptor the component points at, which CET
+            -- cannot read, so this list is the shipped vocabulary rather than this entity's own.
+            -- Custom stays on for a descriptor that names its layers differently.
+            local hasInteraction = #data.getComponentNames(self, "gameinteractionsComponent") > 0
+
+            return {
+                options = data.getInteractionAreaTags(),
+                hint = "Search tag...",
+                tooltip = "Layer on the entity's interaction component. LogicArea is the 35m proximity layer nearly every device carries.",
+                verify = false,
+                matchWidth = true,
+                annotationFn = data.annotateInteractionAreaTag,
+                tooltipFn = data.describeInteractionAreaTag,
+                warn = not hasInteraction
+                    and "This entity carries no gameinteractionsComponent, so no interaction layer can raise this trigger."
+                    or nil
+            }
+
         elseif field.selector == "event" then
             local config = audioData.getFieldSelector("event")
 
@@ -252,6 +271,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
         local current = readPath(owner, field.path)
 
         self.deviceOperationsFieldSearch = self.deviceOperationsFieldSearch or {}
+        self.deviceOperationsFieldShowAll = self.deviceOperationsFieldShowAll or {}
 
         if field.kind == "cname" or field.kind == "tweakdbid" then
             local currentText = field.kind == "cname" and data.readCName(current) or data.readRawValue(current)
@@ -293,6 +313,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
                         matchContentWidth = selector.matchWidth == true,
                         listHeight = 200,
                         optionTooltipFn = selector.tooltipFn,
+                        optionAnnotationFn = selector.annotationFn,
                         tooltip = selector.tooltip
                     }
                 )
@@ -303,7 +324,11 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     changed, settled = true, true
                 end
 
-                if #selector.options == 0 and selector.empty then
+                if selector.warn then
+                    ImGui.SameLine()
+                    style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+                    style.tooltip(selector.warn)
+                elseif #selector.options == 0 and selector.empty then
                     ImGui.SameLine()
                     style.styledText(IconGlyphs.AlertOutline, style.warnColor)
                     style.tooltip(selector.empty)
@@ -382,15 +407,62 @@ function quickDeviceOperationsSetupUI.install(device, options)
             end
 
             local searchKey = searchStateKey(keyPrefix, field)
+
+            -- The trigger fires for any action the device performs, but the device can only perform
+            -- the ones its controller creates -- 22 on a radio, out of the 325 ScriptableDeviceAction
+            -- subclasses the unscoped list offers. Picking one of the other 303 is a trigger that can
+            -- never fire, and nothing at runtime says so.
+            local scoped = field.selector == "deviceAction"
+                and data.getDeviceActions(self.deviceClassName)
+                or nil
+            -- A controller the table does not know (a modded one) resolves to nothing, and then the
+            -- full list is not a fallback, it is the only honest answer.
+            local canScope = scoped ~= nil and scoped.resolved and #scoped.options > 0
+            local showAll = not canScope or self.deviceOperationsFieldShowAll[searchKey] == true
+
+            local function currentOptions()
+                return showAll and getActionClasses() or scoped.options
+            end
+
             local newValue, searchValue, finished = style.trackedSearchDropdown(
                 "##field", "Search class...", currentClass,
-                self.deviceOperationsFieldSearch[searchKey] or "", getActionClasses(),
+                self.deviceOperationsFieldSearch[searchKey] or "", currentOptions(),
                 {
                     element = self.object,
                     width = width,
+                    -- On with a scoped list so a modded action class can still be typed, and on with
+                    -- the full one too, where it costs nothing.
+                    allowCustom = true,
                     matchContentWidth = true,
                     listHeight = 200,
-                    tooltip = "Matched on class name only."
+                    tooltip = canScope
+                        and string.format(
+                            "Matched on class name only.\n%s can raise %d interaction, %d quickhack and %d quest actions.",
+                            tostring(self.deviceClassName),
+                            scoped.counts.interaction or 0, scoped.counts.quickhack or 0, scoped.counts.quest or 0
+                        )
+                        or "Matched on class name only.",
+                    drawHeaderFn = canScope and function ()
+                        local expanded, toggled = style.toggleButton(IconGlyphs.FormatListBulleted .. "##allActions", showAll)
+                        if toggled then
+                            showAll = expanded
+                            self.deviceOperationsFieldShowAll[searchKey] = expanded
+                        end
+                        style.tooltip("Show every device action in the game, not just the ones this controller can raise.\nOnly useful for an action a mod makes this device perform.")
+
+                        ImGui.SameLine()
+                        style.mutedText(showAll
+                            and string.format("all %d actions", #getActionClasses())
+                            or string.format("%d this device can perform", #scoped.options))
+                    end or nil,
+                    -- Read inside the popup so the toggle above narrows the list on the same frame.
+                    optionsFn = currentOptions,
+                    optionAnnotationFn = canScope and function (optionText)
+                        return scoped.category[optionText] or ""
+                    end or nil,
+                    optionTooltipFn = function (optionText)
+                        return data.describeDeviceAction(optionText, scoped and scoped.category[optionText] or nil)
+                    end
                 }
             )
             self.deviceOperationsFieldSearch[searchKey] = searchValue
@@ -404,6 +476,13 @@ function quickDeviceOperationsSetupUI.install(device, options)
                 ImGui.SameLine()
                 style.styledText(IconGlyphs.AlertOutline, style.warnColor)
                 style.tooltip("This trigger reads the action's class name without a null check, so leaving it unset crashes the game when the trigger evaluates.")
+            elseif canScope and currentClass ~= "" and not scoped.category[currentClass] then
+                ImGui.SameLine()
+                style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+                style.tooltip(string.format(
+                    "%s never creates a %s, so this trigger cannot fire.\nPick one of the %d actions this controller can perform, unless a mod raises this action on it.",
+                    tostring(self.deviceClassName), currentClass, #scoped.options
+                ))
             end
         end
 

@@ -14,6 +14,7 @@
 local deviceOperations = {}
 
 local transformAnimations = require("modules/utils/data/transformAnimations")
+local deviceActions = require("modules/utils/data/deviceActions")
 
 deviceOperations.BASE_PS_CLASS = "ScriptableDeviceComponentPS"
 deviceOperations.CONTAINER_CLASS = "DeviceOperationsContainer"
@@ -325,8 +326,13 @@ deviceOperations.TRIGGER_TYPES = {
     },
     {
         class = "ActivatorOperationsTrigger", dataClass = "ActivatorOperationTriggerData",
-        label = "On load (activator)",
-        hint = "Fires once when the entity initialises.",
+        label = "Device activated",
+        -- Not an on-load trigger, despite the class name. Its only call site is
+        -- `GenericDevice.OnActivateDevice(evt: ref<ActivateDevice>)`, so it fires when the device
+        -- *receives* an ActivateDevice action -- from a quest node, a master device driving its
+        -- slaves, or the player performing it -- and never on any other controller. Nothing in the
+        -- container fires at spawn; a `Device state changes` trigger on ON is the closest thing.
+        hint = "Fires when the device receives an ActivateDevice action, from a quest, a master device or the player. Only GenericDeviceController raises it, and it does not fire on load.",
         fields = {}
     },
     {
@@ -342,9 +348,12 @@ deviceOperations.TRIGGER_TYPES = {
     {
         class = "DeviceActionOperationsTrigger", dataClass = "DeviceActionOperationTriggerData",
         label = "Device action performed",
-        hint = "Matched on the action's class name only; the action instance carries nothing.",
+        hint = "Fires on any action the device performs -- interaction, quickhack or quest -- matched on the action's class name only; the action instance carries nothing.",
         fields = {
-            { path = { "action" }, label = "Action class", kind = "class", base = "ScriptableDeviceAction", required = true }
+            -- `selector = "deviceAction"` narrows the picker to the actions this controller can
+            -- actually raise. The base stays the real one: the picker's own toggle falls back to it.
+            { path = { "action" }, label = "Action class", kind = "class", base = "ScriptableDeviceAction",
+              selector = "deviceAction", required = true }
         }
     },
     {
@@ -374,8 +383,9 @@ deviceOperations.TRIGGER_TYPES = {
     {
         class = "InteractionAreaOperationsTrigger", dataClass = "InteractionAreaOperationTriggerData",
         label = "Interaction area enter / exit",
+        hint = "Listens to the entity's own gameinteractionsComponent, which most devices already carry -- so this is a proximity trigger that needs no trigger volume. The tag names one of the layers in the component's .interaction descriptor.",
         fields = {
-            { path = { "areaTag" }, label = "Area tag", kind = "cname", width = 240 },
+            { path = { "areaTag" }, label = "Area tag", kind = "cname", selector = "interactionTag", width = 240 },
             { path = { "operationType" }, label = "Direction", kind = "enum", enum = "gameinteractionsEInteractionEventType" },
             { path = { "isActivatorPlayer" }, label = "Player", kind = "bool" },
             { path = { "isActivatorNPC" }, label = "NPC", kind = "bool" }
@@ -864,6 +874,41 @@ end
 ---Drops the cached record lists, so a TweakDB reload is picked up.
 function deviceOperations.invalidate()
     recordNameCache = {}
+end
+
+---The device actions one controller can raise, for the `Device action performed` trigger.
+---
+---Thin pass-through so the panel keeps reading every list from this module; the table itself and
+---why it is shaped the way it is live in `deviceActions.lua`.
+---@param deviceClassName string? Controller PS class
+---@return { options: string[], category: table<string, string>, counts: table<string, number>, resolved: boolean }
+function deviceOperations.getDeviceActions(deviceClassName)
+    return deviceActions.forDevice(deviceClassName)
+end
+
+---@param actionClass string
+---@param category string?
+---@return string
+function deviceOperations.describeDeviceAction(actionClass, category)
+    return deviceActions.describe(actionClass, category)
+end
+
+---Interaction layer tags, for the `Interaction area enter / exit` trigger.
+---@return string[]
+function deviceOperations.getInteractionAreaTags()
+    return deviceActions.getAreaTags()
+end
+
+---@param tag string
+---@return string
+function deviceOperations.describeInteractionAreaTag(tag)
+    return deviceActions.describeAreaTag(tag)
+end
+
+---@param tag string
+---@return string
+function deviceOperations.annotateInteractionAreaTag(tag)
+    return deviceActions.annotateAreaTag(tag)
 end
 
 ---Does `psClass` derive from `ScriptableDeviceComponentPS`, i.e. can it hold a container at all?
