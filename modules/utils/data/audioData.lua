@@ -75,9 +75,7 @@ local emitterFieldOrder = {
 local emitterNames = nil
 local emitterLabels = nil
 local emitterTooltips = nil
-local emitterEventNames = nil
 local allEventNames = nil
-local oneShotEventNames = nil
 
 ---Formats a number without a trailing `.0`, so `3` reads as `3` and `0.2` as `0.2`.
 ---@param value number
@@ -162,54 +160,6 @@ function audioData.getAllEventNames()
     table.sort(allEventNames)
 
     return allEventNames
-end
-
----Every event that keeps playing on a positional emitter, sorted.
----These are the only events worth offering for a static emitter or an ambient area's active events.
----@return string[] names
-function audioData.getEmitterEventNames()
-    if emitterEventNames then return emitterEventNames end
-
-    emitterEventNames = {}
-
-    local events = cache.staticData.soundEvents
-    if type(events) == "table" then
-        for name, event in pairs(events) do
-            if event.looping == true and (tonumber(event.attenuation) or 0) > 0 then
-                table.insert(emitterEventNames, name)
-            end
-        end
-    end
-
-    table.sort(emitterEventNames)
-
-    return emitterEventNames
-end
-
----Every event that ends on its own, sorted.
----
----For a field that fires an event and never stops it -- a transform animation's sound track, a
----one-off device operation -- a looping event is a trap: it starts and keeps going with nothing left
----holding a handle to stop it. Events with no metadata are kept, since nothing says they loop and
----they are referenced by shipped data; `describeEvent` marks them as unknown.
----@return string[] names
-function audioData.getOneShotEventNames()
-    if oneShotEventNames then return oneShotEventNames end
-
-    oneShotEventNames = {}
-
-    local events = cache.staticData.soundEvents
-    if type(events) == "table" then
-        for name, event in pairs(events) do
-            if event.looping ~= true then
-                table.insert(oneShotEventNames, name)
-            end
-        end
-    end
-
-    table.sort(oneShotEventNames)
-
-    return oneShotEventNames
 end
 
 ---Short muted summary of an event, for the line under the selector.
@@ -612,9 +562,7 @@ function audioData.invalidate()
     emitterNames = nil
     emitterLabels = nil
     emitterTooltips = nil
-    emitterEventNames = nil
     allEventNames = nil
-    oneShotEventNames = nil
 end
 
 return audioData

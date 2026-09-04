@@ -552,10 +552,6 @@ end
 soundSystem.STATIC_AUDIO_EMITTER_PATH = "data/spawnables/visual/sounds/"
 
 local staticAudioEmitterEvents = nil
-local staticAudioEmitterEventSet = nil
--- Option lists for a value that is not in the catalogue, keyed by that value. Built once per
--- value rather than per frame, because the picker asks for its options on every frame it draws.
-local soundEventOptionsByCustomValue = {}
 
 ---Every audio event from the Static Audio Emitter spawn list, sorted, loaded once.
 ---@return string[]
@@ -581,35 +577,8 @@ function soundSystem.getStaticAudioEmitterEvents()
     end
 
     staticAudioEmitterEvents = events
-    staticAudioEmitterEventSet = seen
 
     return staticAudioEmitterEvents
-end
-
----Options for the sound event picker: the whole Static Audio Emitter catalogue, plus the current
----value when it is something the author typed by hand rather than picked. Uncapped and unfiltered,
----because `trackedSearchDropdown` clips the rows it draws and does its own searching.
----The returned table is shared and must not be modified by the caller.
----@param currentValue string?
----@return string[]
-function soundSystem.getSoundEventOptions(currentValue)
-    local events = soundSystem.getStaticAudioEmitterEvents()
-    local custom = utils.trimString(tostring(currentValue or ""))
-
-    if custom == "" or custom == "None" or staticAudioEmitterEventSet[custom] then
-        return events
-    end
-
-    local options = soundEventOptionsByCustomValue[custom]
-    if not options then
-        options = { custom }
-        for _, name in ipairs(events) do
-            table.insert(options, name)
-        end
-        soundEventOptionsByCustomValue[custom] = options
-    end
-
-    return options
 end
 
 ---@param eventName string?

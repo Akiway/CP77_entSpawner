@@ -2057,6 +2057,11 @@ end
 ---@field tooltip string? Optional helper text appended after the current value.
 ---@field currentValueTooltip boolean? When false, suppresses the current-value tooltip and middle-click copy.
 ---@field clearable boolean? When true, right-clicking the combo resets the selection to `""`.
+---@field popupMinWidth number? Minimum popup width in unscaled style units. Lets a popup carry a header wider than the combo itself.
+---@field drawHeaderFn fun(interiorWidth: number)? Drawn inside the popup, above the search row. `interiorWidth` is the width the search input gets, in unscaled style units.
+---@field optionsFn fun(): table? Resolves the option list inside the popup, after `drawHeaderFn` has run, so a control in the header narrows the list on the same frame it is changed. Takes precedence over `options`, which is then only used for `matchContentWidth` measuring.
+---@field optionAnnotationFn fun(optionText: string): string?, number? Right-aligned note drawn on each option row, plus an optional color. Skipped on rows where the label leaves no space for it.
+---@field emptyListText string? Shown in place of the list when no option matches. Worth setting where a header control, not just the query, can empty the list.
 ---@param text string Combo label / ID.
 ---@param searchHint string Placeholder for the filter input.
 ---@param value string Current selected value.
@@ -2082,6 +2087,10 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     local optionFilterFn = opts.optionFilterFn
     local optionDecoratorFn = opts.optionDecoratorFn
     local listHeight = opts.listHeight or 120
+    local optionsFn = opts.optionsFn
+    local optionAnnotationFn = opts.optionAnnotationFn
+    local drawHeaderFn = opts.drawHeaderFn
+    local popupMinWidth = math.max(opts.popupMinWidth or 0, 0)
     local comboFlags = opts.comboFlags
     if comboFlags == nil and ImGuiComboFlags and ImGuiComboFlags.HeightLargest then
         comboFlags = ImGuiComboFlags.HeightLargest
@@ -2095,7 +2104,17 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
 
     if matchContentWidth then
         popupMaxWidth = getSearchDropdownPopupMaxWidth(options, comboWidth, optionDisplayFn)
-        ImGui.SetNextWindowSizeConstraints(1, 1, popupMaxWidth, 10000)
+    end
+
+    -- A header can need more room than the combo it hangs off, so the popup is allowed to be wider
+    -- than the field. Both bounds are set to the same value when only a minimum is asked for, which
+    -- pins the popup at that width instead of letting it shrink back to the combo.
+    if popupMinWidth > 0 then
+        popupMaxWidth = math.max(popupMaxWidth, popupMinWidth * style.viewSize)
+    end
+
+    if matchContentWidth or popupMinWidth > 0 then
+        ImGui.SetNextWindowSizeConstraints(math.max(popupMinWidth * style.viewSize, 1), 1, popupMaxWidth, 10000)
     end
 
     ImGui.SetNextItemWidth(comboWidth)
@@ -2124,8 +2143,25 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
     end
 
     if comboOpen then
+        -- The popup is its own window, so without this the main window counts as unhovered and the
+        -- viewport starts taking the clicks and keys meant for the search field.
+        input.updateContext("main")
+
         local effectiveWidth = matchContentWidth and (popupMaxWidth / style.viewSize) or width
+        effectiveWidth = math.max(effectiveWidth, popupMinWidth)
         local interiorWidth = effectiveWidth - (2 * ImGui.GetStyle().FramePadding.x) - 30
+
+        if type(drawHeaderFn) == "function" then
+            pcall(drawHeaderFn, interiorWidth)
+        end
+
+        -- Resolved after the header, so a control the header draws narrows the list on the frame it
+        -- is changed rather than the one after.
+        if type(optionsFn) == "function" then
+            local ok, resolved = pcall(optionsFn)
+            options = (ok and type(resolved) == "table") and resolved or {}
+        end
+
         if style.drawSearchClearButton("##searchClear", searchValue ~= "") then
             searchValue = ""
             style.clearSearchInput("##search", true)
@@ -2150,7 +2186,13 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
         local showCustomOption = allowCustom and customValue ~= "" and not customExists
         local query = string.lower(searchValue or "")
         local hasQuery = query ~= ""
-        if ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, listHeight * style.viewSize) then
+        -- `EndChild` is owed whether or not `BeginChild` returned true: ImGui pairs the two
+        -- unconditionally. A popup still sized to last frame clips this child away entirely -
+        -- exactly what happens on the frame a header above it grows - and skipping `EndChild`
+        -- there leaves the child on the window stack for `EndCombo` to pop, which crashes the
+        -- game rather than raising a Lua error.
+        local listVisible = ImGui.BeginChild("##list", x + xButton + ImGui.GetStyle().ItemSpacing.x, listHeight * style.viewSize)
+        if listVisible then
             if showCustomOption then
                 local customLabel = resolveSearchDropdownOptionLabel(customValue, optionDisplayFn)
                 if ImGui.Selectable("Use custom: " .. customLabel) then
@@ -2196,9 +2238,9 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
             local function drawOptionRow(optionText, optionIndex)
                 local optionLabel = resolveSearchDropdownOptionLabel(optionText, optionDisplayFn)
                 local selected = optionText == selectedValue
+                local rowWidth = ImGui.GetContentRegionAvail()
                 if selected then
                     local rowX, rowY = ImGui.GetCursorScreenPos()
-                    local rowWidth = ImGui.GetContentRegionAvail()
                     local rowHeight = ImGui.GetFrameHeight() - (1.5 * ImGui.GetStyle().FramePadding.y)
                     local drawList = ImGui.GetWindowDrawList()
                     ImGui.ImDrawListAddRectFilled(
@@ -2235,6 +2277,23 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                         style.tooltip(optionTooltip)
                     end
                 end
+
+                -- Drawn last, and only when the name leaves room for it: the selectable does not
+                -- clip its text, so a long name would otherwise be overdrawn by the annotation.
+                if type(optionAnnotationFn) == "function" then
+                    local ok, annotation, annotationColor = pcall(optionAnnotationFn, optionText)
+                    if ok and type(annotation) == "string" and annotation ~= "" then
+                        local labelWidth = ImGui.CalcTextSize(optionLabel)
+                        local annotationWidth = ImGui.CalcTextSize(annotation)
+                        local offset = rowWidth - annotationWidth
+
+                        if offset > labelWidth + ImGui.GetStyle().ItemSpacing.x then
+                            ImGui.SameLine(offset)
+                            style.styledText(annotation, annotationColor or style.mutedColor)
+                        end
+                    end
+                end
+
                 ImGui.PopID()
             end
 
@@ -2254,6 +2313,10 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                     end
                 end
 
+                if #visibleOptions == 0 and not showCustomOption and opts.emptyListText then
+                    style.mutedText(opts.emptyListText)
+                end
+
                 local clipper = ImGuiListClipper.new()
                 clipper:Begin(#visibleOptions, -1)
 
@@ -2265,9 +2328,9 @@ function style.trackedSearchDropdown(text, searchHint, value, searchValue, optio
                     end
                 end
             end
-
-            ImGui.EndChild()
         end
+
+        ImGui.EndChild()
 
         ImGui.EndCombo()
     end

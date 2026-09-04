@@ -5,6 +5,7 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/project/history")
 local cache = require("modules/utils/game/cache")
 local audioData = require("modules/utils/data/audioData")
+local soundSelector = require("modules/utils/ui/soundSelector")
 
 ---Selector option sets, built once from the cooked metadata merged with what shipped areas use.
 ---`Reverb` and `MetadataParent` are closed sets in the game data: the engine looks the name up in
@@ -24,24 +25,53 @@ local function getOptions(key, harvested)
     return optionCache[key]
 end
 
----Options for one of the three event lists.
----An active event has to loop and be positional to keep playing over the area, exactly like an
----emitter event, so that catalogue is offered alongside the events shipped areas actually use.
----Enter and exit events fire once on a boundary crossing, so only the shipped names are offered.
+---Selector configuration for one of the three event lists.
+---
+---Each list gets the names shipped areas actually use in it as its starting pool, which is a far
+---better first offer than the whole catalogue -- but the pool is not locked, so the full list is one
+---click away in the selector's own header.
+---
+---An active event wants to loop and be positional to keep playing over the area, exactly like an
+---emitter event -- but that is pre-set here rather than enforced: 54 of the 591 events CDPR ships in
+---`EventsOnActive` are neither, so locking the rule would hide vanilla. The row's warning icon
+---already says when the chosen event breaks it. Enter and exit events fire once on a boundary
+---crossing, so nothing is pre-set for them.
 ---@param eventKey "EventsOnActive"|"EventsOnEnter"|"EventsOnExit"
----@return string[] options
-local function getEventOptions(eventKey)
+---@return table opts Extra options for `soundSelector.draw`.
+local function getEventSelectorOpts(eventKey)
     if not optionCache[eventKey] then
-        local harvested = cache.staticData.ambientData[eventKey]
+        local names = audioData.mergeNames(cache.staticData.ambientData[eventKey])
 
-        if eventKey == "EventsOnActive" then
-            optionCache[eventKey] = audioData.mergeNames(audioData.getEmitterEventNames(), harvested)
-        else
-            optionCache[eventKey] = audioData.mergeNames(harvested)
-        end
+        optionCache[eventKey] = {
+            preset = eventKey == "EventsOnActive" and soundSelector.preferred(soundSelector.presets.emitter) or nil,
+            pool = {
+                names = names,
+                label = "Shipped here",
+                note = string.format("The %d events shipped ambient areas use in %s.", #names, eventKey)
+            }
+        }
     end
 
     return optionCache[eventKey]
+end
+
+---@param eventKey string
+---@param index number|string
+---@param object table?
+---@param opts table?
+---@return table
+local function eventSelectorOpts(eventKey, index, object, opts)
+    local merged = {
+        element = object,
+        -- The state key has to survive `ImGui.PushID`, which the combo ID alone does not.
+        stateKey = string.format("ambientArea/%s/%s/%s", tostring(object and object.id), eventKey, tostring(index)),
+        width = style.getMaxWidth(250) - 30
+    }
+
+    for key, value in pairs(getEventSelectorOpts(eventKey)) do merged[key] = value end
+    for key, value in pairs(opts or {}) do merged[key] = value end
+
+    return merged
 end
 
 ---What most shipped interior areas do, measured over 949 of them: 61% ramp `amb_interior`, and the
@@ -86,11 +116,9 @@ function ambientArea:new()
 
     o.triggerType = "Ambient"
     o.channels = { false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false }
-    o.eventSearchValues = {}
     o.reverbSearch = ""
     o.metadataParentSearch = ""
     o.parameterSearchValues = {}
-    o.quadSearchValues = {}
 
     setmetatable(o, { __index = self })
    	return o
@@ -109,15 +137,11 @@ function ambientArea:loadSpawnData(data, position, rotation)
 end
 
 function ambientArea:drawEvents(eventKey, default)
-    self.eventSearchValues = self.eventSearchValues or {}
-    self.eventSearchValues[eventKey] = self.eventSearchValues[eventKey] or {}
-
     if ImGui.TreeNodeEx(eventKey, ImGuiTreeNodeFlags.SpanFullWidth) then
         for index, event in pairs(self.trigger.Settings.Data[eventKey]) do
             ImGui.PushID(tostring(index) .. eventKey)
-            local eventSearch = self.eventSearchValues[eventKey][index] or ""
-            event["event"]["$value"], eventSearch, _ = style.trackedSearchDropdown("##event", default, event["event"]["$value"], eventSearch, getEventOptions(eventKey), { element = self.object, width = style.getMaxWidth(250) - 30, allowCustom = true })
-            self.eventSearchValues[eventKey][index] = eventSearch
+            event["event"]["$value"], _ = soundSelector.draw("##event", event["event"]["$value"],
+                eventSelectorOpts(eventKey, index, self.object, { hint = default, showNote = false }))
 
             local warning = eventKey == "EventsOnActive" and audioData.getEmitterWarning(event["event"]["$value"]) or nil
             local summary = audioData.describeEvent(event["event"]["$value"])
@@ -135,7 +159,6 @@ function ambientArea:drawEvents(eventKey, default)
             if ImGui.Button(IconGlyphs.Delete) then
                 history.addAction(history.getElementChange(self.object))
                 table.remove(self.trigger.Settings.Data[eventKey], index)
-                table.remove(self.eventSearchValues[eventKey], index)
             end
 
             ImGui.PopID()
@@ -144,7 +167,6 @@ function ambientArea:drawEvents(eventKey, default)
         if ImGui.Button("+") then
             history.addAction(history.getElementChange(self.object))
             table.insert(self.trigger.Settings.Data[eventKey], eventStruct(""))
-            table.insert(self.eventSearchValues[eventKey], "")
         end
 
         ImGui.TreePop()
@@ -242,8 +264,6 @@ function ambientArea:drawQuadSettings()
     ImGui.SetCursorPosX(max)
     quad.Interleaved, _ = style.trackedCheckbox(self.object, "##quadInterleaved", quad.Interleaved == true)
 
-    self.quadSearchValues = self.quadSearchValues or {}
-
     for index, corner in ipairs(QUAD_CORNERS) do
         local element = quad.Events.Elements[index]
         if element then
@@ -252,9 +272,8 @@ function ambientArea:drawQuadSettings()
             ImGui.SameLine()
             ImGui.SetCursorPosX(max)
 
-            local search = self.quadSearchValues[index] or ""
-            element["event"]["$value"], search, _ = style.trackedSearchDropdown("##quadEvent", "Search...", element["event"]["$value"], search, getEventOptions("EventsOnActive"), { element = self.object, width = style.getMaxWidth(250) - 30, allowCustom = true })
-            self.quadSearchValues[index] = search
+            element["event"]["$value"], _ = soundSelector.draw("##quadEvent", element["event"]["$value"],
+                eventSelectorOpts("EventsOnActive", "quad" .. index, self.object, { showNote = false }))
 
             local summary = audioData.describeEvent(element["event"]["$value"])
             if summary ~= "" then

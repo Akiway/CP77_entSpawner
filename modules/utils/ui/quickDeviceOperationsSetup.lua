@@ -5,6 +5,7 @@ local registry = require("modules/utils/game/nodeRefRegistry")
 local red = require("modules/utils/interop/redConverter")
 local data = require("modules/utils/data/deviceOperations")
 local audioData = require("modules/utils/data/audioData")
+local soundSelector = require("modules/utils/ui/soundSelector")
 
 ---Quick setup for `DeviceOperationsContainer`, available on any device whose controller PS derives
 ---from `ScriptableDeviceComponentPS`.
@@ -209,18 +210,17 @@ function quickDeviceOperationsSetupUI.install(device, options)
             local config = audioData.getFieldSelector("event")
 
             if config then
+                -- Handed to the dedicated sound selector rather than a plain dropdown: an audio
+                -- event name says nothing about what the event does, and this operation can both
+                -- play and stop one, so nothing here is mandatory -- the filters are the author's.
                 return {
-                    options = config.options,
+                    sound = true,
+                    options = {},
                     hint = config.hint,
                     tooltip = config.tooltip,
-                    tooltipFn = config.tooltipFn,
-                    -- Not verified against the list: an event missing from the shipped metadata is
+                    -- Not verified against a list: an event missing from the shipped metadata is
                     -- still playable, and modded soundbanks add their own.
-                    verify = false,
-                    -- Deliberately not width-matched. `matchContentWidth` measures *every* option
-                    -- with CalcTextSize on every frame, open or closed, and this list is tens of
-                    -- thousands of events long.
-                    matchWidth = false
+                    verify = false
                 }
             end
         elseif field.records then
@@ -263,7 +263,25 @@ function quickDeviceOperationsSetupUI.install(device, options)
                 return field.kind == "cname" and data.cname(text) or data.tweakDBID(text)
             end
 
-            if selector then
+            if selector and selector.sound then
+                local newValue, finished = soundSelector.draw("##field", currentText, {
+                    stateKey = string.format("deviceOperations/%s/%s", tostring(self.object and self.object.id), searchStateKey(keyPrefix, field)),
+                    element = self.object,
+                    width = width,
+                    listHeight = 200,
+                    hint = selector.hint,
+                    tooltip = selector.tooltip,
+                    showNote = false,
+                    showTest = true,
+                    testTarget = self:getEntity()
+                })
+
+                if finished and newValue ~= currentText then
+                    writePath(owner, field.path, encode(newValue))
+                    changed, settled = true, true
+                end
+
+            elseif selector then
                 local searchKey = searchStateKey(keyPrefix, field)
                 local newValue, searchValue, finished = style.trackedSearchDropdown(
                     "##field", selector.hint, currentText,

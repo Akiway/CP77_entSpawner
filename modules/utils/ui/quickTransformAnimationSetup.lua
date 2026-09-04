@@ -6,7 +6,7 @@ local red = require("modules/utils/interop/redConverter")
 local data = require("modules/utils/data/transformAnimations")
 local animSets = require("modules/utils/data/doorAnimSets")
 local audioData = require("modules/utils/data/audioData")
-local soundSystemData = require("modules/utils/data/soundSystem")
+local soundSelector = require("modules/utils/ui/soundSelector")
 local logger = require("modules/utils/core/logger")
 
 ---Quick setup for `gameTransformAnimatorComponent`, available on any entity that carries one.
@@ -158,60 +158,54 @@ function quickTransformAnimationSetupUI.install(device, options)
                 local currentName = data.readCName(current)
                 local searchKey = fieldScope .. "/" .. table.concat(field.path, "/")
 
-                self.transformAnimationAudioSearch = self.transformAnimationAudioSearch or {}
+                local newValue, finished
 
-                -- A field the engine only ever starts gets the one-shot vocabulary; everything else
-                -- gets the selector's own list.
-                local options = selector.options
-                if field.oneShot and kind == "event" then
-                    options = audioData.getOneShotEventNames()
-                end
-
-                local newValue, searchValue, finished = style.trackedSearchDropdown(
-                    "##audioField", selector.hint, currentName,
-                    self.transformAnimationAudioSearch[searchKey] or "", options,
-                    {
+                if kind == "event" then
+                    -- A field the engine only ever starts carries the one-shot rule as a mandatory
+                    -- criterion, so the selector says why the list is short instead of just being
+                    -- short. Everything else leaves every criterion optional.
+                    --
+                    -- The test button emits from the device, not the player: the note beside it says
+                    -- the event carries 8m, and that only means anything heard from where the device
+                    -- actually stands. The note itself -- loop, length, range -- is what a timeline
+                    -- track needs: a one-shot shorter than the track leaves silence, and a looping
+                    -- event never stops on its own.
+                    newValue, finished = soundSelector.draw("##audioField", currentName, {
+                        stateKey = string.format("transformAnimation/%s/%s", tostring(self.object and self.object.id), searchKey),
                         element = self.object,
                         width = 250,
                         listHeight = 200,
-                        allowCustom = true,
-                        matchContentWidth = selector.matchWidth == true,
-                        optionDisplayFn = selector.displayFn,
-                        optionTooltipFn = selector.tooltipFn,
-                        tooltip = field.oneShot and kind == "event"
-                            and (selector.tooltip .. "Looping events are left out: this track starts one and never stops it. Type a name to use one anyway.")
-                            or selector.tooltip
-                    }
-                )
-                self.transformAnimationAudioSearch[searchKey] = searchValue
+                        hint = selector.hint,
+                        tooltip = selector.tooltip,
+                        preset = field.oneShot and soundSelector.presets.oneShot or nil,
+                        showTest = true,
+                        testTarget = self:getEntity()
+                    })
+                else
+                    local searchValue
+
+                    self.transformAnimationAudioSearch = self.transformAnimationAudioSearch or {}
+
+                    newValue, searchValue, finished = style.trackedSearchDropdown(
+                        "##audioField", selector.hint, currentName,
+                        self.transformAnimationAudioSearch[searchKey] or "", selector.options,
+                        {
+                            element = self.object,
+                            width = 250,
+                            listHeight = 200,
+                            allowCustom = true,
+                            matchContentWidth = selector.matchWidth == true,
+                            optionDisplayFn = selector.displayFn,
+                            optionTooltipFn = selector.tooltipFn,
+                            tooltip = selector.tooltip
+                        }
+                    )
+                    self.transformAnimationAudioSearch[searchKey] = searchValue
+                end
 
                 if finished and newValue ~= currentName then
                     writePath(owner, field.path, data.cname(newValue))
                     changed, settled = true, true
-                end
-
-                if kind == "event" then
-                    -- Emitted from the device, not the player: the note next to it says the event
-                    -- carries 8m, and that only means anything heard from where the device stands.
-                    ImGui.SameLine()
-                    style.pushButtonNoBG(true)
-                    ImGui.BeginDisabled(currentName == "")
-                    if ImGui.Button(IconGlyphs.Play .. "##previewSound") and currentName ~= "" then
-                        soundSystemData.testSoundEvent(currentName, self:getEntity())
-                    end
-                    ImGui.EndDisabled()
-                    style.pushButtonNoBG(false)
-                    style.tooltip("Play this event on the spawned device right now.\nSupport is uneven across the audio banks, so hear it before shipping it.")
-
-                    -- Whether the event loops, how long it runs and how far it carries. On a timeline
-                    -- track the duration is the number that matters: a one-shot shorter than the
-                    -- track leaves silence, a looping event never stops on its own.
-                    local note = audioData.getEventShortNote(currentName)
-                    if note ~= "" then
-                        ImGui.SameLine()
-                        style.mutedText(note)
-                        style.tooltip(audioData.describeEvent(currentName))
-                    end
                 end
             else
                 local newValue, _, finished = style.trackedTextField(

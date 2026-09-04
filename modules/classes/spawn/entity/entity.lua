@@ -18,6 +18,7 @@ local lightComponentUI = require("modules/utils/ui/lightComponentUI")
 local tweakDb = require("modules/utils/game/tweakDbUtils")
 local saveState = require("modules/utils/project/saveState")
 local audioData = require("modules/utils/data/audioData")
+local soundSelector = require("modules/utils/ui/soundSelector")
 
 local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
@@ -2049,28 +2050,47 @@ function entity:drawAudioNameProp(componentID, key, data, path, max, kind)
     ImGui.SameLine()
     ImGui.SetCursorPosX(ImGui.GetCursorPosX() - ImGui.CalcTextSize(keyName) + max)
 
-    local value, searchValue, finished = style.trackedSearchDropdown(
-        "##" .. searchKey,
-        selector.hint,
-        current,
-        self.audioFieldSearch[searchKey] or "",
-        selector.options,
-        {
+    local value, finished
+
+    if kind == "event" then
+        -- Nothing about a generic instance-data field says what the event has to do, so no criterion
+        -- is mandatory here: the whole catalogue is offered, and the filters are the author's to set.
+        value, finished = soundSelector.draw("##" .. searchKey, current, {
+            stateKey = string.format("entity/%s/%s", tostring(self.object and self.object.id), searchKey),
             element = self.object,
             width = 250,
             listHeight = 200,
-            allowCustom = true,
-            matchContentWidth = selector.matchWidth == true,
-            optionDisplayFn = selector.displayFn,
-            optionTooltipFn = selector.tooltipFn,
-            tooltip = selector.tooltip
-        }
-    )
-    self.audioFieldSearch[searchKey] = searchValue
+            hint = selector.hint,
+            tooltip = selector.tooltip,
+            showNote = false
+        })
+    else
+        local searchValue
+        value, searchValue, finished = style.trackedSearchDropdown(
+            "##" .. searchKey,
+            selector.hint,
+            current,
+            self.audioFieldSearch[searchKey] or "",
+            selector.options,
+            {
+                element = self.object,
+                width = 250,
+                listHeight = 200,
+                allowCustom = true,
+                matchContentWidth = selector.matchWidth == true,
+                optionDisplayFn = selector.displayFn,
+                optionTooltipFn = selector.tooltipFn,
+                tooltip = selector.tooltip
+            }
+        )
+        self.audioFieldSearch[searchKey] = searchValue
+    end
 
     self:drawResetProp(componentID, path)
 
     if kind == "event" then
+        -- Drawn after the reset button rather than through the selector's own `showNote`, so the
+        -- note stays at the end of the row where every other property draws its annotations.
         local note = audioData.getEventShortNote(current)
         if note ~= "" then
             ImGui.SameLine()

@@ -3,6 +3,7 @@ local utils = require("modules/utils/core/utils")
 local registry = require("modules/utils/game/nodeRefRegistry")
 local history = require("modules/utils/project/history")
 local soundSystemData = require("modules/utils/data/soundSystem")
+local soundSelector = require("modules/utils/ui/soundSelector")
 
 ---Quick setup for `SoundSystemControllerPS` devices: the entry list players pick from, and the
 ---speaker chain the sound comes out of.
@@ -295,42 +296,27 @@ function quickSoundSystemSetupUI.install(device, options)
             style.drawIconLabelRow(IconGlyphs.MusicNote, "Sound Event")
             ImGui.SameLine()
             ImGui.SetCursorPosX(labelX)
-            -- The catalogue is the Static Audio Emitter spawn list: every name in it is an event the
-            -- mod already places as a `worldStaticSoundEmitterNode`, which is a far better starting
-            -- point than a remembered event name. Custom entries stay allowed, because the list is
-            -- the shipped events only.
-            self.soundSystemEventSearch = self.soundSystemEventSearch or {}
-            local eventSearchKey = tostring(index)
-            local eventSearch = self.soundSystemEventSearch[eventSearchKey] or ""
-
-            local editedEvent, eventSearchValue, eventFinished = style.trackedSearchDropdown(
-                "##soundSystemEntrySoundEvent",
-                "Search audio event...",
-                eventName,
-                eventSearch,
-                soundSystemData.getSoundEventOptions(eventName),
-                {
-                    element = self.object,
-                    width = getRowFieldWidth({ IconGlyphs.Play }, 220),
-                    allowCustom = true,
-                    -- The catalogue runs to a thousand-odd events, so the list gets more than the
-                    -- default height to scroll in. The rows are clipped either way.
-                    listHeight = 260,
-                    tooltip = "Audio event fired on the connected speakers.\nBrowses the whole Static Audio Emitter list, or takes any event name you type."
-                }
-            )
-            self.soundSystemEventSearch[eventSearchKey] = eventSearchValue
-
-            ImGui.SameLine()
-            style.pushButtonNoBG(true)
-            local canTest = utils.trimString(eventName) ~= ""
-            ImGui.BeginDisabled(not canTest)
-            if ImGui.Button(IconGlyphs.Play .. "##soundSystemEventTest") and canTest then
-                soundSystemData.testSoundEvent(eventName)
-            end
-            ImGui.EndDisabled()
-            style.pushButtonNoBG(false)
-            style.tooltip("Play this event on the player right now.\nSupport is uneven across the audio banks, so hear it before shipping it.")
+            -- The pool is the Static Audio Emitter spawn list: every name in it is an event the mod
+            -- already places as a `worldStaticSoundEmitterNode`, so it loops and it is positional,
+            -- which is what a sound played through a speaker chain needs. It is a starting point and
+            -- not a rule, so the selector offers the whole catalogue behind it, and a typed name is
+            -- still accepted -- a modded soundbank is in no shipped list.
+            local editedEvent, eventFinished = soundSelector.draw("##soundSystemEntrySoundEvent", eventName, {
+                stateKey = string.format("soundSystemEntry/%s/%s", tostring(self.object and self.object.id), tostring(index)),
+                element = self.object,
+                width = getRowFieldWidth({ IconGlyphs.Play }, 220),
+                -- The catalogue runs to a thousand-odd events, so the list gets more than the
+                -- default height to scroll in. The rows are clipped either way.
+                listHeight = 260,
+                pool = {
+                    names = soundSystemData.getStaticAudioEmitterEvents(),
+                    label = "Emitter list",
+                    note = "The Static Audio Emitter spawn list: events this mod already places as emitters, so every one of them loops and carries a position."
+                },
+                tooltip = "Audio event fired on the connected speakers.",
+                showNote = false,
+                showTest = true
+            })
 
             if eventFinished and utils.trimString(tostring(editedEvent)) ~= eventName then
                 commit(function (draft)
@@ -693,35 +679,20 @@ function quickSoundSystemSetupUI.install(device, options)
         ImGui.SameLine()
         ImGui.SetCursorPosX(labelX)
 
-        self.soundSystemGlitchSFXSearch = self.soundSystemGlitchSFXSearch or {}
-        local glitchSFXSearch = self.soundSystemGlitchSFXSearch[draftKey] or ""
-        local editedGlitchSFX, glitchSFXSearchValue, glitchSFXFinished = style.trackedSearchDropdown(
-            "##soundSystemSpeakerGlitchSFX",
-            "Search audio event...",
-            glitchSFX,
-            glitchSFXSearch,
-            soundSystemData.getSoundEventOptions(glitchSFX),
-            {
-                element = speakerEntry.speakerElement or self.object,
-                width = getRowFieldWidth({ IconGlyphs.Play }, 220),
-                allowCustom = true,
-                listHeight = 260,
-                tooltip = "Audio event played when this speaker glitches during the Malfunction quickhack.\nBrowses the whole Static Audio Emitter list, or takes any event name you type."
-            }
-        )
-        self.soundSystemGlitchSFXSearch[draftKey] = glitchSFXSearchValue
-
-        ImGui.SameLine()
-        style.pushButtonNoBG(true)
-        local testGlitchSFX = utils.trimString(glitchSFX)
-        local canTestGlitchSFX = testGlitchSFX ~= "" and testGlitchSFX ~= "None"
-        ImGui.BeginDisabled(not canTestGlitchSFX)
-        if ImGui.Button(IconGlyphs.Play .. "##soundSystemSpeakerGlitchSFXTest") and canTestGlitchSFX then
-            soundSystemData.testSoundEvent(testGlitchSFX)
-        end
-        ImGui.EndDisabled()
-        style.pushButtonNoBG(false)
-        style.tooltip("Play this glitch SFX on the player right now.")
+        local editedGlitchSFX, glitchSFXFinished = soundSelector.draw("##soundSystemSpeakerGlitchSFX", glitchSFX, {
+            stateKey = string.format("soundSystemGlitchSFX/%s/%s", tostring(self.object and self.object.id), tostring(draftKey)),
+            element = speakerEntry.speakerElement or self.object,
+            width = getRowFieldWidth({ IconGlyphs.Play }, 220),
+            listHeight = 260,
+            pool = {
+                names = soundSystemData.getStaticAudioEmitterEvents(),
+                label = "Emitter list",
+                note = "The Static Audio Emitter spawn list: events this mod already places as emitters, so every one of them loops and carries a position."
+            },
+            tooltip = "Audio event played when this speaker glitches during the Malfunction quickhack.",
+            showNote = false,
+            showTest = true
+        })
 
         if glitchSFXFinished and utils.trimString(tostring(editedGlitchSFX)) ~= glitchSFX then
             local updated = utils.deepcopy(setup)
