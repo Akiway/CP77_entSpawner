@@ -896,17 +896,26 @@ function miscUtils.getTextMaxWidth(texts)
     return max
 end
 
----Recursively collects class names derived from a RED base class.
+---Collects class names derived from a RED base class, including the base itself.
+---
+---`Reflection.GetDerivedClasses` already returns the **whole subtree**, not just the direct children:
+---Codeware forwards it to `rtti->GetClasses(base, out, nullptr, true)`. This used to recurse into
+---every entry, which re-collected each descendant once per ancestor it has inside the subtree, so a
+---class three levels down was listed three times. That is where the duplicated rows in the class
+---pickers came from. The `seen` set is kept as well, so the result stays correct even if that native
+---call ever narrows to direct children.
 ---@param base string Base class name.
 ---@return string[]
 function miscUtils.getDerivedClasses(base)
     local classes = { base }
+    local seen = { [base] = true }
 
     for _, derived in pairs(Reflection.GetDerivedClasses(base)) do
-        if derived:GetName().value ~= base then
-            for _, class in pairs(miscUtils.getDerivedClasses(derived:GetName().value)) do
-                table.insert(classes, class)
-            end
+        local name = derived:GetName().value
+
+        if not seen[name] then
+            seen[name] = true
+            table.insert(classes, name)
         end
     end
 

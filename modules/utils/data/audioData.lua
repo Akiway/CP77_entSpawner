@@ -487,7 +487,10 @@ local fieldKindsByName = {
     reflectionEvent = "event",
     trackEventName = "event",
     blipEventName = "event",
-    voEventOverride = "event"
+    voEventOverride = "event",
+    -- `SSFXOperationData.sfxName`, fed straight to `GameObject.PlaySound` / `StopSound`. Named
+    -- against the suffix rules below (it ends in `Name`, not in `Sound`), so it needs the exact entry.
+    sfxName = "event"
 }
 
 ---Never treated as audio, despite matching a rule below: these carry a different vocabulary.

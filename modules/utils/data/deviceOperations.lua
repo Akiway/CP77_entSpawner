@@ -13,17 +13,25 @@
 ---@class deviceOperations
 local deviceOperations = {}
 
+local transformAnimations = require("modules/utils/data/transformAnimations")
+
 deviceOperations.BASE_PS_CLASS = "ScriptableDeviceComponentPS"
 deviceOperations.CONTAINER_CLASS = "DeviceOperationsContainer"
 deviceOperations.OPERATION_BASE_CLASS = "DeviceOperationBase"
 deviceOperations.TRIGGER_BASE_CLASS = "DeviceOperationsTrigger"
 deviceOperations.EXECUTION_CLASS = "OperationExecutionData"
 deviceOperations.SOUND_COMPONENT_CLASS = "gameaudioSoundComponent"
+deviceOperations.EFFECT_COMPONENT_CLASS = "entEffectSpawnerComponent"
+---The only controller that carries custom actions. It has no subclasses, so the Toggle custom action
+---operation and the Custom action ID trigger are dead on every other device.
+deviceOperations.GENERIC_PS_CLASS = "GenericDeviceControllerPS"
+deviceOperations.ANIMATOR_COMPONENT_CLASSES = { "gameTransformAnimatorComponent", "gameRootTransformAnimatorComponent" }
 
 deviceOperations.CONTAINER_PATH = { "persistentState", "Data", "deviceOperationsSetup" }
 deviceOperations.CONTAINER_DATA_PATH = { "persistentState", "Data", "deviceOperationsSetup", "Data" }
 deviceOperations.OPERATIONS_PATH = { "persistentState", "Data", "deviceOperationsSetup", "Data", "operations" }
 deviceOperations.TRIGGERS_PATH = { "persistentState", "Data", "deviceOperationsSetup", "Data", "triggers" }
+deviceOperations.CUSTOM_ACTIONS_PATH = { "persistentState", "Data", "genericDeviceActionsSetup", "customActions", "actions" }
 
 ---Enum member names, in declaration order. RED JSON stores the name, not the ordinal.
 deviceOperations.ENUMS = {
@@ -38,7 +46,9 @@ deviceOperations.ENUMS = {
     EItemOperationType = { "ADD", "REMOVE" },
     EWorkspotOperationType = { "ENTER", "LEAVE" },
     ETransformAnimationOperationType = { "PLAY", "PAUSE", "RESET", "SKIP" },
-    EBinkOperationType = { "PLAY", "STOP" },
+    -- Four members, not the two the operation's own docs suggest: `Device.OnPlayBink` maps PAUSE
+    -- and RESUME onto `BinkComponent.Pause(true/false)`.
+    EBinkOperationType = { "PLAY", "STOP", "PAUSE", "RESUME" },
     ECLSForcedState = { "DEFAULT", "ForcedON", "ForcedOFF" },
     EPriority = { "VeryLow", "Low", "Medium", "High", "VeryHigh", "Absolute" },
     gameinteractionsEInteractionEventType = { "EIET_activate", "EIET_deactivate" }
@@ -92,7 +102,15 @@ end
 --
 -- `path` is relative to the operation's / trigger data's own `Data` table. `kind` picks the widget:
 -- cname | noderef | tweakdbid | bool | int | float | enum (with `enum`) | class (with `base`).
--- A `list` describes a repeated struct: the quick setup draws add/remove for its entries.
+-- A `list` describes a repeated struct: the quick setup draws its entries as a table, one row each.
+--
+-- Two optional keys turn a free-text field into a dropdown, which is the whole point of this panel:
+-- every one of these names is matched exactly and fails silently when it is wrong.
+--   `selector`  -- "component" | "animation" | "vfx" | "event", resolved against the live entity
+--                  (or the shipped audio metadata) by the provider functions further down.
+--   `records`   -- a TweakDB record class whose IDs fill the dropdown, for `tweakdbid` fields.
+-- Both keep `allowCustom` on, so a name the entity does not carry yet is still typeable.
+-- `componentFilter` narrows a "component" selector to components of one class.
 
 deviceOperations.OPERATION_TYPES = {
     {
@@ -101,8 +119,8 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "SFXs" }, itemClass = "SSFXOperationData", label = "Sounds", singular = "sound",
             fields = {
-                { path = { "sfxName" }, label = "WWise event", kind = "cname", width = 240 },
-                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType" }
+                { path = { "sfxName" }, label = "WWise event", kind = "cname", selector = "event", width = 260 },
+                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType", width = 100 }
             }
         }
     },
@@ -112,10 +130,10 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "VFXs" }, itemClass = "SVFXOperationData", label = "Effects", singular = "effect",
             fields = {
-                { path = { "vfxName" }, label = "Effect name", kind = "cname", width = 240 },
-                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType" },
+                { path = { "vfxName" }, label = "Effect name", kind = "cname", selector = "vfx", width = 90 },
+                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType", width = 100 },
                 { path = { "shouldPersist" }, label = "Persist", kind = "bool" },
-                { path = { "size" }, label = "Size", kind = "float" },
+                { path = { "size" }, label = "Size", kind = "float", width = 60 },
                 { path = { "nodeRef" }, label = "Node ref", kind = "noderef" }
             }
         }
@@ -126,8 +144,8 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "components" }, itemClass = "SComponentOperationData", label = "Components", singular = "component",
             fields = {
-                { path = { "componentName" }, label = "Component", kind = "cname", width = 240 },
-                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EComponentOperation" }
+                { path = { "componentName" }, label = "Component", kind = "cname", selector = "component", width = 220 },
+                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EComponentOperation", width = 80 }
             }
         }
     },
@@ -137,10 +155,12 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "transformAnimations" }, itemClass = "STransformAnimationData", label = "Animations", singular = "animation",
             fields = {
-                { path = { "animationName" }, label = "Animation", kind = "cname", width = 240 },
-                { path = { "operationType" }, label = "Action", kind = "enum", enum = "ETransformAnimationOperationType" },
+                { path = { "animationName" }, label = "Animation", kind = "cname", selector = "animation", width = 140 },
+                { path = { "operationType" }, label = "Action", kind = "enum", enum = "ETransformAnimationOperationType", width = 80 },
                 { path = { "playData", "looping" }, label = "Looping", kind = "bool" },
-                { path = { "playData", "timeScale" }, label = "Time scale", kind = "float" }
+                { path = { "playData", "timeScale" }, label = "Time scale", kind = "float" },
+                { path = { "playData", "timesPlayed" }, label = "Repeats", kind = "int",
+                  hint = "Ignored while Looping is on." }
             }
         }
     },
@@ -148,7 +168,8 @@ deviceOperations.OPERATION_TYPES = {
         class = "MeshAppearanceDeviceOperation", label = "Mesh appearance",
         hint = "Switches the mesh appearance of the entity.",
         fields = {
-            { path = { "meshesAppearence" }, label = "Appearance", kind = "cname", width = 240 }
+            { path = { "meshesAppearence" }, label = "Appearance", kind = "cname", width = 240,
+              hint = "A mesh appearance name, i.e. one of the appearances inside the component's .mesh -- not an entity appearance. There is no way to enumerate those from here, so it stays free text." }
         }
     },
     {
@@ -159,7 +180,7 @@ deviceOperations.OPERATION_TYPES = {
             fields = {
                 { path = { "factName" }, label = "Fact", kind = "cname", width = 240 },
                 { path = { "factValue" }, label = "Value", kind = "int" },
-                { path = { "operationType" }, label = "Mode", kind = "enum", enum = "EMathOperationType" }
+                { path = { "operationType" }, label = "Mode", kind = "enum", enum = "EMathOperationType", width = 60 }
             }
         }
     },
@@ -170,7 +191,7 @@ deviceOperations.OPERATION_TYPES = {
             path = { "stims" }, itemClass = "SStimOperationData", label = "Stimuli", singular = "stimulus",
             fields = {
                 { path = { "stimType" }, label = "Type", kind = "enum", enum = "DeviceStimType" },
-                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType" },
+                { path = { "operationType" }, label = "Action", kind = "enum", enum = "EEffectOperationType", width = 100 },
                 { path = { "radius" }, label = "Radius", kind = "float" },
                 { path = { "lifeTime" }, label = "Lifetime", kind = "float" },
                 { path = { "nodeRef" }, label = "Node ref", kind = "noderef" }
@@ -182,7 +203,7 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "statusEffects" }, itemClass = "SStatusEffectOperationData", label = "Effects", singular = "effect",
             fields = {
-                { path = { "effect", "statusEffect" }, label = "Status effect", kind = "tweakdbid", width = 240 },
+                { path = { "effect", "statusEffect" }, label = "Status effect", kind = "tweakdbid", records = "gamedataStatusEffect_Record", width = 300 },
                 { path = { "range" }, label = "Range", kind = "float" },
                 { path = { "duration" }, label = "Duration", kind = "float" }
             }
@@ -193,7 +214,8 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "damages" }, itemClass = "SDamageOperationData", label = "Damages", singular = "damage",
             fields = {
-                { path = { "damageType" }, label = "Damage type", kind = "tweakdbid", width = 240 },
+                { path = { "damageType" }, label = "Damage type", kind = "tweakdbid", records = "gamedataAttack_Record", width = 300,
+                  hint = "An Attack record: the operation feeds it to TweakDBInterface.GetAttackRecord." },
                 { path = { "range" }, label = "Range", kind = "float" }
             }
         }
@@ -203,9 +225,9 @@ deviceOperations.OPERATION_TYPES = {
         list = {
             path = { "items" }, itemClass = "SInventoryOperationData", label = "Items", singular = "item",
             fields = {
-                { path = { "itemName" }, label = "Item", kind = "tweakdbid", width = 240 },
+                { path = { "itemName" }, label = "Item", kind = "tweakdbid", records = "gamedataItem_Record", width = 300 },
                 { path = { "quantity" }, label = "Quantity", kind = "int" },
-                { path = { "operationType" }, label = "Mode", kind = "enum", enum = "EItemOperationType" }
+                { path = { "operationType" }, label = "Mode", kind = "enum", enum = "EItemOperationType", width = 80 }
             }
         }
     },
@@ -214,7 +236,7 @@ deviceOperations.OPERATION_TYPES = {
         hint = "One of only two operations that reach another node, and it is hardcoded to LcdScreenControllerPS.",
         fields = {
             { path = { "targetRef" }, label = "Target node", kind = "noderef" },
-            { path = { "messageRecordID" }, label = "Message record", kind = "tweakdbid", width = 240 },
+            { path = { "messageRecordID" }, label = "Message record", kind = "tweakdbid", records = "gamedataScreenMessageData_Record", width = 280 },
             { path = { "replaceTextWithCustomNumber" }, label = "Use number", kind = "bool" },
             { path = { "customNumber" }, label = "Number", kind = "int" }
         }
@@ -237,23 +259,26 @@ deviceOperations.OPERATION_TYPES = {
         class = "PlayerWokrspotDeviceOperation", label = "Player workspot",
         hint = "Engine spelling: PlayerWokrspot.",
         fields = {
-            { path = { "playerWorkspot", "componentName" }, label = "Component", kind = "cname", width = 240 },
+            { path = { "playerWorkspot", "componentName" }, label = "Component", kind = "cname", selector = "component", width = 220 },
             { path = { "playerWorkspot", "operationType" }, label = "Action", kind = "enum", enum = "EWorkspotOperationType" },
             { path = { "playerWorkspot", "freeCamera" }, label = "Free camera", kind = "bool" }
         }
     },
     {
         class = "PlayBinkDeviceOperation", label = "Play Bink video",
+        hint = "The video path itself is a resource token this panel cannot author; set `bink.binkPath` under Entity Instance Data.",
         fields = {
-            { path = { "bink", "componentName" }, label = "Component", kind = "cname", width = 240 },
+            { path = { "bink", "componentName" }, label = "Component", kind = "cname", selector = "component",
+              componentFilter = "gameBinkComponent", width = 220 },
             { path = { "bink", "operationType" }, label = "Action", kind = "enum", enum = "EBinkOperationType" },
             { path = { "bink", "loop" }, label = "Loop", kind = "bool" }
         }
     },
     {
         class = "ToggleCustomActionDeviceOperation", label = "Toggle custom action",
+        hint = "Shows or hides one of the device's own custom actions. It only flips `isEnabled` on an entry that already exists in the controller's customActions array -- it cannot create one, and it does nothing at all on a controller other than GenericDeviceController.",
         fields = {
-            { path = { "customActionID" }, label = "Action ID", kind = "cname", width = 240 },
+            { path = { "customActionID" }, label = "Action ID", kind = "cname", selector = "customAction", width = 240 },
             { path = { "enabled" }, label = "Enabled", kind = "bool" }
         }
     },
@@ -325,15 +350,21 @@ deviceOperations.TRIGGER_TYPES = {
     {
         class = "CustomActionOperationsTriggers", dataClass = "CustomActionOperationTriggerData",
         label = "Custom action ID",
+        hint = "Fires when the player performs one of the device's own custom actions. Only GenericDeviceController carries those, so this trigger never fires on any other controller.",
         fields = {
-            { path = { "actionID" }, label = "Action ID", kind = "cname", width = 240 }
+            { path = { "actionID" }, label = "Action ID", kind = "cname", selector = "customAction", width = 240 }
         }
     },
     {
         class = "TriggerVolumeOperationsTrigger", dataClass = "TriggerVolumeOperationTriggerData",
         label = "Trigger volume enter / exit",
         fields = {
-            { path = { "componentName" }, label = "Component", kind = "cname", width = 240 },
+            { path = { "componentName" }, label = "Component", kind = "cname", selector = "component",
+              -- Two unrelated branches raise the area events this listens for: the physical trigger
+              -- components (`entTriggerComponent` is a *subclass* of `entPhysicalTriggerComponent`,
+              -- not the base) and the static area shapes.
+              componentFilter = { "entPhysicalTriggerComponent", "gameStaticAreaShapeComponent" }, width = 220,
+              hint = "The trigger component whose enter / exit event this listens for. Matched by name against the component that fired." },
             { path = { "operationType" }, label = "Direction", kind = "enum", enum = "ETriggerOperationType" },
             { path = { "isActivatorPlayer" }, label = "Player", kind = "bool" },
             { path = { "isActivatorNPC" }, label = "NPC", kind = "bool" },
@@ -546,39 +577,300 @@ function deviceOperations.hasSoundComponent(spawnable)
     return false
 end
 
----@param spawnable table entity spawnable
----@return string[]
-function deviceOperations.getComponentNames(spawnable)
-    local names = {}
-    for _, component in pairs(spawnable.defaultComponentData or {}) do
-        if type(component) == "table" and type(component.name) == "table" then
-            local name = tostring(component.name["$value"] or "")
-            if name ~= "" then table.insert(names, name) end
-        end
-    end
-    table.sort(names, function (a, b) return a:lower() < b:lower() end)
-    return names
-end
+-- Selector sources --------------------------------------------------------------------------------
+--
+-- Everything a device operation names -- a component, a clip, an effect, a sound -- is matched
+-- exactly at runtime and does nothing at all when it is wrong, with no log line. The values are
+-- therefore read back off the thing being edited rather than typed.
+--
+-- The **live entity** is the source, not `defaultComponentData`: that table holds only the PS
+-- controller until something forces a full instance-data load, so a list built from it is empty on a
+-- freshly spawned device. The converted data is kept as a fallback for the window between a project
+-- load and the entity being up.
 
----Does `psClass` derive from `ScriptableDeviceComponentPS`, i.e. can it hold a container at all?
----@param psClass string
+---Does `className` derive from `baseName` (or equal it)?
+---@param className string?
+---@param baseName string?
 ---@return boolean
-function deviceOperations.supportsDeviceOperations(psClass)
-    if type(psClass) ~= "string" or psClass == "" then return false end
+function deviceOperations.classDerivesFrom(className, baseName)
+    if type(className) ~= "string" or className == "" then return false end
+    if type(baseName) ~= "string" or baseName == "" then return false end
+    if className == baseName then return true end
 
-    local supported = false
+    local derives = false
     pcall(function ()
-        local class = Reflection.GetClass(psClass)
+        local class = Reflection.GetClass(className)
         while class do
-            if class:GetName().value == deviceOperations.BASE_PS_CLASS then
-                supported = true
+            if class:GetName().value == baseName then
+                derives = true
                 return
             end
             class = class:GetParent()
         end
     end)
 
-    return supported
+    return derives
+end
+
+---@param spawnable table? entity spawnable
+---@return table? components The live component list, or nil when the entity is not up
+local function getLiveComponents(spawnable)
+    if type(spawnable) ~= "table" or type(spawnable.getEntity) ~= "function" then return nil end
+
+    local entityRef = spawnable:getEntity()
+    if not entityRef then return nil end
+
+    local components = nil
+    if not pcall(function () components = entityRef:GetComponents() end) then return nil end
+
+    return components
+end
+
+---@param names string[]
+---@return string[] names The same list, sorted case-insensitively
+local function sortedNames(names)
+    table.sort(names, function (a, b) return a:lower() < b:lower() end)
+    return names
+end
+
+---@param filter string|string[]|nil
+---@return string[] classes Normalized to a list, empty when there is no filter
+local function filterClasses(filter)
+    if type(filter) == "string" then return { filter } end
+    if type(filter) == "table" then return filter end
+
+    return {}
+end
+
+---A readable name for a component filter, for the "this entity has none" note.
+---@param filter string|string[]|nil
+---@return string
+function deviceOperations.describeComponentFilter(filter)
+    return table.concat(filterClasses(filter), " or ")
+end
+
+---Component names on the entity.
+---@param spawnable table entity spawnable
+---@param filter string|string[]|nil Only components deriving from this class (or any of these)
+---@return string[]
+function deviceOperations.getComponentNames(spawnable, filter)
+    local names, seen = {}, {}
+    local classes = filterClasses(filter)
+
+    local function add(name)
+        if type(name) ~= "string" or name == "" or seen[name] then return end
+        seen[name] = true
+        table.insert(names, name)
+    end
+
+    local components = getLiveComponents(spawnable)
+
+    if components then
+        for _, component in pairs(components) do
+            local matches = #classes == 0
+
+            for _, class in ipairs(classes) do
+                local ok, isA = pcall(function () return component:IsA(class) end)
+                if ok and isA then
+                    matches = true
+                    break
+                end
+            end
+
+            if matches then
+                pcall(function () add(component.name.value) end)
+            end
+        end
+
+        return sortedNames(names)
+    end
+
+    for _, component in pairs(type(spawnable) == "table" and spawnable.defaultComponentData or {}) do
+        if type(component) == "table" and type(component.name) == "table" then
+            local matches = #classes == 0
+
+            for _, class in ipairs(classes) do
+                if deviceOperations.classDerivesFrom(component["$type"], class) then
+                    matches = true
+                    break
+                end
+            end
+
+            if matches then
+                add(tostring(component.name["$value"] or ""))
+            end
+        end
+    end
+
+    return sortedNames(names)
+end
+
+---Transform animation clip names, from the entity's animator component.
+---@param spawnable table entity spawnable
+---@return string[]
+function deviceOperations.getAnimationNames(spawnable)
+    local names, seen = {}, {}
+
+    local function add(name)
+        if type(name) ~= "string" or name == "" or seen[name] then return end
+        seen[name] = true
+        table.insert(names, name)
+    end
+
+    local components = getLiveComponents(spawnable)
+
+    if components then
+        for _, component in pairs(components) do
+            for _, animatorClass in ipairs(deviceOperations.ANIMATOR_COMPONENT_CLASSES) do
+                local ok, isA = pcall(function () return component:IsA(animatorClass) end)
+
+                if ok and isA then
+                    pcall(function ()
+                        for _, definition in pairs(component.animations) do
+                            add(definition.name.value)
+                        end
+                    end)
+                    break
+                end
+            end
+        end
+
+        if #names > 0 then return sortedNames(names) end
+    end
+
+    -- Converted instance data, for the frames before the entity is up. `listDefinitionNames` reads
+    -- the same array in its JSON shape, so the Motion panel and this one cannot disagree.
+    local componentID = transformAnimations.findAnimatorComponentID(spawnable)
+
+    if componentID then
+        local source = (spawnable.instanceDataChanges or {})[componentID]
+            or (spawnable.defaultComponentData or {})[componentID]
+
+        for _, name in ipairs(transformAnimations.listDefinitionNames(type(source) == "table" and source.animations or nil)) do
+            add(name)
+        end
+    end
+
+    return sortedNames(names)
+end
+
+---Effect names registered on the entity's effect spawner components.
+---
+---`PlayEffectDeviceOperation` reaches these through `GameObjectEffectHelper.StartEffectEvent`, which
+---looks the name up in exactly this list. (It also has a `vfxResource` path that spawns a resource
+---directly, but that field is a resource token this panel does not author.)
+---@param spawnable table entity spawnable
+---@return string[]
+function deviceOperations.getEffectNames(spawnable)
+    local names, seen = {}, {}
+
+    local function add(name)
+        if type(name) ~= "string" or name == "" or seen[name] then return end
+        seen[name] = true
+        table.insert(names, name)
+    end
+
+    local components = getLiveComponents(spawnable)
+
+    if components then
+        for _, component in pairs(components) do
+            local ok, isA = pcall(function ()
+                return component:IsA(deviceOperations.EFFECT_COMPONENT_CLASS)
+            end)
+
+            if ok and isA then
+                pcall(function ()
+                    for _, descriptor in pairs(component.effectDescs) do
+                        add(descriptor.effectName.value)
+                    end
+                end)
+            end
+        end
+
+        return sortedNames(names)
+    end
+
+    for _, component in pairs(type(spawnable) == "table" and spawnable.defaultComponentData or {}) do
+        if type(component) == "table" and component["$type"] == deviceOperations.EFFECT_COMPONENT_CLASS then
+            for _, descriptor in ipairs(type(component.effectDescs) == "table" and component.effectDescs or {}) do
+                local descriptorData = type(descriptor) == "table" and descriptor.Data or descriptor
+                if type(descriptorData) == "table" then
+                    add(deviceOperations.readCName(descriptorData.effectName))
+                end
+            end
+        end
+    end
+
+    return sortedNames(names)
+end
+
+---The custom action IDs this device declares.
+---
+---There is no shared vocabulary for these: each is invented by whoever authored the device, in
+---`GenericDeviceControllerPS.genericDeviceActionsSetup.customActions.actions[].actionID`. A sweep of
+---all 21,661 shipped `.ent` files found only 175 devices carrying any, with ~105 distinct names, and
+---the same concept spelled several ways across them (`Take`/`take`, `Loot`/`loot`/`LootID`,
+---`quickhack`/`Quickhack`) -- which is the proof that no convention exists to guess from. The list
+---has to come off the device being edited.
+---@param entries table[]? The `customActions.actions` array in its converted JSON form
+---@return string[]
+function deviceOperations.readCustomActionIDs(entries)
+    local names, seen = {}, {}
+
+    for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+        local action = type(entry) == "table" and (entry.Data or entry) or nil
+        local name = type(action) == "table" and deviceOperations.readCName(action.actionID) or ""
+
+        if name ~= "" and not seen[name] then
+            seen[name] = true
+            table.insert(names, name)
+        end
+    end
+
+    return sortedNames(names)
+end
+
+---Every TweakDB ID of one record class, sorted.
+---
+---Cached per class and built lazily: `gamedataItem_Record` alone is tens of thousands of rows, and
+---the search dropdown clips what it draws, so the cost is paid once when a picker is first shown.
+---@type table<string, string[]>
+local recordNameCache = {}
+
+---@param recordClass string e.g. `gamedataItem_Record`
+---@return string[]
+function deviceOperations.getRecordNames(recordClass)
+    if type(recordClass) ~= "string" or recordClass == "" then return {} end
+
+    local cached = recordNameCache[recordClass]
+    if cached then return cached end
+
+    local names = {}
+    pcall(function ()
+        for _, record in pairs(TweakDB:GetRecords(recordClass)) do
+            local id = record:GetID().value
+            if type(id) == "string" and id ~= "" then
+                table.insert(names, id)
+            end
+        end
+    end)
+
+    table.sort(names)
+    recordNameCache[recordClass] = names
+
+    return names
+end
+
+---Drops the cached record lists, so a TweakDB reload is picked up.
+function deviceOperations.invalidate()
+    recordNameCache = {}
+end
+
+---Does `psClass` derive from `ScriptableDeviceComponentPS`, i.e. can it hold a container at all?
+---@param psClass string
+---@return boolean
+function deviceOperations.supportsDeviceOperations(psClass)
+    return deviceOperations.classDerivesFrom(psClass, deviceOperations.BASE_PS_CLASS)
 end
 
 return deviceOperations

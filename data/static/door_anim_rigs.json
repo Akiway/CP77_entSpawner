@@ -1,0 +1,485 @@
+{
+  "version": 1,
+  "sets": {
+    "ep1\\animations\\items\\interactive\\doors\\door_double\\door_double.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002.rig",
+      "animations": [
+        {
+          "name": "open_malfunction_02",
+          "duration": 1.79999995
+        },
+        {
+          "name": "open_malfunction_01",
+          "duration": 5
+        },
+        {
+          "name": "open_malfunction_03",
+          "duration": 1.79999995
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\pwa_strongarms_no_cyberware.anims": {
+      "rig": "base\\characters\\entities\\player\\player_woman_skeleton.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_hinged_double_door_front",
+          "duration": 3.20000005
+        },
+        {
+          "name": "strongarms_open_hinged_door_front",
+          "duration": 2.4000001
+        },
+        {
+          "name": "strongarms_open_hinged_door_front_flip",
+          "duration": 2.4000001
+        },
+        {
+          "name": "strongarms_open_double_door_front",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_double_door_front_flip",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_single_door_front",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_single_door_front_flip",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\pma_strongarms_no_cyberware.anims": {
+      "rig": "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_hinged_double_door_front",
+          "duration": 3.20000005
+        },
+        {
+          "name": "strongarms_open_hinged_door_front_flip",
+          "duration": 2.4000001
+        },
+        {
+          "name": "strongarms_open_hinged_door_front",
+          "duration": 2.4000001
+        },
+        {
+          "name": "strongarms_open_double_door_front",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_double_door_front_flip",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_single_door_front_flip",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_single_door_front",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\int_door_006__wat_nhr_maelstrom_hideout_elevator_slide_doors_a.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__wat_nhr_maelstrom_hideout_elevator_slide_doors_a\\int_doors_002__wat_nhr_maelstrom_hideout_elevator_slide_doors_a.rig",
+      "animations": [
+        {
+          "name": "open",
+          "duration": 2.33333325
+        },
+        {
+          "name": "close",
+          "duration": 1.43333328
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_single\\door_single_force_open.anims": {
+      "rig": "base\\items\\prop_base_skeleton.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_hinged_door_front_flip",
+          "duration": 2.4000001
+        },
+        {
+          "name": "strongarms_open_single_door_front_flip",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_single_door_front",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_hinged_door_front",
+          "duration": 2.4000001
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\shutters\\int_doors_002_shutters_h400.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__shutters\\int_doors_002__shutters.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 1
+        },
+        {
+          "name": "q003_03_deal__gate__close",
+          "duration": 0.866666675
+        },
+        {
+          "name": "q003_03_deal__gate__close__idle",
+          "duration": 0.666666687
+        },
+        {
+          "name": "q003_03_deal__gate__open__idle",
+          "duration": 1
+        },
+        {
+          "name": "q003_03_deal__gate__open",
+          "duration": 2.9666667
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_double\\door_double_deformable.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__deformating_doors\\ind_double_doors_deforming_skeleton.rig",
+      "animations": [
+        {
+          "name": "open_slide_horizontal",
+          "duration": 0.966666639
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_gate\\door_gate.anims": {
+      "rig": "base\\items\\prop_base_skeleton.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 3.9666667
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\q003_p2__maelstrom_factory_door_garage.anims": {
+      "rig": "base\\items\\quest\\q003_p2__maelstrom_factory_door_garage\\q003b_maelstrom_garage_door_a.rig",
+      "animations": [
+        {
+          "name": "open",
+          "duration": 6.66666651
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_double\\door_double_force_open.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_double_door_front",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_double_door_front_flip",
+          "duration": 3.73333335
+        },
+        {
+          "name": "strongarms_open_double_door_front_no_cyberware",
+          "duration": 3.63333344
+        },
+        {
+          "name": "strongarms_open_double_door_front_flip_no_cyberware",
+          "duration": 3.63333344
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_gate\\door_gate_force_open.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_rollup_door_a\\int_doors_002__maelstrom_factory_garage_rollup_door_a.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_double\\door_container_freight.anims": {
+      "rig": "base\\items\\interactive\\containers\\int_container_002__freight_e_door\\int_container_002__freight_e_door.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_hinged_double_door_front_no_cyberware",
+          "duration": 3.20000005
+        },
+        {
+          "name": "open",
+          "duration": 1.5
+        },
+        {
+          "name": "close",
+          "duration": 1.5
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_gate\\door_gate_force_open_02.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_loading_bay_rollup_door_a\\int_doors_002__maelstrom_factory_garage_loading_bay_rollup_door_a.rig",
+      "animations": [
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\shutters\\int_doors_002_shutters_h600.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__shutters\\int_doors_002__shutters.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 1
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_rollup_door_a.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_rollup_door_a\\int_doors_002__maelstrom_factory_garage_rollup_door_a.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 1.9666667
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\int_doors_002_cabinet_glass.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_door_dollhouse\\int_doors_002__cabinet_glass.rig",
+      "animations": [
+        {
+          "name": "close",
+          "duration": 0.800000012
+        },
+        {
+          "name": "open",
+          "duration": 0.800000012
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_double\\door_double.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002.rig",
+      "animations": [
+        {
+          "name": "open_slide_horizontal",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_slide_vertical",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_swing_left",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_swing_right",
+          "duration": 0.966666639
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\shutters\\int_doors_002_shutters_h250.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__shutters\\int_doors_002__shutters.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 1
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_double\\door_container.anims": {
+      "rig": "base\\items\\quest\\sq031__container_door\\sq031__container_door.rig",
+      "animations": [
+        {
+          "name": "open_swing_right",
+          "duration": 2.36666656
+        },
+        {
+          "name": "open_swing_left",
+          "duration": 2.36666656
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\int_furniture_002__bar_counter_03_swing_door.anims": {
+      "rig": "base\\items\\interactive\\furniture\\int_furniture_002__bar_counter_03_swing_door\\int_furniture_002__bar_counter_03_swing_door.rig",
+      "animations": [
+        {
+          "name": "open_swing_left",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_swing_right",
+          "duration": 0.966666639
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_single\\door_single_deformable.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_001.rig",
+      "animations": [
+        {
+          "name": "open_slide_horizontal",
+          "duration": 0.833333313
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\door_single\\door_single.anims": {
+      "rig": "base\\items\\prop_base_skeleton.rig",
+      "animations": [
+        {
+          "name": "open_slide_horizontal",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_swing_left",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_swing_right",
+          "duration": 0.966666639
+        },
+        {
+          "name": "open_slide_vertical",
+          "duration": 0.966666639
+        },
+        {
+          "name": "synced__q001__00a__jackie_silences_player__door",
+          "duration": 7.33333349
+        },
+        {
+          "name": "synced__q001__00a__jackie_silences_player__door_closed",
+          "duration": 0.400000006
+        },
+        {
+          "name": "q001_00_old_lady_door__open",
+          "duration": 1.93333328
+        },
+        {
+          "name": "q001_00_old_lady_door__close",
+          "duration": 1.5
+        },
+        {
+          "name": "q001_00_old_lady_door__close__idle",
+          "duration": 0.400000006
+        },
+        {
+          "name": "q001_00_old_lady_door__open__idle",
+          "duration": 0.800000012
+        },
+        {
+          "name": "close_slide_horizontal_long",
+          "duration": 3.4333334
+        },
+        {
+          "name": "closed_slide_horizontal_idle",
+          "duration": 3.4333334
+        },
+        {
+          "name": "open_slide_horizontal_idle",
+          "duration": 3.4333334
+        },
+        {
+          "name": "open_slide_horizontal_long",
+          "duration": 3.4333334
+        },
+        {
+          "name": "synced__johnny_kills_tosiro__01__door",
+          "duration": 13.4666662
+        },
+        {
+          "name": "synced__johnny_kills_tosiro__01__door_closed_idle",
+          "duration": 0.333333343
+        },
+        {
+          "name": "sq029_fence_gate_river_shaking",
+          "duration": 6
+        },
+        {
+          "name": "sq029_fence_gate_open_idle",
+          "duration": 1
+        },
+        {
+          "name": "sq029_fence_gate_open",
+          "duration": 3.0666666
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_loading_bay_rollup_door_a.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__maelstrom_factory_garage_loading_bay_rollup_door_a\\int_doors_002__maelstrom_factory_garage_loading_bay_rollup_door_a.rig",
+      "animations": [
+        {
+          "name": "close",
+          "duration": 1.63333333
+        },
+        {
+          "name": "open",
+          "duration": 1.63333333
+        }
+      ]
+    },
+    "base\\animations\\items\\interactive\\doors\\shutters\\int_doors_002_shutters_h150.anims": {
+      "rig": "base\\items\\interactive\\doors\\int_doors_002__shutters\\int_doors_002__shutters.rig",
+      "animations": [
+        {
+          "name": "open_slide_vertical",
+          "duration": 1
+        },
+        {
+          "name": "strongarms_open_garage_door_front",
+          "duration": 6.33333349
+        },
+        {
+          "name": "strongarms_open_garage_door_front_flip",
+          "duration": 6.33333349
+        }
+      ]
+    }
+  }
+}

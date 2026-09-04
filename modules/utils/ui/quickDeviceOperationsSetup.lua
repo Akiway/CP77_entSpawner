@@ -4,6 +4,7 @@ local history = require("modules/utils/project/history")
 local registry = require("modules/utils/game/nodeRefRegistry")
 local red = require("modules/utils/interop/redConverter")
 local data = require("modules/utils/data/deviceOperations")
+local audioData = require("modules/utils/data/audioData")
 
 ---Quick setup for `DeviceOperationsContainer`, available on any device whose controller PS derives
 ---from `ScriptableDeviceComponentPS`.
@@ -106,30 +107,204 @@ function quickDeviceOperationsSetupUI.install(device, options)
 
     -- Field rendering ---------------------------------------------------------------------------
 
-    ---Draw one field descriptor against the table that owns it. Mutates `owner` in place.
+    ---Column width a field gets when its descriptor does not name one, in unscaled style units.
+    local DEFAULT_FIELD_WIDTHS = {
+        cname = 180,
+        tweakdbid = 240,
+        noderef = 180,
+        enum = 120,
+        bool = 34,
+        int = 90,
+        float = 50,
+        class = 240
+    }
+
+    ---@param field table
+    ---@return number width In unscaled style units
+    local function fieldWidth(field)
+        return field.width or DEFAULT_FIELD_WIDTHS[field.kind] or 160
+    end
+
+    ---Width of the table column a field sits in: the widget, plus room for the warning icon the name
+    ---fields draw after themselves. Without the extra the icon lands outside the cell and is clipped,
+    ---which would hide exactly the marker saying the name matches nothing.
+    ---@param field table
+    ---@return number width In unscaled style units
+    local function fieldColumnWidth(field)
+        local canWarn = field.kind == "cname" or field.kind == "tweakdbid" or field.kind == "class"
+
+        return fieldWidth(field) + (canWarn and 26 or 8)
+    end
+
+    ---Key under which a row's transient UI state (a dropdown's typed filter) is kept.
+    ---
+    ---Built from the row's *position*, never from the table it edits. `getComponentPathArray` hands
+    ---out a fresh `deepcopy` on every frame, so a key derived from the owning table's identity
+    ---changed every frame: the stored filter was never found again, and the typed text survived only
+    ---for as long as ImGui served the input's own internal buffer -- that is, until it lost focus.
+    ---@param keyPrefix string
+    ---@param field table
+    ---@return string
+    local function searchStateKey(keyPrefix, field)
+        return keyPrefix .. "/" .. table.concat(field.path, ".")
+    end
+
+    ---Dropdown configuration for a field that names something, or nil when it stays free text.
+    ---
+    ---Every name in this panel is matched exactly at runtime and does nothing when it is wrong, with
+    ---no log line -- so wherever the set of valid names can be read back off the entity, or off the
+    ---shipped data, it is offered as a list instead of asking for a guess.
+    ---@param self table device spawnable
+    ---@param field table
+    ---@return table? config
+    local function resolveSelector(self, field)
+        if field.selector == "component" then
+            return {
+                options = data.getComponentNames(self, field.componentFilter),
+                hint = "Search component...",
+                tooltip = "Component on this entity, matched by name.",
+                verify = true,
+                matchWidth = true,
+                empty = field.componentFilter
+                    and string.format("This entity carries no %s.", data.describeComponentFilter(field.componentFilter))
+                    or "No components found on this entity yet."
+            }
+        elseif field.selector == "animation" then
+            return {
+                options = data.getAnimationNames(self),
+                hint = "Search clip...",
+                tooltip = "Transform animation clip defined on this entity's animator component.",
+                verify = true,
+                matchWidth = true,
+                empty = "This entity has no transform animator, so no clip name can play."
+            }
+        elseif field.selector == "vfx" then
+            return {
+                options = data.getEffectNames(self),
+                hint = "Search effect...",
+                tooltip = "Effect registered on this entity's entEffectSpawnerComponent. The operation starts it by name.",
+                verify = true,
+                matchWidth = true,
+                empty = "This entity registers no effects, so there is no name to start."
+            }
+        elseif field.selector == "customAction" then
+            local componentID = self:getDeviceOperationsComponentID()
+            local entries = componentID
+                and self:getComponentPathArray(self, componentID, data.CUSTOM_ACTIONS_PATH)
+                or {}
+            local isGeneric = data.classDerivesFrom(self.deviceClassName, data.GENERIC_PS_CLASS)
+
+            return {
+                options = data.readCustomActionIDs(entries),
+                hint = "Search action...",
+                tooltip = "One of this device's own custom actions. The name is invented per device, so this list is the whole vocabulary.",
+                verify = true,
+                matchWidth = true,
+                empty = isGeneric
+                    and "This device declares no custom actions. Add them under Entity Instance Data (genericDeviceActionsSetup.customActions.actions) first -- this operation only enables and disables actions that already exist, it cannot create one."
+                    or string.format("This device's controller is %s, not GenericDeviceController, which is the only one that carries custom actions. Nothing here can fire.", tostring(self.deviceClassName))
+            }
+
+        elseif field.selector == "event" then
+            local config = audioData.getFieldSelector("event")
+
+            if config then
+                return {
+                    options = config.options,
+                    hint = config.hint,
+                    tooltip = config.tooltip,
+                    tooltipFn = config.tooltipFn,
+                    -- Not verified against the list: an event missing from the shipped metadata is
+                    -- still playable, and modded soundbanks add their own.
+                    verify = false,
+                    -- Deliberately not width-matched. `matchContentWidth` measures *every* option
+                    -- with CalcTextSize on every frame, open or closed, and this list is tens of
+                    -- thousands of events long.
+                    matchWidth = false
+                }
+            end
+        elseif field.records then
+            return {
+                options = data.getRecordNames(field.records),
+                hint = "Search record...",
+                tooltip = string.format("%s entry from the live TweakDB. Custom IDs are accepted for records a mod adds.", field.records),
+                verify = false,
+                -- Same reason as the event list: item records alone run to tens of thousands.
+                matchWidth = false
+            }
+        end
+
+        return nil
+    end
+
+    ---Draw one field's widget, with no label of its own: the caller owns the layout, because the
+    ---same descriptor is drawn as a labelled row by the single-value operations and as a table cell
+    ---by the list ones.
     ---@param self table device spawnable
     ---@param field table Descriptor from the data module
     ---@param owner table Table holding the field
-    ---@param labelWidth number
+    ---@param keyPrefix string Stable identity for this row's transient UI state
+    ---@param width number Widget width in unscaled style units
     ---@return boolean changed The value was written and must be persisted
     ---@return boolean settled The edit is over, so the device may respawn
-    local function drawField(self, field, owner, labelWidth)
+    local function drawFieldWidget(self, field, owner, keyPrefix, width)
         local changed, settled = false, false
         local current = readPath(owner, field.path)
-        local width = field.width or 160
 
-        style.mutedText(field.label)
-        ImGui.SameLine()
-        ImGui.SetCursorPosX(labelWidth)
+        self.deviceOperationsFieldSearch = self.deviceOperationsFieldSearch or {}
 
         if field.kind == "cname" or field.kind == "tweakdbid" then
             local currentText = field.kind == "cname" and data.readCName(current) or data.readRawValue(current)
-            local newValue, _, finished = style.trackedTextField(
-                self.object, "##field", currentText, field.kind == "cname" and "Name..." or "TweakDB ID...", width
-            )
-            if finished then
-                writePath(owner, field.path, field.kind == "cname" and data.cname(newValue) or data.tweakDBID(newValue))
-                changed, settled = true, true
+            local selector = resolveSelector(self, field)
+
+            ---@param text string
+            ---@return table value The RED JSON form this field stores
+            local function encode(text)
+                return field.kind == "cname" and data.cname(text) or data.tweakDBID(text)
+            end
+
+            if selector then
+                local searchKey = searchStateKey(keyPrefix, field)
+                local newValue, searchValue, finished = style.trackedSearchDropdown(
+                    "##field", selector.hint, currentText,
+                    self.deviceOperationsFieldSearch[searchKey] or "", selector.options,
+                    {
+                        element = self.object,
+                        width = width,
+                        allowCustom = true,
+                        matchContentWidth = selector.matchWidth == true,
+                        listHeight = 200,
+                        optionTooltipFn = selector.tooltipFn,
+                        tooltip = selector.tooltip
+                    }
+                )
+                self.deviceOperationsFieldSearch[searchKey] = searchValue
+
+                if finished and newValue ~= currentText then
+                    writePath(owner, field.path, encode(newValue))
+                    changed, settled = true, true
+                end
+
+                if #selector.options == 0 and selector.empty then
+                    ImGui.SameLine()
+                    style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+                    style.tooltip(selector.empty)
+                elseif selector.verify and currentText ~= "" and not utils.has_value(selector.options, currentText) then
+                    ImGui.SameLine()
+                    style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+                    style.tooltip(string.format(
+                        "'%s' is not one of the %d names this entity offers, so nothing will match it.",
+                        currentText, #selector.options
+                    ))
+                end
+            else
+                local newValue, _, finished = style.trackedTextField(
+                    self.object, "##field", currentText, field.kind == "cname" and "Name..." or "TweakDB ID...", width
+                )
+                if finished then
+                    writePath(owner, field.path, encode(newValue))
+                    changed, settled = true, true
+                end
             end
 
         elseif field.kind == "noderef" then
@@ -188,14 +363,13 @@ function quickDeviceOperationsSetupUI.install(device, options)
                 currentClass = existing["$type"]
             end
 
-            self.deviceOperationsFieldSearch = self.deviceOperationsFieldSearch or {}
-            local searchKey = table.concat(field.path, "/") .. tostring(owner)
+            local searchKey = searchStateKey(keyPrefix, field)
             local newValue, searchValue, finished = style.trackedSearchDropdown(
                 "##field", "Search class...", currentClass,
                 self.deviceOperationsFieldSearch[searchKey] or "", getActionClasses(),
                 {
                     element = self.object,
-                    width = 240,
+                    width = width,
                     matchContentWidth = true,
                     listHeight = 200,
                     tooltip = "Matched on class name only."
@@ -222,12 +396,14 @@ function quickDeviceOperationsSetupUI.install(device, options)
         return changed, settled
     end
 
+    ---Draw a set of fields as labelled rows, for the operations whose payload is a single struct.
     ---@param self table device spawnable
     ---@param fields table[]
     ---@param owner table
+    ---@param keyPrefix string
     ---@return boolean changed
     ---@return boolean settled
-    local function drawFields(self, fields, owner)
+    local function drawFields(self, fields, owner, keyPrefix)
         if not fields or #fields == 0 then return false, false end
 
         local labels = {}
@@ -237,11 +413,17 @@ function quickDeviceOperationsSetupUI.install(device, options)
         local changed, settled = false, false
         for index, field in ipairs(fields) do
             ImGui.PushID(index)
-            local fieldChanged, fieldSettled = drawField(self, field, owner, labelWidth)
+
+            style.mutedText(field.label)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(labelWidth)
+
+            local fieldChanged, fieldSettled = drawFieldWidget(self, field, owner, keyPrefix, fieldWidth(field))
             if fieldChanged then
                 changed = true
                 settled = settled or fieldSettled
             end
+
             ImGui.PopID()
         end
 
@@ -319,8 +501,10 @@ function quickDeviceOperationsSetupUI.install(device, options)
     -- Popup ---------------------------------------------------------------------------------------
 
     function device:drawDeviceOperationsSetupPopup()
-        local defaultWidth = 720 * style.viewSize
-        local defaultHeight = 720 * style.viewSize
+        -- Wide enough for the payload tables: the broadest of them (Play effect) is a little over
+        -- 800 unscaled units of columns, and a table clips at the window edge rather than scrolling.
+        local defaultWidth = 900 * style.viewSize
+        local defaultHeight = 760 * style.viewSize
         local minWidth = 620 * style.viewSize
         local minHeight = 520 * style.viewSize
         local screenWidth, screenHeight = GetDisplayResolution()
@@ -335,6 +519,8 @@ function quickDeviceOperationsSetupUI.install(device, options)
         if not ImGui.BeginPopupModal(quickDeviceOperationsSetupUI.POPUP_ID, true) then
             return
         end
+        style.styledTextWrapped(IconGlyphs.Flask .. " Experimental feature : the Device Operations manager is a work in progress. It is not yet fully tested and may have bugs or incomplete functionality.", style.activeColor)
+
 
         local componentID = self:getDeviceOperationsComponentID()
 
@@ -586,6 +772,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
             if operationData then
                 ImGui.PushID(index)
 
+                local keyPrefix = string.format("operation%d", index)
                 local class = tostring(operationData["$type"] or "")
                 local name = operationName(operationData)
                 local header = string.format("%s  -  %s", name ~= "" and name or "<unnamed>", data.getOperationLabel(class))
@@ -669,10 +856,10 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     if typeInfo and typeInfo.deferToInstanceData then
                         style.styledTextWrapped("Edit this operation's payload under Entity Instance Data.", style.extraMutedColor)
                     elseif typeInfo and typeInfo.fields then
-                        local fieldsChanged, fieldsSettled = drawFields(self, typeInfo.fields, operationData)
+                        local fieldsChanged, fieldsSettled = drawFields(self, typeInfo.fields, operationData, keyPrefix)
                         if fieldsChanged then commit(operations, fieldsSettled) end
                     elseif typeInfo and typeInfo.list then
-                        local listChanged, listSettled = self:drawDeviceOperationPayloadList(typeInfo.list, operationData)
+                        local listChanged, listSettled = self:drawDeviceOperationPayloadList(typeInfo.list, operationData, keyPrefix)
                         if listChanged then commit(operations, listSettled) end
                     end
 
@@ -706,12 +893,20 @@ function quickDeviceOperationsSetupUI.install(device, options)
         style.sectionHeaderEnd()
     end
 
-    ---Draw the repeated payload struct of an operation, e.g. the SFX entries of a Play sound.
+    ---Draw the repeated payload struct of an operation -- the SFX entries of a Play sound, the items
+    ---of a Grant items -- as a table, one row per entry and one column per field.
+    ---
+    ---A table rather than a stack of labelled rows because these lists are read as much as they are
+    ---written: with three sounds on one operation the question is almost always "which of these is
+    ---the STOP", and stacked rows repeat every label three times to answer it. The columns are fixed
+    ---width, so a narrow window clips the rightmost ones rather than scrolling -- the popup opens
+    ---wide enough for the broadest of them and can be widened further.
     ---@param listInfo table
     ---@param operationData table
+    ---@param keyPrefix string Stable identity for this operation's transient UI state
     ---@return boolean changed
     ---@return boolean settled
-    function device:drawDeviceOperationPayloadList(listInfo, operationData)
+    function device:drawDeviceOperationPayloadList(listInfo, operationData, keyPrefix)
         local entries = readPath(operationData, listInfo.path)
         if type(entries) ~= "table" then
             entries = {}
@@ -719,27 +914,64 @@ function quickDeviceOperationsSetupUI.install(device, options)
         end
 
         local changed, settled = false, false
+        local fields = listInfo.fields
 
-        for index, entry in ipairs(entries) do
-            ImGui.PushID(1000 + index)
-            ImGui.Separator()
+        if #entries > 0 then
+            local tableFlags = ImGuiTableFlags.SizingFixedFit
+                + ImGuiTableFlags.BordersInnerV
+                + ImGuiTableFlags.BordersOuter
+                + ImGuiTableFlags.RowBg
 
-            style.mutedText(string.format("%s %d", listInfo.label, index))
-            ImGui.SameLine()
-            if style.dangerButton(IconGlyphs.DeleteOutline .. "##deletePayloadEntry") then
-                history.addAction(history.getElementChange(self.object))
-                table.remove(entries, index)
-                ImGui.PopID()
-                return true, true
+            -- The id is the item class and nothing else. It must not carry anything that changes
+            -- while the panel is open -- the same trap as `##` on the tree node headers, where a
+            -- computed label folded into the id made ImGui treat the widget as a brand new one.
+            if ImGui.BeginTable("##payload" .. tostring(listInfo.itemClass), #fields + 2, tableFlags) then
+                ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 18 * style.viewSize)
+                for _, field in ipairs(fields) do
+                    ImGui.TableSetupColumn(field.label, ImGuiTableColumnFlags.WidthFixed, fieldColumnWidth(field) * style.viewSize)
+                end
+                ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 30 * style.viewSize)
+                ImGui.TableHeadersRow()
+
+                for index, entry in ipairs(entries) do
+                    ImGui.PushID(1000 + index)
+                    ImGui.TableNextRow()
+
+                    ImGui.TableNextColumn()
+                    style.mutedText(tostring(index))
+
+                    local rowKeyPrefix = string.format("%s/%s/%d", keyPrefix, tostring(listInfo.itemClass), index)
+
+                    for fieldIndex, field in ipairs(fields) do
+                        ImGui.TableNextColumn()
+                        ImGui.PushID(fieldIndex)
+
+                        local fieldChanged, fieldSettled = drawFieldWidget(self, field, entry, rowKeyPrefix, fieldWidth(field))
+                        if fieldChanged then
+                            changed = true
+                            settled = settled or fieldSettled
+                        end
+
+                        ImGui.PopID()
+                    end
+
+                    ImGui.TableNextColumn()
+                    if style.dangerButton(IconGlyphs.DeleteOutline .. "##deletePayloadEntry") then
+                        history.addAction(history.getElementChange(self.object))
+                        table.remove(entries, index)
+                        ImGui.PopID()
+                        ImGui.EndTable()
+                        return true, true
+                    end
+                    style.tooltip(string.format("Delete this %s.", listInfo.singular))
+
+                    ImGui.PopID()
+                end
+
+                ImGui.EndTable()
             end
-
-            local entryChanged, entrySettled = drawFields(self, listInfo.fields, entry)
-            if entryChanged then
-                changed = true
-                settled = settled or entrySettled
-            end
-
-            ImGui.PopID()
+        else
+            style.mutedText(string.format("No %s yet.", listInfo.label:lower()))
         end
 
         if ImGui.Button(IconGlyphs.Plus .. " Add " .. listInfo.singular .. "##addPayloadEntry") then
@@ -781,6 +1013,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
             if triggerObject then
                 ImGui.PushID(5000 + index)
 
+                local keyPrefix = string.format("trigger%d", index)
                 local class = tostring(triggerObject["$type"] or "")
                 local runs = {}
                 for _, execution in ipairs(triggerData and readPath(triggerData, { "operationsToExecute" }) or {}) do
@@ -814,7 +1047,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
                         style.styledTextWrapped("This trigger has no trigger data and will never fire. Delete and re-add it.", style.warnColor)
                     else
                         if typeInfo then
-                            local fieldsChanged, fieldsSettled = drawFields(self, typeInfo.fields, triggerData)
+                            local fieldsChanged, fieldsSettled = drawFields(self, typeInfo.fields, triggerData, keyPrefix)
                             if fieldsChanged then commit(triggers, fieldsSettled) end
                         end
 
