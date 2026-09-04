@@ -150,6 +150,66 @@ function quickDeviceOperationsSetupUI.install(device, options)
         return keyPrefix .. "/" .. table.concat(field.path, ".")
     end
 
+    ---Joins a widget's own tooltip with the field's hint into the one tooltip the widget carries.
+    ---
+    ---`style.tooltip` binds to the last item drawn, so a widget that already set a tooltip and a
+    ---hint emitted after it both bind to the same combo and render stacked on top of each other.
+    ---Whichever branch draws a tooltip takes the hint into it instead.
+    ---@param ... string? Parts, in the order they should read
+    ---@return string? tooltip nil when every part was empty
+    local function joinTooltip(...)
+        local parts = {}
+
+        for _, part in ipairs({ ... }) do
+            if type(part) == "string" and part ~= "" then
+                table.insert(parts, part)
+            end
+        end
+
+        if #parts == 0 then return nil end
+
+        return table.concat(parts, "\n\n")
+    end
+
+    ---Popup width that leaves room for a right-aligned annotation beside the longest option.
+    ---
+    ---`matchContentWidth` measures the option labels alone, and `trackedSearchDropdown` drops an
+    ---annotation that does not fit after the label -- so with annotations on, the popup sized to the
+    ---labels is exactly the width at which the annotations stop being drawn.
+    ---@param options string[]
+    ---@param annotations table<string, string>
+    ---@return number width In unscaled style units
+    local function annotatedPopupWidth(options, annotations)
+        local widest = 0
+        local styleData = ImGui.GetStyle()
+
+        for _, option in ipairs(options) do
+            local width = ImGui.CalcTextSize(option)
+            local annotation = annotations[option]
+
+            if type(annotation) == "string" and annotation ~= "" then
+                width = width + (2 * styleData.ItemSpacing.x) + ImGui.CalcTextSize(annotation)
+            end
+
+            widest = math.max(widest, width)
+        end
+
+        local content = widest
+            + (2 * styleData.WindowPadding.x)
+            + (2 * styleData.FramePadding.x)
+            + styleData.ScrollbarSize
+            + styleData.ItemSpacing.x
+
+        -- The same ceiling the label-only measurement uses: this width is applied as a minimum, so
+        -- without it one absurdly named component would push the popup off the screen.
+        local screenWidth = select(1, GetDisplayResolution()) or 0
+        if screenWidth > 0 then
+            content = math.min(content, screenWidth * 0.9)
+        end
+
+        return content / style.viewSize
+    end
+
     ---Dropdown configuration for a field that names something, or nil when it stays free text.
     ---
     ---Every name in this panel is matched exactly at runtime and does nothing when it is wrong, with
@@ -157,18 +217,91 @@ function quickDeviceOperationsSetupUI.install(device, options)
     ---shipped data, it is offered as a list instead of asking for a guess.
     ---@param self table device spawnable
     ---@param field table
+    ---@param currentText string The value the field holds right now
     ---@return table? config
-    local function resolveSelector(self, field)
+    local function resolveSelector(self, field, currentText)
         if field.selector == "component" then
+            local options, classes = data.getComponents(self, field.componentFilter)
+            local currentClass = classes[currentText]
+
             return {
-                options = data.getComponentNames(self, field.componentFilter),
-                hint = "Search component...",
-                tooltip = "Component on this entity, matched by name.",
+                options = options,
+                hint = "Search component or type...",
+                -- The class of what is already picked, so the type is readable without opening the
+                -- list: a device carries a dozen components named `mesh1`, `trigger`, `audio`, and
+                -- which one of those a name is decides whether the operation does anything at all.
+                tooltip = currentClass
+                    and string.format("Component on this entity, matched by name.\nThis one is a %s.", currentClass)
+                    or "Component on this entity, matched by name.",
                 verify = true,
                 matchWidth = true,
+                popupMinWidth = annotatedPopupWidth(options, classes),
+                annotationFn = function (optionText)
+                    return classes[optionText] or ""
+                end,
+                tooltipFn = function (optionText)
+                    local class = classes[optionText]
+                    return class and string.format("%s\nClass: %s", optionText, class) or nil
+                end,
+                -- The class is on screen, so it has to be searchable too: `bink` should find the
+                -- Bink component whatever its author called it.
+                filterFn = function (optionText, query)
+                    return utils.safePatternMatch(optionText:lower(), query)
+                        or utils.safePatternMatch((classes[optionText] or ""):lower(), query)
+                end,
                 empty = field.componentFilter
                     and string.format("This entity carries no %s.", data.describeComponentFilter(field.componentFilter))
                     or "No components found on this entity yet."
+            }
+        elseif field.selector == "meshAppearance" then
+            local options, owners, pending, meshCount = data.getMeshAppearanceNames(self)
+
+            ---@param optionText string
+            ---@return string
+            local function describeOwners(optionText)
+                local names = owners[optionText] or {}
+                if #names == 0 then return "" end
+                if #names == 1 then return names[1] end
+
+                return string.format("%d meshes", #names)
+            end
+
+            local annotations = {}
+            for _, option in ipairs(options) do
+                annotations[option] = describeOwners(option)
+            end
+
+            return {
+                options = options,
+                hint = "Search appearance...",
+                -- No tooltip of its own: the field's hint already says what a mesh appearance is and
+                -- where the name lands, and both would render into the same tooltip.
+                -- Not verified while the meshes are still being read: the list is genuinely
+                -- incomplete then, and a warning on a name that is about to appear reads as a bug.
+                verify = not pending,
+                matchWidth = true,
+                popupMinWidth = annotatedPopupWidth(options, annotations),
+                annotationFn = function (optionText)
+                    return annotations[optionText] or ""
+                end,
+                tooltipFn = function (optionText)
+                    local names = owners[optionText] or {}
+                    if #names == 0 then return nil end
+
+                    return string.format(
+                        "Offered by %d of this entity's %d mesh components:\n%s",
+                        #names, meshCount, table.concat(names, "\n")
+                    )
+                end,
+                empty = pending
+                    and "Reading the appearances off this entity's meshes..."
+                    or (meshCount == 0
+                        and "This entity carries no mesh component, so there is no appearance to switch to."
+                        or "None of this entity's meshes define a named appearance."),
+                -- A list that has not finished loading is not a problem with what the author wrote,
+                -- so it does not get the warning icon an empty list otherwise earns.
+                emptyIcon = pending and IconGlyphs.TimerSand or nil,
+                emptyColor = pending and style.mutedColor or nil
             }
         elseif field.selector == "animation" then
             return {
@@ -210,7 +343,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
             -- The tags come from the `.interaction` descriptor the component points at, which CET
             -- cannot read, so this list is the shipped vocabulary rather than this entity's own.
             -- Custom stays on for a descriptor that names its layers differently.
-            local hasInteraction = #data.getComponentNames(self, "gameinteractionsComponent") > 0
+            local hasInteraction = #data.getComponents(self, "gameinteractionsComponent") > 0
 
             return {
                 options = data.getInteractionAreaTags(),
@@ -269,13 +402,15 @@ function quickDeviceOperationsSetupUI.install(device, options)
     local function drawFieldWidget(self, field, owner, keyPrefix, width)
         local changed, settled = false, false
         local current = readPath(owner, field.path)
+        -- Set by the branches that draw a tooltip of their own, which fold the hint into it.
+        local hintConsumed = false
 
         self.deviceOperationsFieldSearch = self.deviceOperationsFieldSearch or {}
         self.deviceOperationsFieldShowAll = self.deviceOperationsFieldShowAll or {}
 
         if field.kind == "cname" or field.kind == "tweakdbid" then
             local currentText = field.kind == "cname" and data.readCName(current) or data.readRawValue(current)
-            local selector = resolveSelector(self, field)
+            local selector = resolveSelector(self, field, currentText)
 
             ---@param text string
             ---@return table value The RED JSON form this field stores
@@ -290,11 +425,12 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     width = width,
                     listHeight = 200,
                     hint = selector.hint,
-                    tooltip = selector.tooltip,
+                    tooltip = joinTooltip(selector.tooltip, field.hint),
                     showNote = false,
                     showTest = true,
                     testTarget = self:getEntity()
                 })
+                hintConsumed = true
 
                 if finished and newValue ~= currentText then
                     writePath(owner, field.path, encode(newValue))
@@ -311,12 +447,15 @@ function quickDeviceOperationsSetupUI.install(device, options)
                         width = width,
                         allowCustom = true,
                         matchContentWidth = selector.matchWidth == true,
+                        popupMinWidth = selector.popupMinWidth,
                         listHeight = 200,
                         optionTooltipFn = selector.tooltipFn,
                         optionAnnotationFn = selector.annotationFn,
-                        tooltip = selector.tooltip
+                        optionFilterFn = selector.filterFn,
+                        tooltip = joinTooltip(selector.tooltip, field.hint)
                     }
                 )
+                hintConsumed = true
                 self.deviceOperationsFieldSearch[searchKey] = searchValue
 
                 if finished and newValue ~= currentText then
@@ -330,7 +469,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     style.tooltip(selector.warn)
                 elseif #selector.options == 0 and selector.empty then
                     ImGui.SameLine()
-                    style.styledText(IconGlyphs.AlertOutline, style.warnColor)
+                    style.styledText(selector.emptyIcon or IconGlyphs.AlertOutline, selector.emptyColor or style.warnColor)
                     style.tooltip(selector.empty)
                 elseif selector.verify and currentText ~= "" and not utils.has_value(selector.options, currentText) then
                     ImGui.SameLine()
@@ -435,13 +574,16 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     allowCustom = true,
                     matchContentWidth = true,
                     listHeight = 200,
-                    tooltip = canScope
-                        and string.format(
-                            "Matched on class name only.\n%s can raise %d interaction, %d quickhack and %d quest actions.",
-                            tostring(self.deviceClassName),
-                            scoped.counts.interaction or 0, scoped.counts.quickhack or 0, scoped.counts.quest or 0
-                        )
-                        or "Matched on class name only.",
+                    tooltip = joinTooltip(
+                        canScope
+                            and string.format(
+                                "Matched on class name only.\n%s can raise %d interaction, %d quickhack and %d quest actions.",
+                                tostring(self.deviceClassName),
+                                scoped.counts.interaction or 0, scoped.counts.quickhack or 0, scoped.counts.quest or 0
+                            )
+                            or "Matched on class name only.",
+                        field.hint
+                    ),
                     drawHeaderFn = canScope and function ()
                         local expanded, toggled = style.toggleButton(IconGlyphs.FormatListBulleted .. "##allActions", showAll)
                         if toggled then
@@ -465,6 +607,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
                     end
                 }
             )
+            hintConsumed = true
             self.deviceOperationsFieldSearch[searchKey] = searchValue
 
             if finished and newValue ~= "" and newValue ~= currentClass then
@@ -486,7 +629,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
             end
         end
 
-        if field.hint then
+        if field.hint and not hintConsumed then
             style.tooltip(field.hint)
         end
 

@@ -15,6 +15,8 @@ local deviceOperations = {}
 
 local transformAnimations = require("modules/utils/data/transformAnimations")
 local deviceActions = require("modules/utils/data/deviceActions")
+local cache = require("modules/utils/game/cache")
+local builder = require("modules/utils/game/entityBuilder")
 
 deviceOperations.BASE_PS_CLASS = "ScriptableDeviceComponentPS"
 deviceOperations.CONTAINER_CLASS = "DeviceOperationsContainer"
@@ -27,6 +29,11 @@ deviceOperations.EFFECT_COMPONENT_CLASS = "entEffectSpawnerComponent"
 ---operation and the Custom action ID trigger are dead on every other device.
 deviceOperations.GENERIC_PS_CLASS = "GenericDeviceControllerPS"
 deviceOperations.ANIMATOR_COMPONENT_CLASSES = { "gameTransformAnimatorComponent", "gameRootTransformAnimatorComponent" }
+---Components that carry both a `.mesh` and a `meshAppearance`, i.e. the ones an entity-wide
+---appearance switch can land on. `entPhysicalMeshComponent` derives from `entMeshComponent`, and the
+---cloth / morph-target components are left out: they carry a `meshAppearance` but take their
+---geometry from another resource, so there is no appearance list to read.
+deviceOperations.MESH_COMPONENT_CLASSES = { "entMeshComponent", "entSkinnedMeshComponent", "entPhysicalDestructionComponent" }
 
 deviceOperations.CONTAINER_PATH = { "persistentState", "Data", "deviceOperationsSetup" }
 deviceOperations.CONTAINER_DATA_PATH = { "persistentState", "Data", "deviceOperationsSetup", "Data" }
@@ -107,8 +114,9 @@ end
 --
 -- Two optional keys turn a free-text field into a dropdown, which is the whole point of this panel:
 -- every one of these names is matched exactly and fails silently when it is wrong.
---   `selector`  -- "component" | "animation" | "vfx" | "event", resolved against the live entity
---                  (or the shipped audio metadata) by the provider functions further down.
+--   `selector`  -- "component" | "meshAppearance" | "animation" | "vfx" | "event" |
+--                  "customAction" | "interactionTag" | "deviceAction", resolved against the live
+--                  entity (or the shipped audio metadata) by the provider functions further down.
 --   `records`   -- a TweakDB record class whose IDs fill the dropdown, for `tweakdbid` fields.
 -- Both keep `allowCustom` on, so a name the entity does not carry yet is still typeable.
 -- `componentFilter` narrows a "component" selector to components of one class.
@@ -169,8 +177,11 @@ deviceOperations.OPERATION_TYPES = {
         class = "MeshAppearanceDeviceOperation", label = "Mesh appearance",
         hint = "Switches the mesh appearance of the entity.",
         fields = {
-            { path = { "meshesAppearence" }, label = "Appearance", kind = "cname", width = 240,
-              hint = "A mesh appearance name, i.e. one of the appearances inside the component's .mesh -- not an entity appearance. There is no way to enumerate those from here, so it stays free text." }
+            { path = { "meshesAppearence" }, label = "Appearance", kind = "cname", selector = "meshAppearance", width = 240,
+              -- Hints render through `ImGui.Text`, which does not wrap, so they are broken by hand.
+              hint = "A mesh appearance, i.e. one defined inside a component's .mesh -- not an entity appearance.\n"
+                  .. "The name goes to every mesh component at once, and only the ones whose .mesh owns an\n"
+                  .. "appearance by that name change -- so this list is the union over the entity's meshes." }
         }
     },
     {
@@ -659,18 +670,28 @@ function deviceOperations.describeComponentFilter(filter)
     return table.concat(filterClasses(filter), " or ")
 end
 
----Component names on the entity.
+---Component names on the entity, and the class each name resolves to.
+---
+---The class is carried alongside because the name alone does not say what a component is: a device
+---routinely holds a dozen of them with names like `mesh1`, `trigger` or `audio`, and a field that
+---only accepts one kind -- the Bink component, the trigger area component -- silently does nothing
+---when the name picked is the wrong sort of thing. Showing the class turns that into something the
+---author can see before they commit to a name.
 ---@param spawnable table entity spawnable
 ---@param filter string|string[]|nil Only components deriving from this class (or any of these)
----@return string[]
-function deviceOperations.getComponentNames(spawnable, filter)
-    local names, seen = {}, {}
+---@return string[] names Sorted case-insensitively
+---@return table<string, string> classes name -> RTTI class name
+function deviceOperations.getComponents(spawnable, filter)
+    local names, seen, componentClasses = {}, {}, {}
     local classes = filterClasses(filter)
 
-    local function add(name)
+    local function add(name, className)
         if type(name) ~= "string" or name == "" or seen[name] then return end
         seen[name] = true
         table.insert(names, name)
+        if type(className) == "string" and className ~= "" then
+            componentClasses[name] = className
+        end
     end
 
     local components = getLiveComponents(spawnable)
@@ -688,11 +709,17 @@ function deviceOperations.getComponentNames(spawnable, filter)
             end
 
             if matches then
-                pcall(function () add(component.name.value) end)
+                -- Read apart, so a component whose class cannot be read is still listed under its
+                -- name rather than dropped out of the picker entirely.
+                local componentName, className = nil, nil
+                pcall(function () componentName = component.name.value end)
+                pcall(function () className = component:GetClassName().value end)
+
+                add(componentName, className)
             end
         end
 
-        return sortedNames(names)
+        return sortedNames(names), componentClasses
     end
 
     for _, component in pairs(type(spawnable) == "table" and spawnable.defaultComponentData or {}) do
@@ -707,12 +734,12 @@ function deviceOperations.getComponentNames(spawnable, filter)
             end
 
             if matches then
-                add(tostring(component.name["$value"] or ""))
+                add(tostring(component.name["$value"] or ""), component["$type"])
             end
         end
     end
 
-    return sortedNames(names)
+    return sortedNames(names), componentClasses
 end
 
 ---Transform animation clip names, from the entity's animator component.
@@ -814,6 +841,248 @@ function deviceOperations.getEffectNames(spawnable)
     return sortedNames(names)
 end
 
+---Appearance lists of the `.mesh` resources this entity's components point at, keyed by the path
+---the component names. Kept in memory rather than read back off `cache` every frame: the cache hands
+---out a deepcopy per call, and this list is rebuilt on every frame the picker is drawn.
+---@type table<string, string[]>
+local meshAppearanceCache = {}
+---Paths with a resource load already in flight, so a picker drawn every frame queues one load, not
+---one per frame.
+---@type table<string, boolean>
+local meshAppearancePending = {}
+
+---@param key string Cache key: the depot path, or the raw hash when the path is not known
+---@param resRef ResRef
+---@param path string? Depot path, when there is one
+local function requestMeshAppearances(key, resRef, path)
+    if meshAppearanceCache[key] or meshAppearancePending[key] then return end
+
+    meshAppearancePending[key] = true
+
+    local function complete(apps)
+        meshAppearanceCache[key] = apps or {}
+        meshAppearancePending[key] = nil
+
+        -- Same key the mesh spawnable uses, so a mesh whose appearances were read once is not read
+        -- again next session. Only the appearance list is written: `addMeshResource` would also
+        -- stamp a bounding box this never measured.
+        if path and path ~= "" then
+            cache.addValue(path .. "_apps", meshAppearanceCache[key])
+        end
+    end
+
+    -- A token for a resource that is not in the depot never fires its callback, which would leave
+    -- the picker reading "loading" forever.
+    local depot = Game.GetResourceDepot()
+    local exists = false
+    if depot then
+        pcall(function () exists = depot:ResourceExists(resRef) end)
+    end
+    if not exists then
+        complete({})
+        return
+    end
+
+    local ok = pcall(function ()
+        builder.registerLoadResource(resRef, function (resource)
+            local apps = {}
+
+            if resource and resource.appearances then
+                for _, appearance in ipairs(resource.appearances) do
+                    if appearance and appearance.name and appearance.name.value then
+                        table.insert(apps, appearance.name.value)
+                    end
+                end
+            end
+
+            complete(apps)
+        end)
+    end)
+
+    if not ok then
+        complete({})
+    end
+end
+
+---@param key string
+---@param path string?
+---@return string[]? apps nil while the list is not known yet
+local function readMeshAppearances(key, path)
+    local known = meshAppearanceCache[key]
+    if known then return known end
+
+    if path and path ~= "" then
+        local cached = cache.getValue(path .. "_apps")
+        if type(cached) == "table" then
+            meshAppearanceCache[key] = cached
+            return cached
+        end
+    end
+
+    return nil
+end
+
+---Resolved mesh references, so rebuilding the picker's list costs a table lookup rather than a
+---`ResRef` round trip per component per frame. Keyed by hash string or depot path, whichever the
+---component gave; `false` marks a reference that never resolved.
+---@type table<string, table|false>
+local meshRefCache = {}
+
+---@param hash any? A `raRef` hash, from a live component
+---@param path string? A depot path, from converted instance data
+---@return table? ref `{ key, path, resRef }`
+local function resolveMeshRef(hash, path)
+    local lookup = (type(path) == "string" and path ~= "") and path or (hash and tostring(hash) or nil)
+    if not lookup then return nil end
+
+    local cached = meshRefCache[lookup]
+    if cached ~= nil then return cached or nil end
+
+    local resRef = nil
+
+    if type(path) == "string" and path ~= "" then
+        pcall(function () resRef = ResRef.FromString(path) end)
+    else
+        pcall(function ()
+            resRef = ResRef.FromHash(hash)
+            path = resRef:ToString()
+        end)
+    end
+
+    if not resRef then
+        meshRefCache[lookup] = false
+        return nil
+    end
+
+    local hasPath = type(path) == "string" and path ~= ""
+    local ref = {
+        -- A mesh whose hash resolves to no readable path still loads by hash, so the hash stays the
+        -- key then -- it just cannot share the persistent, path-keyed appearance cache.
+        key = hasPath and path or lookup,
+        path = hasPath and path or nil,
+        resRef = resRef
+    }
+
+    meshRefCache[lookup] = ref
+
+    return ref
+end
+
+---The mesh components on the entity, as `{ name, key, path, resRef }` records.
+---@param spawnable table entity spawnable
+---@return table[]
+local function getMeshSources(spawnable)
+    local sources = {}
+
+    local function add(name, hash, path)
+        local ref = resolveMeshRef(hash, path)
+        if not ref then return end
+
+        table.insert(sources, {
+            name = type(name) == "string" and name or "",
+            key = ref.key,
+            path = ref.path,
+            resRef = ref.resRef
+        })
+    end
+
+    local components = getLiveComponents(spawnable)
+
+    if components then
+        for _, component in pairs(components) do
+            for _, meshClass in ipairs(deviceOperations.MESH_COMPONENT_CLASSES) do
+                local ok, isA = pcall(function () return component:IsA(meshClass) end)
+
+                if ok and isA then
+                    -- The name is only the annotation on the appearances this mesh offers, so a
+                    -- component that will not give one still contributes its appearance list.
+                    local componentName, meshHash = nil, nil
+                    pcall(function () componentName = component.name.value end)
+                    pcall(function () meshHash = component.mesh.hash end)
+
+                    add(componentName, meshHash, nil)
+                    break
+                end
+            end
+        end
+
+        return sources
+    end
+
+    for _, component in pairs(type(spawnable) == "table" and spawnable.defaultComponentData or {}) do
+        if type(component) == "table" and type(component.mesh) == "table" then
+            local isMesh = false
+
+            for _, meshClass in ipairs(deviceOperations.MESH_COMPONENT_CLASSES) do
+                if deviceOperations.classDerivesFrom(component["$type"], meshClass) then
+                    isMesh = true
+                    break
+                end
+            end
+
+            -- Only the readable form: a `uint64` storage holds the hash as a JSON number, which is
+            -- not a path and would load nothing if handed to `ResRef.FromString`. The live entity
+            -- covers that case, and this branch only runs before it is up.
+            if isMesh and type(component.mesh.DepotPath) == "table"
+                and tostring(component.mesh.DepotPath["$storage"] or "string") == "string" then
+                add(
+                    type(component.name) == "table" and tostring(component.name["$value"] or "") or "",
+                    nil,
+                    tostring(component.mesh.DepotPath["$value"] or "")
+                )
+            end
+        end
+    end
+
+    return sources
+end
+
+---Every mesh appearance this entity's components can be switched to.
+---
+---`MeshAppearanceDeviceOperation` queues one `entAppearanceEvent` with no `componentName`, so the
+---name reaches every mesh component at once and only the ones whose `.mesh` owns an appearance by
+---that name react. The vocabulary is therefore the union over the entity's meshes, not one mesh's
+---list -- and a name only some of them carry is a legitimate authoring choice, which is why the
+---owning components are reported alongside rather than used to narrow the list.
+---
+---Reading it means loading each `.mesh`, which is asynchronous: the first frames return whatever is
+---cached already and `pending` true, and the list fills in as the loads land.
+---@param spawnable table entity spawnable
+---@return string[] names Sorted case-insensitively
+---@return table<string, string[]> owners appearance name -> the components offering it
+---@return boolean pending At least one mesh is still loading
+---@return number meshCount How many mesh components were found
+function deviceOperations.getMeshAppearanceNames(spawnable)
+    local names, seen, owners = {}, {}, {}
+    local pending = false
+    local sources = getMeshSources(spawnable)
+
+    for _, source in ipairs(sources) do
+        local apps = readMeshAppearances(source.key, source.path)
+
+        if not apps then
+            pending = true
+            requestMeshAppearances(source.key, source.resRef, source.path)
+        else
+            for _, app in ipairs(apps) do
+                if type(app) == "string" and app ~= "" then
+                    if not seen[app] then
+                        seen[app] = true
+                        table.insert(names, app)
+                        owners[app] = {}
+                    end
+
+                    if source.name ~= "" then
+                        table.insert(owners[app], source.name)
+                    end
+                end
+            end
+        end
+    end
+
+    return sortedNames(names), owners, pending, #sources
+end
+
 ---The custom action IDs this device declares.
 ---
 ---There is no shared vocabulary for these: each is invented by whoever authored the device, in
@@ -871,9 +1140,13 @@ function deviceOperations.getRecordNames(recordClass)
     return names
 end
 
----Drops the cached record lists, so a TweakDB reload is picked up.
+---Drops the cached record lists and mesh appearance lists, so a TweakDB or archive reload is
+---picked up.
 function deviceOperations.invalidate()
     recordNameCache = {}
+    meshAppearanceCache = {}
+    meshAppearancePending = {}
+    meshRefCache = {}
 end
 
 ---The device actions one controller can raise, for the `Device action performed` trigger.
