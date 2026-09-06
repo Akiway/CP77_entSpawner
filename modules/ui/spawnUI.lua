@@ -12,6 +12,8 @@ local entity = require("modules/classes/spawn/entity/entity")
 local entityRecordClass = require("modules/classes/spawn/entity/entityRecord")
 local aiSpotClass = require("modules/classes/spawn/ai/aiSpot")
 local audioData = require("modules/utils/data/audioData")
+local soundSelector = require("modules/utils/ui/soundSelector")
+local input = require("modules/utils/core/input")
 local logger = require("modules/utils/core/logger")
 local prefabPreview = require("modules/utils/preview/prefabPreview")
 local previewControls = require("modules/utils/preview/previewControls")
@@ -870,6 +872,10 @@ end
 ---@field formatOptionLabel fun(option: SpawnEntryFilterOption): string? Optional display label for an option.
 ---@field matchesOption fun(option: SpawnEntryFilterOption, searchValue: string, idx: integer): boolean? Optional option-list search matcher.
 ---@field compareOptions fun(a: SpawnEntryFilterOption, b: SpawnEntryFilterOption): boolean? Optional option-list sort comparator.
+---@field createState fun(): table? Extra fields merged into this filter's per-list state on creation.
+---@field drawCustom fun(filter: SpawnEntryFilter, spawnList: table, state: table): boolean? Draws the filter widget, returning whether anything changed.
+---@field acceptsEntry fun(entry: table, spawnList: table, state: table): boolean? Entry test, replacing the key-based one.
+---@field isActiveState fun(state: table): boolean? Activity test over the whole state, replacing `isActive`.
 
 ---Default activity test: the filter constrains as soon as one option is picked.
 ---@param selections table<string, boolean>
@@ -977,6 +983,51 @@ local function acceptsFilterEntry(filter, state, keys)
     end
 
     return acceptsAnySelectedKey(state.selections, keys)
+end
+
+---Criteria the Spawn New audio list does not offer, read by both the panel and the predicate so
+---what is drawn and what is applied cannot drift apart.
+---@type table<string, boolean>
+local AUDIO_METADATA_HIDDEN = { tags = true, duration = true, documented = true }
+
+---Width the sound-metadata popup needs for its label column plus the widest control row.
+local AUDIO_METADATA_POPUP_WIDTH = 420
+
+---Draws the sound-metadata filter: a combo previewing the active criteria, whose popup is the
+---selector's own criteria panel. Nothing about the panel is restated here - the browser and the
+---dropdown draw the same controls, so a criterion added to `soundSelector` shows up in both.
+---@param filter SpawnEntryFilter
+---@param state table
+---@return boolean changed
+local function drawAudioMetadataFilter(filter, state)
+    style.fieldLabel(filter.label)
+
+    local selections = soundSelector.resolveSelections(state.sound, nil, AUDIO_METADATA_HIDDEN)
+    local summary = soundSelector.summarize(selections)
+    local changed = false
+
+    ImGui.SetNextItemWidth(filter.comboWidth * style.viewSize)
+
+    -- Pinned to one width, like every other popup in the mod that carries a form: a combo popup
+    -- that has to resize spends the resize frame with its contents outside its own clip rect.
+    local popupWidth = AUDIO_METADATA_POPUP_WIDTH * style.viewSize
+    ImGui.SetNextWindowSizeConstraints(popupWidth, 1, popupWidth, style.getPopupMaxHeight())
+
+    if ImGui.BeginCombo("##audioMetadataFilterCombo", #summary > 0 and table.concat(summary, ", ") or "Any metadata") then
+        -- The popup is its own window, so without this the main window counts as unhovered and the
+        -- viewport starts taking the clicks and keys meant for the controls.
+        input.updateContext("main")
+
+        changed = soundSelector.drawCriteriaPanel(state.sound, {
+            hide = AUDIO_METADATA_HIDDEN,
+            resetTooltip = "Show every entry again."
+        })
+
+        ImGui.EndCombo()
+    end
+    style.tooltip("Filter the list on what the audio tables know about each event: whether it loops,\nwhether it carries a position, and how far it reaches.")
+
+    return changed
 end
 
 ---@type SpawnEntryFilter[]
@@ -1121,28 +1172,59 @@ local entryFilters = {
     },
     {
         -- Audio events carry the Wwise authoring hierarchy they sit in as tags, which is the only
-        -- category system the game ships for them. Name prefixes split the same kind of sound
-        -- across `amb_bl_`, `amb_g_` and `amb_int_`, so tags group the list far better.
+        -- grouping the game ships for them. Name prefixes split the same kind of sound across
+        -- `amb_bl_`, `amb_g_` and `amb_int_`, so tags group the list far better.
         id = "audioTag",
-        label = "Sound category",
-        allLabel = "All categories",
-        multiLabel = "%d categories selected",
-        searchHint = "Search category...",
-        emptyText = "No categories available",
-        noMatchText = "No matching categories",
-        selectAllTooltip = "Select all categories",
-        unselectAllTooltip = "Unselect all categories (default behavior: show all)",
-        clearTooltip = "Clear selected category filters",
+        label = "Sound tag",
+        allLabel = "All tags",
+        multiLabel = "%d tags selected",
+        searchHint = "Search tag...",
+        emptyText = "No tags available",
+        noMatchText = "No matching tags",
+        selectAllTooltip = "Select all tags",
+        unselectAllTooltip = "Unselect all tags (default behavior: show all)",
+        clearTooltip = "Clear selected tag filters",
         comboWidth = 260,
-        supports = function (spawnList) return spawnList.entryFilter == "audioTag" end,
+        supports = function (spawnList) return spawnList.entryFilter == "audio" end,
         resolveKeys = function (entry, spawnList)
             return audioData.getEventTags(getEntryAssetPath(entry, spawnList))
         end,
         resolveIcon = function () return IconGlyphs.TagOutline end,
         showAndFilterToggle = true,
-        andFilterTooltip = "Require every selected category instead of any selected category.",
+        andFilterTooltip = "Require every selected tag instead of any selected tag.",
         andFilterIcon = IconGlyphs.SetCenter,
         isActive = anySelected
+    },
+    {
+        -- The same metadata criteria the sound selector filters on, over the browser's own list, so
+        -- picking an emitter to place and picking an event for a field are the same act of search.
+        -- A predicate filter rather than a key-based one: a range of metres is not a set of names.
+        id = "audioMetadata",
+        label = "Sound metadata",
+        comboWidth = 260,
+        supports = function (spawnList) return spawnList.entryFilter == "audio" end,
+        -- Which criteria are dropped, and why, is recorded on `AUDIO_METADATA_HIDDEN` - one set,
+        -- read by both the panel and the predicate, so what is drawn and what is applied cannot
+        -- drift apart.
+        createState = function ()
+            return { sound = soundSelector.newFilterState() }
+        end,
+        -- Resolved here rather than per entry: `updateFilter` calls this once per pass, before the
+        -- entry loop, so the selections are built once for the whole list instead of 2,799 times.
+        isActiveState = function (state)
+            state.soundSelections = soundSelector.resolveSelections(state.sound, nil, AUDIO_METADATA_HIDDEN)
+
+            return soundSelector.isFiltering(state.soundSelections)
+        end,
+        acceptsEntry = function (entry, spawnList, state)
+            local selections = state.soundSelections
+                or soundSelector.resolveSelections(state.sound, nil, AUDIO_METADATA_HIDDEN)
+
+            return soundSelector.matches(getEntryAssetPath(entry, spawnList), selections)
+        end,
+        drawCustom = function (filter, spawnList, state)
+            return drawAudioMetadataFilter(filter, state)
+        end
     }
 }
 
@@ -1194,6 +1276,14 @@ local function getFilterState(filter, spawnList)
             search = "",
             andFilter = filter.defaultAndFilter == true
         }
+
+        -- A predicate filter keeps whatever shape it needs beside the standard fields.
+        if type(filter.createState) == "function" then
+            for key, value in pairs(filter.createState()) do
+                state[key] = value
+            end
+        end
+
         byModule[spawnList.modulePath] = state
     elseif filter.showAndFilterToggle == true and state.andFilter == nil then
         state.andFilter = filter.defaultAndFilter == true
@@ -1443,12 +1533,20 @@ function spawnUI.updateFilter()
     for _, filter in ipairs(entryFilters) do
         local state = getFilterState(filter, activeSpawnList)
         if state then
-            if filter.prune ~= false then
-                utils.pruneKeys(state.selections, getAvailableFilterKeys(filter, activeSpawnList))
-            end
+            -- A predicate filter has no option keys to prune, and decides for itself whether it is
+            -- narrowing anything: its state is ranges and tri-states, not a selection set.
+            if type(filter.isActiveState) == "function" then
+                if filter.isActiveState(state) then
+                    table.insert(activeFilters, { filter = filter, state = state })
+                end
+            else
+                if filter.prune ~= false then
+                    utils.pruneKeys(state.selections, getAvailableFilterKeys(filter, activeSpawnList))
+                end
 
-            if filter.isActive(state.selections) then
-                table.insert(activeFilters, { filter = filter, state = state })
+                if filter.isActive(state.selections) then
+                    table.insert(activeFilters, { filter = filter, state = state })
+                end
             end
         end
     end
@@ -1468,8 +1566,15 @@ function spawnUI.updateFilter()
             local include = true
 
             for _, active in ipairs(activeFilters) do
-                local keys = resolveEntryFilterKeys(active.filter, data, activeSpawnList)
-                if not acceptsFilterEntry(active.filter, active.state, keys) then
+                local accepted
+                if type(active.filter.acceptsEntry) == "function" then
+                    accepted = active.filter.acceptsEntry(data, activeSpawnList, active.state)
+                else
+                    local keys = resolveEntryFilterKeys(active.filter, data, activeSpawnList)
+                    accepted = acceptsFilterEntry(active.filter, active.state, keys)
+                end
+
+                if not accepted then
                     include = false
                     break
                 end
@@ -1612,7 +1717,9 @@ local function drawEntryFilters()
         local state = getFilterState(filter, activeSpawnList)
         if state then
             local filterChanged
-            if filter.checkboxes then
+            if type(filter.drawCustom) == "function" then
+                filterChanged = filter.drawCustom(filter, activeSpawnList, state)
+            elseif filter.checkboxes then
                 filterChanged = drawFilterCheckboxRow(filter, state.selections)
             else
                 filterChanged = drawFilterCombo(filter, activeSpawnList, state)
@@ -2833,7 +2940,7 @@ function spawnUI.drawAll()
 
 	local typeChanged
     style.fieldLabel("Object type")
-	spawnUI.selectedType, typeChanged = style.trackedCombo(nil, "##objectType", spawnUI.selectedType, typeNames, 120, {
+	spawnUI.selectedType, typeChanged = style.trackedCombo(nil, "##objectType", spawnUI.selectedType, typeNames, 100, {
         maxPopupHeight = style.getPopupMaxHeight()
     })
     if typeChanged then
@@ -2846,7 +2953,7 @@ function spawnUI.drawAll()
 
 	local variantChanged
     style.fieldLabel("variant")
-	spawnUI.selectedVariant, variantChanged = style.trackedCombo(nil, "##objectVariant", spawnUI.selectedVariant, variantNames, 120, {
+	spawnUI.selectedVariant, variantChanged = style.trackedCombo(nil, "##objectVariant", spawnUI.selectedVariant, variantNames, 140, {
         maxPopupHeight = style.getPopupMaxHeight(),
         tooltipFn = function (currentValue)
             style.spawnableInfo(spawnUI.getActiveSpawnList().info, currentValue)

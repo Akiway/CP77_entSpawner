@@ -17,7 +17,7 @@ local soundSystemData = require("modules/utils/data/soundSystem")
 ---   a transform-animation sound track starts an event and never stops it, so only a one-shot behaves.
 ---   Those criteria are shown, locked, and explained rather than silently applied - the author can see
 ---   why the list is short, and `allowCustom` still lets a name be typed past them.
---- * **Optional** - anything the author wants to narrow by: category, range, length, playback.
+--- * **Optional** - anything the author wants to narrow by: tag, range, length, playback.
 ---
 ---Adding a criterion means adding one entry to `criteria` below; the header, the summary line, the
 ---reset button and the filter-signature cache key all derive from that table.
@@ -33,7 +33,7 @@ local MAX_DURATION = 4000
 ---`popupMinWidth` is for.
 local POPUP_WIDTH = 460
 
----Height of the inline category list, in unscaled style units.
+---Height of the inline tag list, in unscaled style units.
 local TAG_LIST_HEIGHT = 110
 
 --- Criteria -------------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ local criteria = {
         test = function (event, selection)
             local value = attenuationOf(event)
             if selection.min > 0 and value < selection.min then return false end
-            if selection.max > 0 and value > selection.max then return false end
+            if selection.max > 0 and (value <= 0 or value > selection.max) then return false end
 
             return true
         end,
@@ -172,9 +172,9 @@ local criteria = {
     },
     {
         id = "tags",
-        label = "Category",
+        label = "Tag",
         kind = "tags",
-        tooltip = "The Wwise authoring hierarchy the event sits in, which is the only category system the game\nships for audio events. Name prefixes split the same kind of sound across several groups, so this\ngroups the list far better. Only ambient-side events carry categories.",
+        tooltip = "The Wwise authoring hierarchy the event sits in, which is the only grouping the game ships\nfor audio events. Name prefixes split the same kind of sound across several groups, so tags group\nthe list far better. Only ambient-side events carry tags.",
         test = function (event, selection)
             local tags = event and event.tags
             if type(tags) ~= "table" then return false end
@@ -212,7 +212,7 @@ local criteria = {
                 end
             end
 
-            return count == 1 and last or string.format("%d categories", count)
+            return count == 1 and last or string.format("%d tags", count)
         end
     },
     {
@@ -438,18 +438,7 @@ local function filterNames(names, selections)
     local set = {}
 
     for _, name in ipairs(names) do
-        local event = audioData.getEvent(name)
-        local passes = true
-
-        for _, criterion in ipairs(criteria) do
-            local selection = selections[criterion.id]
-            if selection ~= nil and criterion.isActive(selection) and not criterion.test(event, selection) then
-                passes = false
-                break
-            end
-        end
-
-        if passes then
+        if soundSelector.matches(name, selections) then
             table.insert(matches, name)
             set[name] = true
         end
@@ -521,7 +510,7 @@ local function resetOptional(state, defaults)
     end
 end
 
---- Header ---------------------------------------------------------------------------------------
+--- Controls -------------------------------------------------------------------------------------
 
 ---Draws one criterion's control, greyed out and lock-marked when the field forces its value.
 ---@param criterion SoundCriterion
@@ -529,7 +518,9 @@ end
 ---@param required table
 ---@param notes table<string, string> Per-criterion explanation supplied by the field.
 ---@param labelWidth number
+---@return boolean changed
 local function drawCriterion(criterion, state, required, notes, labelWidth)
+    local changed = false
     local locked = required[criterion.id] ~= nil
     -- The field's own note, when it has one, says more than the generic description ever could -
     -- it is the reason this particular field cares. Shown whether the criterion is locked or only
@@ -557,6 +548,7 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
             if index > 1 then ImGui.SameLine() end
 
             if style.switchTabButton(option.label .. "##" .. criterion.id .. option.key, selection == option.key) and not locked then
+                changed = changed or state[criterion.id] ~= option.key
                 state[criterion.id] = option.key
             end
             style.tooltip(note or option.tooltip or "")
@@ -568,7 +560,9 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
         ImGui.SetNextItemWidth(width * style.viewSize)
         local newMin = ImGui.DragFloat("##" .. criterion.id .. "Min", selection.min, 0.5, 0, criterion.max, criterion.format)
         if not locked then
-            state[criterion.id .. "Min"] = math.min(math.max(newMin, 0), criterion.max)
+            local clamped = math.min(math.max(newMin, 0), criterion.max)
+            changed = changed or clamped ~= state[criterion.id .. "Min"]
+            state[criterion.id .. "Min"] = clamped
         end
         style.tooltip(note or "Lower bound, 0 for none.")
 
@@ -579,7 +573,9 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
         ImGui.SetNextItemWidth(width * style.viewSize)
         local newMax = ImGui.DragFloat("##" .. criterion.id .. "Max", selection.max, 0.5, 0, criterion.max, criterion.format)
         if not locked then
-            state[criterion.id .. "Max"] = math.min(math.max(newMax, 0), criterion.max)
+            local clamped = math.min(math.max(newMax, 0), criterion.max)
+            changed = changed or clamped ~= state[criterion.id .. "Max"]
+            state[criterion.id .. "Max"] = clamped
         end
         style.tooltip(note or "Upper bound, 0 for none.")
 
@@ -595,24 +591,26 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
         end
 
         ImGui.SetNextItemWidth(180 * style.viewSize)
-        state.tagSearch = style.searchInputTextWithHint("##tagSearch", "Search category...", state.tagSearch, 100)
+        state.tagSearch = style.searchInputTextWithHint("##tagSearch", "Search tag...", state.tagSearch, 100)
 
         ImGui.SameLine()
         local nextMatchAll, matchAllChanged = style.toggleButton(IconGlyphs.SetCenter .. "##tagsAll", selection.matchAll)
         if matchAllChanged and not locked then
             state.tagsAll = nextMatchAll
+            changed = true
         end
-        style.tooltip(note or "Require every selected category instead of any of them.")
+        style.tooltip(note or "Require every selected tag instead of any of them.")
 
         ImGui.SameLine()
         style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.CloseCircleOutline .. "##tagsClear") and not locked then
+        if ImGui.Button(IconGlyphs.FilterRemoveOutline .. "##tagsClear") and not locked then
             state.tagKeys = {}
+            changed = true
         end
         style.pushButtonNoBG(false)
-        style.tooltip("Unselect every category")
+        style.tooltip("Unselect every tag")
 
-        ---Rows of the category list. Pulled out and called through `pcall` so that however it
+        ---Rows of the tag list. Pulled out and called through `pcall` so that however it
         ---fails, the `EndChild` below still runs: an unclosed child window is a crash, not an error.
         local function drawTagRows()
             local query = string.lower(state.tagSearch or "")
@@ -622,15 +620,16 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
                 if utils.safePatternMatch(string.lower(tag), query) then
                     drawn = drawn + 1
                     local checked = selection.keys[tag] == true
-                    local newChecked, changed = ImGui.Checkbox(tag .. "##tag" .. tag, checked)
-                    if changed and not locked then
+                    local newChecked, tagChanged = ImGui.Checkbox(tag .. "##tag" .. tag, checked)
+                    if tagChanged and not locked then
                         state.tagKeys[tag] = newChecked or nil
+                        changed = true
                     end
                 end
             end
 
             if drawn == 0 then
-                style.mutedText("No matching categories")
+                style.mutedText("No matching tags")
             end
         end
 
@@ -646,10 +645,216 @@ local function drawCriterion(criterion, state, required, notes, labelWidth)
     end
 
     style.popGreyedOut(locked)
+
+    return changed
 end
 
----Draws the filter header inside the popup: a one-line summary that says what is already being
----filtered on, and the controls behind it.
+---Whether one criterion applies to a surface at all. A hidden criterion still applies when the
+---caller forces it: hiding it says "do not offer this", not "ignore what this field needs".
+---@param criterion SoundCriterion
+---@param hidden table<string, boolean>
+---@param required table<string, any>
+---@return boolean
+local function criterionApplies(criterion, hidden, required)
+    return not hidden[criterion.id] or required[criterion.id] ~= nil
+end
+
+---Draws the dropdown's source switch: the caller's own pool against the whole catalogue.
+---@param state table
+---@param pool table? `opts.pool`, absent on surfaces that have nothing to switch between.
+---@param labelWidth number
+---@return boolean changed
+local function drawPoolRow(state, pool, labelWidth)
+    if type(pool) ~= "table" or type(pool.names) ~= "table" then
+        return false
+    end
+
+    local changed = false
+    local locked = pool.lock == true
+
+    if locked then
+        style.styledText(IconGlyphs.Lock, style.mutedColor)
+        style.tooltip(pool.note or "This field only accepts names from this list.")
+        ImGui.SameLine()
+    end
+
+    style.mutedText("Source")
+    style.tooltip(pool.note or "Which set of events the list is drawn from.")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(labelWidth)
+
+    style.pushGreyedOut(locked)
+    if style.switchTabButton((pool.label or "Shipped") .. "##scopePool", not state.scopeAll or locked) and not locked then
+        changed = state.scopeAll == true
+        state.scopeAll = false
+    end
+    style.tooltip(pool.note or "")
+    ImGui.SameLine()
+    if style.switchTabButton("All events##scopeAll", state.scopeAll and not locked) and not locked then
+        changed = state.scopeAll ~= true
+        state.scopeAll = true
+    end
+    style.tooltip(locked and (pool.note or "") or "Widen to every event the game knows.\nAnything outside the shipped list is untested in this field.")
+    style.popGreyedOut(locked)
+
+    return changed
+end
+
+--- Shared filter surface -------------------------------------------------------------------------
+--
+-- Everything below is public because the criteria are worth more than the dropdown they were built
+-- for. The Spawn New browser filters the Static Audio Emitter list on the same metadata through the
+-- same controls, so the panel, the summary and the predicate live here rather than being restated
+-- against a second widget framework.
+
+---A fresh, neutral filter state, for a caller that keeps its own rather than letting this module
+---key one by field id -- the browser stores it alongside its other per-list filter state.
+---@param defaults table<string, any>? Criteria to seed, in the shape `require` uses.
+---@return table state
+function soundSelector.newFilterState(defaults)
+    local state = newState()
+
+    for id, value in pairs(defaults or {}) do
+        applySelection(state, id, value)
+    end
+
+    return state
+end
+
+---What every criterion is currently set to, keyed by id.
+---@param state table
+---@param required table<string, any>? Locked criteria.
+---@param hidden table<string, boolean>? Criteria not offered.
+---@return table<string, any> selections
+function soundSelector.resolveSelections(state, required, hidden)
+    required = required or {}
+    hidden = hidden or {}
+
+    local selections = {}
+
+    for _, criterion in ipairs(criteria) do
+        if criterionApplies(criterion, hidden, required) then
+            selections[criterion.id] = getSelection(criterion, state, required)
+        end
+    end
+
+    return selections
+end
+
+---Whether one event name passes a set of selections.
+---@param name string? Event name.
+---@param selections table<string, any> From `soundSelector.resolveSelections`.
+---@return boolean
+function soundSelector.matches(name, selections)
+    local event = audioData.getEvent(name)
+
+    for _, criterion in ipairs(criteria) do
+        local selection = selections[criterion.id]
+        if selection ~= nil and criterion.isActive(selection) and not criterion.test(event, selection) then
+            return false
+        end
+    end
+
+    return true
+end
+
+---Whether any criterion is narrowing anything.
+---@param selections table<string, any>
+---@return boolean
+function soundSelector.isFiltering(selections)
+    for _, criterion in ipairs(criteria) do
+        local selection = selections[criterion.id]
+        if selection ~= nil and criterion.isActive(selection) then
+            return true
+        end
+    end
+
+    return false
+end
+
+---Short chips naming every active criterion, for a collapsed header or a combo preview.
+---Locked ones carry a lock glyph, so a short list never reads as an unexplained one.
+---@param selections table<string, any>
+---@param required table<string, any>? Locked criteria.
+---@return string[] chips
+function soundSelector.summarize(selections, required)
+    required = required or {}
+
+    local summary = {}
+
+    for _, criterion in ipairs(criteria) do
+        local selection = selections[criterion.id]
+        if selection ~= nil and criterion.isActive(selection) then
+            local text = criterion.summarize(selection)
+            table.insert(summary, required[criterion.id] ~= nil and (IconGlyphs.Lock .. text) or text)
+        end
+    end
+
+    return summary
+end
+
+---@class SoundCriteriaPanelOpts
+---@field required table<string, any>? Locked criteria, drawn with a lock and their note.
+---@field notes table<string, string>? Why each criterion is locked or pre-set.
+---@field defaults table<string, any>? Where the reset button puts the changeable criteria back to.
+---@field hide table<string, boolean>? Criteria not offered on this surface.
+---@field showReset boolean? Draw the reset button (default `true`).
+---@field resetTooltip string? Tooltip of that button.
+---@field drawExtraRow fun(labelWidth: number): boolean? Extra row drawn above the criteria, e.g. the dropdown's source switch. Returns whether it changed anything.
+
+---Draws the criteria controls: one labelled row per criterion, then a reset button.
+---The caller owns everything around it, so this sits equally well in a combo popup and in the
+---browser's filter bar.
+---@param state table Filter state, from `soundSelector.newFilterState` or owned by this module.
+---@param opts SoundCriteriaPanelOpts?
+---@return boolean changed
+function soundSelector.drawCriteriaPanel(state, opts)
+    opts = opts or {}
+
+    local required = opts.required or {}
+    local notes = opts.notes or {}
+    local hidden = opts.hide or {}
+    local changed = false
+    local anyOptional = false
+
+    local labels = {}
+    for _, criterion in ipairs(criteria) do
+        if not hidden[criterion.id] then
+            table.insert(labels, IconGlyphs.Lock .. criterion.label)
+
+            if required[criterion.id] == nil then
+                anyOptional = true
+            end
+        end
+    end
+
+    local labelWidth = utils.getTextMaxWidth(labels) + 3 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+
+    if type(opts.drawExtraRow) == "function" and opts.drawExtraRow(labelWidth) then
+        changed = true
+    end
+
+    for _, criterion in ipairs(criteria) do
+        if not hidden[criterion.id] and drawCriterion(criterion, state, required, notes, labelWidth) then
+            changed = true
+        end
+    end
+
+    if anyOptional and opts.showReset ~= false then
+        if ImGui.Button("Reset filters##soundFiltersReset") then
+            resetOptional(state, opts.defaults)
+            changed = true
+        end
+        style.tooltip(opts.resetTooltip or "Put every filter you can change back to where this field started it.\nThe locked ones stay, since the field needs them.")
+    end
+
+    return changed
+end
+
+--- Header ----------------------------------------------------------------------------------------
+
+---Draws the dropdown's own filter header: a line saying what is already being filtered on, and the
+---criteria panel behind it.
 ---@param state table
 ---@param opts table
 ---@param required table
@@ -659,24 +864,8 @@ end
 ---@param matchCount number
 ---@param poolCount number
 local function drawHeader(state, opts, required, notes, defaults, selections, matchCount, poolCount)
-    local hidden = opts.hide or {}
-    local summary = {}
-    local anyOptional = false
     local startY = ImGui.GetCursorPosY()
-
-    for _, criterion in ipairs(criteria) do
-        if not hidden[criterion.id] then
-            local selection = selections[criterion.id]
-            if selection ~= nil and criterion.isActive(selection) then
-                local text = criterion.summarize(selection)
-                table.insert(summary, required[criterion.id] ~= nil and (IconGlyphs.Lock .. text) or text)
-            end
-
-            if required[criterion.id] == nil then
-                anyOptional = true
-            end
-        end
-    end
+    local summary = soundSelector.summarize(selections, required)
 
     local expanded, toggled = style.toggleButton(IconGlyphs.Filter .. "##soundFilters", state.expanded)
     if toggled then
@@ -696,54 +885,17 @@ local function drawHeader(state, opts, required, notes, defaults, selections, ma
     if state.expanded then
         ImGui.Separator()
 
-        local labels = {}
-        for _, criterion in ipairs(criteria) do
-            if not hidden[criterion.id] then
-                table.insert(labels, IconGlyphs.Lock .. criterion.label)
+        soundSelector.drawCriteriaPanel(state, {
+            required = required,
+            notes = notes,
+            defaults = defaults,
+            hide = opts.hide,
+            -- Which pool the list is drawn from is the dropdown's own concern: the browser always
+            -- filters the one list it is showing, so it has nothing to switch between.
+            drawExtraRow = function (labelWidth)
+                return drawPoolRow(state, opts.pool, labelWidth)
             end
-        end
-        local labelWidth = utils.getTextMaxWidth(labels) + 3 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
-
-        local pool = opts.pool
-        if type(pool) == "table" and type(pool.names) == "table" then
-            local locked = pool.lock == true
-
-            if locked then
-                style.styledText(IconGlyphs.Lock, style.mutedColor)
-                style.tooltip(pool.note or "This field only accepts names from this list.")
-                ImGui.SameLine()
-            end
-
-            style.mutedText("Source")
-            style.tooltip(pool.note or "Which set of events the list is drawn from.")
-            ImGui.SameLine()
-            ImGui.SetCursorPosX(labelWidth)
-
-            style.pushGreyedOut(locked)
-            if style.switchTabButton((pool.label or "Shipped") .. "##scopePool", not state.scopeAll or locked) and not locked then
-                state.scopeAll = false
-            end
-            style.tooltip(pool.note or "")
-            ImGui.SameLine()
-            if style.switchTabButton("All events##scopeAll", state.scopeAll and not locked) and not locked then
-                state.scopeAll = true
-            end
-            style.tooltip(locked and (pool.note or "") or "Widen to every event the game knows.\nAnything outside the shipped list is untested in this field.")
-            style.popGreyedOut(locked)
-        end
-
-        for _, criterion in ipairs(criteria) do
-            if not hidden[criterion.id] then
-                drawCriterion(criterion, state, required, notes, labelWidth)
-            end
-        end
-
-        if anyOptional then
-            if ImGui.Button("Reset filters##soundFiltersReset") then
-                resetOptional(state, defaults)
-            end
-            style.tooltip("Put every filter you can change back to where this field started it.\nThe locked ones stay, since the field needs them.")
-        end
+        })
     end
 
     ImGui.Separator()
@@ -819,15 +971,12 @@ function soundSelector.draw(id, value, opts)
     ---@return string[] pool
     ---@return boolean restricted
     local function resolve()
-        local selections = {}
+        local selections = soundSelector.resolveSelections(state, required, hidden)
         local parts = {}
 
         for _, criterion in ipairs(criteria) do
-            -- A hidden criterion still applies when the field forces it: hiding it says "do not
-            -- offer this", not "ignore what this field needs".
-            if not hidden[criterion.id] or required[criterion.id] ~= nil then
-                local selection = getSelection(criterion, state, required)
-                selections[criterion.id] = selection
+            local selection = selections[criterion.id]
+            if selection ~= nil then
                 table.insert(parts, criterion.id .. "=" .. signatureOf(criterion, selection))
             end
         end

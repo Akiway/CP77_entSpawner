@@ -683,12 +683,44 @@ function quickDeviceOperationsSetupUI.install(device, options)
         return handleData(self:getComponentPathValue(self, componentID, data.CONTAINER_PATH)) ~= nil
     end
 
+    ---@param historyRecorded boolean? True when the caller already snapshotted the element for undo.
+    ---@return boolean enabled
+    function device:ensureDeviceOperationsPersistent(historyRecorded)
+        if self.persistent then return true end
+
+        local canGenerateNodeRef = self.object ~= nil and self.object.parent ~= nil
+        local needsNodeRef = utils.sanitizeText(self.nodeRef) == ""
+
+        if needsNodeRef and not canGenerateNodeRef then return false end
+
+        -- A snapshot taken before any of these mutations covers all of them, so a caller that already
+        -- recorded one this frame needs no second undo step.
+        if not historyRecorded then
+            history.addAction(history.getElementChange(self.object))
+        end
+
+        if needsNodeRef then
+            local generated = utils.sanitizeText(registry.generate(self.object))
+            if generated == "" then return false end
+
+            self.nodeRef = generated
+            registry.invalidate()
+            if self.object.sUI and self.object.sUI.cachePaths then
+                self.object.sUI.cachePaths()
+            end
+        end
+
+        self.persistent = true
+        return true
+    end
+
     ---@param componentID string
     function device:createDeviceOperationsContainer(componentID)
         local container = makeHandle(data.CONTAINER_CLASS)
         if not container then return end
 
         history.addAction(history.getElementChange(self.object))
+        self:ensureDeviceOperationsPersistent(true)
         self:updateComponentPathValue(self, componentID, data.CONTAINER_PATH, container)
     end
 
@@ -757,6 +789,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
         )
 
         if not ImGui.BeginPopupModal(quickDeviceOperationsSetupUI.POPUP_ID, true) then
+            self.deviceOperationsPopupWasOpen = false
             return
         end
         style.styledTextWrapped(IconGlyphs.Flask .. " Experimental feature : the Device Operations manager is a work in progress. It is not yet fully tested and may have bugs or incomplete functionality.", style.activeColor)
@@ -776,6 +809,17 @@ function quickDeviceOperationsSetupUI.install(device, options)
             self:drawDeviceOperationsEmptyState(componentID)
             ImGui.EndPopup()
             return
+        end
+
+        -- Deliberately below the empty-state return: this popup is offered on every device deriving
+        -- from `ScriptableDeviceComponentPS`, so merely looking at one that has no container must not
+        -- give it a .psrep entry. Flagged only once per opening, so turning Persistent back off by
+        -- hand sticks.
+        local popupJustOpened = not self.deviceOperationsPopupWasOpen
+        self.deviceOperationsPopupWasOpen = true
+
+        if popupJustOpened then
+            self:ensureDeviceOperationsPersistent()
         end
 
         local operations = self:getDeviceOperationsList(componentID)
@@ -903,6 +947,7 @@ function quickDeviceOperationsSetupUI.install(device, options)
         end
 
         history.addAction(history.getElementChange(self.object))
+        self:ensureDeviceOperationsPersistent(true)
 
         if not self:hasDeviceOperationsContainer(componentID) then
             local container = makeHandle(data.CONTAINER_CLASS)
@@ -967,6 +1012,10 @@ function quickDeviceOperationsSetupUI.install(device, options)
 
         if not self.persistent then
             warn("Persistent is off, so this setup is not written to the .psrep file.")
+            if ImGui.Button("Enable Persistent##deviceOperationsEnablePersistent") then
+                self:ensureDeviceOperationsPersistent()
+            end
+            style.tooltip("Write this device's operations to the .psrep file.")
         end
 
         local notes = {}

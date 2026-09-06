@@ -742,7 +742,7 @@ end
 ---The Static Audio Emitter spawn list. Every name in it is an audio event the mod already ships as
 ---a placeable `worldStaticSoundEmitterNode`, which makes it the closest thing to a vetted event
 ---catalogue -- far better than asking the author to remember an event name.
-soundSystem.STATIC_AUDIO_EMITTER_PATH = "data/spawnables/visual/sounds/"
+soundSystem.STATIC_AUDIO_EMITTER_PATH = "data/spawnables/audio/sounds/"
 
 local staticAudioEmitterEvents = nil
 

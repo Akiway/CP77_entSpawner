@@ -35,7 +35,7 @@ function sound:new()
     o.description = "Plays a sound"
     o.previewNote = "The list holds every event that keeps playing on an emitter.\nRadius is set from the event's own range when you spawn it,\nand can be previewed at true scale."
     o.icon = IconGlyphs.VolumeHigh
-    o.entryFilter = "audioTag"
+    o.entryFilter = "audio"
     o.entryNote = "audioRange"
 
     o.radius = 5

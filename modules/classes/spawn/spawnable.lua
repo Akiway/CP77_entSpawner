@@ -147,10 +147,6 @@ function spawnable:new()
     o.isAssetPreview = false
     o.assetPreviewLensDistortion = false
 
-    -- Spawn New metadata, read by spawnUI. `collapseSpawnList` collapses the list to one generic
-    -- entry labelled `collapsedSpawnListLabel`; `entryFilter` picks one of spawnUI's per-entry
-    -- filters and `entryNote` one of its per-entry row annotations;
-    -- `previewSuppressedComponents` are disabled while an asset preview runs.
     o.collapseSpawnList = false
     o.collapsedSpawnListLabel = nil
     o.entryFilter = nil

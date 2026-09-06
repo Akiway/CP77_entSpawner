@@ -1847,11 +1847,22 @@ function quickSoundSystemSetupUI.install(device, options)
 
         -- A sound system without a NodeRef cannot be connected to anything, and the .psrep entry is
         -- keyed on it, so it is generated up front rather than left as a step to remember.
+        local recordedElementChange = false
         if popupJustOpened and canGenerateNodeRef and sanitizeConnectionValue(self.nodeRef) == "" then
             local generated = sanitizeConnectionValue(registry.generate(self.object))
             if generated ~= "" then
                 applyNodeRef(generated)
+                recordedElementChange = true
             end
+        end
+
+        if popupJustOpened and not self.persistent and sanitizeConnectionValue(self.nodeRef) ~= "" then
+            -- `applyNodeRef` snapshots the element before it mutates anything, so that one action
+            -- already covers this change too; a second would only cost an extra undo step.
+            if not recordedElementChange then
+                history.addAction(history.getElementChange(self.object))
+            end
+            self.persistent = true
         end
 
         style.mutedText("Sound System Node Ref")
@@ -1879,6 +1890,8 @@ function quickSoundSystemSetupUI.install(device, options)
         style.pushButtonNoBG(false)
         style.tooltip("Generate a unique NodeRef for this sound system.")
 
+        -- Reachable only when Persistent was turned back off by hand, or when there is no NodeRef to
+        -- key the .psrep entry on; opening the popup otherwise enables it.
         if not self.persistent then
             style.styledTextWrapped(
                 IconGlyphs.AlertOutline .. " Persistent is off, so the entries below are not written to the .psrep file and the system starts from its shipped state.",
