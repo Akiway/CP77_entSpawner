@@ -1,0 +1,2495 @@
+{
+"Cerberus_Bunker_Emitter": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "vo_q305_cerberus_emitter",
+"stopOnlyVirtualSounds": 1,
+"triggerDistance": 200
+},
+"DoorDecoratorMetadata_Test": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_11_close",
+"closeTime": 1,
+"openLoop": "dev_doors_single_11_open",
+"openTime": 1
+},
+"acousticsemitter_av_traffic_doppler_01": {
+"class": "AcousticsEmitterMetadata",
+"dopplerParameter": "v_av_traffic_doppler_shift_01_slow",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 0,
+"postDopplerFactor": 1,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_doppler": {
+"class": "AcousticsEmitterMetadata",
+"dopplerParameter": "doppler_shift",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 0,
+"occlusionEnabled": 0,
+"postDopplerFactor": 1,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obst_doppler": {
+"class": "AcousticsEmitterMetadata",
+"dopplerParameter": "doppler_shift",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 1,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_0_5m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0.5,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_10m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 10,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_11m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 11,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_1m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 1,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_2m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 2,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_3m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 3,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.300000012,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_4m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 4,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.300000012,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_5m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 5,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.400000006,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_6m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 6,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.400000006,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_7m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 7,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.5,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_8m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 8,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.5,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_ignore_9m": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 9,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.5,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_occl_obstr_slow": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 1,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_default_vehicle": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 1,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 5,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.151250005,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_dst_occl_obstr": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"acousticsemitter_heli_scene_doppler_01": {
+"class": "AcousticsEmitterMetadata",
+"dopplerParameter": "doppler_shift",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 3,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.5,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 1,
+"repositioningEnabled": 0
+},
+"acousticsemitter_no_occl": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 3,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.300000012,
+"obstuctionEnabled": 0,
+"occlusionEnabled": 0,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"advert2": {
+"class": "AdvertMetadata",
+"filter": "OnlyOutdoor",
+"maxSilenceTime": 25.4126987,
+"minDistance": 9.30232525,
+"minSilenceTime": 13.3015871
+},
+"amb_ext_meta_adv_heywood_big_01_mixed": {
+"class": "AdvertMetadata",
+"filter": "Always",
+"maxSilenceTime": 18.4161224,
+"minDistance": 0,
+"minSilenceTime": 1
+},
+"amb_ext_meta_adv_pacifica_rnd_combat_zone_01": {
+"class": "AdvertMetadata",
+"filter": "Always",
+"maxSilenceTime": 18.4161224,
+"minDistance": 0,
+"minSilenceTime": 1
+},
+"amb_shockwave_glass_large_01": {
+"class": "ShockwaveMetadata",
+"thumpMetadataName": "amb_shockwave_glass_large_01_thump"
+},
+"cerberus_acoustic_settings": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 1.25,
+"leakingFloorHack": 1,
+"obstructionFadeTime": 0.00961538497,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"chimera_acoustic_settings": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 1.25,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.00999999978,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"collision_acoustics_settings": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.00999999978,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"default_puppet_compound_emitter": {
+"class": "CompoundEmitterMetadata"
+},
+"default_puppet_locomotion": {
+"class": "LocomotionEmitterMetadata",
+"isPlayer": 0
+},
+"dev_cerberus_doors_double_neomilitary_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_cerberus_doors_double_neom_close_loop",
+"closeTime": 2.9000001,
+"endClose": "dev_cerberus_doors_double_neom_end_close",
+"endOpen": "dev_cerberus_doors_double_neom_end_open",
+"openLoop": "dev_cerberus_doors_double_neom_open_loop",
+"openTime": 2.4000001,
+"startClose": "dev_cerberus_doors_double_neom_start_close",
+"startOpen": "dev_cerberus_doors_double_neom_start_open"
+},
+"dev_doors_cerberus_double_glass_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_cerberus_doors_double_glass_close_loop",
+"closeTime": 2.9000001,
+"endClose": "dev_cerberus_doors_double_glass_end_close",
+"endOpen": "dev_cerberus_doors_double_glass_end_open",
+"openLoop": "dev_cerberus_doors_double_glass_open_loop",
+"openTime": 2.4000001,
+"startClose": "dev_cerberus_doors_double_glass_start_close",
+"startOpen": "dev_cerberus_doors_double_glass_start_open"
+},
+"dev_doors_cerberus_single_glass_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_cerberus_doors_single_glass_close_loop",
+"closeTime": 2.8499999,
+"endClose": "dev_cerberus_doors_single_glass_end_close",
+"endOpen": "dev_cerberus_doors_single_glass_end_open",
+"openLoop": "dev_cerberus_doors_single_glass_open_loop",
+"openTime": 2.29999995,
+"startClose": "dev_cerberus_doors_single_glass_start_close",
+"startOpen": "dev_cerberus_doors_single_glass_start_open"
+},
+"dev_doors_cerberus_single_neomilitary_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_cerberus_doors_single_close_loop",
+"closeTime": 2.8499999,
+"endClose": "dev_cerberus_doors_single_end_close",
+"endOpen": "dev_cerberus_doors_single_end_open",
+"openLoop": "dev_cerberus_doors_single_open_loop",
+"openTime": 2.29999995,
+"startClose": "dev_cerberus_doors_single_start_close",
+"startOpen": "dev_cerberus_doors_single_start_open"
+},
+"dev_doors_cerberus_single_shuttle_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_cerberus_doors_single_shuttle_close_loop",
+"closeTime": 4.5999999,
+"endClose": "dev_cerberus_doors_single_shuttle_end_close",
+"endOpen": "dev_cerberus_doors_single_shuttle_end_open",
+"openLoop": "dev_cerberus_doors_single_shuttle_open_loop",
+"openTime": 3.79999995,
+"startClose": "dev_cerberus_doors_single_shuttle_start_close",
+"startOpen": "dev_cerberus_doors_single_shuttle_start_open"
+},
+"dev_doors_double_kerrys_villa_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_kerrys_villa_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_kerrys_villa_end_close",
+"openLoop": "dev_doors_double_kerrys_villa_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_double_kerrys_villa_start_close",
+"startOpen": "dev_doors_double_kerrys_villa_start_open"
+},
+"dev_doors_fence_barred_large_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_fence_barred_large_close_loop",
+"closeTime": 0.699999988,
+"endClose": "dev_fence_barred_large_close_end",
+"endOpen": "dev_fence_barred_large_open_end",
+"openLoop": "dev_fence_barred_large_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_fence_barred_large_close_start",
+"startOpen": "dev_fence_barred_large_open_start"
+},
+"dev_doors_industrial_lift_01_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeTime": 0.800000012,
+"openTime": 0.800000012,
+"startClose": "dev_doors_industrial_lift_01_close",
+"startOpen": "dev_doors_industrial_lift_01_open"
+},
+"dev_doors_secret_landing_hangar_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeTime": 2.0999999,
+"openTime": 2.0999999,
+"startClose": "q000_corpo_sc_03b_secret_landing_hangar_door_close",
+"startOpen": "q000_corpo_sc_03b_secret_landing_hangar_door_open"
+},
+"dev_doors_single_tech_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_tech_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_single_tech_end_close",
+"endOpen": "dev_doors_single_tech_end_open",
+"openLoop": "dev_doors_single_tech_open_loop",
+"openTime": 0.850000024,
+"startClose": "dev_doors_single_tech_start_close",
+"startOpen": "dev_doors_single_tech_start_open"
+},
+"dev_doors_wire_fence_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_wire_fence_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_wire_fence_close_stop",
+"endOpen": "dev_doors_wire_fence_open_stop",
+"openLoop": "dev_doors_wire_fence_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_wire_fence_close_start",
+"startOpen": "dev_doors_wire_fence_open_start"
+},
+"dev_double_doors_chapel_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_chapel_close_loop",
+"closeTime": 1,
+"endClose": "doors_double_chapel_end_close",
+"endOpen": "doors_double_chapel_end_open",
+"openLoop": "dev_doors_chapel_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_chapel_start_close",
+"startOpen": "dev_doors_chapel_start_open"
+},
+"dev_double_doors_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_01_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_01_end_close",
+"endOpen": "dev_doors_double_01_end_open",
+"openLoop": "dev_doors_double_01_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_01_start_close",
+"startOpen": "dev_doors_double_01_start_open"
+},
+"dev_double_doors_decorator_02": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_02_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_double_02_end_close",
+"endOpen": "dev_doors_double_02_end_open",
+"openLoop": "dev_doors_double_02_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_02_start_close",
+"startOpen": "dev_doors_double_02_start_open"
+},
+"dev_double_doors_decorator_03": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_03_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_03_end_close",
+"endOpen": "dev_doors_double_03_end_open",
+"openLoop": "dev_doors_double_03_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_03_start_close",
+"startOpen": "dev_doors_double_03_start_open"
+},
+"dev_double_doors_decorator_04": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_04_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_double_04_end_close",
+"endOpen": "dev_doors_double_04_end_open",
+"openLoop": "dev_doors_double_04_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_double_doors_04_start_close",
+"startOpen": "dev_double_doors_04_start_open"
+},
+"dev_double_doors_decorator_05": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_05_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_05_end_close",
+"endOpen": "dev_doors_double_05_end_open",
+"openLoop": "dev_doors_double_05_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_05_start_close",
+"startOpen": "dev_doors_double_05_start_open"
+},
+"dev_double_doors_decorator_06": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_06_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_06_end_close",
+"endOpen": "dev_doors_double_06_end_open",
+"openLoop": "dev_doors_double_06_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_double_06_start_close",
+"startOpen": "dev_doors_double_06_start_open"
+},
+"dev_double_doors_decorator_07": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_double_doors_07_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_double_doors_07_end_close",
+"endOpen": "dev_double_doors_07_end_open",
+"openLoop": "dev_double_doors_07_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_double_doors_07_start_close",
+"startOpen": "dev_double_doors_07_start_open"
+},
+"dev_double_doors_decorator_08": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_08_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_08_end_close",
+"endOpen": "dev_doors_double_08_end_open",
+"openLoop": "dev_doors_double_08_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_double_08_start_close",
+"startOpen": "dev_doors_double_08_start_open"
+},
+"dev_double_doors_decorator_09": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_09_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_09_end_close",
+"endOpen": "dev_doors_double_09_end_open",
+"openLoop": "dev_doors_double_09_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_09_start_close",
+"startOpen": "dev_doors_double_09_start_open"
+},
+"dev_double_doors_decorator_10": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_10_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_10_end_close",
+"endOpen": "dev_doors_double_10_end_open",
+"openLoop": "dev_doors_double_10_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_10_start_close",
+"startOpen": "dev_doors_double_10_start_open"
+},
+"dev_double_doors_decorator_11": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_11_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_double_11_end_close",
+"endOpen": "dev_doors_double_11_end_open",
+"openLoop": "dev_doors_double_11_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_double_11_start_close",
+"startOpen": "dev_doors_double_11_start_open"
+},
+"dev_double_doors_decorator_12": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_12_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_12_end_close",
+"endOpen": "dev_doors_double_12_end_open",
+"openLoop": "dev_doors_double_12_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_12_start_close",
+"startOpen": "dev_doors_double_12_start_open"
+},
+"dev_double_doors_decorator_13": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_13_close_loop",
+"closeTime": 0.949999988,
+"endClose": "dev_doors_double_13_end_close",
+"endOpen": "dev_doors_double_13_end_open",
+"openLoop": "dev_doors_double_13_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_13_start_close",
+"startOpen": "dev_doors_double_13_start_open"
+},
+"dev_double_doors_decorator_14": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_14_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_14_end_close",
+"endOpen": "dev_doors_double_14_end_open",
+"openLoop": "dev_doors_double_14_open_loop",
+"openTime": 0.769999981,
+"startClose": "dev_doors_double_14_start_close",
+"startOpen": "dev_doors_double_14_start_open"
+},
+"dev_double_doors_decorator_15": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_15_close_loop",
+"closeTime": 0.879999995,
+"endClose": "dev_doors_double_15_end_close",
+"endOpen": "dev_doors_double_15_end_open",
+"openLoop": "dev_doors_double_15_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_15_start_close",
+"startOpen": "dev_doors_double_15_start_open"
+},
+"dev_double_doors_decorator_16": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_16_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_16_end_close",
+"endOpen": "dev_doors_double_16_end_open",
+"openLoop": "dev_doors_double_16_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_16_start_close",
+"startOpen": "dev_doors_double_16_start_open"
+},
+"dev_double_doors_decorator_17": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_17_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_17_end_close",
+"endOpen": "dev_doors_double_17_end_open",
+"openLoop": "dev_doors_double_17_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_17_start_close",
+"startOpen": "dev_doors_double_17_start_open"
+},
+"dev_double_doors_fence_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_fence_close_loop",
+"closeTime": 1.5,
+"endClose": "dev_doors_double_fence_end_close",
+"endOpen": "dev_doors_double_fence_end_open",
+"openLoop": "dev_doors_double_fence_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_double_fence_start_close",
+"startOpen": "dev_doors_double_fence_start_open"
+},
+"dev_double_doors_freight_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_freight_close_loop",
+"closeTime": 0.600000024,
+"endClose": "dev_doors_double_freight_end_close",
+"endOpen": "dev_doors_double_freight_end_open",
+"openLoop": "dev_doors_double_freight_open_loop",
+"openTime": 0.600000024,
+"startClose": "dev_doors_double_freight_start_close",
+"startOpen": "dev_doors_double_freight_start_open"
+},
+"dev_double_doors_metal_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeTime": 1,
+"endOpen": "dev_doors_double_metal_end_open",
+"openLoop": "dev_doors_double_metal_open_loop",
+"openTime": 1,
+"startOpen": "dev_doors_double_metal_start_open"
+},
+"dev_drone_octant_ow_bkg_01_dist": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "dev_drone_octant_ow_bkg_scanning_drone",
+"onLeave": "dev_drone_octant_ow_bkg_scanning_drone_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 200
+},
+"dev_elevator_doors_decorator_05": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_elevator_05_doors_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_elevator_05_doors_end_close",
+"endOpen": "dev_elevator_05_doors_end_close",
+"openLoop": "dev_elevator_05_doors_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_elevator_05_doors_start_close",
+"startOpen": "dev_elevator_05_doors_start_open"
+},
+"dev_elevator_doors_decorator_07": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_elevator_07_megabuilding_doors_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_elevator_07_megabuilding_doors_end_close",
+"endOpen": "dev_elevator_07_megabuilding_doors_end_open",
+"openLoop": "dev_elevator_07_megabuilding_doors_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_elevator_07_megabuilding_doors_start_close",
+"startOpen": "dev_elevator_07_megabuilding_doors_start_open"
+},
+"dev_elevator_doors_decorator_08": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_double_09_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_double_09_end_close",
+"endOpen": "dev_doors_double_09_end_open",
+"openLoop": "dev_doors_double_09_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_double_09_start_close",
+"startOpen": "dev_doors_double_09_start_open"
+},
+"dev_gate_slide_metal_door_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_gate_slide_metal_close_loop",
+"closeTime": 5,
+"endClose": "dev_gate_slide_metal_end_close",
+"endOpen": "dev_gate_slide_metal_end_open",
+"openLoop": "dev_gate_slide_metal_open_loop",
+"openTime": 4.9000001,
+"startClose": "dev_gate_slide_metal_start_close",
+"startOpen": "dev_gate_slide_metal_start_open"
+},
+"dev_gate_stripe_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_gate_metal_stripe_close_loop",
+"closeTime": 1,
+"endClose": "dev_gate_metal_stripe_end_close",
+"endOpen": "dev_gate_metal_stripe_end_open",
+"openLoop": "dev_gate_metal_stripe_open_loop",
+"openTime": 1,
+"startClose": "dev_gate_metal_stripe_start_close",
+"startOpen": "dev_gate_metal_stripe_start_open"
+},
+"dev_industrial_corridor_gate_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_industrial_sliding_gate_med_close_loop",
+"closeTime": 1,
+"endClose": "dev_industrial_sliding_gate_med_end_close",
+"endOpen": "dev_industrial_sliding_gate_med_end_open",
+"openLoop": "dev_industrial_sliding_gate_med_open_loop",
+"openTime": 1,
+"startClose": "dev_industrial_sliding_gate_med_start_close",
+"startOpen": "dev_industrial_sliding_gate_med_start_open"
+},
+"dev_industrial_sliding_gate_med_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_industrial_sliding_gate_med_close_loop",
+"closeTime": 1.5,
+"endClose": "dev_industrial_sliding_gate_med_end_close",
+"endOpen": "dev_industrial_sliding_gate_med_end_open",
+"openLoop": "dev_industrial_sliding_gate_med_open_loop",
+"openTime": 1.5,
+"startClose": "dev_industrial_sliding_gate_med_start_close",
+"startOpen": "dev_industrial_sliding_gate_med_start_open"
+},
+"dev_kurt_megaphone": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "dev_kurt_megaphone_emitter",
+"stopOnlyVirtualSounds": 1,
+"triggerDistance": 300
+},
+"dev_lamp_wat_nid_15_decorator": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "q_ma_wat_nid_15_neonlight",
+"onLeave": "q_ma_wat_nid_15_neonlight_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 10
+},
+"dev_q305_outer_bunker_hatch_dorms_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeTime": 1,
+"openTime": 1,
+"startClose": "dev_hatch_bunker_dorms_close",
+"startOpen": "dev_hatch_bunker_dorms_open"
+},
+"dev_single_door_12_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_single_doors_12_close_loop",
+"closeTime": 1,
+"endClose": "dev_single_doors_12_end_close",
+"endOpen": "dev_single_doors_12_end_open",
+"openLoop": "dev_single_doors_12_open_loop",
+"openTime": 1,
+"startClose": "dev_single_doors_12_start_close",
+"startOpen": "dev_single_doors_12_start_open"
+},
+"dev_single_door_decorator_arcade_game": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "ui_arcade_game_retro_door_close_loop",
+"closeTime": 0.800000012,
+"endClose": "ui_arcade_game_retro_door_end_close",
+"endOpen": "ui_arcade_game_retro_door_end_open",
+"openTime": 0.800000012,
+"startClose": "ui_arcade_game_retro_door_start_close",
+"startOpen": "ui_arcade_game_retro_door_start_open"
+},
+"dev_single_doors_cabin_dex_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_cabin_dex_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_single_cabin_dex_end_close",
+"endOpen": "dev_doors_single_cabin_dex_end_open",
+"openLoop": "dev_doors_single_cabin_dex_open_loop",
+"openTime": 0.899999976,
+"startClose": "dev_doors_single_cabin_dex_start_close",
+"startOpen": "dev_doors_single_cabin_dex_start_open"
+},
+"dev_single_doors_decorator_03": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_03_close_loop",
+"closeTime": 0.829999983,
+"endClose": "dev_doors_single_03_end_close",
+"endOpen": "dev_doors_single_03_end_open",
+"openLoop": "dev_doors_single_03_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_doors_single_03_start_close",
+"startOpen": "dev_doors_single_03_start_open"
+},
+"dev_single_doors_decorator_04": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_04_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_04_end_close",
+"endOpen": "dev_doors_single_04_end_open",
+"openLoop": "dev_doors_single_04_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_04_start_close",
+"startOpen": "dev_doors_single_04_start_open"
+},
+"dev_single_doors_decorator_10": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_10_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_10_end_close",
+"endOpen": "dev_doors_single_10_end_open",
+"openLoop": "dev_doors_single_10_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_10_start_close",
+"startOpen": "dev_doors_single_10_start_open"
+},
+"dev_single_doors_decorator_11": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_11_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_11_end_close",
+"endOpen": "dev_doors_single_11_end_open",
+"openLoop": "dev_doors_single_11_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_11_start_close",
+"startOpen": "dev_doors_single_11_start_open"
+},
+"dev_single_doors_decorator_12": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_12_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_12_end_close",
+"endOpen": "dev_doors_single_12_end_open",
+"openLoop": "dev_doors_single_12_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_12_start_close",
+"startOpen": "dev_doors_single_12_start_open"
+},
+"dev_single_doors_decorator_13": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_13_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_single_13_end_close",
+"endOpen": "dev_doors_single_13_end_open",
+"openLoop": "dev_doors_single_13_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_13_start_close",
+"startOpen": "dev_doors_single_13_start_open"
+},
+"dev_single_doors_decorator_14": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_14_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_14_end_close",
+"endOpen": "dev_doors_single_14_end_close",
+"openLoop": "dev_doors_single_14_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_14_start_close",
+"startOpen": "dev_doors_single_14_start_open"
+},
+"dev_single_doors_decorator_15": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_15_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_single_15_end_close",
+"endOpen": "dev_doors_single_15_end_open",
+"openLoop": "dev_doors_single_15_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_15_start_close",
+"startOpen": "dev_doors_single_15_start_open"
+},
+"dev_single_doors_decorator_16": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_16_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_doors_single_16_end_close",
+"endOpen": "dev_doors_single_16_end_open",
+"openLoop": "dev_doors_single_16_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_16_start_close",
+"startOpen": "dev_doors_single_16_start_open"
+},
+"dev_single_doors_decorator_17": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_17_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_single_17_end_close",
+"endOpen": "dev_doors_single_17_end_open",
+"openLoop": "dev_doors_single_17_open_loop",
+"openTime": 0.769999981,
+"startClose": "dev_doors_single_17_start_close",
+"startOpen": "dev_doors_single_17_start_open"
+},
+"dev_single_doors_decorator_18": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_18_close_loop",
+"closeTime": 0.879999995,
+"endClose": "dev_doors_single_18_end_close",
+"endOpen": "dev_doors_single_18_end_open",
+"openLoop": "dev_doors_single_18_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_18_start_close",
+"startOpen": "dev_doors_single_18_start_open"
+},
+"dev_single_doors_decorator_19": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_19_close_loop",
+"closeTime": 0.879999995,
+"endClose": "dev_doors_single_19_end_close",
+"endOpen": "dev_doors_single_19_end_open",
+"openLoop": "dev_doors_single_19_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_19_start_close",
+"startOpen": "dev_doors_single_19_start_open"
+},
+"dev_single_doors_decorator_20": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_20_close_loop",
+"closeTime": 0.899999976,
+"endClose": "dev_doors_single_20_end_close",
+"endOpen": "dev_doors_single_20_end_open",
+"openLoop": "dev_doors_single_20_open_loop",
+"openTime": 0.800000012,
+"startClose": "dev_doors_single_20_start_close",
+"startOpen": "dev_doors_single_20_start_open"
+},
+"dev_single_doors_fence_gate_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_fence_gate_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_single_fence_gate_end_close",
+"endOpen": "dev_doors_single_fence_gate_end_open",
+"openLoop": "dev_doors_single_fence_gate_open_loop",
+"openTime": 0.75,
+"startClose": "dev_doors_single_fence_gate_start_close",
+"startOpen": "dev_doors_single_fence_gate_start_open"
+},
+"dev_single_doors_nighthawks": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_gate_slide_nighthawks_loop_close",
+"closeTime": 0.800000012,
+"endClose": "dev_gate_slide_nighthawks_end_close",
+"endOpen": "dev_gate_slide_nighthawks_end_open",
+"openLoop": "dev_gate_slide_nighthawks_loop_open",
+"openTime": 0.800000012,
+"startClose": "dev_gate_slide_nighthawks_start_close",
+"startOpen": "dev_gate_slide_nighthawks_start_open"
+},
+"dev_single_doors_vertical_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_vertical_01_close_loop",
+"closeTime": 1,
+"endClose": "dev_doors_single_vertical_01_end_close",
+"endOpen": "dev_doors_single_vertical_01_end_open",
+"openLoop": "dev_doors_single_vertical_01_open_loop",
+"openTime": 1,
+"startClose": "dev_doors_single_vertical_01_start_close",
+"startOpen": "dev_doors_single_vertical_01_start_open"
+},
+"dev_single_doors_wicket_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_single_wicket_01_close_loop",
+"closeTime": 0.850000024,
+"endClose": "dev_doors_single_wicket_01_end_close",
+"endOpen": "dev_doors_single_wicket_01_end_open",
+"openLoop": "dev_doors_single_wicket_01_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_doors_single_wicket_01_start_close",
+"startOpen": "dev_doors_single_wicket_01_start_open"
+},
+"dev_single_gate_stripe_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_single_gate_stripe_close_loop",
+"closeTime": 0.800000012,
+"endClose": "dev_single_gate_stripe_end_close",
+"endOpen": "dev_single_gate_stripe_end_open",
+"openLoop": "dev_single_gate_stripe_open_loop",
+"openTime": 0.699999988,
+"startClose": "dev_single_gate_stripe_start_close",
+"startOpen": "dev_single_gate_stripe_start_open"
+},
+"dev_sliding_doors_gate_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_doors_sliding_gate_01_close_loop",
+"closeTime": 1.5,
+"endClose": "dev_doors_sliding_gate_01_end_close",
+"endOpen": "dev_doors_sliding_gate_01_end_open",
+"openLoop": "dev_doors_sliding_gate_01_open_loop",
+"openTime": 1.5,
+"startClose": "dev_doors_sliding_gate_01_start_close",
+"startOpen": "dev_doors_sliding_gate_01_start_open"
+},
+"dev_window_skylight_decorator_01": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "dev_window_skylight_01_close_loop",
+"closeTime": 1,
+"endClose": "dev_window_skylight_01_end_close",
+"endOpen": "dev_window_skylight_01_end_open",
+"openLoop": "dev_window_skylight_01_open_loop",
+"openTime": 1,
+"startClose": "dev_window_skylight_01_start_close",
+"startOpen": "dev_window_skylight_01_start_open"
+},
+"distancedecorator_q000_corpo_av_news": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "q000_corpo_speaker_av_news_start",
+"onLeave": "q000_corpo_speaker_av_news_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 60
+},
+"distancedecorator_sq025_speaker_drone": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "sq025_speaker_delamain_drone_start",
+"onLeave": "sq025_speaker_delamain_drone_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 60
+},
+"holo_police_tape_distance_sound": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "dev_holo_police_tape_medium_01_loop",
+"onLeave": "dev_holo_police_tape_medium_01_loop_end",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 3
+},
+"impact_acoustics_settings": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.00999999978,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"jukebox_emitter": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "jukebox_test",
+"receiverType": "radio_default"
+},
+"kurt_megaphone_acoustic_settings": {
+"class": "AcousticsEmitterMetadata",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 2,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 0,
+"occlusionEnabled": 0,
+"postDopplerFactor": 0,
+"repositioningEnabled": 0
+},
+"player_compound_emitter": {
+"class": "CompoundEmitterMetadata"
+},
+"player_locomotion_decorator": {
+"class": "LocomotionEmitterMetadata",
+"diveSuitName": "outfit_01__q303__diving_suit_",
+"isPlayer": 1
+},
+"puppet_group_countable": {
+"class": "GroupingCountableMetadata",
+"void": 0
+},
+"radio_playlist_compound_em_7th_hell": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_7th_hell_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_7th_hell_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_default": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_default_custom_behind_door": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_default_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_default_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_default_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q005": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q005_custom_behind_door": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q005_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q005_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q005_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q115_jazz": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q115_jazz_custom_behind_door": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q115_jazz_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q115_jazz_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_afterlife_q115_jazz_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_asian_restaurant_default": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_asian_restaurant_default_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_club_01_medium_ext": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_club_01_medium_ext_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_club_01_medium_ext_dly_quiet_flat": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_club_01_medium_ext_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister_day": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister_day_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister_day_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_dicky_twister_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_diner_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_diner_quiet_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_el_coyo": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_el_coyo_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_el_coyo_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_empathy_club": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_empathy_club_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_empathy_club_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_fixer_rock_club": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_fixer_rock_club_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_fixer_rock_club_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01_dly_tunnel": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01_int": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01_int_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_ganger_party_01_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_guitar_shop": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_guitar_shop_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_guitar_shop_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_hotel_lobby_ambient_default": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_hotel_lobby_ambient_default_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_konpeki_restaurant": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_konpeki_restaurant_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_latino_bar": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_latino_bar_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_little_macao": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_little_macao_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_little_macao_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_old_bar": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_old_bar_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_old_bar_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pachinko_lounge": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pachinko_lounge_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pachinko_lounge_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pyramid_club": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pyramid_club_booth": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pyramid_club_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pyramid_club_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_pyramid_club_low_occlusion_ext": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_booth": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_booth_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_corridor": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_delayed_slow_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q000_lizzies_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q004_yorinobu_apartment": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_q004_yorinobu_apartment_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_riot_nightclub": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_riot_nightclub_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_riot_nightclub_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_sda_02_aggro_tech": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_01_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_01_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_01_small_dly_q301": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_02_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_02_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_03_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_shop_03_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_sq025_synthwave": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_sq025_synthwave_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_sq025_synthwave_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_sq025_synthwave_low_occlusion": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_01_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_01_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_01_small_dly_q301": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_02_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_02_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_03_small": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_stadium_03_small_dly": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_01": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_01_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_01_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_lpf_01": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_lpf_01_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_street_sex_lpf_01_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_totentanz_default": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_totentanz_default_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_totentanz_default_delayed_quiet": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_totentanz_default_low_occl": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_underground_casino": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_compound_em_underground_casino_delayed": {
+"class": "CompoundEmitterMetadata"
+},
+"radio_playlist_em_7th_hell_big": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_7th_hell",
+"receiverType": "radio_club_custom_big_daynight1_emitter"
+},
+"radio_playlist_em_7th_hell_big_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_7th_hell",
+"receiverType": "radio_club_custom_big_daynight1_emitter_delayed"
+},
+"radio_playlist_em_7th_hell_big_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_7th_hell",
+"receiverType": "radio_club_custom_big_daynight1_emitter_low_occlusion"
+},
+"radio_playlist_em_afterlife_default": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_default",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_afterlife_default_custom_behind_door": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_default",
+"receiverType": "radio_club_default_big_emitter_custom_behind_door"
+},
+"radio_playlist_em_afterlife_default_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_default",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_afterlife_default_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_default",
+"receiverType": "radio_club_default_big_emitter_delayed_quiet"
+},
+"radio_playlist_em_afterlife_default_low_occlusion": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_default",
+"receiverType": "radio_club_default_big_emitter_low_occlusion"
+},
+"radio_playlist_em_afterlife_q005": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q005",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_afterlife_q005_custom_behind_door": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q005",
+"receiverType": "radio_club_default_big_emitter_custom_behind_door"
+},
+"radio_playlist_em_afterlife_q005_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q005",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_afterlife_q005_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q005",
+"receiverType": "radio_club_default_big_emitter_delayed_quiet"
+},
+"radio_playlist_em_afterlife_q005_low_occlusion": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q005",
+"receiverType": "radio_club_default_big_emitter_low_occlusion"
+},
+"radio_playlist_em_afterlife_q115_jazz": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q115_jazz",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_afterlife_q115_jazz_custom_behind_door": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q115_jazz",
+"receiverType": "radio_club_default_big_emitter_custom_behind_door"
+},
+"radio_playlist_em_afterlife_q115_jazz_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q115_jazz",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_afterlife_q115_jazz_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q115_jazz",
+"receiverType": "radio_club_default_big_emitter_delayed_quiet"
+},
+"radio_playlist_em_afterlife_q115_jazz_low_occlusion": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_afterlife_q115_jazz",
+"receiverType": "radio_club_default_big_emitter_low_occlusion"
+},
+"radio_playlist_em_asian_restaurant_default": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_wakako_jazz",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_asian_restaurant_default_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_wakako_jazz",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_club_01_medium_ext": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_01_electro",
+"receiverType": "radio_market_default_big_emitter_quiet"
+},
+"radio_playlist_em_club_01_medium_ext_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_01_electro",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_club_01_medium_ext_dly_quiet_flat": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_01_electro",
+"receiverType": "radio_market_default_medium_emitter_delayed_quiet_flat"
+},
+"radio_playlist_em_club_01_medium_ext_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_01_electro",
+"receiverType": "radio_market_default_medium_emitter_quiet"
+},
+"radio_playlist_em_club_03_medium_ext": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_03_mixed",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_club_03_medium_ext_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_club_03_mixed",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_cyberjunkies_party_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_cyberjunkies_party_01",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_cyberjunkies_party_01_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_cyberjunkies_party_01",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_cyberjunkies_party_01_delayed_out": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_cyberjunkies_party_01",
+"receiverType": "radio_club_custom_big_emitter_ext_loud_far"
+},
+"radio_playlist_em_dicky_twister": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_dicky_twister_day": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister_day",
+"receiverType": "radio_club_custom_medium_daynight1_emitter"
+},
+"radio_playlist_em_dicky_twister_day_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister_day",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_delayed"
+},
+"radio_playlist_em_dicky_twister_day_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister_day",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_low_occlusion"
+},
+"radio_playlist_em_dicky_twister_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_dicky_twister_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_dicky_twister",
+"receiverType": "radio_club_default_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_diner_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_diner_pop",
+"receiverType": "radio_club_default_small_emitter_booth_quiet"
+},
+"radio_playlist_em_diner_quiet_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_diner_pop",
+"receiverType": "radio_club_default_small_emitter_booth_delayed_quiet"
+},
+"radio_playlist_em_el_coyo": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_el_coyo_default",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_el_coyo_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_el_coyo_default",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_el_coyo_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_el_coyo_default",
+"receiverType": "radio_club_default_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_empathy_club": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_empathy_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter"
+},
+"radio_playlist_em_empathy_club_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_empathy_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_delayed"
+},
+"radio_playlist_em_empathy_club_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_empathy_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_low_occlusion"
+},
+"radio_playlist_em_fixer_dakota": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_dakota",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_fixer_dakota_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_dakota",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_fixer_muamar": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_muamar_aggro_tech",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_fixer_muamar_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_muamar_aggro_tech",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_fixer_padre": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_padre",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_fixer_padre_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_padre",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_fixer_regina": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_regina_hiphop",
+"receiverType": "radio_club_default_small_emitter"
+},
+"radio_playlist_em_fixer_regina_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_regina_hiphop",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_fixer_rock_club": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_rock_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter"
+},
+"radio_playlist_em_fixer_rock_club_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_rock_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_delayed"
+},
+"radio_playlist_em_fixer_rock_club_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_rock_club",
+"receiverType": "radio_club_custom_medium_daynight1_emitter_low_occlusion"
+},
+"radio_playlist_em_fixer_wakako": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_wakako_jazz",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_fixer_wakako_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_fixer_wakako_jazz",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_flashmob": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_flashmob",
+"receiverType": "radio_club_custom_big_emitter_ext_loud_far"
+},
+"radio_playlist_em_ganger_party_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_custom_big_emitter_ext_far"
+},
+"radio_playlist_em_ganger_party_01_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_custom_big_emitter_ext_delayed"
+},
+"radio_playlist_em_ganger_party_01_dly_tunnel": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_custom_small_emitter_ext_delayed_tunnel"
+},
+"radio_playlist_em_ganger_party_01_int": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_ganger_party_01_int_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_default_medium_emitter_delayed_longer"
+},
+"radio_playlist_em_ganger_party_01_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_ganger_party_01",
+"receiverType": "radio_club_custom_big_emitter_ext_low_occl_med"
+},
+"radio_playlist_em_guitar_shop": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter_to_outside"
+},
+"radio_playlist_em_guitar_shop_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter_delayed_quiet"
+},
+"radio_playlist_em_guitar_shop_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter_low_occlusion_to_outside"
+},
+"radio_playlist_em_hotel_lobby_ambient_default": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_hotel_lobby_ambient_default",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_hotel_lobby_ambient_default_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_hotel_lobby_ambient_default",
+"receiverType": "radio_club_default_medium_emitter_delayed_quiet"
+},
+"radio_playlist_em_jigjig_market_01_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_01",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_jigjig_market_01_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_01",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_jigjig_market_01_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_01",
+"receiverType": "radio_market_default_small_emitter"
+},
+"radio_playlist_em_jigjig_market_02_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_02",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_jigjig_market_02_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_02",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_jigjig_market_02_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_02",
+"receiverType": "radio_market_default_small_emitter"
+},
+"radio_playlist_em_jigjig_market_03_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_03",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_jigjig_market_03_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_03",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_jigjig_market_03_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_jigjig_03",
+"receiverType": "radio_market_default_small_emitter"
+},
+"radio_playlist_em_konpeki_restaurant": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_konpeki_restaurant",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_konpeki_restaurant_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_konpeki_restaurant",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_latino_bar": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_el_coyo_default",
+"receiverType": "radio_club_default_small_emitter"
+},
+"radio_playlist_em_latino_bar_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_el_coyo_default",
+"receiverType": "radio_club_default_small_emitter_delayed_quiet"
+},
+"radio_playlist_em_light_diner_01_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_01_fancy",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_light_diner_01_medium_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_01_fancy",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_light_diner_01_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_01_fancy",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_light_diner_01_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_01_fancy",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_light_diner_02_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_02_electronic",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_light_diner_02_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_02_electronic",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_light_diner_03_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_03_hiphop",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_light_diner_03_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_03_hiphop",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_light_diner_03_small_ext": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_03_hiphop",
+"receiverType": "radio_market_default_small_emitter"
+},
+"radio_playlist_em_light_diner_03_small_ext_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_03_hiphop",
+"receiverType": "radio_market_default_small_emitter_delayed"
+},
+"radio_playlist_em_light_diner_04_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_04_mixed",
+"receiverType": "radio_club_default_small_emitter_booth"
+},
+"radio_playlist_em_light_diner_04_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_04_mixed",
+"receiverType": "radio_club_default_small_emitter_booth_delayed"
+},
+"radio_playlist_em_little_macao": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_little_macao",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_little_macao_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_little_macao",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_little_macao_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_little_macao",
+"receiverType": "radio_club_default_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_market_default_big_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_default_01",
+"receiverType": "radio_market_default_big_emitter"
+},
+"radio_playlist_em_market_default_big_01_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_market_default_01",
+"receiverType": "radio_market_default_big_emitter_delayed"
+},
+"radio_playlist_em_market_default_medium_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_02_electronic",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_market_default_medium_01_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_02_electronic",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_market_default_medium_01_night": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_01_light",
+"receiverType": "radio_market_default_medium_emitter_night"
+},
+"radio_playlist_em_market_default_medium_01_night_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_01_light",
+"receiverType": "radio_market_default_medium_emitter_night_delayed"
+},
+"radio_playlist_em_market_default_medium_02_night": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_04_mixed",
+"receiverType": "radio_market_default_medium_emitter_night"
+},
+"radio_playlist_em_market_default_medium_02_night_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_light_diner_04_mixed",
+"receiverType": "radio_market_default_medium_emitter_night_delayed"
+},
+"radio_playlist_em_mq055_hangouts_15m": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_mq055_hangouts",
+"receiverType": "radio_mq055_hangouts_emitter"
+},
+"radio_playlist_em_mq055_hangouts_15m_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_mq055_hangouts",
+"receiverType": "radio_mq055_hangouts_emitter_dly"
+},
+"radio_playlist_em_old_bar": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter"
+},
+"radio_playlist_em_old_bar_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter_delayed_quiet"
+},
+"radio_playlist_em_old_bar_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_guitar_shop",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_pachinko_lounge": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pachinko_lounge",
+"receiverType": "radio_default_dark_matter"
+},
+"radio_playlist_em_pachinko_lounge_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pachinko_lounge",
+"receiverType": "radio_default_dark_matter_dly"
+},
+"radio_playlist_em_pachinko_lounge_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pachinko_lounge",
+"receiverType": "radio_default_dark_matter_low_occl"
+},
+"radio_playlist_em_pyramid_club": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pyramid_club",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_pyramid_club_booth": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pyramid_club",
+"receiverType": "radio_club_default_small_emitter_booth_quiet"
+},
+"radio_playlist_em_pyramid_club_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pyramid_club",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_pyramid_club_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pyramid_club",
+"receiverType": "radio_club_default_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_pyramid_club_low_occl_ext": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_pyramid_club",
+"receiverType": "radio_club_custom_big_emitter_ext_low_occl_far"
+},
+"radio_playlist_em_q000_lizzies": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter"
+},
+"radio_playlist_em_q000_lizzies_booth": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_booth"
+},
+"radio_playlist_em_q000_lizzies_booth_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_booth_delayed"
+},
+"radio_playlist_em_q000_lizzies_corridor": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_corridor"
+},
+"radio_playlist_em_q000_lizzies_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_delayed"
+},
+"radio_playlist_em_q000_lizzies_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_delayed_quiet"
+},
+"radio_playlist_em_q000_lizzies_low_occlusion": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q000_lizzies",
+"receiverType": "radio_q000_lizzies_emitter_low_occlusion"
+},
+"radio_playlist_em_q004_yorinobu_apartment": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q004_yorinobu_apartment",
+"receiverType": "radio_q004_yorinobu_apartment_em"
+},
+"radio_playlist_em_q004_yorinobu_apartment_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q004_yorinobu_apartment",
+"receiverType": "radio_q004_yorinobu_apartment_em_dly"
+},
+"radio_playlist_em_q005_konpeki_corridor": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q005_konpeki_corridor",
+"receiverType": "radio_q005_konpeki_corridor_em"
+},
+"radio_playlist_em_q005_konpeki_corridor_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q005_konpeki_corridor",
+"receiverType": "radio_q005_konpeki_corridor_em_dly"
+},
+"radio_playlist_em_q115_misty_shop": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_q115_misty_shop",
+"receiverType": "radio_q115_misty_shop_emitter"
+},
+"radio_playlist_em_riot_impulse_big": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_impulse",
+"receiverType": "radio_club_riot_impulse_big_emitter"
+},
+"radio_playlist_em_riot_impulse_big_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_impulse",
+"receiverType": "radio_club_riot_impulse_big_emitter_delayed"
+},
+"radio_playlist_em_riot_impulse_big_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_impulse",
+"receiverType": "radio_club_riot_impulse_big_emitter_low_occlusion"
+},
+"radio_playlist_em_riot_nightclub_big": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_nightclub_dj",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_riot_nightclub_big_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_nightclub_dj",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_riot_nightclub_big_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_riots_nightclub_dj",
+"receiverType": "radio_club_default_big_emitter_low_occlusion"
+},
+"radio_playlist_em_sda_02_aggro_tech": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sda_02_aggro_tech",
+"receiverType": "radio_sda_02"
+},
+"radio_playlist_em_shop_01_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_01_pop",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_shop_01_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_01_pop",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_shop_01_small_dly_q301": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_01_pop",
+"receiverType": "radio_club_default_small_emitter_delayed_q301"
+},
+"radio_playlist_em_shop_02_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_02_rock",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_shop_02_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_02_rock",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_shop_03_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_03_electro",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_shop_03_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_shop_03_electro",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_sq025_synthwave": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sq025_synthwave_delamain",
+"receiverType": "radio_sq025_sythwave_emitter"
+},
+"radio_playlist_em_sq025_synthwave_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sq025_synthwave_delamain",
+"receiverType": "radio_sq025_sythwave_emitter_dly"
+},
+"radio_playlist_em_sq025_synthwave_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sq025_synthwave_delamain",
+"receiverType": "radio_sq025_sythwave_emitter_dly_quiet"
+},
+"radio_playlist_em_sq025_synthwave_low_occlusion": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sq025_synthwave_delamain",
+"receiverType": "radio_sq025_sythwave_emitter_low_occl"
+},
+"radio_playlist_em_stadium_01_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_electro",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_stadium_01_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_electro",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_stadium_01_small_dly_q301": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_electro",
+"receiverType": "radio_club_default_small_emitter_delayed_q301"
+},
+"radio_playlist_em_stadium_02_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_rock",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_stadium_02_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_rock",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_stadium_03_small": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_pop",
+"receiverType": "radio_club_default_small_emitter_low_occlusion"
+},
+"radio_playlist_em_stadium_03_small_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_stadium_pop",
+"receiverType": "radio_club_default_small_emitter_delayed"
+},
+"radio_playlist_em_street_01_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_01_light",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_street_01_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_01_light",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_street_02_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_02_aggro",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_street_02_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_02_aggro",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_street_03_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_03_metal",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_street_03_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_03_metal",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_street_04_medium": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_04_mixed",
+"receiverType": "radio_market_default_medium_emitter"
+},
+"radio_playlist_em_street_04_medium_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_04_mixed",
+"receiverType": "radio_market_default_medium_emitter_delayed"
+},
+"radio_playlist_em_street_sex_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_emitter"
+},
+"radio_playlist_em_street_sex_01_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_emitter_delayed"
+},
+"radio_playlist_em_street_sex_01_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_street_sex_lpf_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_lpf_emitter"
+},
+"radio_playlist_em_street_sex_lpf_01_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_lpf_emitter_delayed"
+},
+"radio_playlist_em_street_sex_lpf_01_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_street_sex_01",
+"receiverType": "radio_back_alley_medium_lpf_emitter_low_occlusion"
+},
+"radio_playlist_em_sts13_club": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sts13_club",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_sts13_club_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sts13_club",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_sts13_club_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sts13_club",
+"receiverType": "radio_club_default_medium_emitter_low_occlusion"
+},
+"radio_playlist_em_sts_03_last_floor_01": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sts_03_last_floor",
+"receiverType": "radio_club_default_medium_emitter"
+},
+"radio_playlist_em_sts_03_last_floor_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_sts_03_last_floor",
+"receiverType": "radio_club_default_medium_emitter_delayed"
+},
+"radio_playlist_em_totentanz_default": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_totentanz_default",
+"receiverType": "radio_club_default_big_emitter"
+},
+"radio_playlist_em_totentanz_default_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_totentanz_default",
+"receiverType": "radio_club_default_big_emitter_delayed"
+},
+"radio_playlist_em_totentanz_default_delayed_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_totentanz_default",
+"receiverType": "radio_club_default_big_emitter_delayed_quiet"
+},
+"radio_playlist_em_totentanz_default_low_occl": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_totentanz_default",
+"receiverType": "radio_club_default_big_emitter_low_occlusion"
+},
+"radio_playlist_em_underground_casino": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_little_macao",
+"receiverType": "radio_club_default_small_emitter"
+},
+"radio_playlist_em_underground_casino_delayed": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_little_macao",
+"receiverType": "radio_club_default_small_emitter_delayed_quiet"
+},
+"radio_playlist_mq008_speaker": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_mq008_speakers",
+"receiverType": "radio_market_default_big_emitter"
+},
+"radio_playlist_mq008_speaker_dly": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_mq008_speakers",
+"receiverType": "radio_market_default_big_emitter_delayed"
+},
+"radio_playlist_mq008_speaker_quiet": {
+"class": "PlaylistEmitterMetadata",
+"playlistMetadataName": "radio_playlist_mq008_speakers",
+"receiverType": "radio_market_default_medium_emitter_quiet"
+},
+"sfx_boss_weakspot_hit": {
+"class": "AccumulatedSoundDecoratorMetadata",
+"inSpammingMode": 1,
+"loopEnd": "dev_drill_loop",
+"loopStart": "dev_drill_loop",
+"soundTimeout": 0.300000012,
+"spammingSound": "nme_fx_boss_animals_weakpoint_hit",
+"spammingSoundInterval": 0.286057681
+},
+"sq031_container_doors_decorator": {
+"class": "DoorDecoratorMetadata",
+"closeLoop": "sq031_container_doors_close_loop",
+"closeTime": 1.70000005,
+"endClose": "sq031_container_doors_end_close",
+"endOpen": "sq031_container_doors_end_open",
+"openLoop": "sq031_container_doors_open_loop",
+"openTime": 2.5999999,
+"startClose": "sq031_container_doors_start_close",
+"startOpen": "sq031_container_doors_start_open"
+},
+"testAcousticsEmitter": {
+"class": "AcousticsEmitterMetadata",
+"dopplerParameter": "doppler_shift",
+"elevateSource": 0,
+"enableOutdoorness": 0,
+"ignoreOcclusionRadius": 0,
+"leakingFloorHack": 0,
+"obstructionFadeTime": 0.200000003,
+"obstuctionEnabled": 1,
+"occlusionEnabled": 1,
+"postDopplerFactor": 1,
+"repositioningEnabled": 0
+},
+"testAdvert": {
+"class": "AdvertMetadata",
+"filter": "OnlyOutdoor",
+"maxSilenceTime": 14.5666294,
+"minDistance": 8.75193882,
+"minSilenceTime": 6.67165089
+},
+"testCompoundEmitter": {
+"class": "CompoundEmitterMetadata"
+},
+"testDistanceSound": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "dev_doors_single_05_open",
+"onLeave": "dev_doors_single_05_close",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 3
+},
+"testShockwaveMaterial": {
+"class": "ShockwaveMetadata",
+"explosionMetadataName": "shock_explosion_test"
+},
+"testShockwaveMetadata": {
+"class": "ShockwaveMetadata",
+"explosionMetadataName": "shock_explosion_test",
+"thumpMetadataName": "shock_explosion_test"
+},
+"v_av_default_traffic_dist": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_rayfield_excalibur_traffic_engine_01",
+"onLeave": "v_av_rayfield_excalibur_traffic_engine_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 50
+},
+"v_av_manticore_01_traffic_dist_av_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_zetatech_altus_traffic_engine_01_av_dplr_01",
+"onLeave": "v_av_zetatech_altus_traffic_engine_01_av_dplr_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 100
+},
+"v_av_q000_jenkins_tv_dist": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "radio_q000_av_tv_emitter",
+"onLeave": "radio_q000_av_tv_emitter_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 30
+},
+"v_av_q203_delamain_av_dist": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_rayfield_excalibur_sc_203_ext_int_engine_idle_start",
+"onLeave": "v_av_rayfield_excalibur_sc_203_ext_int_engine_idle_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 50
+},
+"v_av_rayfield_excalibur_01_traffic_dist": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_rayfield_excalibur_traffic_engine_01",
+"onLeave": "v_av_rayfield_excalibur_traffic_engine_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 60
+},
+"v_av_rayfield_excalibur_01_traffic_dist_av_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01",
+"onLeave": "v_av_rayfield_excalibur_traffic_engine_01_av_dplr_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 100
+},
+"v_av_zetatech_altus_01_traffic_dist_av_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_zetatech_altus_traffic_engine_01_av_dplr_01",
+"onLeave": "v_av_zetatech_altus_traffic_engine_01_av_dplr_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 300
+},
+"v_av_zetatech_canopy_01_traffic_dist_av_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_zetatech_canopy_traffic_engine_01_av_dplr_01",
+"onLeave": "v_av_zetatech_canopy_traffic_engine_01_av_dplr_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 300
+},
+"v_av_zetatech_surveyor_01_traffic_dist_av_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_av_zetatech_canopy_traffic_engine_01_av_dplr_01",
+"onLeave": "v_av_zetatech_canopy_traffic_engine_01_av_dplr_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 300
+},
+"v_heli_max_tac_01_traffic_dist_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_heli_max_tac_01_traffic_flying_loop",
+"onLeave": "v_heli_max_tac_01_traffic_flying_loop_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 400
+},
+"v_metro_default_traffic_dist_dplr_01": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "v_metro_default_traffic_01_start",
+"onLeave": "v_metro_default_traffic_01_stop",
+"stopOnlyVirtualSounds": 0,
+"triggerDistance": 100
+},
+"vehicle_npc_occlusion": {
+"class": "VehicleNpcOcclusionMetadata",
+"void": 0
+},
+"vo_q307_delamain_emitter": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "vo_q307_delamain_emitter",
+"stopOnlyVirtualSounds": 1,
+"triggerDistance": 100
+}
+}
