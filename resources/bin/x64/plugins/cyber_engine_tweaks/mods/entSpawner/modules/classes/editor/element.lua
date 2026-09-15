@@ -26,6 +26,7 @@ local style = require("modules/ui/style")
 ---@field hiddenByParent boolean
 ---@field locked boolean
 ---@field lockedByParent boolean
+---@field exportDisabled boolean Excluded from export; descendants inherit this exclusion without changing their own state.
 ---@field icon string
 ---@field secondaryIcon string
 ---@field class string[]
@@ -88,6 +89,7 @@ function element:new(sUI)
 	o.hiddenByParent = false
 	o.locked = false
 	o.lockedByParent = false
+	o.exportDisabled = false
 
 	o.expandable = true
 	o.hideable = true
@@ -177,7 +179,7 @@ function element:getModulePathByType(data)
 end
 
 ---Loads the data from a given table, containing the same data as exported during save()
----@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, propertyHeaderStates: table}
+---@param data {name : string, childs : table, headerOpen : boolean, modulePath : string, visible : boolean, hiddenByParent : boolean, locked : boolean, lockedByParent : boolean, exportDisabled : boolean, propertyHeaderStates: table}
 ---@param silent boolean? Optional parameter to signal that this load is purely for retrieving data
 function element:load(data, silent)
 	-- Selection is live editor state, never read from `data`. It still has to survive the rebuild
@@ -200,6 +202,7 @@ function element:load(data, silent)
 	self.hiddenByParent = data.hiddenByParent
 	self.locked = data.locked
 	self.lockedByParent = data.lockedByParent
+	self.exportDisabled = data.exportDisabled
 	self.propertyHeaderStates = data.propertyHeaderStates
 	if self.propertyHeaderStates == nil then self.propertyHeaderStates = {} end
 	if self.visible == nil then self.visible = true end
@@ -207,6 +210,7 @@ function element:load(data, silent)
 	if self.hiddenByParent == nil then self.hiddenByParent = false end
 	if self.locked == nil then self.locked = false end
 	if self.lockedByParent == nil then self.lockedByParent = false end
+	if self.exportDisabled == nil then self.exportDisabled = false end
 
 	-- Never taken from `data`: old files still contain the field, it is ignored rather than migrated.
 	-- A fresh element carries `false` in from `new`, so a load from disk still starts unselected.
@@ -734,6 +738,18 @@ function element:setLockedByParent(state)
 	invalidateSUI(self, false)
 end
 
+---Sets whether this element is excluded from export. Parent exclusion is resolved by the exporter,
+---so a group never overwrites its descendants' own state.
+---@param state boolean
+function element:setExportDisabled(state)
+	if self.exportDisabled == state then return end
+
+	history.addAction(history.getElementChange(self))
+	saveState.markDirty(self)
+	self.exportDisabled = state
+	invalidateSUI(self, false)
+end
+
 function element:setSilent(state)
 	self.silent = state
 
@@ -793,6 +809,7 @@ function element:serialize(ctx)
 		hiddenByParent = self.hiddenByParent,
 		locked = self.locked,
 		lockedByParent = self.lockedByParent,
+		exportDisabled = self.exportDisabled,
 		expandable = self.expandable,
 		isUsingSpawnables = true,
 		childs = {}

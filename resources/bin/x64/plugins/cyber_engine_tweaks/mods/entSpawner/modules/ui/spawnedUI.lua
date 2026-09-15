@@ -2101,7 +2101,8 @@ function spawnedUI.getSideButtonsWidth(element)
         getButtonWidth(IconGlyphs.EyeOffOutline),
         getButtonWidth(IconGlyphs.EyeRemoveOutline)
     )
-    local totalX = visibilityWidth + lockWidth + ImGui.GetStyle().ItemSpacing.x
+    local exportWidth = math.max(getButtonWidth(IconGlyphs.Export), getButtonWidth(IconGlyphs.Cancel))
+    local totalX = visibilityWidth + lockWidth + exportWidth + ImGui.GetStyle().ItemSpacing.x * 2
     if spawnedUI.canToggleVisualization(element) then
         local visualizationWidth = math.max(getButtonWidth(IconGlyphs.HospitalMarker), getButtonWidth(IconGlyphs.MapMarkerOffOutline))
         totalX = totalX + visualizationWidth + ImGui.GetStyle().ItemSpacing.x
@@ -3059,6 +3060,23 @@ function spawnedUI.drawSideButtons(element, rowHovered)
         ImGui.SameLine()
     end
 
+    local exportDisabled = element.exportDisabled == true
+    local exportIcon = exportDisabled and IconGlyphs.Cancel or IconGlyphs.Export
+    style.pushStyleColor(exportDisabled, ImGuiCol.Text, 1.0, 0.84, 0.2, 1.0)
+    ImGui.SetNextItemAllowOverlap()
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, sideButtonPadding, sideButtonPadding)
+    if ImGui.Button(exportIcon) then
+        element:setExportDisabled(not exportDisabled)
+    end
+    ImGui.PopStyleVar()
+    style.popStyleColor(exportDisabled)
+    local exportTooltip = exportDisabled and "Include in export" or "Exclude from export"
+    if utils.isA(element, "positionableGroup") then
+        exportTooltip = exportTooltip .. "\nDisabled groups exclude every child from export."
+    end
+    style.tooltip(exportTooltip)
+    ImGui.SameLine()
+
     local icon = elementLocked and IconGlyphs.LockOutline or IconGlyphs.LockOpenVariantOutline
     local canToggleLock = spawnedUI.canMutateLockedState(element)
     local hasLockedChildren = spawnedUI.hasLockedChildren(element) and not elementLocked
@@ -3252,7 +3270,8 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
     local secondaryIcon = element.secondaryIcon or ""
     local leftOffset = 25 * style.viewSize -- Accounts for primary icon and/or expand button
     local hiddenText = not element.visible
-    style.pushStyleColor(hiddenText, ImGuiCol.Text, style.mutedColor)
+    local mutedText = hiddenText or element.exportDisabled == true
+    style.pushStyleColor(mutedText, ImGuiCol.Text, style.mutedColor)
     local projectTag = projectTagUtil.getRootGroupTag(element)
     local stateIcons = spawnedUI.getStateIcons(element)
     local projectTagWidth = spawnedUI.getProjectTagWidth(projectTag)
@@ -3377,7 +3396,7 @@ function spawnedUI.drawElement(entry, dummy, rowIndex, sticky)
         spawnedUI.drawStateIcons(stateIcons)
         spawnedUI.drawProjectTag(projectTag)
     end
-    style.popStyleColor(hiddenText)
+    style.popStyleColor(mutedText)
 
     if isHovered and ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) then
         if not element:isLocked() and not element.lockedRename then
