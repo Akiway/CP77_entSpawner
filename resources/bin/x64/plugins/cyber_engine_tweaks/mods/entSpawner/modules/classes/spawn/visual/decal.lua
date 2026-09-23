@@ -32,6 +32,8 @@ local diffuseColorScaleNormalization = {
 ---@field private orderNo number
 ---@field private normalThreshold number
 ---@field private roughnessScale number
+---@field private decalRenderMode integer
+---@field private decalRenderModes string[]
 ---@field private isTiling boolean
 ---@field private maxPropertyWidth number
 local decal = setmetatable({}, { __index = visualized })
@@ -57,6 +59,8 @@ function decal:new()
     o.orderNo = 0
     o.normalThreshold = 1
     o.roughnessScale = 1
+    o.decalRenderMode = 0
+    o.decalRenderModes = utils.enumTable("EDecalRenderMode")
 
     o.assetPreviewType = "backdrop"
     o.assetPreviewDelay = 0.05
@@ -90,6 +94,7 @@ function decal:onAssemble(entity)
     component.orderNo = self.orderNo
     component.normalThreshold = self.normalThreshold
     component.roughnessScale = self.roughnessScale
+    component.decalRenderMode = Enum.new("EDecalRenderMode", self.decalRenderMode)
     component.name = "decal"
     component.visualScale = Vector3.new(self.scale.x, self.scale.y, self.scale.z)
 
@@ -185,6 +190,7 @@ function decal:save()
     data.orderNo = self.orderNo
     data.normalThreshold = self.normalThreshold
     data.roughnessScale = self.roughnessScale
+    data.decalRenderMode = self.decalRenderMode
     data.diffuseColorScale = {
         self.diffuseColorScale[1],
         self.diffuseColorScale[2],
@@ -272,7 +278,7 @@ function decal:draw()
     spawnable.draw(self)
 
     if not self.maxPropertyWidth then
-        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Alpha", "Vertical Flip", "Horizontal Flip", "Stretching Enabled", "Auto Hide Distance", "Order No", "Normal Threshold", "Roughness Scale", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
+        self.maxPropertyWidth = utils.getTextMaxWidth({ "Visualize outline", "Alpha", "Vertical Flip", "Horizontal Flip", "Stretching Enabled", "Auto Hide Distance", "Order No", "Normal Threshold", "Roughness Scale", "Render Mode", "Diffuse Color Scale" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
     self:drawPreviewCheckbox("Visualize outline", self.maxPropertyWidth)
@@ -327,6 +333,13 @@ function decal:draw()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.roughnessScale, _, deactivatedAfterEdit = style.trackedDragFloat(self.object, "##roughnessScale", self.roughnessScale, 0.01, 0, 100, "%.2f", 85)
     self:updateFull(deactivatedAfterEdit)
+
+    style.mutedText("Render Mode")
+    style.tooltip("Which surfaces the decal projects onto.\nDRM_AllStatic does not project onto entities such as vehicles, DRM_AllDynamic does.")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.decalRenderMode, changed = style.trackedCombo(self.object, "##decalRenderMode", self.decalRenderMode, self.decalRenderModes, 130)
+    self:updateFull(changed)
 
     style.mutedText("Diffuse Color Scale")
     ImGui.SameLine()
@@ -425,6 +438,7 @@ function decal:export()
         orderNo = self.orderNo,
         normalThreshold = self.normalThreshold,
         roughnessScale = self.roughnessScale,
+        decalRenderMode = self.decalRenderModes[self.decalRenderMode + 1],
         material = {
             DepotPath = {
                 ["$storage"] = "string",
