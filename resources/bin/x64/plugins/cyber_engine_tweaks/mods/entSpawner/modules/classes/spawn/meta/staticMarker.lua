@@ -1,23 +1,28 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/core/utils")
+local settings = require("modules/utils/core/settings")
+local history = require("modules/utils/project/history")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 
 local markerAppearances = { "default", "yellow", "pink", "blue" }
 local markerAppearanceLabels = { "Default", "Yellow", "Pink", "Blue" }
 
+-- Values of settings.staticMarkerNameMode
+local nameModes = { elementName = 0, simplifiedNodeRef = 1, fullNodeRef = 2 }
+
 local propertyNames = {
     "Visualize position",
-    "Quest Marker",
     "Marker Color",
-    "Show NodeRef"
+    "Show Name",
+    "Quest Marker"
 }
 
 ---Class for worldStaticMarkerNode
 ---@class staticMarker : visualized
 ---@field private questMarker boolean
 ---@field private markerAppearance string
----@field private showNodeRef boolean
+---@field private showName boolean
 ---@field private previewMesh string
 ---@field private intersectionMultiplier number
 ---@field private previewed boolean
@@ -42,7 +47,7 @@ function staticMarker:new()
 
     o.questMarker = false
     o.markerAppearance = "default"
-    o.showNodeRef = false
+    o.showName = settings.staticMarkerShowName == true
     o.wantsViewportOverlayWhenUnspawned = true
     o.maxPropertyWidth = nil
 
@@ -57,13 +62,18 @@ function staticMarker:save()
     local data = visualized.save(self)
     data.questMarker = self.questMarker
     data.markerAppearance = self.markerAppearance
-    data.showNodeRef = self.showNodeRef
+    data.showName = self.showName
 
     return data
 end
 
 function staticMarker:loadSpawnData(data, position, rotation)
     visualized.loadSpawnData(self, data, position, rotation)
+
+    -- Legacy key
+    if data.showName == nil and data.showNodeRef ~= nil then
+        self.showName = data.showNodeRef == true
+    end
 
     if not utils.indexValue(markerAppearances, self.markerAppearance) then
         self.markerAppearance = "default"
@@ -112,11 +122,6 @@ function staticMarker:draw()
 
     self:drawPreviewCheckbox("Visualize position", self.maxPropertyWidth)
 
-    style.mutedText("Quest Marker")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.questMarker, _ = style.trackedCheckbox(self.object, "##questMarker", self.questMarker)
-
     local appearanceIndex = (utils.indexValue(markerAppearances, self.markerAppearance) or 1) - 1
     style.mutedText("Marker Color")
     ImGui.SameLine()
@@ -129,23 +134,64 @@ function staticMarker:draw()
         self:applyMarkerAppearance()
     end
 
-    style.mutedText("Show NodeRef")
+    style.mutedText("Show Name")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.showNodeRef, _ = style.trackedCheckbox(self.object, "##showNodeRef", self.showNodeRef)
+    self.showName, _ = style.trackedCheckbox(self.object, "##showName", self.showName)
+    style.tooltip("Display a label in the viewport.\nIts content and the default for new markers are set in Settings > Visualizers.")
+
+    style.mutedText("Quest Marker")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.questMarker, _ = style.trackedCheckbox(self.object, "##questMarker", self.questMarker)
 end
 
 function staticMarker:wantsViewportOverlay()
-    return self.object ~= nil and self.showNodeRef == true
+    return self.object ~= nil and self.showName == true
+end
+
+---Viewport marker colors for the current "Wireframe color style".
+---@return integer markerColor
+---@return integer labelColor
+local function getOverlayThemeColors()
+    if settings.wireframeColorStyle == 2 then
+        -- Lighter blue with black text.
+        return 0xFFFF9900, 0xFF000000
+    end
+
+    -- Darker blue with white text.
+    return 0xFFA35200, 0xFFDCD8D1
+end
+
+---Viewport label text, as picked by settings.staticMarkerNameMode.
+---@return string
+function staticMarker:getDisplayName()
+    local mode = settings.staticMarkerNameMode
+
+    if mode == nameModes.elementName then
+        return self.object.name
+    end
+
+    if self.nodeRef == "" then
+        return "<empty>"
+    end
+
+    if mode == nameModes.simplifiedNodeRef then
+        return self.nodeRef:match("#.*$") or self.nodeRef
+    end
+
+    return self.nodeRef
 end
 
 function staticMarker:drawViewportOverlay(screen, drawList)
     if not self:wantsViewportOverlay() then return end
 
+    local markerColor, labelColor = getOverlayThemeColors()
+
     projectedWireframe.drawWorldMarker(drawList, screen, self.position, {
-        color = style.selectedColor,
-        labelColor = style.regularColor,
-        text = self.nodeRef ~= "" and self.nodeRef or "<empty>",
+        color = markerColor,
+        labelColor = labelColor,
+        text = self:getDisplayName(),
         radius = 6 * style.viewSize,
         innerRadius = 2.5 * style.viewSize,
         badgeOffsetY = -15 * style.viewSize,
@@ -156,6 +202,53 @@ end
 
 function staticMarker:getProperties()
     return self:addNodeProperty(visualized.getProperties(self))
+end
+
+---@param entries element[]
+---@param state boolean
+local function setShowNameForEntries(entries, state)
+    local changed = {}
+
+    for _, entry in ipairs(entries) do
+        if entry.spawnable and entry.spawnable.node == "worldStaticMarkerNode" and entry.spawnable.showName ~= state then
+            table.insert(changed, entry)
+        end
+    end
+
+    if #changed == 0 then return end
+
+    history.addAction(history.getMultiSelectChange(changed))
+
+    for _, entry in ipairs(changed) do
+        entry.spawnable.showName = state
+    end
+end
+
+function staticMarker:getGroupedProperties()
+    local properties = visualized.getGroupedProperties(self)
+    local drawVisualization = properties["visualization"].draw
+
+    properties["visualization"].draw = function(element, entries)
+        drawVisualization(element, entries)
+
+        ImGui.Text("Static Marker Name")
+        ImGui.SameLine()
+        ImGui.PushID("staticMarkerName")
+
+        if ImGui.Button("Off") then
+            setShowNameForEntries(entries, false)
+        end
+
+        ImGui.SameLine()
+
+        if ImGui.Button("On") then
+            setShowNameForEntries(entries, true)
+        end
+
+        ImGui.PopID()
+    end
+
+    return properties
 end
 
 function staticMarker:export()

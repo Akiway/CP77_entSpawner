@@ -28,12 +28,13 @@ local wireframeColorStyles = { "Darker + white text", "Lighter + black text" }
 local colorPickerStyles = { "Hue Bar", "Hue Wheel" }
 local speedUnits = { "km/h", "mph" }
 local savedSortModes = { "Alphabetically", "Last loaded first" }
+local staticMarkerNameModes = { "Element name", "Simplified NodeRef", "Full NodeRef" }
 local actionLabelDisplayModeOptions = {
     { value = 1, label = "Preferred icon" },
     { value = 2, label = "Icon + text" },
     { value = 3, label = "Preferred text" }
 }
-local wireframeColorStyleTooltipText = "Global projected wireframe color style used by streaming distance and streaming box overlays."
+local wireframeColorStyleTooltipText = "Global projected wireframe color style used by streaming distance and streaming box overlays, and by viewport labels such as Static Marker names."
 
 local settingsUI = {}
 
@@ -135,6 +136,10 @@ local settingsSectionSearchText = {
         "Default AI Spot Animation Speed",
         "Spline Preview",
         "Default Curve Quality",
+        "Static Marker",
+        "Show name by default",
+        "Displayed name label",
+        table.concat(staticMarkerNameModes, " "),
         "Colliders",
         "Collider color",
         table.concat(colliderColors, " ")
@@ -1454,6 +1459,21 @@ function settingsUI.draw(spawner)
             settings.save()
         end
         style.tooltip("Default number of samples used for spline curve preview (8-24).")
+        style.sectionHeaderEnd()
+
+        ImGui.Dummy(0, 8 * style.viewSize)
+        style.sectionHeaderStart("Static Marker")
+        settings.staticMarkerShowName, changed = ImGui.Checkbox("Show name by default", settings.staticMarkerShowName)
+        if changed then settings.save() end
+        style.tooltip("Initial \"Show Name\" state of newly created Static Markers.")
+
+        local nameMode = math.max(0, math.min(#staticMarkerNameModes - 1, tonumber(settings.staticMarkerNameMode) or 1))
+        local nameModeIndex, nameModeChanged = ImGui.Combo("Displayed name", nameMode, staticMarkerNameModes, #staticMarkerNameModes)
+        if nameModeChanged then
+            settings.staticMarkerNameMode = nameModeIndex
+            settings.save()
+        end
+        style.tooltip("Label shown in the viewport by Static Markers with \"Show Name\" enabled.\n\nElement name: the marker's name in the Spawned hierarchy.\nSimplified NodeRef: the part from the # onward, or the full NodeRef when it has no #.\nFull NodeRef: the complete NodeRef.\n\nBoth NodeRef options show <empty> when no NodeRef is set.")
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)

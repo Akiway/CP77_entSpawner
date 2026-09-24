@@ -39,6 +39,8 @@ local config = require("modules/utils/core/config")
 ---@field public defaultAISpotSpeed number
 ---@field public defaultLightColor number[] Default RGB color for newly spawned static lights.
 ---@field public defaultSplineCurveQuality number
+---@field public staticMarkerShowName boolean Default "Show Name" state for newly created Static Markers.
+---@field public staticMarkerNameMode integer Static Marker label content: 0 = element name, 1 = simplified NodeRef, 2 = full NodeRef.
 ---@field public nodeRefPrefix string
 ---@field public cacheExclusions table
 ---@field public assetPreviewEnabled table
@@ -142,6 +144,8 @@ local settingsData = {
     defaultAISpotSpeed = 3,
     defaultLightColor = { 1, 0.99595707654953, 0.6502890586853 },
     defaultSplineCurveQuality = 12,
+    staticMarkerShowName = false,
+    staticMarkerNameMode = 1, -- Simplified NodeRef
     nodeRefPrefix = "mod",
     cacheExclusions = {},
     assetPreviewEnabled = {},
