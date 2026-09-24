@@ -58,6 +58,13 @@ function record:loadSpawnData(data, position, rotation)
     self:loadAppearanceData(false)
 end
 
+---Entity records store their spawn target in `spawnData`, so expose the shared Spawned-tab editor.
+---`spawnable:setAssetPath` reloads this element, which despawns its current entity and spawns the
+---new record after its appearances load.
+function record:hasEditableAssetPath()
+    return true
+end
+
 ---@protected
 ---@param forceRefresh boolean?
 function record:loadAppearanceData(forceRefresh)
