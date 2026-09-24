@@ -1,15 +1,23 @@
 local visualized = require("modules/classes/spawn/visualized")
 local style = require("modules/ui/style")
 local utils = require("modules/utils/core/utils")
+local projectedWireframe = require("modules/utils/editor/projectedWireframe")
+
+local markerAppearances = { "default", "yellow", "pink", "blue" }
+local markerAppearanceLabels = { "Default", "Yellow", "Pink", "Blue" }
 
 local propertyNames = {
     "Visualize position",
-    "Quest Marker"
+    "Quest Marker",
+    "Marker Color",
+    "Show NodeRef"
 }
 
 ---Class for worldStaticMarkerNode
 ---@class staticMarker : visualized
 ---@field private questMarker boolean
+---@field private markerAppearance string
+---@field private showNodeRef boolean
 ---@field private previewMesh string
 ---@field private intersectionMultiplier number
 ---@field private previewed boolean
@@ -29,9 +37,13 @@ function staticMarker:new()
     o.previewed = true
     o.previewShape = "mesh"
     o.previewMesh = "base\\environment\\ld_kit\\marker.mesh"
+    o.previewMeshAppearance = "default"
     o.intersectionMultiplier = 0.3 / 0.005
 
     o.questMarker = false
+    o.markerAppearance = "default"
+    o.showNodeRef = false
+    o.wantsViewportOverlayWhenUnspawned = true
     o.maxPropertyWidth = nil
 
     o.streamingMultiplier = 20
@@ -44,8 +56,30 @@ end
 function staticMarker:save()
     local data = visualized.save(self)
     data.questMarker = self.questMarker
+    data.markerAppearance = self.markerAppearance
+    data.showNodeRef = self.showNodeRef
 
     return data
+end
+
+function staticMarker:loadSpawnData(data, position, rotation)
+    visualized.loadSpawnData(self, data, position, rotation)
+
+    if not utils.indexValue(markerAppearances, self.markerAppearance) then
+        self.markerAppearance = "default"
+    end
+    self.previewMeshAppearance = self.markerAppearance
+end
+
+function staticMarker:applyMarkerAppearance()
+    local entity = self:getEntity()
+    if not entity then return end
+
+    local mesh = entity:FindComponentByName("mesh")
+    if mesh then
+        mesh.meshAppearance = CName.new(self.markerAppearance)
+        mesh:LoadAppearance()
+    end
 end
 
 function staticMarker:getSize()
@@ -82,6 +116,42 @@ function staticMarker:draw()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.questMarker, _ = style.trackedCheckbox(self.object, "##questMarker", self.questMarker)
+
+    local appearanceIndex = (utils.indexValue(markerAppearances, self.markerAppearance) or 1) - 1
+    style.mutedText("Marker Color")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    local changed
+    appearanceIndex, changed = style.trackedCombo(self.object, "##markerAppearance", appearanceIndex, markerAppearanceLabels, 100)
+    if changed then
+        self.markerAppearance = markerAppearances[appearanceIndex + 1]
+        self.previewMeshAppearance = self.markerAppearance
+        self:applyMarkerAppearance()
+    end
+
+    style.mutedText("Show NodeRef")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.showNodeRef, _ = style.trackedCheckbox(self.object, "##showNodeRef", self.showNodeRef)
+end
+
+function staticMarker:wantsViewportOverlay()
+    return self.object ~= nil and self.showNodeRef == true
+end
+
+function staticMarker:drawViewportOverlay(screen, drawList)
+    if not self:wantsViewportOverlay() then return end
+
+    projectedWireframe.drawWorldMarker(drawList, screen, self.position, {
+        color = style.selectedColor,
+        labelColor = style.regularColor,
+        text = self.nodeRef ~= "" and self.nodeRef or "<empty>",
+        radius = 6 * style.viewSize,
+        innerRadius = 2.5 * style.viewSize,
+        badgeOffsetY = -15 * style.viewSize,
+        fontRatio = 0.8,
+        clampToScreen = false
+    })
 end
 
 function staticMarker:getProperties()
