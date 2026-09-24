@@ -1644,7 +1644,7 @@ local function drawSpawnableViewportOverlays()
             and element.spawnable
             and type(element.spawnable.drawViewportOverlay) == "function"
             and (type(element.spawnable.wantsViewportOverlay) ~= "function" or element.spawnable:wantsViewportOverlay())
-            and element.spawnable:isSpawned() then
+            and (element.spawnable:isSpawned() or element.spawnable.wantsViewportOverlayWhenUnspawned == true) then
             table.insert(targets, element.spawnable)
         end
     end
