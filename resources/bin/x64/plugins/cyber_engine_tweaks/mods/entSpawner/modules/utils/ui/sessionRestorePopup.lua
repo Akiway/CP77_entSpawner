@@ -16,7 +16,7 @@ local pipelineCommon = require("modules/utils/pipeline/common")
 ---simply returns false if it is busy, so restoring several items chains them through the manager's
 ---own `onFinished` hook.
 local sessionRestorePopup = {
-    popupId = "Restore Last Session",
+    popupId = "Restore Last Session##wb-sessionRestorePopup-wui",
     openRequested = false,
 
     ---@type table? Index being offered.

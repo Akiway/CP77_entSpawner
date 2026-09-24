@@ -428,7 +428,7 @@ function baseUI.draw(spawner)
         flags = flags + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar
     end
 
-    if wu.Begin(settings.mainWindowName, flags) then
+    if wu.Begin(settings.mainWindowName .. "##wb-main-window", flags) then
         if not editorActive then
             drawRightAlignedTitleBarVersion(settings.mainWindowName, about.version)
         end
