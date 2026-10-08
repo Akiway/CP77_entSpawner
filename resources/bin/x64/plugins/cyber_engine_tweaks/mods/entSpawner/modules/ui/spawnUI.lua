@@ -519,6 +519,14 @@ local function rejectIncompatibleAsset(modulePath, path)
     return true
 end
 
+---Public form of `rejectIncompatibleAsset`, for spawns started outside this module.
+---@param modulePath string?
+---@param path string?
+---@return boolean rejected
+function spawnUI.rejectIncompatibleAsset(modulePath, path)
+    return rejectIncompatibleAsset(modulePath, path)
+end
+
 ---Sorts one spawn list in the order Spawn New displays it.
 ---Done once at load so switching category/variant never re-sorts.
 ---@param spawnList table
@@ -3191,7 +3199,6 @@ end
 ---Draws the Spawn UI tab bar and delegates per-tab content.
 function spawnUI.draw()
     spawnUI.drawDragWindow()
-    spawnUI.updateAssetPreview()
     groupLoadManager.drawProgress(style)
 
     local tabs = {

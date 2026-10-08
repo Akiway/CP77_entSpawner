@@ -17,6 +17,7 @@ local projectLinkPopup = require("modules/utils/ui/projectLinkPopup")
 local persistenceManager = require("modules/utils/pipeline/persistenceManager")
 local sessionSnapshot = require("modules/utils/pipeline/sessionSnapshot")
 local sessionRestorePopup = require("modules/utils/ui/sessionRestorePopup")
+local samePathMenu = require("modules/utils/ui/samePathMenu")
 local lcHelper = require("modules/utils/ui/lightChannelHelper")
 local soundSystemData = require("modules/utils/data/soundSystem")
 local securitySystemData = require("modules/utils/data/securitySystem")
@@ -2084,6 +2085,10 @@ function spawnedUI.drawContextMenu(element, path)
         end
 
         spawnedUI.drawAssetFavoriteMenuItem(element)
+
+        if not isMulti then
+            samePathMenu.drawContextMenuItem(element)
+        end
 
         ImGui.EndPopup()
     end
@@ -4562,6 +4567,8 @@ function spawnedUI.finalizeFrame()
     if spawnedUI.draggingSelected and not ImGui.IsMouseDragging(0, style.draggingThreshold) then
         spawnedUI.draggingSelected = false
     end
+
+    samePathMenu.finalizeFrame()
 end
 
 return spawnedUI

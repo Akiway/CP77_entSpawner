@@ -12,6 +12,7 @@ local previewControls = require("modules/utils/preview/previewControls")
 local settings = require("modules/utils/core/settings")
 local appearanceHelper = require("modules/utils/ui/appearanceHelper")
 local assetValidation = require("modules/utils/game/assetValidation")
+local samePathMenu = require("modules/utils/ui/samePathMenu")
 
 ---Static mesh spawnable implementation.
 ---Handles resource-driven mesh appearance loading, editor UI, preview rendering,
@@ -827,6 +828,22 @@ end
 ---@return table
 function mesh:getProperties()
     return self:addNodeProperty(spawnable.getProperties(self))
+end
+
+---Appends the node section, ending with the "Spawn from same path" button whatever the subtype draws above it.
+---@param properties table[]
+---@return table[]
+function mesh:addNodeProperty(properties)
+    properties = spawnable.addNodeProperty(self, properties)
+
+    local section = properties[#properties]
+    local drawNode = section.draw
+    section.draw = function()
+        drawNode()
+        samePathMenu.drawButton(self.object)
+    end
+
+    return properties
 end
 
 ---Checks whether current mesh asset supports conversion to the target subtype.

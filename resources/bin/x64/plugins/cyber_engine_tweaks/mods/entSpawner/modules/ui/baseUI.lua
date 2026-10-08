@@ -538,6 +538,8 @@ function baseUI.draw(spawner)
     end
 
     baseUI.spawnUI.drawPopup()
+    -- Every frame rather than from the Spawn New tab: the Spawned tab previews assets too.
+    baseUI.spawnUI.updateAssetPreview()
     if baseUI.previewTimeline and baseUI.previewTimeline.drawWindow then
         baseUI.previewTimeline.drawWindow()
     end
