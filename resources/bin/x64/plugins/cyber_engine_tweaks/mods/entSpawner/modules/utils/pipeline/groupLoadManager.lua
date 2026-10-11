@@ -518,6 +518,11 @@ function groupLoadManager.start(request)
                 loadedGroup:setVisible(false, true)
             end
 
+            -- A loose element as the root is spawned like any child, or it stays silent and never spawns.
+            if utils.isA(loadedGroup, "spawnableElement") then
+                table.insert(current.entries, loadedGroup)
+            end
+
             current.group = loadedGroup
             current.groupName = loadedGroup.name
             current.buildQueue = {}
