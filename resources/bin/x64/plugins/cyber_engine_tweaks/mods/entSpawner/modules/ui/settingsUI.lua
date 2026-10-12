@@ -493,6 +493,10 @@ local function normalizeNonNegativeNumber(value, fallback)
 end
 
 ---@param spawner spawner
+local ringModeValues = { "combined", "split", "off" }
+local ringModeLabels = { "With arrows", "Separate", "Disabled" }
+local ringModeIndices = { combined = 0, split = 1, off = 2 }
+
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
     if not spawnedUI then return end
@@ -1415,13 +1419,17 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("Overall size of the positioning arrows. Increase this to make them easier to see, e.g. in bright daylight.")
 
-        settings.gizmoSplitRotate, changed = ImGui.Checkbox("Separate move and rotate gizmos", settings.gizmoSplitRotate)
+        local ringModeIndex = ringModeIndices[settings.gizmoRingMode] or 0
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        ringModeIndex, changed = ImGui.Combo("Rotation rings", ringModeIndex, ringModeLabels, #ringModeLabels)
         if changed then
+            settings.gizmoRingMode = ringModeValues[ringModeIndex + 1]
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("Show either the move arrows or the rotation rings, instead of both together. G switches to the arrows and R to the rings, in place of starting a keyboard move or rotate.")
+        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G switches to the arrows and R to the rings, in place of starting a keyboard move or rotate.\nDisabled: no rings.")
 
+        ImGui.BeginDisabled(settings.gizmoRingMode == "off")
         settings.gizmoRingQuarters, changed = ImGui.Checkbox("Show only the quarter of each rotation ring facing the camera", settings.gizmoRingQuarters)
         if changed then
             settings.save()
@@ -1436,6 +1444,7 @@ function settingsUI.draw(spawner)
             refreshSelectedVisualizers(spawner)
         end
         style.tooltip("Radius of the rotation rings, as a multiple of the arrow length. Above 1 the rings sit past the arrow tips.")
+        ImGui.EndDisabled()
 
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then

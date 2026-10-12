@@ -537,7 +537,7 @@ function editor.init(spawner)
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()
-        if settings.gizmoSplitRotate then
+        if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("move")
             return
         end
@@ -548,7 +548,7 @@ function editor.init(spawner)
         if ImGui.IsKeyDown(ImGuiKey.LeftCtrl) then
             return
         end
-        if settings.gizmoSplitRotate then
+        if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("rotate")
             return
         end

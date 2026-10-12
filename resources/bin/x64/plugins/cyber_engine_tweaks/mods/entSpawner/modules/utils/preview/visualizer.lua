@@ -160,7 +160,7 @@ function visualizer.addCapsule(entity, radius, height, color)
     end
 end
 
----Gizmo mode while move and rotate are split (`settings.gizmoSplitRotate`): `"move"` shows the
+---Gizmo mode while move and rotate are split (`settings.gizmoRingMode == "split"`): `"move"` shows the
 ---arrows, `"rotate"` the rotation rings. Combined, both are shown and the mode is ignored.
 visualizer.gizmoMode = "move"
 
@@ -187,11 +187,12 @@ local RING_CHUNK_OFFSET = { z = 0, y = 4, x = 8 }
 local RING_FULL_MASK = 0xFFF
 
 local function showsArrows()
-    return not settings.gizmoSplitRotate or visualizer.gizmoMode == "move"
+    return settings.gizmoRingMode ~= "split" or visualizer.gizmoMode == "move"
 end
 
 local function showsRings()
-    return not settings.gizmoSplitRotate or visualizer.gizmoMode == "rotate"
+    if settings.gizmoRingMode == "off" then return false end
+    return settings.gizmoRingMode ~= "split" or visualizer.gizmoMode == "rotate"
 end
 
 local function quarterIndex(u, v)
