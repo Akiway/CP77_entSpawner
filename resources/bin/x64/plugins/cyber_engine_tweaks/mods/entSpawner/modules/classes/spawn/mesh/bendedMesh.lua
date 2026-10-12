@@ -4339,12 +4339,12 @@ function bendedMesh:drawShapeTools()
     style.tooltip("Rebuilds the curve with a point every Spacing meters,\nthen drops each one onto the ground below it.")
 
     ImGui.Dummy(0, 6 * style.viewSize)
-    if ImGui.Button("Snap Start") then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SourceCommitStart, "Snap Start", "bendedSnapStart")) then
         self:snapEndToNearest(true)
     end
     style.tooltip(string.format("Joins the first point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
     ImGui.SameLine()
-    if ImGui.Button("Snap End") then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SourceCommitEnd, "Snap End", "bendedSnapEnd")) then
         self:snapEndToNearest(false)
     end
     style.tooltip(string.format("Joins the last point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
@@ -4368,7 +4368,7 @@ function bendedMesh:drawShapeTools()
     ImGui.SameLine()
     style.mutedText(string.format("%+.1f%%", (self:getCurveLength() / (chainCount * math.max(0.001, self:getToolLength())) - 1) * 100))
     style.tooltip("Stretch of each piece at this count.")
-    if ImGui.Button("Split into Chain") then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SetSplit, "Split into Chain", "bendedSplitIntoChain")) then
         self:splitIntoChain(chainCount)
     end
     style.tooltip("Cuts the curve into that many meshes of this asset, each on its own stretch of the same curve.\nThis mesh keeps the first stretch; the others are added right after it.\n\nDraw a long curve first (handles, Alt+click, shapes), then split it.")
@@ -4376,12 +4376,12 @@ function bendedMesh:drawShapeTools()
 
     ImGui.Dummy(0, 6 * style.viewSize)
     ImGui.BeginDisabled(locked)
-    if ImGui.Button("Reverse") then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SwapHorizontal, "Reverse", "bendedReverse")) then
         self:reversePath()
     end
     style.tooltip("Runs the path the other way round.")
     ImGui.SameLine()
-    if ImGui.Button("Mirror") then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.Mirror, "Mirror", "bendedMirror")) then
         self:mirrorPath()
     end
     style.tooltip("Mirrors the path left to right.")
@@ -4547,7 +4547,7 @@ function bendedMesh:drawPathVisualizationSettings()
     local changedAny = false
     local changed
 
-    style.mutedText("Deformed Preview")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.TriangleWave, "Deformed Preview"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.deformedPreviewEnabled, changed = style.trackedCheckbox(self.object, "##deformedPreviewEnabled", self.deformedPreviewEnabled)
@@ -4573,32 +4573,32 @@ function bendedMesh:drawPathVisualizationSettings()
         end
     end
 
-    style.mutedText("Viewport Handles")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.viewportHandlesEnabled, changed = style.trackedCheckbox(self.object, "##viewportHandlesEnabled", self.viewportHandlesEnabled)
     style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.")
 
-    style.mutedText("Magnetic Ends")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.magneticEnds, changed = style.trackedCheckbox(self.object, "##magneticEnds", self.magneticEnds)
     style.tooltip("While the mesh is moved with the gizmo, an end that comes within " .. MAGNET_RANGE .. " m\nof another bended mesh's end snaps onto it and turns to follow it.\nOn release the joined tangent and bank are matched too.\n\nHold Alt while moving to place the mesh freely.")
 
-    style.mutedText("Linked Ends")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.linkJoinedEnds, changed = style.trackedCheckbox(self.object, "##linkJoinedEnds", self.linkJoinedEnds)
     style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.")
 
-    style.mutedText("In-World Path Viz")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.MapMarkerMultipleOutline, "In-World Path Viz"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.pathPreviewEnabled, changed = style.trackedCheckbox(self.object, "##pathPreviewEnabled", self.pathPreviewEnabled)
     changedAny = changedAny or changed
     style.tooltip("Show path overlays (points, segments, and local frames) in the world.")
 
-    style.mutedText("Show Local Frames")
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.FormatAlignJustify, "Show Local Frames"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.pathPreviewShowFrames, changed = style.trackedCheckbox(self.object, "##pathPreviewShowFrames", self.pathPreviewShowFrames, not self.pathPreviewEnabled)
@@ -5029,12 +5029,12 @@ function bendedMesh:drawDeformationMatrices()
 
     local canCreateContinuation = self.object and self.object.parent and (not self.object:isLocked())
     ImGui.BeginDisabled(not canCreateContinuation)
-    if ImGui.Button("Continue From End") and canCreateContinuation then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.RayStartArrow, "Continue From End", "bendedContinueFromEnd")) and canCreateContinuation then
         self:createContinuationMesh(false)
     end
     style.tooltip("Create a new bended mesh of the same asset joined to the end of this one.")
     ImGui.SameLine()
-    if ImGui.Button("Continue From Start") and canCreateContinuation then
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.RayEndArrow, "Continue From Start", "bendedContinueFromStart")) and canCreateContinuation then
         self:createContinuationMesh(true)
     end
     style.tooltip("Create a new bended mesh of the same asset joined to the start of this one.")
@@ -5120,10 +5120,10 @@ function bendedMesh:draw()
             "Edit Mode",
             "Length Mode",
             "Mesh bones quantity",
-            "Deformed Preview",
-            "Viewport Handles",
-            "Magnetic Ends",
-            "Linked Ends",
+            style.resolveActionLabelNoIconOnly(IconGlyphs.TriangleWave, "Deformed Preview"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"),
             "Pieces",
             "Shape",
             "Radius",
@@ -5137,8 +5137,8 @@ function bendedMesh:draw()
             "Full Bank Radius",
             "Spacing",
             "Height Offset",
-            "In-World Path Viz",
-            "Show Local Frames",
+            style.resolveActionLabelNoIconOnly(IconGlyphs.MapMarkerMultipleOutline, "In-World Path Viz"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.FormatAlignJustify, "Show Local Frames"),
             "Collider Shape",
             "Splits / Segment",
             "Length Overlap"
