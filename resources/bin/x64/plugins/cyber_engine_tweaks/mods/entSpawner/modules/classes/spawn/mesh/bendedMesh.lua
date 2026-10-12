@@ -464,6 +464,8 @@ function bendedMesh:new()
     o.pathPreviewShowFrames = true
     o.deformedPreviewEnabled = true
     o.viewportHandlesEnabled = true
+    o.magneticEnds = true
+    o.linkJoinedEnds = true
     o.deformedPreviewSignature = nil
     o.deformedPreviewIssue = nil
     o.pathPreviewSegmentCount = 0
@@ -530,6 +532,8 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
+    self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
+    self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
     self.bendedColliderShape = math.max(0, math.min(2, math.floor(utils.toNumber(data.bendedColliderShape, self.bendedColliderShape))))
     self.bendedColliderStep = math.max(1, math.min(16, math.floor(utils.toNumber(data.bendedColliderStep, self.bendedColliderStep))))
     self.bendedColliderOverlap = math.max(0, math.min(0.5, utils.toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
@@ -610,6 +614,8 @@ function bendedMesh:save()
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
+    data.magneticEnds = self.magneticEnds
+    data.linkJoinedEnds = self.linkJoinedEnds
     data.bendedColliderShape = self.bendedColliderShape
     data.bendedColliderStep = self.bendedColliderStep
     data.bendedColliderOverlap = self.bendedColliderOverlap
@@ -2063,6 +2069,29 @@ local function sampleCurveSegments(segments)
 end
 
 ---Curve position, tangent and roll at arc length `s`. Past the end the curve continues straight.
+---Segment and parameter at arc length `s`, clamped to the curve.
+---@return integer segment
+---@return number t
+local function locateCurve(samples, total, s)
+    if s <= 0 then
+        return 1, 0
+    end
+    if s >= total then
+        return samples[#samples].segment, 1
+    end
+
+    local low, high = 1, #samples
+    while high - low > 1 do
+        local middle = math.floor((low + high) / 2)
+        if samples[middle].s < s then low = middle else high = middle end
+    end
+
+    local a, b = samples[low], samples[high]
+    local blend = (b.s - a.s) > 0.000001 and (s - a.s) / (b.s - a.s) or 0
+    local ta = a.segment == b.segment and a.t or 0
+    return b.segment, ta + (b.t - ta) * blend
+end
+
 local function evaluateCurveAt(segments, samples, total, s)
     local function at(segmentIndex, t)
         local segment = segments[segmentIndex]
@@ -2075,20 +2104,7 @@ local function evaluateCurveAt(segments, samples, total, s)
         local extra = s - total
         return { x = position.x + tangent.x * extra, y = position.y + tangent.y * extra, z = position.z + tangent.z * extra }, tangent, roll
     end
-    if s <= 0 then
-        return at(1, 0)
-    end
-
-    local low, high = 1, #samples
-    while high - low > 1 do
-        local middle = math.floor((low + high) / 2)
-        if samples[middle].s < s then low = middle else high = middle end
-    end
-
-    local a, b = samples[low], samples[high]
-    local blend = (b.s - a.s) > 0.000001 and (s - a.s) / (b.s - a.s) or 0
-    local ta = a.segment == b.segment and a.t or 0
-    return at(b.segment, ta + (b.t - ta) * blend)
+    return at(locateCurve(samples, total, s))
 end
 
 ---@return boolean
@@ -3284,19 +3300,58 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
             local target = getDragTarget(self, drag, editor)
             if target then
                 drag.current = target
+
+                -- Alt: a linked end lets go of the meshes joined to it, a free point snaps onto nearby points.
+                drag.snap = nil
+                if altDown and drag.handle.kind == "point" and curveMode then
+                    if drag.partners and #drag.partners > 0 then
+                        drag.detached = drag.detached or {}
+                        for _, partner in ipairs(drag.partners) do
+                            drag.detached[partner.mesh] = true
+                        end
+                        drag.partners = {}
+                    end
+                    drag.snap = self:findPointSnap(screen, mouseX, mouseY, drag.detached)
+                    if drag.snap then
+                        target = drag.snap.position
+                    end
+                end
+
                 self:moveViewportHandle(drag.handle, target)
+                local isEnd = drag.handle.index == 1 or drag.handle.index == #self.curvePoints
+                if drag.snap and drag.snap.frame and isEnd then
+                    self:joinPointToEnd(drag.handle.index, drag.snap)
+                    self:ensurePathPoints()
+                    self:updatePathVisualization()
+                end
+                self:syncJoinedEnds(drag.handle.index, drag.partners)
             end
         else
             self._handleDrag = nil
             self:autoFitDeformedBox()
             self:refreshArrowScale()
+            for _, partner in ipairs(drag.partners or {}) do
+                partner.mesh:autoFitDeformedBox()
+                partner.mesh:refreshArrowScale()
+            end
         end
     elseif interactive and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
         if hovered and not altDown then
-            history.addAction(history.getElementChange(self.object))
+            -- Meshes joined at a dragged end move with it, in the same undo step.
+            local partners = curveMode and self:findJoinedEnds(hovered.index) or {}
+            if #partners > 0 then
+                local elements = { self.object }
+                for _, partner in ipairs(partners) do
+                    table.insert(elements, partner.element)
+                end
+                history.addAction(history.getMultiSelectChange(elements))
+            else
+                history.addAction(history.getElementChange(self.object))
+            end
             self._handleDrag = {
                 handle = { kind = hovered.kind, index = hovered.index, side = hovered.side },
-                current = { x = hovered.world.x, y = hovered.world.y, z = hovered.world.z }
+                current = { x = hovered.world.x, y = hovered.world.y, z = hovered.world.z },
+                partners = partners
             }
             self._handleDrag.start = self._handleDrag.current
         elseif altDown and curveMode then
@@ -3384,10 +3439,24 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
         end
     end
 
+    local snap = self._handleDrag and self._handleDrag.snap
+    if snap then
+        local projected = projectedWireframe.projectWorldPoint(screen, Vector4.new(snap.position.x, snap.position.y, snap.position.z, 1))
+        if projected and not projected.behind then
+            ImGui.ImDrawListAddCircle(drawList, projected.x, projected.y, HANDLE_POINT_RADIUS + 6, handleColors.pointActive, -1, 2)
+        end
+    end
+
     if interactive and (hovered or self._handleDrag) then
         local text
         if self._handleDrag then
             text = "Hold: Horizontal (X/Y, hold X or Y to lock an axis)\nShift / Z: vertical (Z)\nCtrl: snap to the surface"
+            if curveMode and self._handleDrag.handle.kind == "point" then
+                text = text .. "\nAlt: detach linked ends, snap to nearby points"
+            end
+            if self._handleDrag.snap then
+                text = text .. "\n" .. IconGlyphs.Magnet .. " " .. tostring(self._handleDrag.snap.name)
+            end
         elseif hovered.kind == "tangent" then
             text = "Drag: edit the tangent\nAlt+click: back to automatic"
         elseif curveMode then
@@ -3637,60 +3706,58 @@ function bendedMesh:drapeOnGround(spacing, offset)
     return true
 end
 
----Joins one end of this curve to the nearest end of another bended mesh, position and tangent.
----@param atStart boolean
----@return boolean
-function bendedMesh:snapEndToNearest(atStart)
-    local sUI = self.object and self.object.sUI
-    if not sUI then return false end
-    sUI.ensureCache()
-
-    local index = atStart and 1 or #self.curvePoints
-    local mine = self:getWorldPointFromLocal(self.curvePoints[index])
-    local best, bestDistance = nil, SNAP_END_RANGE
-
-    for _, entry in ipairs(sUI.paths) do
-        local other = entry.ref and entry.ref.spawnable
-        if other and other ~= self and other.modulePath == self.modulePath and other.getSampledPathFrames then
-            local frames = other:getSampledPathFrames()
-            for _, which in ipairs({ 1, #frames }) do
-                local frame = other:pathFrameToWorld(frames[which])
-                local distance = length3({ x = frame.position.x - mine.x, y = frame.position.y - mine.y, z = frame.position.z - mine.z })
-                if distance < bestDistance then
-                    best, bestDistance = { frame = frame, isStart = which == 1, name = entry.ref.name }, distance
-                end
-            end
-        end
-    end
-
-    if not best then
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("No bended mesh end within %d m.", SNAP_END_RANGE)))
-        return false
-    end
-
-    -- Start meets an end and end meets a start head-on; like ends face each other.
-    local frame = best.frame
-    local flip = (atStart and best.isStart) or (not atStart and not best.isStart)
-    local s = flip and -1 or 1
-    local function localDirection(world)
-        local origin = self:worldToLocalPoint(frame.position)
-        local tip = self:worldToLocalPoint({ x = frame.position.x + world.x, y = frame.position.y + world.y, z = frame.position.z + world.z })
-        return normalizeDirection({ x = tip.x - origin.x, y = tip.y - origin.y, z = tip.z - origin.z })
-    end
+---Puts control point `index` on another mesh's end, with its tangent and bank, so the two meet
+---smoothly. Start meets an end and end meets a start head-on; like ends face each other.
+---@param index integer
+---@param target table `{ frame, isStart }` from `collectOtherEnds`.
+function bendedMesh:joinPointToEnd(index, target)
+    local frame = target.frame
+    local atStart = index == 1
+    local s = (atStart == target.isStart) and -1 or 1
 
     local position = self:worldToLocalPoint(frame.position)
-    local forward = localDirection({ x = s * frame.forward.x, y = s * frame.forward.y, z = s * frame.forward.z })
-    local right = localDirection({ x = s * frame.right.x, y = s * frame.right.y, z = s * frame.right.z })
-    local up = localDirection(frame.up)
+    local forward = self:worldDirectionToLocal(frame.position, { x = s * frame.forward.x, y = s * frame.forward.y, z = s * frame.forward.z })
+    local right = self:worldDirectionToLocal(frame.position, { x = s * frame.right.x, y = s * frame.right.y, z = s * frame.right.z })
+    local up = self:worldDirectionToLocal(frame.position, frame.up)
     local roll = bendedMesh.pathPointsFromMatrices({ { X = right, Y = forward, Z = up, W = position } }, self.pathUpAxis)[1].roll
 
-    history.addAction(history.getElementChange(self.object))
     local point = self.curvePoints[index]
     point.x, point.y, point.z = position.x, position.y, position.z
     point.dir = forward
     point.roll = roll
+end
+
+---Joins one end of this curve to the nearest end of another bended mesh, position and tangent.
+---@param atStart boolean
+---@param options table? `{ quiet, noHistory }`
+---@return boolean
+function bendedMesh:snapEndToNearest(atStart, options)
+    options = options or {}
+    local index = atStart and 1 or #self.curvePoints
+    local mine = self:getWorldPointFromLocal(self.curvePoints[index])
+    local best, bestDistance = nil, SNAP_END_RANGE
+
+    for _, other in ipairs(self:collectOtherEnds()) do
+        local p = other.frame.position
+        local distance = length3({ x = p.x - mine.x, y = p.y - mine.y, z = p.z - mine.z })
+        if distance < bestDistance then
+            best, bestDistance = other, distance
+        end
+    end
+
+    if not best then
+        if options.quiet then return false end
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("No bended mesh end within %d m.", SNAP_END_RANGE)))
+        return false
+    end
+
+    if not options.noHistory then
+        history.addAction(history.getElementChange(self.object))
+    end
+    self:joinPointToEnd(index, best)
     self:refreshAfterTool()
 
+    if options.quiet then return true end
     ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Joined to " .. tostring(best.name)))
     return true
 end
@@ -3795,6 +3862,376 @@ function bendedMesh:bakeRotation()
     self.object:setRotation(EulerAngles.new(0, 0, yaw))
     self:refreshAfterTool()
     return true
+end
+
+--- Chains and joined ends ----------------------------------------------------------------------
+
+local MAGNET_RANGE = 2
+local JOINED_END_TOLERANCE = 0.02
+local POINT_SNAP_PIXELS = 18
+
+local function lerpPoint(a, b, t)
+    return { x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t }
+end
+
+---De Casteljau split of a cubic at `t`.
+---@return table left `{ p0, p1, p2, p3 }`
+---@return table right
+local function splitCubic(p0, p1, p2, p3, t)
+    local a, b, c = lerpPoint(p0, p1, t), lerpPoint(p1, p2, t), lerpPoint(p2, p3, t)
+    local d, e = lerpPoint(a, b, t), lerpPoint(b, c, t)
+    local f = lerpPoint(d, e, t)
+    return { p0, a, d, f }, { f, e, c, p3 }
+end
+
+---Control points of `segment` restricted to `[ta, tb]`.
+local function subSegment(segment, ta, tb)
+    local _, right = splitCubic(segment.p0, segment.c0, segment.c1, segment.p1, ta)
+    local u = (1 - ta) > 0.000001 and (tb - ta) / (1 - ta) or 0
+    local left = splitCubic(right[1], right[2], right[3], right[4], u)
+    return left
+end
+
+---Curve points reproducing exactly the stretch of curve between arc lengths `s0` and `s1`.
+---Every point gets a manual tangent, so the piece keeps its shape whatever its neighbours do.
+local function extractCurveRange(segments, samples, total, s0, s1)
+    local first, t0 = locateCurve(samples, total, s0)
+    local last, t1 = locateCurve(samples, total, s1)
+    if t1 <= 0.000001 and last > first then
+        last, t1 = last - 1, 1
+    end
+
+    local points = {}
+    for index = first, last do
+        local segment = segments[index]
+        local ta = index == first and t0 or 0
+        local tb = index == last and t1 or 1
+
+        if tb - ta > 0.000001 then
+            local q = subSegment(segment, ta, tb)
+            local outHandle = subtract(q[2], q[1])
+            local inHandle = subtract(q[4], q[3])
+
+            if #points == 0 then
+                table.insert(points, {
+                    x = q[1].x, y = q[1].y, z = q[1].z,
+                    roll = segment.r0 + (segment.r1 - segment.r0) * smoothstep(ta),
+                    dir = normalizeDirection(outHandle), lenIn = length3(outHandle), lenOut = length3(outHandle)
+                })
+            else
+                points[#points].lenOut = length3(outHandle)
+            end
+
+            local lastDir = normalizeDirection(inHandle)
+            if isDirectionZero(lastDir) then
+                lastDir = normalizeDirection(subtract(q[4], q[1]))
+            end
+            table.insert(points, {
+                x = q[4].x, y = q[4].y, z = q[4].z,
+                roll = segment.r0 + (segment.r1 - segment.r0) * smoothstep(tb),
+                dir = lastDir, lenIn = length3(inHandle), lenOut = length3(inHandle)
+            })
+        end
+    end
+
+    for _, point in ipairs(points) do
+        if isDirectionZero(point.dir) then
+            point.dir = nil
+            point.lenIn, point.lenOut = nil, nil
+        end
+    end
+
+    return points
+end
+
+---World direction of a mesh-space direction leaving mesh-space point `p`.
+function bendedMesh:localDirectionToWorld(p, dir)
+    local a = self:getWorldPointFromLocal(p)
+    local b = self:getWorldPointFromLocal({ x = p.x + dir.x, y = p.y + dir.y, z = p.z + dir.z })
+    return normalizeDirection({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
+end
+
+---Mesh-space direction of a world direction leaving world point `world`.
+function bendedMesh:worldDirectionToLocal(world, dir)
+    local a = self:worldToLocalPoint(world)
+    local b = self:worldToLocalPoint({ x = world.x + dir.x, y = world.y + dir.y, z = world.z + dir.z })
+    return normalizeDirection({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
+end
+
+---Ends of every other bended mesh in the scene, in world space.
+---@return table[] ends `{ mesh, name, isStart, frame }`
+function bendedMesh:collectOtherEnds()
+    local ends = {}
+    local sUI = self.object and self.object.sUI
+    if not sUI then return ends end
+    sUI.ensureCache()
+
+    for _, entry in ipairs(sUI.paths) do
+        local other = entry.ref and entry.ref.spawnable
+        if other and other ~= self and other.modulePath == self.modulePath and other.getSampledPathFrames
+            and entry.ref.visible ~= false and not (entry.ref.isLocked and entry.ref:isLocked()) then
+            local frames = other:getSampledPathFrames()
+            table.insert(ends, { mesh = other, name = entry.ref.name, isStart = true, frame = other:pathFrameToWorld(frames[1]) })
+            table.insert(ends, { mesh = other, name = entry.ref.name, isStart = false, frame = other:pathFrameToWorld(frames[#frames]) })
+        end
+    end
+
+    return ends
+end
+
+---Nearest point of another bended mesh under the cursor: its ends, and its control points in
+---Curve mode. Meshes in `excluded` are skipped.
+---@param screen table
+---@param mouseX number
+---@param mouseY number
+---@param excluded table<table, boolean>?
+---@return table? snap `{ position, frame?, isStart? }`; `frame` is set on mesh ends.
+function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded)
+    local best, bestDistance = nil, POINT_SNAP_PIXELS
+
+    local function consider(position, candidate)
+        local projected = projectedWireframe.projectWorldPoint(screen, Vector4.new(position.x, position.y, position.z, 1))
+        if projected and not projected.behind then
+            local distance = math.sqrt((projected.x - mouseX) ^ 2 + (projected.y - mouseY) ^ 2)
+            if distance < bestDistance then
+                best, bestDistance = candidate, distance
+            end
+        end
+    end
+
+    for _, other in ipairs(self:collectOtherEnds()) do
+        if not (excluded and excluded[other.mesh]) then
+            consider(other.frame.position, { position = other.frame.position, frame = other.frame, isStart = other.isStart, name = other.name })
+        end
+    end
+
+    local sUI = self.object and self.object.sUI
+    for _, entry in ipairs(sUI and sUI.paths or {}) do
+        local other = entry.ref and entry.ref.spawnable
+        if other and other ~= self and other.modulePath == self.modulePath and other.isCurveMode and other:isCurveMode()
+            and not (excluded and excluded[other]) then
+            for index, point in ipairs(other.curvePoints or {}) do
+                if index > 1 and index < #other.curvePoints then
+                    local world = other:getWorldPointFromLocal(point)
+                    consider(world, { position = { x = world.x, y = world.y, z = world.z }, name = entry.ref.name })
+                end
+            end
+        end
+    end
+
+    return best
+end
+
+---Curve-mode meshes whose first or last control point sits on control point `index` of this one.
+---@param index integer
+---@return table[] partners `{ mesh, index, flip }`
+function bendedMesh:findJoinedEnds(index)
+    if not self:isCurveMode() or self.linkJoinedEnds == false then return {} end
+    if index ~= 1 and index ~= #self.curvePoints then return {} end
+
+    local world = self:getWorldPointFromLocal(self.curvePoints[index])
+    local partners = {}
+    local sUI = self.object and self.object.sUI
+    if not sUI then return partners end
+    sUI.ensureCache()
+
+    for _, entry in ipairs(sUI.paths) do
+        local other = entry.ref and entry.ref.spawnable
+        if other and other ~= self and other.modulePath == self.modulePath and other.isCurveMode and other:isCurveMode()
+            and not (entry.ref.isLocked and entry.ref:isLocked()) then
+            other:ensureCurvePoints()
+            for _, otherIndex in ipairs({ 1, #other.curvePoints }) do
+                local p = other:getWorldPointFromLocal(other.curvePoints[otherIndex])
+                if length3({ x = p.x - world.x, y = p.y - world.y, z = p.z - world.z }) < JOINED_END_TOLERANCE then
+                    -- Like ends (start on start, end on end) face each other.
+                    table.insert(partners, { mesh = other, element = entry.ref, index = otherIndex, flip = (index == 1) == (otherIndex == 1) })
+                end
+            end
+        end
+    end
+
+    return partners
+end
+
+---Carries control point `index` (position and tangent) over to the meshes joined there.
+---@param index integer
+---@param partners table[]
+function bendedMesh:syncJoinedEnds(index, partners)
+    if not partners or #partners == 0 then return end
+
+    local point = self.curvePoints[index]
+    local world = self:getWorldPointFromLocal(point)
+    local worldDir = self:localDirectionToWorld(point, self:getCurveTangents()[index].dir)
+
+    for _, partner in ipairs(partners) do
+        local other = partner.mesh
+        local target = other.curvePoints[partner.index]
+        if target then
+            local position = other:worldToLocalPoint(world)
+            local s = partner.flip and -1 or 1
+            target.x, target.y, target.z = position.x, position.y, position.z
+            target.dir = other:worldDirectionToLocal(world, { x = s * worldDir.x, y = s * worldDir.y, z = s * worldDir.z })
+            other:ensurePathPoints()
+            other:updatePathVisualization()
+        end
+    end
+end
+
+---Cuts the curve into `count` meshes of this asset, each on its own stretch of the same curve.
+---This mesh keeps the first stretch; the others are inserted after it.
+---@param count integer
+---@return boolean
+function bendedMesh:splitIntoChain(count)
+    if not self.object or not self.object.parent or self.object:isLocked() then return false end
+    if not self:isCurveMode() then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, "Split into Chain works in Curve mode."))
+        return false
+    end
+    if self.pathLooped then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, "A looped curve cannot be split into a chain."))
+        return false
+    end
+
+    count = math.max(2, math.floor(count))
+    local segments = buildCurveSegments(self.curvePoints, false)
+    local samples, total = sampleCurveSegments(segments)
+    local pieces = {}
+    for index = 1, count do
+        pieces[index] = extractCurveRange(segments, samples, total, total * (index - 1) / count, total * index / count)
+    end
+
+    local change = history.getElementChange(self.object)
+    local template = self.object:serialize()
+
+    self.curvePoints = {}
+    for _, point in ipairs(pieces[1]) do
+        table.insert(self.curvePoints, copyCurvePoint(point))
+    end
+    self.pathLengthMode = LENGTH_MODE_FIT
+    self:refreshAfterTool()
+
+    local parent = self.object.parent
+    local insertAt = utils.indexValue(parent.childs, self.object) + 1
+    local name = self.object.name
+    local created = {}
+
+    for index = 2, count do
+        local data = utils.deepcopy(template)
+        local first = pieces[index][1]
+        local world = self:getWorldPointFromLocal(first)
+        local points = {}
+        for _, point in ipairs(pieces[index]) do
+            local copy = copyCurvePoint(point)
+            copy.x, copy.y, copy.z = copy.x - first.x, copy.y - first.y, copy.z - first.z
+            table.insert(points, copy)
+        end
+
+        name = utils.generateCopyName(name)
+        data.name = name
+        data.spawnable.position = { x = world.x, y = world.y, z = world.z, w = 0 }
+        data.spawnable.nodeRef = ""
+        data.spawnable.pathMode = PATH_MODE_CURVE
+        data.spawnable.pathLengthMode = LENGTH_MODE_FIT
+        data.spawnable.curvePoints = points
+        data.spawnable.pathPoints = nil
+        data.spawnable.deformedBox = nil
+        data.spawnable.importedDeformation = nil
+
+        local element = require("modules/classes/editor/spawnableElement"):new(self.object.sUI)
+        element:load(data)
+        element:setParent(parent, insertAt)
+        insertAt = insertAt + 1
+        table.insert(created, element)
+    end
+
+    history.addAction(history.getComposite({ change, history.getInsert(created) }))
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Split into %d bended meshes", count)))
+    return true
+end
+
+---Number of meshes that fit the curve with the least stretch.
+---@return integer count
+---@return number stretch Percent.
+function bendedMesh:getAutoChainCount()
+    local length = self:getCurveLength()
+    local rest = self:getToolLength()
+    if rest <= 0.001 then return 1, 0 end
+
+    local count = math.max(1, math.floor(length / rest + 0.5))
+    return count, (length / (count * rest) - 1) * 100
+end
+
+--- Magnetic ends while moving the mesh with the gizmo ----------------------------------------
+
+---Puts the yaw back to what it was before the magnet turned the mesh.
+function bendedMesh:releaseMagnet()
+    if self._magnet and self.object then
+        self.object:setRotation(EulerAngles.new(self.rotation.roll, self.rotation.pitch, self._magnet.yaw))
+    end
+    self._magnet = nil
+end
+
+---Called by the editor after each gizmo move: snaps an end onto a nearby bended mesh end.
+function bendedMesh:onEditorMove()
+    if self.magneticEnds == false or ImGui.IsKeyDown(ImGuiKey.LeftAlt) or ImGui.IsKeyDown(ImGuiKey.RightAlt) then
+        self:releaseMagnet()
+        return
+    end
+
+    local frames = self:getSampledPathFrames()
+    local mine = { [true] = self:pathFrameToWorld(frames[1]), [false] = self:pathFrameToWorld(frames[#frames]) }
+    local best, bestDistance = nil, MAGNET_RANGE
+
+    for _, other in ipairs(self:collectOtherEnds()) do
+        for _, atStart in ipairs({ true, false }) do
+            local p, q = mine[atStart].position, other.frame.position
+            local distance = length3({ x = p.x - q.x, y = p.y - q.y, z = p.z - q.z })
+            if distance < bestDistance then
+                best, bestDistance = { other = other, atStart = atStart }, distance
+            end
+        end
+    end
+
+    if not best then
+        self:releaseMagnet()
+        return
+    end
+
+    self._magnet = self._magnet or { yaw = self.rotation.yaw }
+    local other = best.other
+    local flip = best.atStart == other.isStart
+    local s = flip and -1 or 1
+    local desired = { x = s * other.frame.forward.x, y = s * other.frame.forward.y }
+    local current = mine[best.atStart].forward
+
+    local yawOnly = math.abs(self.rotation.pitch or 0) < 0.0001 and math.abs(self.rotation.roll or 0) < 0.0001
+    if yawOnly and length3({ x = desired.x, y = desired.y, z = 0 }) > 0.001 and length3({ x = current.x, y = current.y, z = 0 }) > 0.001 then
+        local turn = math.deg(math.atan2(desired.y, desired.x) - math.atan2(current.y, current.x))
+        self.object:setRotation(EulerAngles.new(0, 0, (self.rotation.yaw or 0) + turn))
+    end
+
+    local joined = self:pathFrameToWorld(frames[best.atStart and 1 or #frames]).position
+    local target = other.frame.position
+    self.object:setPosition(Vector4.new(
+        self.position.x + target.x - joined.x,
+        self.position.y + target.y - joined.y,
+        self.position.z + target.z - joined.z,
+        0
+    ))
+    self._magnet.atStart = best.atStart
+end
+
+---Called by the editor once the move is recorded: matches the joined end's tangent and bank too.
+function bendedMesh:onEditorMoveEnd()
+    local magnet = self._magnet
+    self._magnet = nil
+    if magnet and magnet.atStart ~= nil and self:isCurveMode() then
+        self:snapEndToNearest(magnet.atStart, { quiet = true, noHistory = true })
+    end
+end
+
+function bendedMesh:onEditorMoveCancel()
+    self._magnet = nil
 end
 
 ---Transient settings of the tools panel.
@@ -3918,6 +4355,26 @@ function bendedMesh:drawShapeTools()
     style.tooltip("Keeps only the node's yaw and moves its pitch and roll into the curve,\nso World Z is the world's up again.")
     ImGui.EndDisabled()
 
+    ImGui.Dummy(0, 6 * style.viewSize)
+    ImGui.BeginDisabled(not curveMode or locked or self.pathLooped)
+    local autoCount, autoStretch = self:getAutoChainCount()
+    style.mutedText("Pieces")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.SetNextItemWidth(110 * style.viewSize)
+    tool.chainCount = ImGui.DragInt("##toolChainCount", tool.chainCount or 0, 0.1, 0, 200, tool.chainCount and tool.chainCount > 0 and "%d" or "Auto")
+    style.tooltip(string.format("How many meshes to cut the curve into.\nAuto picks the count that stretches the mesh least: %d (%+.1f%%).", autoCount, autoStretch))
+    local chainCount = (tool.chainCount and tool.chainCount > 0) and tool.chainCount or autoCount
+    ImGui.SameLine()
+    style.mutedText(string.format("%+.1f%%", (self:getCurveLength() / (chainCount * math.max(0.001, self:getToolLength())) - 1) * 100))
+    style.tooltip("Stretch of each piece at this count.")
+    if ImGui.Button("Split into Chain") then
+        self:splitIntoChain(chainCount)
+    end
+    style.tooltip("Cuts the curve into that many meshes of this asset, each on its own stretch of the same curve.\nThis mesh keeps the first stretch; the others are added right after it.\n\nDraw a long curve first (handles, Alt+click, shapes), then split it.")
+    ImGui.EndDisabled()
+
+    ImGui.Dummy(0, 6 * style.viewSize)
     ImGui.BeginDisabled(locked)
     if ImGui.Button("Reverse") then
         self:reversePath()
@@ -4120,7 +4577,19 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.viewportHandlesEnabled, changed = style.trackedCheckbox(self.object, "##viewportHandlesEnabled", self.viewportHandlesEnabled)
-    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.")
+    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.")
+
+    style.mutedText("Magnetic Ends")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.magneticEnds, changed = style.trackedCheckbox(self.object, "##magneticEnds", self.magneticEnds)
+    style.tooltip("While the mesh is moved with the gizmo, an end that comes within " .. MAGNET_RANGE .. " m\nof another bended mesh's end snaps onto it and turns to follow it.\nOn release the joined tangent and bank are matched too.\n\nHold Alt while moving to place the mesh freely.")
+
+    style.mutedText("Linked Ends")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.linkJoinedEnds, changed = style.trackedCheckbox(self.object, "##linkJoinedEnds", self.linkJoinedEnds)
+    style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.")
 
     style.mutedText("In-World Path Viz")
     ImGui.SameLine()
@@ -4653,6 +5122,9 @@ function bendedMesh:draw()
             "Mesh bones quantity",
             "Deformed Preview",
             "Viewport Handles",
+            "Magnetic Ends",
+            "Linked Ends",
+            "Pieces",
             "Shape",
             "Radius",
             "Angle",

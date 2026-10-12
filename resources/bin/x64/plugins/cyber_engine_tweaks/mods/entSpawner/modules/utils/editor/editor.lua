@@ -380,6 +380,9 @@ function editor.cancleEditingTransform()
     element:setPosition(editor.originalPosition)
     element:setRotation(editor.originalRotation)
     element:setScale(editor.originalScale, true)
+    if element.spawnable and element.spawnable.onEditorMoveCancel then
+        element.spawnable:onEditorMoveCancel()
+    end
 
     editor.originalDiff.pos = nil
     editor.originalDiff.rot = nil
@@ -935,6 +938,11 @@ function editor.recordChange()
     element:setScale(newScale, true)
     element:onEdited()
 
+    -- Runs after the history snapshot, so whatever it changes is undone with the move.
+    if element.spawnable and element.spawnable.onEditorMoveEnd then
+        element.spawnable:onEditorMoveEnd()
+    end
+
     editor.originalDiff.pos = nil
     editor.originalDiff.rot = nil
     editor.originalDiff.scale = nil
@@ -1112,6 +1120,9 @@ function editor.updateDrag()
 
     if editor.grab or dragging then
         selected:setPositionDelta(Vector4.new(diff.x - editor.originalDiff.pos.x, diff.y - editor.originalDiff.pos.y, diff.z - editor.originalDiff.pos.z))
+        if selected.spawnable and selected.spawnable.onEditorMove then
+            selected.spawnable:onEditorMove()
+        end
     elseif editor.rotate then
         local dir = editor.getScreenRelativeToPoint(position):Normalize()
         local angle = math.atan2(dir.z, dir.x) * 180 / math.pi
