@@ -3406,6 +3406,542 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
     editor.handleCapture.dragging = editor.handleCapture.dragging or self._handleDrag ~= nil
 end
 
+--- Shape tools --------------------------------------------------------------------------------
+
+local SNAP_END_RANGE = 30
+local toolShapeOptions = { "Arc", "S-Curve", "Ramp", "Helix", "Catenary" }
+
+local function composeLocal(origin, f, l, u, a, b, c)
+    return {
+        x = origin.x + f.x * a + l.x * b + u.x * c,
+        y = origin.y + f.y * a + l.y * b + u.y * c,
+        z = origin.z + f.z * a + l.z * b + u.z * c
+    }
+end
+
+---Arc (or helix with `height`) in the plane of `f` and `l`, starting at `origin` along `f`.
+---Positive angles turn towards `l`. Segments of at most 90 degrees keep the Bezier fit tight.
+local function generateArc(origin, f, l, u, radius, angleDegrees, height, roll)
+    local total = math.rad(math.abs(angleDegrees))
+    local sign = angleDegrees >= 0 and 1 or -1
+    local count = math.max(1, math.ceil(total / (math.pi / 2) - 0.000001))
+    local step = total / count
+    local rate = total > 0 and height / total or 0
+    local handle = 4 / 3 * math.tan(step / 4) * math.sqrt(radius * radius + rate * rate)
+    local points = {}
+
+    for index = 0, count do
+        local a = index * step
+        local position = composeLocal(origin, f, l, u, radius * math.sin(a), sign * radius * (1 - math.cos(a)), rate * a)
+        local dir = normalizeDirection(composeLocal({ x = 0, y = 0, z = 0 }, f, l, u, radius * math.cos(a), sign * radius * math.sin(a), rate))
+        table.insert(points, { x = position.x, y = position.y, z = position.z, roll = roll, dir = dir, lenIn = handle, lenOut = handle })
+    end
+
+    return points
+end
+
+---Two points with parallel tangents: an S-curve sideways (`side`) or a ramp upwards (`rise`).
+local function generateOffsetCurve(origin, f, l, u, forward, side, rise, roll)
+    local finish = composeLocal(origin, f, l, u, forward, side, rise)
+    return {
+        { x = origin.x, y = origin.y, z = origin.z, roll = roll, dir = { x = f.x, y = f.y, z = f.z }, lenIn = forward / 2, lenOut = forward / 2 },
+        { x = finish.x, y = finish.y, z = finish.z, roll = roll, dir = { x = f.x, y = f.y, z = f.z }, lenIn = forward / 2, lenOut = forward / 2 }
+    }
+end
+
+---@return number
+local function curvePointsLength(points)
+    local _, total = sampleCurveSegments(buildCurveSegments(points, false))
+    return total
+end
+
+---Start of the current curve: first point, horizontal heading, its left and up.
+---@return table origin
+---@return table f
+---@return table l
+---@return table u
+---@return number roll
+function bendedMesh:getToolBase()
+    self:ensureCurvePoints()
+    local first = self.curvePoints[1]
+    local dir = self:getCurveTangents()[1].dir
+    local f = normalizeDirection({ x = dir.x, y = dir.y, z = 0 })
+    if isDirectionZero(f) then
+        f = { x = 0, y = 1, z = 0 }
+    end
+
+    return { x = first.x, y = first.y, z = first.z }, f, { x = -f.y, y = f.x, z = 0 }, { x = 0, y = 0, z = 1 }, first.roll or 0
+end
+
+---Rest length of the mesh, or the curve's when the rig is unknown.
+---@return number
+function bendedMesh:getToolLength()
+    local count = self:getMeshBonesQuantity()
+    local distances = count and self:getRestDistancesFor(count) or nil
+    if distances and distances[#distances] > 0.001 and (bendedRig.get(self.spawnData) or self:getRestPoints()) then
+        return distances[#distances]
+    end
+
+    return (self:getCurveLength())
+end
+
+---Replaces the curve and refreshes everything that depends on it. One history entry.
+---@param points table[]
+function bendedMesh:applyToolCurve(points)
+    history.addAction(history.getElementChange(self.object))
+    if not self:isCurveMode() then
+        self:setPathMode(PATH_MODE_CURVE)
+    end
+
+    self.curvePoints = {}
+    for _, point in ipairs(points) do
+        table.insert(self.curvePoints, copyCurvePoint(point))
+    end
+    self._curveKey = nil
+    self:refreshAfterTool()
+end
+
+function bendedMesh:refreshAfterTool()
+    self._curveKey = nil
+    self:ensurePathPoints()
+    self:autoFitDeformedBox()
+    self:refreshArrowScale()
+end
+
+---Builds the selected shape from the tool settings.
+---@return table[]? points
+function bendedMesh:generateToolShape()
+    local tool = self:getToolSettings()
+    local origin, f, l, u, roll = self:getToolBase()
+    local length = tool.length or self:getToolLength()
+
+    if tool.shape == 1 or tool.shape == 4 then
+        local height = tool.shape == 4 and tool.height or 0
+        local angle = tool.angle
+        length = self:getToolLength()
+        if tool.matchLength and tool.radius > 0.001 then
+            local flat = math.sqrt(math.max(0, length * length - height * height))
+            angle = (angle >= 0 and 1 or -1) * math.deg(flat / tool.radius)
+        end
+        return generateArc(origin, f, l, u, tool.radius, angle, height, roll)
+    end
+
+    if tool.shape == 2 or tool.shape == 3 then
+        local side = tool.shape == 2 and tool.offset or 0
+        local rise = tool.shape == 3 and tool.height or 0
+
+        -- Forward run whose curve is `length` long.
+        local low, high = 0, length
+        for _ = 1, 40 do
+            local middle = (low + high) / 2
+            if curvePointsLength(generateOffsetCurve(origin, f, l, u, middle, side, rise, roll)) < length then
+                low = middle
+            else
+                high = middle
+            end
+        end
+        return generateOffsetCurve(origin, f, l, u, math.max(0.01, (low + high) / 2), side, rise, roll)
+    end
+
+    if tool.shape == 5 then
+        -- Parabolic sag between the current ends; a cubic per quarter reproduces it exactly.
+        local a, b = self.curvePoints[1], self.curvePoints[#self.curvePoints]
+        local points = {}
+        for index = 0, 4 do
+            local t = index / 4
+            local position = {
+                x = a.x + (b.x - a.x) * t,
+                y = a.y + (b.y - a.y) * t,
+                z = a.z + (b.z - a.z) * t - 4 * tool.sag * t * (1 - t)
+            }
+            local derivative = { x = b.x - a.x, y = b.y - a.y, z = (b.z - a.z) - 4 * tool.sag * (1 - 2 * t) }
+            local handle = length3(derivative) * 0.25 / 3
+            table.insert(points, {
+                x = position.x, y = position.y, z = position.z,
+                roll = (a.roll or 0) + ((b.roll or 0) - (a.roll or 0)) * t,
+                dir = normalizeDirection(derivative), lenIn = handle, lenOut = handle
+            })
+        end
+        return points
+    end
+
+    return nil
+end
+
+---Banks each control point into its turn: inside down, `maxBank` at `fullRadius` or tighter.
+---@param maxBank number Degrees.
+---@param fullRadius number Meters.
+function bendedMesh:applyAutoBank(maxBank, fullRadius)
+    history.addAction(history.getElementChange(self.object))
+    local tangents = self:getCurveTangents()
+    local count = #self.curvePoints
+
+    for index, point in ipairs(self.curvePoints) do
+        local before = math.max(1, index - 1)
+        local after = math.min(count, index + 1)
+        local a, b = tangents[before].dir, tangents[after].dir
+        local turn = math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y)
+        local pa, pb = self.curvePoints[before], self.curvePoints[after]
+        local distance = length3({ x = pb.x - pa.x, y = pb.y - pa.y, z = 0 })
+        local curvature = distance > 0.001 and turn / distance or 0
+        local bank = maxBank * math.min(1, math.abs(curvature) * fullRadius)
+        -- Positive roll lowers the right side, so a left turn (positive) banks negative.
+        point.roll = curvature > 0 and -bank or bank
+    end
+
+    self:refreshAfterTool()
+end
+
+---Resamples the curve every `spacing` meters and drops each point onto the ground below it.
+---@param spacing number
+---@param offset number Height above the ground.
+---@return boolean
+function bendedMesh:drapeOnGround(spacing, offset)
+    local editor = require("modules/utils/editor/editor")
+    if not editor.interface then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, "Ground raycast is not ready yet; move the player once and try again."))
+        return false
+    end
+
+    local looped = self.pathLooped and #self.curvePoints > 2
+    local segments = buildCurveSegments(self.curvePoints, looped)
+    local samples, total = sampleCurveSegments(segments)
+    local count = math.max(1, math.floor(total / math.max(0.5, spacing) + 0.5))
+    local points = {}
+    local missed = 0
+
+    for index = 0, count do
+        if not (looped and index == count) then
+            local position, _, roll = evaluateCurveAt(segments, samples, total, total * index / count)
+            local world = self:getWorldPointFromLocal(position)
+            local result = editor.interface:RaycastWithASingleGroup(
+                Vector4.new(world.x, world.y, world.z + 50, 1),
+                Vector4.new(world.x, world.y, world.z - 200, 1),
+                "PlayerBlocker"
+            )
+
+            if result and result:IsValid() then
+                world = { x = world.x, y = world.y, z = result.position.z + offset }
+                position = self:worldToLocalPoint(world)
+            else
+                missed = missed + 1
+            end
+            table.insert(points, { x = position.x, y = position.y, z = position.z, roll = roll })
+        end
+    end
+
+    self:applyToolCurve(points)
+    if missed > 0 then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("%d point(s) found no ground below and kept their height.", missed)))
+    end
+    return true
+end
+
+---Joins one end of this curve to the nearest end of another bended mesh, position and tangent.
+---@param atStart boolean
+---@return boolean
+function bendedMesh:snapEndToNearest(atStart)
+    local sUI = self.object and self.object.sUI
+    if not sUI then return false end
+    sUI.ensureCache()
+
+    local index = atStart and 1 or #self.curvePoints
+    local mine = self:getWorldPointFromLocal(self.curvePoints[index])
+    local best, bestDistance = nil, SNAP_END_RANGE
+
+    for _, entry in ipairs(sUI.paths) do
+        local other = entry.ref and entry.ref.spawnable
+        if other and other ~= self and other.modulePath == self.modulePath and other.getSampledPathFrames then
+            local frames = other:getSampledPathFrames()
+            for _, which in ipairs({ 1, #frames }) do
+                local frame = other:pathFrameToWorld(frames[which])
+                local distance = length3({ x = frame.position.x - mine.x, y = frame.position.y - mine.y, z = frame.position.z - mine.z })
+                if distance < bestDistance then
+                    best, bestDistance = { frame = frame, isStart = which == 1, name = entry.ref.name }, distance
+                end
+            end
+        end
+    end
+
+    if not best then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("No bended mesh end within %d m.", SNAP_END_RANGE)))
+        return false
+    end
+
+    -- Start meets an end and end meets a start head-on; like ends face each other.
+    local frame = best.frame
+    local flip = (atStart and best.isStart) or (not atStart and not best.isStart)
+    local s = flip and -1 or 1
+    local function localDirection(world)
+        local origin = self:worldToLocalPoint(frame.position)
+        local tip = self:worldToLocalPoint({ x = frame.position.x + world.x, y = frame.position.y + world.y, z = frame.position.z + world.z })
+        return normalizeDirection({ x = tip.x - origin.x, y = tip.y - origin.y, z = tip.z - origin.z })
+    end
+
+    local position = self:worldToLocalPoint(frame.position)
+    local forward = localDirection({ x = s * frame.forward.x, y = s * frame.forward.y, z = s * frame.forward.z })
+    local right = localDirection({ x = s * frame.right.x, y = s * frame.right.y, z = s * frame.right.z })
+    local up = localDirection(frame.up)
+    local roll = bendedMesh.pathPointsFromMatrices({ { X = right, Y = forward, Z = up, W = position } }, self.pathUpAxis)[1].roll
+
+    history.addAction(history.getElementChange(self.object))
+    local point = self.curvePoints[index]
+    point.x, point.y, point.z = position.x, position.y, position.z
+    point.dir = forward
+    point.roll = roll
+    self:refreshAfterTool()
+
+    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, "Joined to " .. tostring(best.name)))
+    return true
+end
+
+---Runs the path the other way round, keeping its shape and bank.
+function bendedMesh:reversePath()
+    history.addAction(history.getElementChange(self.object))
+
+    if self:isCurveMode() then
+        local reversed = {}
+        for index = #self.curvePoints, 1, -1 do
+            local point = self.curvePoints[index]
+            local copy = { x = point.x, y = point.y, z = point.z, roll = -(point.roll or 0) }
+            if point.dir then
+                copy.dir = { x = -point.dir.x, y = -point.dir.y, z = -point.dir.z }
+                copy.lenIn, copy.lenOut = point.lenOut, point.lenIn
+            end
+            table.insert(reversed, copy)
+        end
+        self.curvePoints = reversed
+    else
+        self:ensurePathPoints()
+        local reversed = {}
+        for index = #self.pathPoints, 1, -1 do
+            local point = self.pathPoints[index]
+            table.insert(reversed, { x = point.x, y = point.y, z = point.z, roll = -(point.roll or 0), anchored = point.anchored })
+        end
+        self.pathPoints = reversed
+    end
+
+    self:refreshAfterTool()
+end
+
+---Mirrors the path across the mesh's local Y/Z plane.
+function bendedMesh:mirrorPath()
+    history.addAction(history.getElementChange(self.object))
+
+    local points = self:isCurveMode() and self.curvePoints or self.pathPoints
+    for _, point in ipairs(points) do
+        point.x = -point.x
+        point.roll = -(point.roll or 0)
+        if point.dir then
+            point.dir = { x = -point.dir.x, y = point.dir.y, z = point.dir.z }
+        end
+    end
+
+    self:refreshAfterTool()
+end
+
+---Moves the node's origin onto the first point without moving the mesh.
+function bendedMesh:recenterPivot()
+    local points = self:isCurveMode() and self.curvePoints or self.pathPoints
+    local first = points[1]
+    if not first then return end
+
+    history.addAction(history.getElementChange(self.object))
+    local world = self:getWorldPointFromLocal(first)
+    local offset = { x = first.x, y = first.y, z = first.z }
+    for _, point in ipairs(points) do
+        point.x, point.y, point.z = point.x - offset.x, point.y - offset.y, point.z - offset.z
+    end
+
+    self.object:setPosition(Vector4.new(world.x, world.y, world.z, 0))
+    self:refreshAfterTool()
+end
+
+---Keeps only the node's yaw; its pitch and roll move into the curve, so `World Z` is up again.
+---@return boolean
+function bendedMesh:bakeRotation()
+    if math.abs(self.rotation.pitch or 0) < 0.0001 and math.abs(self.rotation.roll or 0) < 0.0001 then
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Info, 2500, "The mesh only has a yaw already."))
+        return false
+    end
+
+    history.addAction(history.getElementChange(self.object))
+    local yaw = self.rotation.yaw or 0
+    local scale = self.scale or { x = 1, y = 1, z = 1 }
+    local frames = self:getCurveFrames()
+    local matrices = {}
+
+    for index, frame in ipairs(frames) do
+        local world = self:pathFrameToWorld(frame)
+        local offset = rotateYaw({ x = world.position.x - self.position.x, y = world.position.y - self.position.y, z = world.position.z - self.position.z }, -yaw)
+        matrices[index] = {
+            X = rotateYaw(world.right, -yaw),
+            Y = rotateYaw(world.forward, -yaw),
+            Z = rotateYaw(world.up, -yaw),
+            W = { x = offset.x / scale.x, y = offset.y / scale.y, z = offset.z / scale.z }
+        }
+    end
+
+    local rebuilt = bendedMesh.pathPointsFromMatrices(matrices, self.pathUpAxis)
+    for index, point in ipairs(self.curvePoints) do
+        local new = rebuilt[index]
+        point.x, point.y, point.z, point.roll = new.x, new.y, new.z, new.roll
+        if point.dir then
+            local d = matrices[index].Y
+            point.dir = normalizeDirection({ x = d.x / scale.x, y = d.y / scale.y, z = d.z / scale.z })
+        end
+    end
+
+    self.object:setRotation(EulerAngles.new(0, 0, yaw))
+    self:refreshAfterTool()
+    return true
+end
+
+---Transient settings of the tools panel.
+---@return table
+function bendedMesh:getToolSettings()
+    if not self._toolSettings then
+        self._toolSettings = {
+            shape = 1, radius = 20, angle = 90, height = 4, offset = 4, sag = 1,
+            matchLength = false, length = nil,
+            maxBank = 6, fullBankRadius = 30,
+            drapeSpacing = 6, drapeOffset = 0.05
+        }
+    end
+    return self._toolSettings
+end
+
+local function toolFloat(self, label, id, value, speed, min, max, format, tooltip)
+    style.mutedText(label)
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.SetNextItemWidth(110 * style.viewSize)
+    local newValue, changed = ImGui.DragFloat(id, value, speed, min, max, format)
+    if tooltip then style.tooltip(tooltip) end
+    return newValue, changed
+end
+
+function bendedMesh:drawShapeTools()
+    if not ImGui.TreeNodeEx("Shape Tools", ImGuiTreeNodeFlags.SpanFullWidth) then
+        return
+    end
+
+    local tool = self:getToolSettings()
+    local curveMode = self:isCurveMode()
+    local locked = self.object and self.object:isLocked()
+
+    style.mutedText("Shape")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.SetNextItemWidth(140 * style.viewSize)
+    tool.shape = ImGui.Combo("##toolShape", tool.shape - 1, toolShapeOptions, #toolShapeOptions) + 1
+
+    if tool.shape == 1 or tool.shape == 4 then
+        tool.radius = math.max(0.1, (toolFloat(self, "Radius", "##toolRadius", tool.radius, 0.1, 0.1, 10000, "%.2f m")))
+        ImGui.BeginDisabled(tool.matchLength)
+        tool.angle = toolFloat(self, "Angle", "##toolAngle", tool.angle, 0.5, -1440, 1440, "%.1f deg", "Positive turns left, negative turns right.")
+        ImGui.EndDisabled()
+        if tool.shape == 4 then
+            tool.height = toolFloat(self, "Height", "##toolHeight", tool.height, 0.05, -1000, 1000, "%.2f m", "Total rise over the turn.")
+        end
+        style.mutedText("Match Mesh Length")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        tool.matchLength = ImGui.Checkbox("##toolMatchLength", tool.matchLength)
+        style.tooltip("Picks the angle so the curve is exactly as long as the mesh.\nThe sign of Angle still sets the turn side.")
+    elseif tool.shape == 2 then
+        tool.offset = toolFloat(self, "Offset", "##toolOffset", tool.offset, 0.05, -1000, 1000, "%.2f m", "Sideways shift at the end.\nPositive goes left.")
+        local length, lengthChanged = toolFloat(self, "Length", "##toolLength", tool.length or self:getToolLength(), 0.1, 0.1, 10000, "%.2f m", "Curve length. Starts at the mesh length.")
+        if lengthChanged then tool.length = length end
+    elseif tool.shape == 3 then
+        tool.height = toolFloat(self, "Height", "##toolHeight", tool.height, 0.05, -1000, 1000, "%.2f m", "Rise at the end, eased at both ends.")
+        local length, lengthChanged = toolFloat(self, "Length", "##toolLength", tool.length or self:getToolLength(), 0.1, 0.1, 10000, "%.2f m", "Curve length. Starts at the mesh length.")
+        if lengthChanged then tool.length = length end
+    elseif tool.shape == 5 then
+        tool.sag = toolFloat(self, "Sag", "##toolSag", tool.sag, 0.01, -1000, 1000, "%.2f m", "How far the middle hangs below the line between the two ends.\nThe ends stay where they are.")
+    end
+
+    ImGui.BeginDisabled(locked)
+    if ImGui.Button("Apply Shape") then
+        local points = self:generateToolShape()
+        if points then
+            self:applyToolCurve(points)
+        end
+    end
+    ImGui.EndDisabled()
+    style.tooltip(tool.shape == 5 and "Replaces the curve with a hanging cable between its two ends."
+        or "Replaces the curve with this shape.\nIt starts at the first point and keeps its heading, so a joined mesh stays joined.")
+    ImGui.SameLine()
+    if ImGui.Button("Reset Length##toolResetLength") then
+        tool.length = nil
+    end
+    style.tooltip("Set Length back to the mesh length.")
+
+    ImGui.Dummy(0, 6 * style.viewSize)
+    ImGui.BeginDisabled(not curveMode or locked)
+    tool.maxBank = toolFloat(self, "Max Bank", "##toolMaxBank", tool.maxBank, 0.1, 0, 60, "%.1f deg", "Bank reached in turns at or tighter than Full Bank Radius.")
+    tool.fullBankRadius = math.max(0.1, (toolFloat(self, "Full Bank Radius", "##toolFullBankRadius", tool.fullBankRadius, 0.5, 0.1, 10000, "%.1f m", "Turns this tight or tighter get the full bank.\nWider turns get proportionally less.")))
+    if ImGui.Button("Auto Bank") then
+        self:applyAutoBank(tool.maxBank, tool.fullBankRadius)
+    end
+    style.tooltip("Sets each point's roll from the turn around it, inside edge down.")
+    ImGui.SameLine()
+    if ImGui.Button("Clear Bank") then
+        history.addAction(history.getElementChange(self.object))
+        for _, point in ipairs(self.curvePoints) do point.roll = 0 end
+        self:refreshAfterTool()
+    end
+    style.tooltip("Sets every point's roll back to 0.")
+
+    ImGui.Dummy(0, 6 * style.viewSize)
+    tool.drapeSpacing = math.max(0.5, (toolFloat(self, "Spacing", "##toolDrapeSpacing", tool.drapeSpacing, 0.1, 0.5, 1000, "%.1f m", "Distance between the points the curve is rebuilt with.")))
+    tool.drapeOffset = toolFloat(self, "Height Offset", "##toolDrapeOffset", tool.drapeOffset, 0.01, -100, 100, "%.2f m", "Height of each point above the ground.")
+    if ImGui.Button("Drape on Ground") then
+        self:drapeOnGround(tool.drapeSpacing, tool.drapeOffset)
+    end
+    style.tooltip("Rebuilds the curve with a point every Spacing meters,\nthen drops each one onto the ground below it.")
+
+    ImGui.Dummy(0, 6 * style.viewSize)
+    if ImGui.Button("Snap Start") then
+        self:snapEndToNearest(true)
+    end
+    style.tooltip(string.format("Joins the first point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
+    ImGui.SameLine()
+    if ImGui.Button("Snap End") then
+        self:snapEndToNearest(false)
+    end
+    style.tooltip(string.format("Joins the last point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
+    ImGui.SameLine()
+    if ImGui.Button("Bake Rotation") then
+        self:bakeRotation()
+    end
+    style.tooltip("Keeps only the node's yaw and moves its pitch and roll into the curve,\nso World Z is the world's up again.")
+    ImGui.EndDisabled()
+
+    ImGui.BeginDisabled(locked)
+    if ImGui.Button("Reverse") then
+        self:reversePath()
+    end
+    style.tooltip("Runs the path the other way round.")
+    ImGui.SameLine()
+    if ImGui.Button("Mirror") then
+        self:mirrorPath()
+    end
+    style.tooltip("Mirrors the path left to right.")
+    ImGui.SameLine()
+    if ImGui.Button("Recenter Pivot") then
+        self:recenterPivot()
+    end
+    style.tooltip("Moves the node's origin onto the first point. The mesh does not move.")
+    ImGui.EndDisabled()
+
+    if not curveMode then
+        style.styledTextWrapped(IconGlyphs.InformationOutline .. "  Bank, ground, snap and bake work in Curve mode. A shape switches the mesh to Curve mode.", style.extraMutedColor)
+    end
+
+    ImGui.TreePop()
+end
+
 function bendedMesh:drawAppearanceSelector()
     local list = self.apps
     style.pushGreyedOut(#self.apps <= 1)
@@ -4038,6 +4574,8 @@ function bendedMesh:drawDeformationMatrices()
     self.continuationRepeatShape, _ = style.trackedCheckbox(self.object, "Repeat Curve##continuationRepeatShape", self.continuationRepeatShape)
     style.tooltip("The new mesh repeats this mesh's curve instead of starting straight.")
 
+    self:drawShapeTools()
+
     self:drawPathEditor()
 
     ImGui.TreePop()
@@ -4115,6 +4653,18 @@ function bendedMesh:draw()
             "Mesh bones quantity",
             "Deformed Preview",
             "Viewport Handles",
+            "Shape",
+            "Radius",
+            "Angle",
+            "Height",
+            "Offset",
+            "Length",
+            "Sag",
+            "Match Mesh Length",
+            "Max Bank",
+            "Full Bank Radius",
+            "Spacing",
+            "Height Offset",
             "In-World Path Viz",
             "Show Local Frames",
             "Collider Shape",
