@@ -197,10 +197,12 @@ local function ringScale(scale)
     return { x = scale.x * factor, y = scale.y * factor, z = scale.z * factor }
 end
 
--- ring.mesh has four quarter chunks per ring, rings in the arrow mesh's order (z, y, x).
--- Quarter q spans [q * 90, (q + 1) * 90) degrees in the ring's (u, v) basis, listed below.
-local RING_CHUNK_OFFSET = { z = 0, y = 4, x = 8 }
-local RING_FULL_MASK = 0xFFF
+-- ring.mesh has 16 sector chunks per ring, rings in the arrow mesh's order (z, y, x). Sector k
+-- spans [k, k + 1) * 22.5 degrees in the ring's (u, v) basis (listed at `getRingQuarter`), so
+-- quarter q is sectors 4q to 4q + 3. "rings" draws the half facing the camera and "rings_far",
+-- with the `far_` appearances, the other half.
+local RING_SECTORS = 16
+local RING_CHUNK_OFFSET = { z = 0, y = RING_SECTORS, x = 2 * RING_SECTORS }
 
 local function showsArrows()
     return settings.gizmoRingMode ~= "split" or visualizer.gizmoMode == "move"
@@ -261,31 +263,66 @@ function visualizer.getCameraInGizmoSpace(transform)
     return visualizer.toGizmoLocal(offset, transform:GetRotation())
 end
 
----Shows whole rings, or with `settings.gizmoRingQuarters` only the quarter of each ring facing
----the camera. Refreshes the component only when the chunk mask changes.
----@param entity entEntity Target entity.
-function visualizer.updateRingQuarters(entity)
-    if not entity then return end
+local function ringPlaneCoords(axis, point)
+    if axis == "x" then return point.y, point.z end
+    if axis == "y" then return point.x, point.z end
+    return point.x, point.y
+end
 
-    local component = entity:FindComponentByName("rings")
-    if not component or not component:IsEnabled() then return end
-
-    local mask = RING_FULL_MASK
-    if settings.gizmoRingQuarters then
-        local camera = visualizer.getCameraInGizmoSpace(component:GetLocalToWorld())
-        if not camera then return end
-
-        mask = 0
-        for axis, offset in pairs(RING_CHUNK_OFFSET) do
-            mask = mask + 2 ^ (offset + visualizer.getRingQuarter(axis, camera))
-        end
-    end
-
+local function setChunkMask(component, mask)
     if tonumber(component.chunkMask) == mask then return end
 
     component.chunkMask = mask
     component:Toggle(false)
     component:Toggle(true)
+end
+
+---Sets which ring sectors show: with `settings.gizmoRingQuarters` only the quarter of each ring
+---facing the camera; otherwise the half facing the camera on "rings" and the far half, fainter,
+---on "rings_far". Refreshes a component only when its chunk mask changes.
+---@param entity entEntity Target entity.
+function visualizer.updateRingQuarters(entity)
+    if not entity then return end
+
+    local rings = entity:FindComponentByName("rings")
+    local far = entity:FindComponentByName("rings_far")
+    if not rings then return end
+
+    local showFar = rings:IsEnabled() and not settings.gizmoRingQuarters
+    if far and far:IsEnabled() ~= showFar then
+        if showFar then far.visualScale = rings.visualScale end
+        far:Toggle(showFar)
+    end
+    if not rings:IsEnabled() then return end
+
+    local camera = visualizer.getCameraInGizmoSpace(rings:GetLocalToWorld())
+    if not camera then return end
+
+    local near, farMask = 0, 0
+    for axis, offset in pairs(RING_CHUNK_OFFSET) do
+        if settings.gizmoRingQuarters then
+            local first = visualizer.getRingQuarter(axis, camera) * RING_SECTORS / 4
+            for k = first, first + RING_SECTORS / 4 - 1 do
+                near = near + 2 ^ (offset + k)
+            end
+        else
+            local u, v = ringPlaneCoords(axis, camera)
+            local facing = math.atan2(v, u)
+            for k = 0, RING_SECTORS - 1 do
+                local center = (k + 0.5) * 2 * math.pi / RING_SECTORS
+                if math.cos(center - facing) > 0 then
+                    near = near + 2 ^ (offset + k)
+                else
+                    farMask = farMask + 2 ^ (offset + k)
+                end
+            end
+        end
+    end
+
+    setChunkMask(rings, near)
+    if far and showFar then
+        setChunkMask(far, farMask)
+    end
 end
 
 ---Attach axis arrows preview mesh named `"arrows"`, and the rotation rings named `"rings"`.
@@ -298,6 +335,7 @@ function visualizer.attachArrows(entity, scale, active, app)
 
     visualizer.addMeshComponent(entity, "arrows", "base\\spawner\\arrow.mesh", scale, app, active and showsArrows())
     visualizer.addMeshComponent(entity, "rings", "base\\spawner\\ring.mesh", ringScale(scale), app, active and showsRings())
+    visualizer.addMeshComponent(entity, "rings_far", "base\\spawner\\ring.mesh", ringScale(scale), "far_" .. (app or "none"), false, "rings")
 end
 
 ---Update scale of one preview mesh component.
@@ -319,6 +357,7 @@ function visualizer.updateScale(entity, scale, componentName)
 
     if componentName == "arrows" then
         visualizer.updateScale(entity, ringScale(scale), "rings")
+        visualizer.updateScale(entity, ringScale(scale), "rings_far")
     end
 end
 
@@ -389,6 +428,7 @@ function visualizer.setArrowScale(entity, scale)
 
     setGizmoComponentScale(entity, "arrows", scale)
     setGizmoComponentScale(entity, "rings", ringScale(scale))
+    setGizmoComponentScale(entity, "rings_far", ringScale(scale))
 end
 
 ---Set visibility for the `"arrows"` and `"rings"` gizmo. With move and rotate split, only the
@@ -436,11 +476,13 @@ end
 function visualizer.highlightArrow(entity, app, ringApp)
     if not entity then return end
 
-    local rings = entity:FindComponentByName("rings")
     ringApp = ringApp or app
-    if rings and rings.meshAppearance.value ~= ringApp then
-        rings.meshAppearance = CName.new(ringApp)
-        rings:LoadAppearance()
+    for name, ringAppearance in pairs({ rings = ringApp, rings_far = "far_" .. ringApp }) do
+        local rings = entity:FindComponentByName(name)
+        if rings and rings.meshAppearance.value ~= ringAppearance then
+            rings.meshAppearance = CName.new(ringAppearance)
+            rings:LoadAppearance()
+        end
     end
 
     local component = entity:FindComponentByName("arrows")
