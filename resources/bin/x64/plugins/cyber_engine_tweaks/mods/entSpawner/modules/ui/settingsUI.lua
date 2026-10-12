@@ -1446,6 +1446,14 @@ function settingsUI.draw(spawner)
         style.tooltip("Radius of the rotation rings, as a multiple of the arrow length. Above 1 the rings sit past the arrow tips.")
         ImGui.EndDisabled()
 
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.rotationSnapStep, changed = ImGui.SliderFloat("Rotation snap step", settings.rotationSnapStep, 1, 90, "%.0f")
+        if changed then
+            settings.rotationSnapStep = math.max(1, math.min(settings.rotationSnapStep, 90))
+            settings.save()
+        end
+        style.tooltip("Degrees a rotation snaps to while Shift is held, dragging a rotation ring or rotating with R.")
+
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then
             settings.save()

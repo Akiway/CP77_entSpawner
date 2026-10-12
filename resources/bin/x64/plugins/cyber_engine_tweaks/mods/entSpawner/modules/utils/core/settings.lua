@@ -29,6 +29,7 @@ local config = require("modules/utils/core/config")
 ---@field public gizmoRingMode string Rotation rings: "combined" with the arrows, "split" (G and R switch between them) or "off"
 ---@field public gizmoRingQuarters boolean Rotation rings show only the quarter facing the camera
 ---@field public gizmoRingSize number Rotation ring radius as a multiple of the arrow length
+---@field public rotationSnapStep number Degrees a rotation snaps to while Shift is held
 ---@field public outlineSelected boolean
 ---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
@@ -137,6 +138,7 @@ local settingsData = {
     gizmoRingMode = "combined",
     gizmoRingQuarters = true,
     gizmoRingSize = 1.05,
+    rotationSnapStep = 15,
     outlineSelected = true,
     selectedVisualizersEnabled = true,
     outlineColor = 0,
