@@ -107,6 +107,21 @@ local pathSolverOptions = {
 }
 local PATH_CURVE_SAMPLES_PER_BONE = 12
 
+-- Stored 1-based. Curve: free control points, bones resampled along it. Bones: one point per bone.
+local PATH_MODE_CURVE = 1
+local PATH_MODE_BONES = 2
+local pathModeOptions = {
+    "Curve",
+    "Bones (Advanced)"
+}
+local LENGTH_MODE_FIT = 1
+local LENGTH_MODE_KEEP = 2
+local lengthModeOptions = {
+    "Fit to Curve",
+    "Keep Rest Length"
+}
+local CURVE_SAMPLES_PER_SEGMENT = 48
+
 local PATH_PREVIEW_FOCUS_POINT = 1
 local PATH_PREVIEW_LINE_THICKNESS = 0.04
 local PATH_PREVIEW_POINT_SCALE = 0.01
@@ -192,6 +207,29 @@ end
 
 local function isDirectionZero(vec)
     return math.abs(vec.x) < 0.000001 and math.abs(vec.y) < 0.000001 and math.abs(vec.z) < 0.000001
+end
+
+---@param point table?
+---@return table curvePoint `{ x, y, z, roll, dir?, lenIn?, lenOut? }`; `dir` set means a manual tangent.
+local function copyCurvePoint(point)
+    local source = point or {}
+    local copy = {
+        x = utils.toNumber(source.x, 0),
+        y = utils.toNumber(source.y, 0),
+        z = utils.toNumber(source.z, 0),
+        roll = utils.toNumber(source.roll, 0)
+    }
+
+    if type(source.dir) == "table" then
+        local dir = normalizeDirection({ x = utils.toNumber(source.dir.x, 0), y = utils.toNumber(source.dir.y, 0), z = utils.toNumber(source.dir.z, 0) })
+        if not isDirectionZero(dir) then
+            copy.dir = dir
+            copy.lenIn = tonumber(source.lenIn)
+            copy.lenOut = tonumber(source.lenOut)
+        end
+    end
+
+    return copy
 end
 
 local function length3(vec)
@@ -415,6 +453,9 @@ function bendedMesh:new()
     o.pathInterpolation = 1
     o.pathUpAxis = 0
     o.pathSolver = PATH_SOLVER_CURVE
+    o.pathMode = PATH_MODE_CURVE
+    o.pathLengthMode = LENGTH_MODE_FIT
+    o.curvePoints = {}
     o.continuationRepeatShape = false
     o.importedDeformation = nil
     o.pathPreviewEnabled = true
@@ -470,6 +511,16 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     local defaultSolver = (type(data.pathPoints) == "table" and #data.pathPoints > 0) and PATH_SOLVER_LEGACY or PATH_SOLVER_CURVE
     self.pathSolver = math.max(1, math.min(math.floor(utils.toNumber(data.pathSolver, defaultSolver)), #pathSolverOptions))
     self.continuationRepeatShape = utils.toBoolean(data.continuationRepeatShape, self.continuationRepeatShape)
+
+    -- Paths saved before the curve editor existed open in the per-bone editor.
+    local defaultMode = (type(data.pathPoints) == "table" and #data.pathPoints > 0 and type(data.curvePoints) ~= "table") and PATH_MODE_BONES or PATH_MODE_CURVE
+    self.pathMode = math.max(1, math.min(math.floor(utils.toNumber(data.pathMode, defaultMode)), #pathModeOptions))
+    self.pathLengthMode = math.max(1, math.min(math.floor(utils.toNumber(data.pathLengthMode, self.pathLengthMode)), #lengthModeOptions))
+    self.curvePoints = {}
+    for _, point in ipairs(type(data.curvePoints) == "table" and data.curvePoints or {}) do
+        table.insert(self.curvePoints, copyCurvePoint(point))
+    end
+    self._curveKey = nil
     self.importedDeformation = type(data.importedDeformation) == "table" and data.importedDeformation or nil
 
     self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
@@ -543,6 +594,12 @@ function bendedMesh:save()
     data.pathInterpolation = self.pathInterpolation
     data.pathUpAxis = self.pathUpAxis
     data.pathSolver = self.pathSolver
+    data.pathMode = self.pathMode
+    data.pathLengthMode = self.pathLengthMode
+    data.curvePoints = {}
+    for _, point in ipairs(self.curvePoints or {}) do
+        table.insert(data.curvePoints, copyCurvePoint(point))
+    end
     data.continuationRepeatShape = self.continuationRepeatShape
     data.importedDeformation = self.importedDeformation
     data.pathPreviewEnabled = self.pathPreviewEnabled
@@ -584,11 +641,17 @@ function bendedMesh:getDeformationClipboardPayload()
         pathInterpolation = self.pathInterpolation,
         pathUpAxis = self.pathUpAxis,
         pathSolver = self.pathSolver,
-        pathPoints = {}
+        pathMode = self.pathMode,
+        pathLengthMode = self.pathLengthMode,
+        pathPoints = {},
+        curvePoints = {}
     }
 
     for _, point in ipairs(self.pathPoints or {}) do
         table.insert(payload.pathPoints, copyPathPoint(point))
+    end
+    for _, point in ipairs(self.curvePoints or {}) do
+        table.insert(payload.curvePoints, copyCurvePoint(point))
     end
 
     return payload
@@ -617,11 +680,27 @@ function bendedMesh:applyDeformationClipboardPayload(payload)
         self.pathSolver = math.max(1, math.min(math.floor(utils.toNumber(payload.pathSolver, self.pathSolver)), #pathSolverOptions))
     end
 
+    if payload.pathLengthMode ~= nil then
+        self.pathLengthMode = math.max(1, math.min(math.floor(utils.toNumber(payload.pathLengthMode, self.pathLengthMode)), #lengthModeOptions))
+    end
+
+    -- A curve fits any rig, so it is pasted as a curve even across meshes with other bone counts.
+    local hasCurve = payload.pathMode == PATH_MODE_CURVE and type(payload.curvePoints) == "table" and #payload.curvePoints >= 2
     self.pathPoints = {}
     if hasPath then
         for _, point in ipairs(payload.pathPoints) do
             table.insert(self.pathPoints, copyPathPoint(point))
         end
+    end
+    if hasCurve then
+        self.pathMode = PATH_MODE_CURVE
+        self.curvePoints = {}
+        for _, point in ipairs(payload.curvePoints) do
+            table.insert(self.curvePoints, copyCurvePoint(point))
+        end
+        self._curveKey = nil
+    elseif hasPath then
+        self.pathMode = PATH_MODE_BONES
     end
     self:ensurePathPoints()
 
@@ -743,11 +822,12 @@ function bendedMesh:createContinuationMesh(fromStart)
     local function buildDesired(sourceFrames, spacing)
         local target = fromStart and sourceFrames[1] or sourceFrames[count]
         local desired = {}
+        local motion = nil
 
         if repeatShape then
             -- Same curve again: the rigid motion taking the far end of this mesh onto the joined end.
             local far = fromStart and sourceFrames[count] or sourceFrames[1]
-            local motion = bendedRig.mul(bendedRig.inverse(bendedRig.fromFrame(far)), bendedRig.fromFrame(target))
+            motion = bendedRig.mul(bendedRig.inverse(bendedRig.fromFrame(far)), bendedRig.fromFrame(target))
             for index, frame in ipairs(sourceFrames) do
                 desired[index] = frameFromFlat(bendedRig.mul(bendedRig.fromFrame(frame), motion))
             end
@@ -769,11 +849,12 @@ function bendedMesh:createContinuationMesh(fromStart)
             end
         end
 
-        return desired, target
+        return desired, target, motion
     end
 
     local localFrames = {}
     local objectPosition, objectYaw, upAxis
+    local continuationCurvePoints = nil
 
     local function addLocalFrame(right, forward, up, position)
         table.insert(localFrames, {
@@ -787,9 +868,40 @@ function bendedMesh:createContinuationMesh(fromStart)
     if math.abs(self.rotation.pitch or 0) < 0.0001 and math.abs(self.rotation.roll or 0) < 0.0001 then
         -- A yaw-only mesh keeps its rotation and scale, so the new path is built in this mesh's
         -- own space and joins exactly even under a non-uniform scale.
-        local desired, target = buildDesired(frames, 1)
+        local desired, target, motion = buildDesired(frames, 1)
         local center = target.position
         local world = self:getWorldPointFromLocal(center)
+
+        if motion and self:isCurveMode() then
+            -- The control points move with the same motion; rolls are read back from the moved frames.
+            local moved = {}
+            for index, frame in ipairs(self:getCurveFrames()) do
+                local m = bendedRig.mul(bendedRig.fromFrame(frame), motion)
+                moved[index] = {
+                    X = { x = m[1], y = m[2], z = m[3] },
+                    Y = { x = m[5], y = m[6], z = m[7] },
+                    Z = { x = m[9], y = m[10], z = m[11] },
+                    W = { x = m[13] - center.x, y = m[14] - center.y, z = m[15] - center.z }
+                }
+            end
+
+            continuationCurvePoints = {}
+            for index, point in ipairs(bendedMesh.pathPointsFromMatrices(moved, self.pathUpAxis)) do
+                local source = self.curvePoints[index]
+                local curvePoint = { x = point.x, y = point.y, z = point.z, roll = point.roll }
+                if source.dir then
+                    curvePoint.dir = { x = moved[index].Y.x, y = moved[index].Y.y, z = moved[index].Y.z }
+                    curvePoint.lenIn, curvePoint.lenOut = source.lenIn, source.lenOut
+                end
+                continuationCurvePoints[index] = curvePoint
+            end
+
+            local joined = fromStart and #continuationCurvePoints or 1
+            if not continuationCurvePoints[joined].dir then
+                local axis = moved[joined].Y
+                continuationCurvePoints[joined].dir = { x = axis.x, y = axis.y, z = axis.z }
+            end
+        end
 
         objectPosition = { x = world.x, y = world.y, z = world.z }
         objectYaw = self.rotation.yaw or 0
@@ -865,6 +977,27 @@ function bendedMesh:createContinuationMesh(fromStart)
     data.spawnable.importedDeformation = nil
     data.spawnable.deformedBox = nil
     data.spawnable.pathPoints = continuationPathPoints
+    data.spawnable.pathMode = PATH_MODE_BONES
+    data.spawnable.curvePoints = nil
+
+    if self:isCurveMode() then
+        local curvePoints = continuationCurvePoints
+        if not curvePoints and not repeatShape then
+            -- Two points; the joined one keeps the tangent, so bending the new mesh stays smooth.
+            local first, last = localFrames[1], localFrames[#localFrames]
+            local joined = fromStart and last or first
+            curvePoints = {
+                { x = first.W.x, y = first.W.y, z = first.W.z, roll = continuationPathPoints[1].roll },
+                { x = last.W.x, y = last.W.y, z = last.W.z, roll = continuationPathPoints[#continuationPathPoints].roll }
+            }
+            curvePoints[fromStart and 2 or 1].dir = { x = joined.Y.x, y = joined.Y.y, z = joined.Y.z }
+        end
+
+        if curvePoints then
+            data.spawnable.pathMode = PATH_MODE_CURVE
+            data.spawnable.curvePoints = curvePoints
+        end
+    end
 
     local newElement = require("modules/classes/editor/spawnableElement"):new(self.object.sUI)
     newElement:load(data)
@@ -1100,6 +1233,9 @@ end
 
 function bendedMesh:ensurePathPoints()
     self.pathPoints = self.pathPoints or {}
+    if self:isCurveMode() then
+        self:syncCurveBones()
+    end
     if #self.pathPoints == 0 then
         local defaultPoints = self:getRestPoints()
         if type(defaultPoints) == "table" and #defaultPoints > 0 then
@@ -1201,7 +1337,7 @@ end
 function bendedMesh:applyPathAlgorithmToNonAnchored()
     self:ensurePathPoints()
 
-    if not self.pathUseAlgorithm then
+    if not self.pathUseAlgorithm or self:isCurveMode() then
         return false
     end
 
@@ -1504,9 +1640,12 @@ function bendedMesh:getSampledPathPoints()
     local sampleInfo = {}
     local looped = self.pathLooped and #controlPoints > 2
 
+    local curveMode = self:isCurveMode()
     for index, point in ipairs(controlPoints) do
-        table.insert(sampled, copyPathPoint(point))
-        if self:isPathPointAnchored(index) then
+        local copy = copyPathPoint(point)
+        copy.tangent = point.tangent
+        table.insert(sampled, copy)
+        if not curveMode and self:isPathPointAnchored(index) then
             table.insert(sampleInfo, { isControlPoint = true, controlPointIndex = index })
         else
             table.insert(sampleInfo, { isControlPoint = false, controlPointIndex = nil })
@@ -1525,6 +1664,14 @@ end
 ---`smoothEnds` the tangent of the parabola through the three end points.
 ---@return table direction
 local function getPathTangent(points, index, looped, smoothEnds)
+    local own = points[index] and points[index].tangent
+    if own then
+        local direction = normalizeDirection(own)
+        if not isDirectionZero(direction) then
+            return direction
+        end
+    end
+
     local count = #points
     if count <= 1 then
         return { x = 0, y = 1, z = 0 }
@@ -1750,6 +1897,398 @@ function bendedMesh:getPathLengths()
     return length, distances and distances[#distances] or nil
 end
 
+local function subtract(a, b)
+    return { x = a.x - b.x, y = a.y - b.y, z = a.z - b.z }
+end
+
+local function smoothstep(t)
+    return t * t * (3 - 2 * t)
+end
+
+---Tangent direction and handle lengths of every curve point. Auto tangents follow the bisector of
+---the neighbouring chords; auto ends aim at the next point's handle, like a natural spline.
+---@param points table[]
+---@param looped boolean
+---@return table[] tangents `{ dir, lenIn, lenOut }`
+local function getCurveTangents(points, looped)
+    local count = #points
+    local tangents = {}
+
+    local function neighbour(index)
+        if looped then
+            return points[(index - 1) % count + 1]
+        end
+        return points[index]
+    end
+
+    for index, point in ipairs(points) do
+        local previous = neighbour(index - 1)
+        local nextPoint = neighbour(index + 1)
+        local chordIn = previous and length3(subtract(point, previous)) or nil
+        local chordOut = nextPoint and length3(subtract(nextPoint, point)) or nil
+        local dir = point.dir
+
+        if not dir and previous and nextPoint and chordIn > 0.000001 and chordOut > 0.000001 then
+            local a = subtract(point, previous)
+            local b = subtract(nextPoint, point)
+            dir = normalizeDirection({
+                x = a.x / chordIn + b.x / chordOut,
+                y = a.y / chordIn + b.y / chordOut,
+                z = a.z / chordIn + b.z / chordOut
+            })
+            if isDirectionZero(dir) then dir = nil end
+        end
+
+        tangents[index] = {
+            dir = dir,
+            lenIn = point.lenIn or (chordIn and chordIn / 3) or 0,
+            lenOut = point.lenOut or (chordOut and chordOut / 3) or 0
+        }
+    end
+
+    -- Open ends (and degenerate points) aim at the neighbour's handle.
+    for index, point in ipairs(points) do
+        if not tangents[index].dir then
+            local nextPoint, previous = points[index + 1], points[index - 1]
+            local dir
+            if nextPoint then
+                local handle = nextPoint
+                local nextTangent = tangents[index + 1]
+                if nextTangent.dir and count > 2 then
+                    handle = {
+                        x = nextPoint.x - nextTangent.dir.x * nextTangent.lenIn,
+                        y = nextPoint.y - nextTangent.dir.y * nextTangent.lenIn,
+                        z = nextPoint.z - nextTangent.dir.z * nextTangent.lenIn
+                    }
+                end
+                dir = normalizeDirection(subtract(handle, point))
+            elseif previous then
+                local handle = previous
+                local previousTangent = tangents[index - 1]
+                if previousTangent.dir and count > 2 then
+                    handle = {
+                        x = previous.x + previousTangent.dir.x * previousTangent.lenOut,
+                        y = previous.y + previousTangent.dir.y * previousTangent.lenOut,
+                        z = previous.z + previousTangent.dir.z * previousTangent.lenOut
+                    }
+                end
+                dir = normalizeDirection(subtract(point, handle))
+            end
+
+            if not dir or isDirectionZero(dir) then
+                dir = { x = 0, y = 1, z = 0 }
+            end
+            tangents[index].dir = dir
+        end
+    end
+
+    return tangents
+end
+
+---Cubic Bezier segments between curve points.
+---@return table[] segments `{ p0, c0, c1, p1, r0, r1 }`
+local function buildCurveSegments(points, looped)
+    local tangents = getCurveTangents(points, looped)
+    local segments = {}
+    local count = #points
+    local last = looped and count or count - 1
+
+    for index = 1, last do
+        local a, b = points[index], points[index % count + 1]
+        local ta, tb = tangents[index], tangents[index % count + 1]
+        table.insert(segments, {
+            p0 = a,
+            c0 = { x = a.x + ta.dir.x * ta.lenOut, y = a.y + ta.dir.y * ta.lenOut, z = a.z + ta.dir.z * ta.lenOut },
+            c1 = { x = b.x - tb.dir.x * tb.lenIn, y = b.y - tb.dir.y * tb.lenIn, z = b.z - tb.dir.z * tb.lenIn },
+            p1 = b,
+            r0 = a.roll or 0,
+            r1 = b.roll or 0
+        })
+    end
+
+    return segments, tangents
+end
+
+local function bezierPoint(segment, t)
+    return {
+        x = cubicBezierScalar(segment.p0.x, segment.c0.x, segment.c1.x, segment.p1.x, t),
+        y = cubicBezierScalar(segment.p0.y, segment.c0.y, segment.c1.y, segment.p1.y, t),
+        z = cubicBezierScalar(segment.p0.z, segment.c0.z, segment.c1.z, segment.p1.z, t)
+    }
+end
+
+local function bezierDerivative(segment, t)
+    local u = 1 - t
+    local function axis(key)
+        return 3 * u * u * (segment.c0[key] - segment.p0[key])
+            + 6 * u * t * (segment.c1[key] - segment.c0[key])
+            + 3 * t * t * (segment.p1[key] - segment.c1[key])
+    end
+
+    local d = normalizeDirection({ x = axis("x"), y = axis("y"), z = axis("z") })
+    if isDirectionZero(d) then
+        d = normalizeDirection(subtract(segment.p1, segment.p0))
+    end
+    return d
+end
+
+---Dense arc-length table over all segments.
+---@return table[] samples `{ s, segment, t }`
+---@return number length
+local function sampleCurveSegments(segments)
+    local samples = {}
+    local total = 0
+
+    for segmentIndex, segment in ipairs(segments) do
+        local previous = segment.p0
+        if segmentIndex == 1 then
+            table.insert(samples, { s = 0, segment = 1, t = 0 })
+        end
+
+        for step = 1, CURVE_SAMPLES_PER_SEGMENT do
+            local t = step / CURVE_SAMPLES_PER_SEGMENT
+            local point = bezierPoint(segment, t)
+            total = total + length3(subtract(point, previous))
+            table.insert(samples, { s = total, segment = segmentIndex, t = t })
+            previous = point
+        end
+    end
+
+    return samples, total
+end
+
+---Curve position, tangent and roll at arc length `s`. Past the end the curve continues straight.
+local function evaluateCurveAt(segments, samples, total, s)
+    local function at(segmentIndex, t)
+        local segment = segments[segmentIndex]
+        local position = bezierPoint(segment, t)
+        return position, bezierDerivative(segment, t), segment.r0 + (segment.r1 - segment.r0) * smoothstep(t)
+    end
+
+    if s >= total then
+        local position, tangent, roll = at(#segments, 1)
+        local extra = s - total
+        return { x = position.x + tangent.x * extra, y = position.y + tangent.y * extra, z = position.z + tangent.z * extra }, tangent, roll
+    end
+    if s <= 0 then
+        return at(1, 0)
+    end
+
+    local low, high = 1, #samples
+    while high - low > 1 do
+        local middle = math.floor((low + high) / 2)
+        if samples[middle].s < s then low = middle else high = middle end
+    end
+
+    local a, b = samples[low], samples[high]
+    local blend = (b.s - a.s) > 0.000001 and (s - a.s) / (b.s - a.s) or 0
+    local ta = a.segment == b.segment and a.t or 0
+    return at(b.segment, ta + (b.t - ta) * blend)
+end
+
+---@return boolean
+function bendedMesh:isCurveMode()
+    return self.pathMode == PATH_MODE_CURVE
+end
+
+---Rest distances for a bone count, falling back to even spacing.
+---@param count integer
+---@return number[] distances
+function bendedMesh:getRestDistancesFor(count)
+    local rigData = self:getRig()
+    if rigData and #rigData.distances == count then
+        return rigData.distances
+    end
+
+    local points = self:getRestPoints()
+    local distances = { 0 }
+    if points and #points == count then
+        for index = 2, #points do
+            distances[index] = distances[index - 1] + length3(subtract(points[index], points[index - 1]))
+        end
+        return distances
+    end
+
+    for index = 2, count do
+        distances[index] = index - 1
+    end
+    return distances
+end
+
+---Two curve points at the rest ends of the rig, or the anchored bones of the current path.
+function bendedMesh:ensureCurvePoints()
+    self.curvePoints = self.curvePoints or {}
+    if #self.curvePoints >= 2 then return end
+
+    local source = {}
+    local hasBones = type(self.pathPoints) == "table" and #self.pathPoints >= 2
+    if hasBones then
+        for index, point in ipairs(self.pathPoints) do
+            if index == 1 or index == #self.pathPoints or point.anchored then
+                table.insert(source, point)
+            end
+        end
+    else
+        local rest = self:getRestPoints()
+        if rest and #rest >= 2 then
+            source = { rest[1], rest[#rest] }
+        else
+            source = { { x = 0, y = 0, z = 0 }, { x = 0, y = self:getMeshBoundLengthAlongDirection({ x = 0, y = 1, z = 0 }), z = 0 } }
+        end
+    end
+
+    self.curvePoints = {}
+    for _, point in ipairs(source) do
+        table.insert(self.curvePoints, copyCurvePoint(point))
+    end
+end
+
+---Places the bones along the curve. Cached on everything the placement depends on.
+function bendedMesh:syncCurveBones()
+    self:ensureCurvePoints()
+
+    local count = self:getMeshBonesQuantity() or #(self.pathPoints or {})
+    if count < 2 then count = 2 end
+    local looped = self.pathLooped and #self.curvePoints > 2
+
+    local keyParts = { tostring(self.spawnData), tostring(count), tostring(looped), tostring(self.pathLengthMode), tostring(self:getRig() ~= nil) }
+    for _, point in ipairs(self.curvePoints) do
+        table.insert(keyParts, string.format("%.5f,%.5f,%.5f,%.4f", point.x, point.y, point.z, point.roll or 0))
+        if point.dir then
+            table.insert(keyParts, string.format("%.5f,%.5f,%.5f,%s,%s", point.dir.x, point.dir.y, point.dir.z, tostring(point.lenIn), tostring(point.lenOut)))
+        end
+    end
+    local key = table.concat(keyParts, "|")
+    if key == self._curveKey and self.pathPoints and #self.pathPoints == count then return end
+    self._curveKey = key
+
+    local segments = buildCurveSegments(self.curvePoints, looped)
+    local samples, total = sampleCurveSegments(segments)
+    local distances = self:getRestDistancesFor(count)
+    local restTotal = distances[#distances]
+    local keepLength = self.pathLengthMode == LENGTH_MODE_KEEP and not looped
+
+    local bones = {}
+    for index = 1, count do
+        local s
+        if keepLength then
+            s = distances[index]
+        elseif looped then
+            local gap = restTotal / math.max(1, count - 1)
+            s = restTotal + gap > 0 and distances[index] / (restTotal + gap) * total or 0
+        else
+            s = restTotal > 0 and distances[index] / restTotal * total or (index - 1) / (count - 1) * total
+        end
+
+        local position, tangent, roll = evaluateCurveAt(segments, samples, total, s)
+        bones[index] = {
+            x = position.x, y = position.y, z = position.z,
+            roll = roll,
+            anchored = index == 1 or index == count,
+            tangent = tangent
+        }
+    end
+
+    self.pathPoints = bones
+end
+
+---Resolved tangent of every curve point, for the editor and the overlay.
+---@return table[]
+function bendedMesh:getCurveTangents()
+    self:ensureCurvePoints()
+    return getCurveTangents(self.curvePoints, self.pathLooped and #self.curvePoints > 2)
+end
+
+---Curve length and the rig's rest length.
+---@return number length
+---@return number? restLength
+function bendedMesh:getCurveLength()
+    self:ensureCurvePoints()
+    local segments = buildCurveSegments(self.curvePoints, self.pathLooped and #self.curvePoints > 2)
+    local _, total = sampleCurveSegments(segments)
+    local count = self:getMeshBonesQuantity()
+    local distances = count and self:getRestDistancesFor(count) or nil
+    return total, distances and distances[#distances] or nil
+end
+
+---Frame at each curve point, in mesh space.
+---@return table[]
+function bendedMesh:getCurveFrames()
+    local tangents = self:getCurveTangents()
+    local frames = {}
+    for index, point in ipairs(self.curvePoints) do
+        local frame = buildPathFrames({ { x = point.x, y = point.y, z = point.z, roll = point.roll, tangent = tangents[index].dir } }, false, self.pathUpAxis, true)[1]
+        frame.isControlPoint = true
+        frame.controlPointIndex = index
+        frames[index] = frame
+    end
+    return frames
+end
+
+---Switches between the curve and the per-bone editor, keeping the shape.
+---@param mode integer
+function bendedMesh:setPathMode(mode)
+    if mode == self.pathMode then return end
+
+    if mode == PATH_MODE_CURVE then
+        self.curvePoints = {}
+        self:ensurePathPoints()
+        self.pathMode = PATH_MODE_CURVE
+        self:ensureCurvePoints()
+        self._curveKey = nil
+    else
+        self:ensurePathPoints()
+        self.pathMode = PATH_MODE_BONES
+        for _, point in ipairs(self.pathPoints) do
+            point.anchored = true
+            point.tangent = nil
+        end
+    end
+end
+
+---Heading and slope (degrees) of a direction in mesh space; heading 0 is +Y, positive turns left.
+local function directionToAngles(dir)
+    return math.deg(math.atan2(-dir.x, dir.y)), math.deg(math.asin(math.max(-1, math.min(1, dir.z))))
+end
+
+local function anglesToDirection(heading, slope)
+    local h, s = math.rad(heading), math.rad(slope)
+    return { x = -math.sin(h) * math.cos(s), y = math.cos(h) * math.cos(s), z = math.sin(s) }
+end
+
+---Inserts a curve point on the curve halfway along the segment after `index`.
+---@param index integer
+function bendedMesh:insertCurvePointAfter(index)
+    local looped = self.pathLooped and #self.curvePoints > 2
+    local segments = buildCurveSegments(self.curvePoints, looped)
+    local segment = segments[index]
+    if not segment then return end
+
+    local samples, _ = sampleCurveSegments({ segment })
+    local position = evaluateCurveAt({ segment }, samples, samples[#samples].s, samples[#samples].s / 2)
+    local a, b = self.curvePoints[index], self.curvePoints[index % #self.curvePoints + 1]
+    table.insert(self.curvePoints, index + 1, {
+        x = position.x, y = position.y, z = position.z,
+        roll = ((a.roll or 0) + (b.roll or 0)) / 2
+    })
+end
+
+---Appends a curve point past the end, along the end tangent.
+function bendedMesh:appendCurvePoint()
+    local count = #self.curvePoints
+    local last = self.curvePoints[count]
+    local tangents = self:getCurveTangents()
+    local dir = tangents[count].dir
+    local step = length3(subtract(last, self.curvePoints[count - 1] or { x = last.x, y = last.y - 1, z = last.z }))
+    if step < 0.01 then step = 1 end
+
+    table.insert(self.curvePoints, {
+        x = last.x + dir.x * step, y = last.y + dir.y * step, z = last.z + dir.z * step,
+        roll = last.roll or 0
+    })
+end
+
+
 function bendedMesh:matrixToPreviewFrame(matrix)
     local axisX = normalizeDirection({
         x = utils.toNumber(matrix and matrix.X and (matrix.X.x or matrix.X.X), 1),
@@ -1828,7 +2367,10 @@ end
 function bendedMesh:getPathPreviewHosts()
     if not self._pathPreviewHosts then
         self._pathPreviewHosts = previewHosts.new(PATH_PREVIEW_COMPONENTS_PER_HOST, function ()
-            self:updatePathVisualization()
+            self._pathPreviewAssembling = true
+            local ok, err = pcall(self.updatePathVisualization, self)
+            self._pathPreviewAssembling = false
+            if not ok then error(err) end
         end)
     end
 
@@ -1860,6 +2402,10 @@ function bendedMesh:getPathPreviewComponent(name, meshPath, appearance)
     component.meshAppearance = appearance or "default"
     component.visualScale = Vector3.new(0.01, 0.01, 0.01)
     component.isEnabled = false
+
+    if not self._pathPreviewAssembling then
+        self._pathPreviewRehost = true
+    end
 
     -- Keep preview components bound to a stable placed parent so runtime-added
     -- components retain valid local transforms (same pattern as visualizer.lua).
@@ -1997,6 +2543,10 @@ function bendedMesh:refreshDeformedPreview()
             self:applyEntityMeshVisibility()
         end
         return
+    end
+
+    if self:isCurveMode() then
+        self:syncCurveBones()
     end
 
     local signature = self:getDeformedPreviewSignature()
@@ -2222,12 +2772,24 @@ function bendedMesh:updatePathVisualization()
         self.pathPreviewControlCount = 0
         self.pathPreviewSubdivisionCount = 0
         self.pathPreviewFrameCount = 0
+        self.pathPreviewHandleCount = 0
         return
     end
 
     local segmentThickness = PATH_PREVIEW_LINE_THICKNESS
     local looped = self.pathLooped and #self.pathPoints > 2
     local frames = self:getSampledPathFrames()
+    local curveMode = self:isCurveMode()
+    local controlFrames = {}
+    if curveMode then
+        controlFrames = self:getCurveFrames()
+    else
+        for _, frame in ipairs(frames) do
+            if frame.isControlPoint then
+                table.insert(controlFrames, frame)
+            end
+        end
+    end
     local widthMin, widthMax = self:getMeshWidthRange()
     local previousSegmentCount = self.pathPreviewSegmentCount
     local previousControlCount = self.pathPreviewControlCount
@@ -2247,7 +2809,9 @@ function bendedMesh:updatePathVisualization()
         requiredFrameComponents = math.min(#frames, PATH_PREVIEW_MAX_SEGMENTS)
             + 3 * math.min(#frames, PATH_PREVIEW_MAX_FRAMES) + 3
     end
-    self:getPathPreviewHosts():ensure(requiredSegments + #self.pathPoints + requiredFrameComponents, self.position, self.rotation)
+    local requiredHandles = curveMode and 2 * #controlFrames or 0
+    local requiredComponents = requiredSegments + #self.pathPoints + #controlFrames + requiredHandles + requiredFrameComponents
+    self:getPathPreviewHosts():ensure(requiredComponents, self.position, self.rotation)
     local maxSegments = requiredSegments
 
     if #frames > 1 and maxSegments > 0 then
@@ -2275,11 +2839,9 @@ function bendedMesh:updatePathVisualization()
     self.pathPreviewSegmentCount = usedSegments
 
     local usedControls = 0
-    local maxControls = #self.pathPoints
 
-    for _, frame in ipairs(frames) do
-        if usedControls >= maxControls then break end
-        if frame and frame.isControlPoint and frame.position then
+    for _, frame in ipairs(controlFrames) do
+        if frame.position then
             local nextIndex = usedControls + 1
             if self:renderPathControlPoint(nextIndex, frame.position) then
                 usedControls = nextIndex
@@ -2289,6 +2851,28 @@ function bendedMesh:updatePathVisualization()
 
     self:hidePathPreviewOverflow("bendPathCtrl", usedControls, previousControlCount)
     self.pathPreviewControlCount = usedControls
+
+    local usedHandles = 0
+    if curveMode then
+        for index, tangent in ipairs(self:getCurveTangents()) do
+            local point = self.curvePoints[index]
+            local origin = self:toScaledLocalPoint(point)
+            for _, side in ipairs({ { length = -tangent.lenIn }, { length = tangent.lenOut } }) do
+                if math.abs(side.length) > 0.001 then
+                    local tip = self:toScaledLocalPoint({
+                        x = point.x + tangent.dir.x * side.length,
+                        y = point.y + tangent.dir.y * side.length,
+                        z = point.z + tangent.dir.z * side.length
+                    })
+                    if self:renderPathPreviewLine("bendPathHandle", usedHandles + 1, origin, tip, point.dir and "orange" or "white", segmentThickness * 0.6) then
+                        usedHandles = usedHandles + 1
+                    end
+                end
+            end
+        end
+    end
+    self:hidePathPreviewOverflow("bendPathHandle", usedHandles, self.pathPreviewHandleCount or 0)
+    self.pathPreviewHandleCount = usedHandles
 
     if self.pathPreviewShowFrames then
         local frameLength = self:getPathPreviewFrameLength()
@@ -2314,9 +2898,9 @@ function bendedMesh:updatePathVisualization()
 
         local usedFrames = 0
         local maxFrames = PATH_PREVIEW_MAX_FRAMES
-        for _, frame in ipairs(frames) do
+        for _, frame in ipairs(controlFrames) do
             if usedFrames >= maxFrames then break end
-            if frame and frame.isControlPoint then
+            if frame then
                 local nextIndex = usedFrames + 1
                 if self:renderPathFrame(nextIndex, frame, frameLength, frameThickness, {
                     xRangeMin = widthMin,
@@ -2335,7 +2919,7 @@ function bendedMesh:updatePathVisualization()
         if #frames > 0 then
             local focusFrame = nil
 
-            for _, frame in ipairs(frames) do
+            for _, frame in ipairs(controlFrames) do
                 if frame.controlPointIndex == PATH_PREVIEW_FOCUS_POINT then
                     focusFrame = frame
                     break
@@ -2369,6 +2953,21 @@ function bendedMesh:updatePathVisualization()
     end
 
     local hosts = self:getPathPreviewHosts()
+
+    -- A component added to an attached host never renders; fresh hosts redraw everything while
+    -- they assemble, without touching the mesh itself.
+    if self._pathPreviewRehost then
+        self._pathPreviewRehost = false
+        hosts:despawn()
+        self.pathPreviewSegmentCount = 0
+        self.pathPreviewControlCount = 0
+        self.pathPreviewSubdivisionCount = 0
+        self.pathPreviewFrameCount = 0
+        self.pathPreviewHandleCount = 0
+        hosts:ensure(requiredComponents, self.position, self.rotation)
+        return
+    end
+
     if not hosts.pending then
         hosts:trim(math.max(1, hosts:getChunkCount(hosts.nextSlot)))
     end
@@ -2612,7 +3211,216 @@ function bendedMesh:drawPathVisualizationSettings()
     return changedAny
 end
 
+---Row of one curve point: position, roll, tangent mode, insert and delete.
+---@return boolean changed
+---@return boolean topologyChanged
+function bendedMesh:drawCurvePointEditor(index, point, tangent)
+    local changedAny = false
+    local topologyChanged = false
+    local changed
+    local count = #self.curvePoints
+
+    point.x, changed = field.advancedTrackedFloat(self.object, "##curvePointX", point.x, { suffix = " X", width = 60 })
+    changedAny = changedAny or changed
+    ImGui.SameLine()
+    point.y, changed = field.advancedTrackedFloat(self.object, "##curvePointY", point.y, { suffix = " Y", width = 60 })
+    changedAny = changedAny or changed
+    ImGui.SameLine()
+    point.z, changed = field.advancedTrackedFloat(self.object, "##curvePointZ", point.z, { suffix = " Z", width = 60 })
+    changedAny = changedAny or changed
+
+    ImGui.SameLine()
+    ImGui.Dummy(8 * style.viewSize, 0)
+    ImGui.SameLine()
+    point.roll, changed = field.advancedTrackedFloat(self.object, "##curvePointRoll", point.roll or 0, { suffix = " Roll" })
+    changedAny = changedAny or changed
+    style.tooltip("Bank in degrees around the curve. Eased between points.")
+
+    ImGui.SameLine()
+    local manual = point.dir ~= nil
+    style.pushStyleColor(manual, ImGuiCol.Text, 0.25, 0.62, 0.97, 1.0)
+    local _, clicked = style.toggleButton(IconGlyphs.VectorBezier .. "##curveTangentMode", manual)
+    style.popStyleColor(manual)
+    style.tooltip(manual and "Manual tangent. Click to go back to an automatic one." or "Automatic tangent. Click to set heading, slope and handle lengths by hand.")
+    if clicked then
+        history.addAction(history.getElementChange(self.object))
+        if manual then
+            point.dir, point.lenIn, point.lenOut = nil, nil, nil
+        else
+            point.dir = { x = tangent.dir.x, y = tangent.dir.y, z = tangent.dir.z }
+            point.lenIn, point.lenOut = tangent.lenIn, tangent.lenOut
+        end
+        changedAny = true
+    end
+
+    local looped = self.pathLooped and count > 2
+    local canInsert = index < count or looped
+    ImGui.SameLine()
+    ImGui.BeginDisabled(not canInsert)
+    if ImGui.Button(IconGlyphs.PlusCircleMultipleOutline) and canInsert then
+        history.addAction(history.getElementChange(self.object))
+        self:insertCurvePointAfter(index)
+        changedAny, topologyChanged = true, true
+    end
+    ImGui.EndDisabled()
+    style.tooltip("Insert a control point on the curve after this one.")
+
+    ImGui.SameLine()
+    ImGui.BeginDisabled(count <= 2)
+    if style.dangerButton(IconGlyphs.DeleteOutline) and count > 2 then
+        history.addAction(history.getElementChange(self.object))
+        table.remove(self.curvePoints, index)
+        changedAny, topologyChanged = true, true
+    end
+    ImGui.EndDisabled()
+    style.tooltip("Remove this control point.")
+
+    if point.dir and not topologyChanged then
+        ImGui.SetCursorPosX(120)
+        local heading, slope = directionToAngles(point.dir)
+        local headingChanged, slopeChanged
+        heading, headingChanged = field.advancedTrackedFloat(self.object, "##curvePointHeading", heading, { suffix = " Heading", width = 96, step = 0.1 })
+        style.tooltip("Tangent direction around the mesh's up axis, in degrees. 0 points along +Y, positive turns left.")
+        ImGui.SameLine()
+        slope, slopeChanged = field.advancedTrackedFloat(self.object, "##curvePointSlope", slope, { suffix = " Slope", width = 84, step = 0.1, min = -89.9, max = 89.9 })
+        style.tooltip("Tangent slope in degrees.")
+        if headingChanged or slopeChanged then
+            point.dir = anglesToDirection(heading, slope)
+            changedAny = true
+        end
+
+        ImGui.SameLine()
+        ImGui.Dummy(8 * style.viewSize, 0)
+        ImGui.SameLine()
+        point.lenIn, changed = field.advancedTrackedFloat(self.object, "##curvePointLenIn", point.lenIn or tangent.lenIn, { suffix = " In", width = 60, min = 0 })
+        changedAny = changedAny or changed
+        style.tooltip("Length of the incoming handle. Longer keeps the direction further into the curve.")
+        ImGui.SameLine()
+        point.lenOut, changed = field.advancedTrackedFloat(self.object, "##curvePointLenOut", point.lenOut or tangent.lenOut, { suffix = " Out", width = 60, min = 0 })
+        changedAny = changedAny or changed
+        style.tooltip("Length of the outgoing handle.")
+    end
+
+    return changedAny, topologyChanged
+end
+
+function bendedMesh:drawCurveEditor()
+    self:ensurePathPoints()
+
+    local needsUpdate = false
+    local topologyChanged = false
+    local changed
+
+    style.mutedText("Up Axis")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.pathUpAxis, changed = style.trackedCombo(self.object, "##pathUpAxis", self.pathUpAxis, pathUpAxisOptions, 160, {
+        tooltip = "Reference axis for constructing local right/up basis from path direction"
+    })
+    needsUpdate = needsUpdate or changed
+
+    style.mutedText("Loop Path")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.pathLooped, changed = style.trackedCheckbox(self.object, "##pathLooped", self.pathLooped)
+    needsUpdate = needsUpdate or changed
+
+    style.mutedText("Length Mode")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    local lengthIndex
+    lengthIndex, changed = style.trackedCombo(self.object, "##pathLengthMode", self.pathLengthMode - 1, lengthModeOptions, 180, {
+        tooltip = "Fit to Curve spreads the bones over the whole curve; the mesh stretches to its length.\nKeep Rest Length places the bones at the mesh's own spacing from the start; the mesh ends where its length runs out, or carries on straight past the last point."
+    })
+    if changed then
+        self.pathLengthMode = math.max(1, math.min(math.floor(lengthIndex) + 1, #lengthModeOptions))
+    end
+    needsUpdate = needsUpdate or changed
+
+    ImGui.Dummy(0, 8 * style.viewSize)
+    local bones = self:getMeshBonesQuantity()
+    style.mutedText("Mesh bones quantity : " .. (bones and tostring(bones) or "Unknown") .. " " .. IconGlyphs.Bone)
+    style.tooltip("Bones are placed along the curve automatically.")
+
+    local curveLength, restLength = self:getCurveLength()
+    if restLength and restLength > 0.000001 then
+        if self.pathLengthMode == LENGTH_MODE_KEEP and not self.pathLooped then
+            style.mutedText(string.format("Length : curve %.2f m, mesh %.2f m", curveLength, restLength))
+        else
+            local stretch = (curveLength / restLength - 1) * 100
+            local text = string.format("Length : %.2f m (rest %.2f m, %+.1f%%)", curveLength, restLength, stretch)
+            if math.abs(stretch) > 2 then
+                style.styledText(IconGlyphs.AlertOutline .. " " .. text, 0xFF4CB8FF)
+            else
+                style.mutedText(text)
+            end
+        end
+    else
+        style.mutedText(string.format("Length : %.2f m", curveLength))
+    end
+    style.tooltip("Curve length in the mesh's own units (before scale).")
+
+    if bendedRig.get(self.spawnData) and not self:getRig() then
+        style.styledTextWrapped(IconGlyphs.AlertOutline .. "  This mesh's bones form a grid rather than a line, so a path cannot drive them correctly.", style.extraMutedColor)
+    end
+
+    local tangents = self:getCurveTangents()
+    for index, point in ipairs(self.curvePoints) do
+        ImGui.PushID("curvePoint" .. index)
+
+        if index == 1 then
+            ImGui.Text(IconGlyphs.SourceCommitStart)
+        elseif index == #self.curvePoints then
+            ImGui.Text(IconGlyphs.SourceCommitEnd)
+        else
+            ImGui.Text(IconGlyphs.SourceCommit)
+        end
+        ImGui.SameLine()
+        style.mutedText(tostring(index))
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(120)
+
+        local pointChanged, pointTopology = self:drawCurvePointEditor(index, point, tangents[index])
+        needsUpdate = needsUpdate or pointChanged
+        topologyChanged = topologyChanged or pointTopology
+
+        ImGui.PopID()
+        if pointTopology then break end
+    end
+
+    if ImGui.Button(IconGlyphs.PlusCircleOutline .. "##appendCurvePoint") then
+        history.addAction(history.getElementChange(self.object))
+        self:appendCurvePoint()
+        needsUpdate, topologyChanged = true, true
+    end
+    style.tooltip("Add a control point past the end, along the end tangent.")
+    ImGui.Dummy(0, 8 * style.viewSize)
+
+    if needsUpdate then
+        self:ensurePathPoints()
+        self:autoFitDeformedBox()
+        self:refreshArrowScale()
+    end
+end
+
 function bendedMesh:drawPathEditor()
+    style.mutedText("Edit Mode")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    local modeIndex, modeChanged = style.trackedCombo(self.object, "##pathMode", self.pathMode - 1, pathModeOptions, 180, {
+        tooltip = "Curve: place a few control points, the bones follow the curve.\nBones: edit every bone of the rig, anchoring the ones to keep."
+    })
+    if modeChanged then
+        self:setPathMode(math.max(1, math.min(math.floor(modeIndex) + 1, #pathModeOptions)))
+        self:autoFitDeformedBox()
+        self:refreshArrowScale()
+    end
+
+    if self:isCurveMode() then
+        self:drawCurveEditor()
+        return
+    end
+
     self:ensurePathPoints()
     self:applyPathAlgorithmToNonAnchored()
 
@@ -2798,10 +3606,6 @@ function bendedMesh:drawPathEditor()
         self:autoFitDeformedBox()
         self:refreshArrowScale()
 
-        -- In-world visualization needs a respawn to append newly added components.
-        if pathTopologyChanged and self:isSpawned() then
-            self:respawn()
-        end
     end
 end
 
@@ -2914,6 +3718,8 @@ function bendedMesh:draw()
             "Use Algorithm",
             "Path Algorithm",
             "Bone Placement",
+            "Edit Mode",
+            "Length Mode",
             "Mesh bones quantity",
             "Deformed Preview",
             "In-World Path Viz",
