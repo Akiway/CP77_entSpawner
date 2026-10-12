@@ -272,7 +272,7 @@ about.dependencies = {
         id = "redHotTools",
         name = "Red Hot Tools",
         required = false,
-        provides = "Provides the World Inspector that World Builder adds its own actions to: send a node to the search, run the Replacer on it, copy its AXL node mutation. Also the only route to the placeholder world nodes the Spline preview NPC walks.",
+        provides = "Provides the World Inspector that World Builder adds its own actions to: send a node to the search, run the Replacer on it, copy its AXL node mutation. Also the only route to the placeholder world nodes the Spline preview NPC walks and the Bended Mesh deformed preview renders through.",
         url = "https://github.com/psiberx/cp2077-red-hot-tools",
         check = function()
             if getMod("RedHotTools") then

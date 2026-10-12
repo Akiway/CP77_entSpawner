@@ -6,6 +6,7 @@ local history = require("modules/utils/project/history")
 local intersection = require("modules/utils/editor/intersection")
 local visualizer = require("modules/utils/preview/visualizer")
 local previewHosts = require("modules/utils/preview/previewHosts")
+local bendedPool = require("modules/utils/preview/bendedPool")
 local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
 
@@ -456,7 +457,7 @@ function bendedMesh:new()
     o.spawnDataPath = "data/spawnables/mesh/bended/"
     o.node = "worldBendedMeshNode"
     o.description = "Places a world bended mesh node with path-based deformation editing and deformed bounding box."
-    o.previewNote = "Deformation is not simulated in-editor; exported deformation data is used ingame."
+    o.previewNote = "Deformation is previewed through a placeholder world node; without Red Hot Tools the mesh is shown undeformed."
     o.icon = IconGlyphs.SineWave
 
     o.isBendedRoad = true
@@ -476,6 +477,9 @@ function bendedMesh:new()
     o.pathUpAxis = 0
     o.pathPreviewEnabled = true
     o.pathPreviewShowFrames = true
+    o.deformedPreviewEnabled = true
+    o.deformedPreviewSignature = nil
+    o.deformedPreviewIssue = nil
     o.pathPreviewSegmentCount = 0
     o.pathPreviewControlCount = 0
     o.pathPreviewFrameCount = 0
@@ -521,6 +525,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathUpAxis = math.max(0, math.min(math.floor(utils.toNumber(data.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
     self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
+    self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
     self.bendedColliderShape = math.max(0, math.min(2, math.floor(utils.toNumber(data.bendedColliderShape, self.bendedColliderShape))))
     self.bendedColliderStep = math.max(1, math.min(16, math.floor(utils.toNumber(data.bendedColliderStep, self.bendedColliderStep))))
     self.bendedColliderOverlap = math.max(0, math.min(0.5, utils.toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
@@ -544,6 +549,28 @@ end
 function bendedMesh:updateScale()
     mesh.updateScale(self)
     self:updatePathVisualization()
+    self:applyEntityMeshVisibility()
+end
+
+---@protected
+---@param changed boolean
+function bendedMesh:updateShadowSettings(changed)
+    mesh.updateShadowSettings(self, changed)
+    if not changed then return end
+
+    self:applyEntityMeshVisibility()
+    self:refreshDeformedPreview()
+end
+
+---@param direction integer?
+---@return boolean changed
+function bendedMesh:cycleAppearance(direction)
+    local changed = mesh.cycleAppearance(self, direction)
+    if changed then
+        self:refreshDeformedPreview()
+    end
+
+    return changed
 end
 
 function bendedMesh:save()
@@ -567,6 +594,7 @@ function bendedMesh:save()
     data.pathUpAxis = self.pathUpAxis
     data.pathPreviewEnabled = self.pathPreviewEnabled
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
+    data.deformedPreviewEnabled = self.deformedPreviewEnabled
     data.bendedColliderShape = self.bendedColliderShape
     data.bendedColliderStep = self.bendedColliderStep
     data.bendedColliderOverlap = self.bendedColliderOverlap
@@ -1584,6 +1612,8 @@ end
 
 function bendedMesh:despawn()
     self:getPathPreviewHosts():despawn()
+    bendedPool.release(self)
+    self.deformedPreviewSignature = nil
     mesh.despawn(self)
 end
 
@@ -1591,6 +1621,146 @@ function bendedMesh:update()
     mesh.update(self)
     -- Hosts hold the preview in mesh-local coordinates, so they follow the mesh when it moves.
     self:getPathPreviewHosts():updateTransforms(self.position, self.rotation)
+    self:refreshDeformedPreview()
+end
+
+---Fingerprint of everything the deformed preview depends on.
+---@return string
+function bendedMesh:getDeformedPreviewSignature()
+    local parts = {
+        tostring(self.spawnData), tostring(self.app),
+        tostring(self.castShadows), tostring(self.castLocalShadows),
+        tostring(self.pathLooped), tostring(self.pathUseAlgorithm),
+        tostring(self.pathInterpolation), tostring(self.pathUpAxis)
+    }
+    local function add(...)
+        for _, value in ipairs({ ... }) do
+            table.insert(parts, string.format("%.4f", utils.toNumber(value, 0)))
+        end
+    end
+
+    add(self.position.x, self.position.y, self.position.z)
+    add(self.rotation.roll, self.rotation.pitch, self.rotation.yaw)
+    add(self.scale.x, self.scale.y, self.scale.z)
+
+    local box = self:getNormalizedDeformedBox()
+    add(box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z)
+
+    for _, point in ipairs(self.pathPoints or {}) do
+        add(point.x, point.y, point.z, point.roll)
+        table.insert(parts, point.anchored and "a" or "f")
+    end
+
+    return table.concat(parts, "|")
+end
+
+---World-space payload for the placeholder node: path matrices composed with T * R * S.
+---@return bendedPoolPayload? payload
+---@return string? issue
+function bendedMesh:buildDeformedPreviewPayload()
+    local matrices = self:rebuildMatricesFromPath(false)
+    local bones = self:getMeshBonesQuantity()
+
+    if bones and bones ~= #matrices then
+        return nil, string.format("Path has %d points but the mesh has %d bones.", #matrices, bones)
+    end
+
+    local quat = self.rotation:ToQuat()
+    local scale = self.scale or { x = 1, y = 1, z = 1 }
+    local position = self.position
+
+    local function toWorld(v, isPoint)
+        local rotated = quat:Transform(Vector4.new(v.x * scale.x, v.y * scale.y, v.z * scale.z, 0))
+        if isPoint then
+            return rotated.x + position.x, rotated.y + position.y, rotated.z + position.z
+        end
+
+        return rotated.x, rotated.y, rotated.z
+    end
+
+    local payloadMatrices = {}
+    for i, matrix in ipairs(matrices) do
+        local xx, xy, xz = toWorld(matrix.X)
+        local yx, yy, yz = toWorld(matrix.Y)
+        local zx, zy, zz = toWorld(matrix.Z)
+        local wx, wy, wz = toWorld(matrix.W, true)
+
+        payloadMatrices[i] = { xx, xy, xz, 0, yx, yy, yz, 0, zx, zy, zz, 0, wx, wy, wz, 1 }
+    end
+
+    local box = self:getNormalizedDeformedBox()
+    local minimum = { math.huge, math.huge, math.huge }
+    local maximum = { -math.huge, -math.huge, -math.huge }
+    for _, cx in ipairs({ box.min.x, box.max.x }) do
+        for _, cy in ipairs({ box.min.y, box.max.y }) do
+            for _, cz in ipairs({ box.min.z, box.max.z }) do
+                local corner = { toWorld({ x = cx, y = cy, z = cz }, true) }
+                for axis = 1, 3 do
+                    minimum[axis] = math.min(minimum[axis], corner[axis])
+                    maximum[axis] = math.max(maximum[axis], corner[axis])
+                end
+            end
+        end
+    end
+
+    local app = self.app
+    if app == nil or app == "" then
+        app = "default"
+    end
+
+    return {
+        mesh = self.spawnData,
+        appearance = app,
+        matrices = payloadMatrices,
+        box = { minimum[1], minimum[2], minimum[3], maximum[1], maximum[2], maximum[3] },
+        castShadows = self.shadowCastingModeEnum[self.castShadows + 1],
+        castLocalShadows = self.shadowCastingModeEnum[self.castLocalShadows + 1]
+    }
+end
+
+---Pushes the current deformation to a placeholder node when anything it depends on changed.
+function bendedMesh:refreshDeformedPreview()
+    local active = self.deformedPreviewEnabled and not self.isAssetPreview and self:getEntity() ~= nil
+
+    if not active then
+        if self.deformedPreviewSignature then
+            bendedPool.release(self)
+            self.deformedPreviewSignature = nil
+            self:applyEntityMeshVisibility()
+        end
+        return
+    end
+
+    local signature = self:getDeformedPreviewSignature()
+    if signature == self.deformedPreviewSignature then return end
+    self.deformedPreviewSignature = signature
+
+    local payload, issue = self:buildDeformedPreviewPayload()
+    self.deformedPreviewIssue = issue
+
+    if not payload then
+        bendedPool.release(self)
+        self:applyEntityMeshVisibility()
+        return
+    end
+
+    bendedPool.submit(self, payload)
+end
+
+---Hides the undeformed entity mesh while the placeholder shows the deformed one.
+function bendedMesh:applyEntityMeshVisibility()
+    local entity = self:getEntity()
+    if not entity then return end
+
+    local component = entity:FindComponentByName("mesh")
+    if component then
+        component:Toggle(not bendedPool.isShowing(self))
+    end
+end
+
+---Called by the pool once the placeholder first displays this mesh.
+function bendedMesh:onBendedPreviewShown()
+    self:applyEntityMeshVisibility()
 end
 
 function bendedMesh:hidePathPreviewOverflow(prefix, used, previousCount)
@@ -1773,6 +1943,7 @@ function bendedMesh:updatePathVisualization()
     local entity = self:getEntity()
     if not entity then return end
     self:ensurePathPoints()
+    self:refreshDeformedPreview()
 
     local showPreview = (not self.isAssetPreview) and self.pathPreviewEnabled
     if not showPreview then
@@ -2018,6 +2189,8 @@ function bendedMesh:drawAppearanceSelector()
                 self:setOutline(self.outline)
             end
         end
+
+        self:refreshDeformedPreview()
     end
 
     ImGui.SameLine()
@@ -2118,6 +2291,32 @@ function bendedMesh:drawPathVisualizationSettings()
 
     local changedAny = false
     local changed
+
+    style.mutedText("Deformed Preview")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.deformedPreviewEnabled, changed = style.trackedCheckbox(self.object, "##deformedPreviewEnabled", self.deformedPreviewEnabled)
+    changedAny = changedAny or changed
+    style.tooltip("Show the real deformed mesh through a World Builder placeholder node.\nNeeds Red Hot Tools; otherwise the mesh stays undeformed.")
+
+    if self.deformedPreviewEnabled and not self.isAssetPreview then
+        local status = bendedPool.getStatus(self)
+        ImGui.SameLine()
+
+        if self.deformedPreviewIssue then
+            style.mutedText(IconGlyphs.AlertOutline)
+            style.tooltip(self.deformedPreviewIssue)
+        elseif status == "active" then
+            style.mutedText(IconGlyphs.CheckCircleOutline)
+            style.tooltip("Deformed preview active.")
+        elseif status == "pending" then
+            style.mutedText(IconGlyphs.TimerSandEmpty)
+            style.tooltip("Waiting for a placeholder node.")
+        else
+            style.mutedText(IconGlyphs.AlertOutline)
+            style.tooltip(bendedPool.lastReason ~= "" and bendedPool.lastReason or "Deformed preview unavailable; the mesh is shown undeformed.")
+        end
+    end
 
     style.mutedText("In-World Path Viz")
     ImGui.SameLine()
@@ -2399,6 +2598,7 @@ function bendedMesh:draw()
             "Use Algorithm",
             "Path Algorithm",
             "Mesh bones quantity",
+            "Deformed Preview",
             "In-World Path Viz",
             "Show Local Frames",
             "Collider Shape",
