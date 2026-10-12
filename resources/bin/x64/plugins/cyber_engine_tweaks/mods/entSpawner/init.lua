@@ -34,6 +34,7 @@ local registry = require("modules/utils/game/nodeRefRegistry")
 local rht = require("modules/utils/interop/rhtPlugin")
 local preview = require("modules/utils/preview/previewUtils")
 local previewSyncManager = require("modules/utils/preview/previewSyncManager")
+local bendedPool = require("modules/utils/preview/bendedPool")
 
 ---@class spawner
 ---@field runtimeData {cetOpen: boolean, inGame: boolean, inMenu: boolean}
@@ -152,6 +153,7 @@ function spawner:new()
         self.GameUI.OnSessionStart(function()
             self.runtimeData.inGame = true
             previewSyncManager.reset()
+            bendedPool.reset()
             setRootVisible(true)
             preview.addHUD()
         end)
@@ -161,6 +163,7 @@ function spawner:new()
             setRootVisible(false)
             preview.elements = {}
             previewSyncManager.reset()
+            bendedPool.reset()
         end)
 
         self.runtimeData.inGame = not self.GameUI.IsDetached()
@@ -177,6 +180,7 @@ function spawner:new()
         if self.runtimeData.inGame and (not self.runtimeData.inMenu or groupLoadManager.isActive() or groupExportManager.isActive()) then
             Cron.Update(dt)
             previewSyncManager.update(dt)
+            bendedPool.update()
         end
 
         -- Deliberately outside the guard above: this is pure Lua over already-cached state, and it is

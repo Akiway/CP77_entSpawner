@@ -378,6 +378,21 @@ local function readBendedMeshData(node)
         else
             log("Could not rebuild the bended mesh path: " .. tostring(pathPoints))
         end
+
+        -- Kept raw so the spawnable can redo the path against the rig's bind pose once it loads.
+        local readOk, flat = pcall(function ()
+            local out = {}
+            for index, m in ipairs(matrices) do
+                out[index] = {
+                    m.X.x, m.X.y, m.X.z, m.X.w, m.Y.x, m.Y.y, m.Y.z, m.Y.w,
+                    m.Z.x, m.Z.y, m.Z.z, m.Z.w, m.W.x, m.W.y, m.W.z, m.W.w
+                }
+            end
+            return out
+        end)
+        if readOk and data.pathPoints then
+            data.importedDeformation = flat
+        end
     end
 
     local boxMin = safeGet(safeGet(native, "deformedBox"), "Min")

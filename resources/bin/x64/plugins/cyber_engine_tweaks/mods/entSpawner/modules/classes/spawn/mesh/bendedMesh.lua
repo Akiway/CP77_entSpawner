@@ -9,6 +9,7 @@ local previewHosts = require("modules/utils/preview/previewHosts")
 local bendedPool = require("modules/utils/preview/bendedPool")
 local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
+local bendedRig = require("modules/utils/game/bendedRig")
 
 local bendedMesh = setmetatable({}, { __index = mesh })
 local zeroVector3 = { x = 0, y = 0, z = 0 }
@@ -97,6 +98,15 @@ local pathInterpolationOptions = {
     "Bezier (Auto Handles)"
 }
 
+-- Stored 1-based: 1 = legacy (by index, chord end tangents), 2 = along the curve.
+local PATH_SOLVER_LEGACY = 1
+local PATH_SOLVER_CURVE = 2
+local pathSolverOptions = {
+    "By Index (Legacy)",
+    "Along Curve"
+}
+local PATH_CURVE_SAMPLES_PER_BONE = 12
+
 local PATH_PREVIEW_FOCUS_POINT = 1
 local PATH_PREVIEW_LINE_THICKNESS = 0.04
 local PATH_PREVIEW_POINT_SCALE = 0.01
@@ -130,24 +140,6 @@ local function toTypedMatrix(matrix)
         Z = toTypedVector4(matrix.Z),
         W = toTypedVector4(matrix.W)
     }
-end
-
-local function buildStraightPathPoints(length, pointCount)
-    local count = math.max(2, math.floor(utils.toNumber(pointCount, 2)))
-    local step = count > 1 and (length / (count - 1)) or 0
-    local points = {}
-
-    for index = 1, count do
-        table.insert(points, {
-            x = 0,
-            y = step * (index - 1),
-            z = 0,
-            roll = 0,
-            anchored = index == 1 or index == count
-        })
-    end
-
-    return points
 end
 
 local function transformPointWithFrame(frame, point)
@@ -396,59 +388,6 @@ local function quaternionFromBasis(right, forward, up)
     return normalizeQuaternion(Quaternion.new(qx, qy, qz, qw))
 end
 
-local function getPathStartFrame(pathPoints, upAxisIndex)
-    local firstPoint = pathPoints and pathPoints[1]
-    local secondPoint = pathPoints and pathPoints[2]
-
-    local position = {
-        x = utils.toNumber(firstPoint and firstPoint.x, 0),
-        y = utils.toNumber(firstPoint and firstPoint.y, 0),
-        z = utils.toNumber(firstPoint and firstPoint.z, 0)
-    }
-
-    local forward = { x = 0, y = 1, z = 0 }
-    if secondPoint then
-        forward = {
-            x = utils.toNumber(secondPoint.x, 0) - position.x,
-            y = utils.toNumber(secondPoint.y, 0) - position.y,
-            z = utils.toNumber(secondPoint.z, 0) - position.z
-        }
-    end
-    forward = normalizeDirection(forward)
-    if isDirectionZero(forward) then
-        forward = { x = 0, y = 1, z = 0 }
-    end
-
-    local clampedUpAxisIndex = math.max(0, math.min(math.floor(utils.toNumber(upAxisIndex, 0)), #pathUpAxisOptions - 1))
-    local upHint = getPathUpAxis(clampedUpAxisIndex)
-    local right, _, up = buildBasisFromForward(forward, upHint)
-
-    local roll = utils.toNumber(firstPoint and firstPoint.roll, 0)
-    if math.abs(roll) > 0.00001 then
-        local angle = math.rad(roll)
-        right = normalizeDirection(rotateAroundAxis(right, forward, angle))
-        up = normalizeDirection(rotateAroundAxis(up, forward, angle))
-    end
-
-    local upReference = {
-        x = upHint.x - dot(upHint, forward) * forward.x,
-        y = upHint.y - dot(upHint, forward) * forward.y,
-        z = upHint.z - dot(upHint, forward) * forward.z
-    }
-    upReference = normalizeDirection(upReference)
-    if not isDirectionZero(upReference) and dot(up, upReference) < 0 then
-        right = { x = -right.x, y = -right.y, z = -right.z }
-        up = { x = -up.x, y = -up.y, z = -up.z }
-    end
-
-    return {
-        position = position,
-        right = right,
-        forward = forward,
-        up = up
-    }
-end
-
 function bendedMesh:new()
     local o = mesh.new(self)
 
@@ -473,8 +412,11 @@ function bendedMesh:new()
     o.pathPoints = { { x = 0, y = 0, z = 0, roll = 0, anchored = true } }
     o.pathLooped = false
     o.pathUseAlgorithm = true
-    o.pathInterpolation = 0
+    o.pathInterpolation = 1
     o.pathUpAxis = 0
+    o.pathSolver = PATH_SOLVER_CURVE
+    o.continuationRepeatShape = false
+    o.importedDeformation = nil
     o.pathPreviewEnabled = true
     o.pathPreviewShowFrames = true
     o.deformedPreviewEnabled = true
@@ -523,6 +465,13 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathUseAlgorithm = utils.toBoolean(data.pathUseAlgorithm, self.pathUseAlgorithm)
     self.pathInterpolation = math.max(0, math.min(math.floor(utils.toNumber(data.pathInterpolation, self.pathInterpolation)), #pathInterpolationOptions - 1))
     self.pathUpAxis = math.max(0, math.min(math.floor(utils.toNumber(data.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
+
+    -- Paths saved before the solver existed keep the legacy placement they were authored with.
+    local defaultSolver = (type(data.pathPoints) == "table" and #data.pathPoints > 0) and PATH_SOLVER_LEGACY or PATH_SOLVER_CURVE
+    self.pathSolver = math.max(1, math.min(math.floor(utils.toNumber(data.pathSolver, defaultSolver)), #pathSolverOptions))
+    self.continuationRepeatShape = utils.toBoolean(data.continuationRepeatShape, self.continuationRepeatShape)
+    self.importedDeformation = type(data.importedDeformation) == "table" and data.importedDeformation or nil
+
     self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
@@ -536,6 +485,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     end
 
     self:ensurePathPoints()
+    self:requestRig()
 
     self.pendingAutoFit = true
     self:updatePathVisualization()
@@ -592,6 +542,9 @@ function bendedMesh:save()
     data.pathUseAlgorithm = self.pathUseAlgorithm
     data.pathInterpolation = self.pathInterpolation
     data.pathUpAxis = self.pathUpAxis
+    data.pathSolver = self.pathSolver
+    data.continuationRepeatShape = self.continuationRepeatShape
+    data.importedDeformation = self.importedDeformation
     data.pathPreviewEnabled = self.pathPreviewEnabled
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
@@ -630,6 +583,7 @@ function bendedMesh:getDeformationClipboardPayload()
         pathUseAlgorithm = self.pathUseAlgorithm,
         pathInterpolation = self.pathInterpolation,
         pathUpAxis = self.pathUpAxis,
+        pathSolver = self.pathSolver,
         pathPoints = {}
     }
 
@@ -659,6 +613,9 @@ function bendedMesh:applyDeformationClipboardPayload(payload)
     if payload.pathUpAxis ~= nil then
         self.pathUpAxis = math.max(0, math.min(math.floor(utils.toNumber(payload.pathUpAxis, self.pathUpAxis)), #pathUpAxisOptions - 1))
     end
+    if payload.pathSolver ~= nil then
+        self.pathSolver = math.max(1, math.min(math.floor(utils.toNumber(payload.pathSolver, self.pathSolver)), #pathSolverOptions))
+    end
 
     self.pathPoints = {}
     if hasPath then
@@ -672,35 +629,6 @@ function bendedMesh:applyDeformationClipboardPayload(payload)
 
     self:refreshArrowScale()
     return true
-end
-
-function bendedMesh:getContinuationLength()
-    local length = 0
-    local frames = self:getSampledPathFrames()
-    local frameCount = #frames
-
-    if frameCount >= 2 then
-        local previous = frames[frameCount - 1]
-        local current = frames[frameCount]
-        if previous and previous.position and current and current.position then
-            length = utils.distanceVector(zeroVector3, {
-                x = current.position.x - previous.position.x,
-                y = current.position.y - previous.position.y,
-                z = current.position.z - previous.position.z
-            })
-        end
-    end
-
-    if length <= 0.0001 then
-        local bboxLength = math.abs((self.bBox.max and self.bBox.max.y or 0.5) - (self.bBox.min and self.bBox.min.y or -0.5))
-        length = math.max(length, bboxLength)
-    end
-
-    if length <= 0.0001 then
-        length = 1
-    end
-
-    return length
 end
 
 function bendedMesh:getMeshBoundLengthAlongDirection(direction)
@@ -721,93 +649,75 @@ function bendedMesh:getMeshBoundLengthAlongDirection(direction)
     return projected
 end
 
-function bendedMesh:getWorldTransformFromPathFrame(frame)
-    local objectQuat = self.rotation:ToQuat()
-    local scaledLocalPosition = self:toScaledLocalPoint({
-        x = frame.position.x,
-        y = frame.position.y,
-        z = frame.position.z
-    })
-    local worldOffset = objectQuat:Transform(Vector4.new(scaledLocalPosition.x, scaledLocalPosition.y, scaledLocalPosition.z, 0))
-    local worldPosition = Vector4.new(
-        self.position.x + worldOffset.x,
-        self.position.y + worldOffset.y,
-        self.position.z + worldOffset.z,
-        0
-    )
+---World pose of a path frame: position through T * R * S, axes through R * S, re-orthonormalized.
+---@param frame table Path frame in local space.
+---@return table frame `{ position, right, forward, up }` in world space.
+function bendedMesh:pathFrameToWorld(frame)
+    local quat = self.rotation:ToQuat()
+    local scale = self.scale or { x = 1, y = 1, z = 1 }
 
-    local rightWorldVec = objectQuat:Transform(Vector4.new(frame.right.x, frame.right.y, frame.right.z, 0))
-    local forwardWorldVec = objectQuat:Transform(Vector4.new(frame.forward.x, frame.forward.y, frame.forward.z, 0))
-    local upWorldVec = objectQuat:Transform(Vector4.new(frame.up.x, frame.up.y, frame.up.z, 0))
+    local function direction(v)
+        local rotated = quat:Transform(Vector4.new(v.x * scale.x, v.y * scale.y, v.z * scale.z, 0))
+        return { x = rotated.x, y = rotated.y, z = rotated.z }
+    end
 
-    local forward = normalizeDirection(forwardWorldVec)
+    local position = self:getWorldPointFromLocal(frame.position)
+    local forward = normalizeDirection(direction(frame.forward))
     if isDirectionZero(forward) then
         forward = { x = 0, y = 1, z = 0 }
     end
 
-    local up = normalizeDirection(upWorldVec)
-    if isDirectionZero(up) or math.abs(dot(up, forward)) > 0.9999 then
-        up = { x = 0, y = 0, z = 1 }
-        if math.abs(dot(up, forward)) > 0.9999 then
-            up = { x = 1, y = 0, z = 0 }
-        end
-    end
-
-    up = normalizeDirection({
-        x = up.x - dot(up, forward) * forward.x,
-        y = up.y - dot(up, forward) * forward.y,
-        z = up.z - dot(up, forward) * forward.z
-    })
-    if isDirectionZero(up) then
-        up = { x = 0, y = 0, z = 1 }
-    end
-
-    local right = normalizeDirection(cross(forward, up))
+    local right = normalizeDirection(cross(forward, direction(frame.up)))
     if isDirectionZero(right) then
-        right = normalizeDirection(rightWorldVec)
+        right = normalizeDirection(direction(frame.right))
     end
     if isDirectionZero(right) then
         right = { x = 1, y = 0, z = 0 }
     end
 
-    up = normalizeDirection(cross(right, forward))
-    if isDirectionZero(up) then
-        up = { x = 0, y = 0, z = 1 }
-    end
-
-    right = normalizeDirection(cross(forward, up))
-    local worldRotation = quaternionFromBasis(right, forward, up):ToEulerAngles()
-
-    return worldPosition, worldRotation
+    return {
+        position = { x = position.x, y = position.y, z = position.z },
+        right = right,
+        forward = forward,
+        up = normalizeDirection(cross(right, forward))
+    }
 end
 
-function bendedMesh:createContinuationMesh()
+---Rotates a vector around world Z.
+---@param v table
+---@param degrees number
+---@return table
+local function rotateYaw(v, degrees)
+    local angle = math.rad(degrees)
+    local c, s = math.cos(angle), math.sin(angle)
+    return { x = v.x * c - v.y * s, y = v.x * s + v.y * c, z = v.z }
+end
+
+---@param flat table
+---@return table frame
+local function frameFromFlat(flat)
+    return {
+        right = { x = flat[1], y = flat[2], z = flat[3] },
+        forward = { x = flat[5], y = flat[6], z = flat[7] },
+        up = { x = flat[9], y = flat[10], z = flat[11] },
+        position = { x = flat[13], y = flat[14], z = flat[15] }
+    }
+end
+
+---Creates a bended mesh of the same asset joined to one end of this one.
+---The new mesh only takes a yaw, so its `World Z` up axis stays the world's; slope and bank are
+---carried by its path instead.
+---@param fromStart boolean? Join to the start of this mesh instead of its end.
+---@return boolean
+function bendedMesh:createContinuationMesh(fromStart)
     if not self.object or not self.object.parent or self.object:isLocked() then
         return false
     end
 
     local frames = self:getSampledPathFrames()
-    local frameCount = #frames
-    if frameCount == 0 then
+    local count = #frames
+    if count == 0 then
         return false
-    end
-
-    local endFrame = frames[frameCount]
-    if not endFrame or not endFrame.position or not endFrame.right or not endFrame.forward or not endFrame.up then
-        return false
-    end
-
-    local worldPosition, worldRotation = self:getWorldTransformFromPathFrame(endFrame)
-    local continuationLength = self:getContinuationLength()
-    local signedLength = continuationLength
-    if self.scale and self.scale.y and self.scale.y < 0 then
-        signedLength = -signedLength
-    end
-
-    local requiredPointCount = self:getMeshBonesQuantity()
-    if requiredPointCount == nil or requiredPointCount < 2 then
-        self:ensurePathPoints()
-        requiredPointCount = math.max(2, #(self.pathPoints or {}))
     end
 
     local data = self.object:serialize()
@@ -815,47 +725,144 @@ function bendedMesh:createContinuationMesh()
         return false
     end
 
-    local continuationPathPoints = nil
-    local defaultPathPoints = cache.getDefaultBendedPathPoints(self.spawnData)
-    if type(defaultPathPoints) == "table" and #defaultPathPoints > 1 then
-        continuationPathPoints = {}
-        for _, point in ipairs(defaultPathPoints) do
-            table.insert(continuationPathPoints, copyPathPoint(point))
+    local repeatShape = self.continuationRepeatShape and count >= 2
+    local distances = nil
+    if not repeatShape then
+        distances = self:getRestDistances()
+        local pointCount = self:getMeshBonesQuantity() or count
+        if not distances or #distances ~= pointCount then
+            distances = {}
+            local step = self:getMeshBoundLengthAlongDirection({ x = 0, y = 1, z = 0 }) / math.max(1, pointCount - 1)
+            for index = 1, pointCount do
+                distances[index] = (index - 1) * step
+            end
         end
     end
 
-    if type(continuationPathPoints) ~= "table" or #continuationPathPoints < 2 then
-        continuationPathPoints = buildStraightPathPoints(signedLength, requiredPointCount)
-    elseif requiredPointCount ~= nil and requiredPointCount >= 2 and #continuationPathPoints ~= requiredPointCount then
-        -- Keep deformation count valid if preset data and runtime rig count disagree.
-        continuationPathPoints = buildStraightPathPoints(signedLength, requiredPointCount)
+    ---Frames of the new mesh, in the space `sourceFrames` are given in.
+    local function buildDesired(sourceFrames, spacing)
+        local target = fromStart and sourceFrames[1] or sourceFrames[count]
+        local desired = {}
+
+        if repeatShape then
+            -- Same curve again: the rigid motion taking the far end of this mesh onto the joined end.
+            local far = fromStart and sourceFrames[count] or sourceFrames[1]
+            local motion = bendedRig.mul(bendedRig.inverse(bendedRig.fromFrame(far)), bendedRig.fromFrame(target))
+            for index, frame in ipairs(sourceFrames) do
+                desired[index] = frameFromFlat(bendedRig.mul(bendedRig.fromFrame(frame), motion))
+            end
+        else
+            -- Straight, at the rest spacing of the rig.
+            local offset = fromStart and distances[#distances] or 0
+            for index, distance in ipairs(distances) do
+                local along = (distance - offset) * spacing
+                desired[index] = {
+                    right = target.right,
+                    forward = target.forward,
+                    up = target.up,
+                    position = {
+                        x = target.position.x + target.forward.x * along,
+                        y = target.position.y + target.forward.y * along,
+                        z = target.position.z + target.forward.z * along
+                    }
+                }
+            end
+        end
+
+        return desired, target
     end
 
-    local continuationUpAxis = math.max(0, math.min(math.floor(utils.toNumber(data.spawnable.pathUpAxis, self.pathUpAxis or 0)), #pathUpAxisOptions - 1))
-    local continuationStartFrame = getPathStartFrame(continuationPathPoints, continuationUpAxis)
-    local targetQuat = worldRotation:ToQuat()
-    local startQuat = quaternionFromBasis(continuationStartFrame.right, continuationStartFrame.forward, continuationStartFrame.up)
-    local continuationQuat = normalizeQuaternion(Quaternion.MulInverse(targetQuat, startQuat))
-    local continuationScale = data.spawnable.scale or self.scale or { x = 1, y = 1, z = 1 }
-    local startScaledLocal = {
-        x = continuationStartFrame.position.x * utils.toNumber(continuationScale.x, 1),
-        y = continuationStartFrame.position.y * utils.toNumber(continuationScale.y, 1),
-        z = continuationStartFrame.position.z * utils.toNumber(continuationScale.z, 1)
-    }
-    local startWorldOffset = continuationQuat:Transform(Vector4.new(startScaledLocal.x, startScaledLocal.y, startScaledLocal.z, 0))
-    local continuationPosition = Vector4.new(
-        worldPosition.x - startWorldOffset.x,
-        worldPosition.y - startWorldOffset.y,
-        worldPosition.z - startWorldOffset.z,
-        0
-    )
-    local continuationRotation = continuationQuat:ToEulerAngles()
+    local localFrames = {}
+    local objectPosition, objectYaw, upAxis
+
+    local function addLocalFrame(right, forward, up, position)
+        table.insert(localFrames, {
+            X = { x = right.x, y = right.y, z = right.z },
+            Y = { x = forward.x, y = forward.y, z = forward.z },
+            Z = { x = up.x, y = up.y, z = up.z },
+            W = { x = position.x, y = position.y, z = position.z }
+        })
+    end
+
+    if math.abs(self.rotation.pitch or 0) < 0.0001 and math.abs(self.rotation.roll or 0) < 0.0001 then
+        -- A yaw-only mesh keeps its rotation and scale, so the new path is built in this mesh's
+        -- own space and joins exactly even under a non-uniform scale.
+        local desired, target = buildDesired(frames, 1)
+        local center = target.position
+        local world = self:getWorldPointFromLocal(center)
+
+        objectPosition = { x = world.x, y = world.y, z = world.z }
+        objectYaw = self.rotation.yaw or 0
+        upAxis = self.pathUpAxis
+
+        for _, frame in ipairs(desired) do
+            addLocalFrame(frame.right, frame.forward, frame.up, {
+                x = frame.position.x - center.x,
+                y = frame.position.y - center.y,
+                z = frame.position.z - center.z
+            })
+        end
+    else
+        -- A pitched or rolled mesh hands over to a yaw-only one, so `World Z` is the world's up
+        -- again; slope and bank move into the path. Exact for a uniform scale.
+        local worldFrames = {}
+        for index, frame in ipairs(frames) do
+            worldFrames[index] = self:pathFrameToWorld(frame)
+        end
+        local target = fromStart and worldFrames[1] or worldFrames[count]
+
+        local restPoints = self:getRestPoints()
+        local restDirection = { x = 0, y = 1, z = 0 }
+        if restPoints and #restPoints > 1 then
+            restDirection = { x = restPoints[#restPoints].x - restPoints[1].x, y = restPoints[#restPoints].y - restPoints[1].y, z = 0 }
+        end
+
+        objectYaw = self.rotation.yaw or 0
+        if length3(restDirection) > 0.000001 and length3({ x = target.forward.x, y = target.forward.y, z = 0 }) > 0.000001 then
+            objectYaw = math.deg(math.atan2(target.forward.y, target.forward.x) - math.atan2(restDirection.y, restDirection.x))
+        end
+
+        local scale = self.scale or { x = 1, y = 1, z = 1 }
+        local sx, sy, sz = utils.toNumber(scale.x, 1), utils.toNumber(scale.y, 1), utils.toNumber(scale.z, 1)
+        if math.abs(sx) < 0.000001 then sx = 1 end
+        if math.abs(sy) < 0.000001 then sy = 1 end
+        if math.abs(sz) < 0.000001 then sz = 1 end
+
+        local localForward = rotateYaw(target.forward, -objectYaw)
+        local spacing = 1 / math.max(0.000001, length3({ x = localForward.x / sx, y = localForward.y / sy, z = localForward.z / sz }))
+        local desired = buildDesired(worldFrames, spacing)
+
+        objectPosition = target.position
+        upAxis = 0
+
+        for _, frame in ipairs(desired) do
+            local v = rotateYaw({
+                x = frame.position.x - objectPosition.x,
+                y = frame.position.y - objectPosition.y,
+                z = frame.position.z - objectPosition.z
+            }, -objectYaw)
+            addLocalFrame(rotateYaw(frame.right, -objectYaw), rotateYaw(frame.forward, -objectYaw), rotateYaw(frame.up, -objectYaw),
+                { x = v.x / sx, y = v.y / sy, z = v.z / sz })
+        end
+    end
+
+    local continuationPathPoints = bendedMesh.pathPointsFromMatrices(localFrames, upAxis)
+    for index, point in ipairs(continuationPathPoints) do
+        if repeatShape then
+            point.anchored = self:isPathPointAnchored(index)
+        else
+            point.anchored = index == 1 or index == #continuationPathPoints
+        end
+    end
 
     data.name = utils.generateCopyName(self.object.name)
-    data.spawnable.position = { x = continuationPosition.x, y = continuationPosition.y, z = continuationPosition.z, w = 0 }
-    data.spawnable.rotation = { roll = continuationRotation.roll, pitch = continuationRotation.pitch, yaw = continuationRotation.yaw }
+    data.spawnable.position = { x = objectPosition.x, y = objectPosition.y, z = objectPosition.z, w = 0 }
+    data.spawnable.rotation = { roll = 0, pitch = 0, yaw = objectYaw }
     data.spawnable.nodeRef = ""
     data.spawnable.pathLooped = false
+    data.spawnable.pathUpAxis = upAxis
+    data.spawnable.pathSolver = self.pathSolver
+    data.spawnable.importedDeformation = nil
     data.spawnable.deformedBox = nil
     data.spawnable.pathPoints = continuationPathPoints
 
@@ -863,9 +870,11 @@ function bendedMesh:createContinuationMesh()
     newElement:load(data)
 
     local parent = self.object.parent
-    local index = utils.indexValue(parent.childs, self.object) + 1
+    local index = utils.indexValue(parent.childs, self.object)
     if index < 1 then
         index = #parent.childs + 1
+    elseif not fromStart then
+        index = index + 1
     end
     newElement:setParent(parent, index)
 
@@ -1092,7 +1101,7 @@ end
 function bendedMesh:ensurePathPoints()
     self.pathPoints = self.pathPoints or {}
     if #self.pathPoints == 0 then
-        local defaultPoints = cache.getDefaultBendedPathPoints(self.spawnData)
+        local defaultPoints = self:getRestPoints()
         if type(defaultPoints) == "table" and #defaultPoints > 0 then
             for _, point in ipairs(defaultPoints) do
                 table.insert(self.pathPoints, copyPathPoint(point))
@@ -1136,6 +1145,59 @@ function bendedMesh:isPathPointAnchored(index)
     return point and point.anchored == true or false
 end
 
+---@param interpolation integer
+---@param anchorCount integer
+---@return table point
+local function interpolateAnchorSpan(interpolation, anchorCount, previousPoint, startPoint, endPoint, nextPoint, t)
+    if interpolation == 2 then
+        return bezierAutoPathPoint(previousPoint, startPoint, endPoint, nextPoint, t)
+    elseif interpolation == 1 and anchorCount >= 3 then
+        return catmullRomPathPoint(previousPoint, startPoint, endPoint, nextPoint, t)
+    end
+
+    return lerpPathPoint(startPoint, endPoint, t)
+end
+
+---Samples one anchor span and returns its cumulative arc length table.
+---@return table samples `{ t, length }` pairs, from t = 0 to t = 1.
+local function sampleAnchorSpan(interpolation, anchorCount, previousPoint, startPoint, endPoint, nextPoint, sampleCount)
+    local samples = { { t = 0, length = 0 } }
+    local last = startPoint
+    local total = 0
+
+    for index = 1, sampleCount do
+        local t = index / sampleCount
+        local point = interpolateAnchorSpan(interpolation, anchorCount, previousPoint, startPoint, endPoint, nextPoint, t)
+        total = total + length3({ x = point.x - last.x, y = point.y - last.y, z = point.z - last.z })
+        samples[index + 1] = { t = t, length = total }
+        last = point
+    end
+
+    return samples
+end
+
+---@param samples table From `sampleAnchorSpan`.
+---@param fraction number Share of the span's arc length.
+---@return number t
+local function spanParameterAtFraction(samples, fraction)
+    local total = samples[#samples].length
+    if total <= 0.000001 then
+        return fraction
+    end
+
+    local target = fraction * total
+    for index = 2, #samples do
+        local previous, current = samples[index - 1], samples[index]
+        if current.length >= target then
+            local width = current.length - previous.length
+            local blend = width > 0.000001 and (target - previous.length) / width or 0
+            return previous.t + (current.t - previous.t) * blend
+        end
+    end
+
+    return 1
+end
+
 function bendedMesh:applyPathAlgorithmToNonAnchored()
     self:ensurePathPoints()
 
@@ -1148,6 +1210,8 @@ function bendedMesh:applyPathAlgorithmToNonAnchored()
     end
 
     local interpolation = math.max(0, math.min(math.floor(self.pathInterpolation or 0), #pathInterpolationOptions - 1))
+    local alongCurve = self.pathSolver == PATH_SOLVER_CURVE
+    local restDistances = alongCurve and self:getRestDistances() or nil
     local anchorIndices = {}
 
     for index = 1, #self.pathPoints do
@@ -1175,17 +1239,29 @@ function bendedMesh:applyPathAlgorithmToNonAnchored()
             local previousAnchorPoint = self.pathPoints[previousAnchorIndex] or startPoint
             local nextAnchorPoint = self.pathPoints[nextAnchorIndex] or endPoint
 
+            local samples = nil
+            if alongCurve then
+                samples = sampleAnchorSpan(interpolation, #anchorIndices, previousAnchorPoint, startPoint, endPoint, nextAnchorPoint, span * PATH_CURVE_SAMPLES_PER_BONE)
+            end
+
             for pointIndex = startIndex + 1, endIndex - 1 do
                 if not self:isPathPointAnchored(pointIndex) then
                     local t = (pointIndex - startIndex) / span
                     local computed
 
-                    if interpolation == 2 then
-                        computed = bezierAutoPathPoint(previousAnchorPoint, startPoint, endPoint, nextAnchorPoint, t)
-                    elseif interpolation == 1 and #anchorIndices >= 3 then
-                        computed = catmullRomPathPoint(previousAnchorPoint, startPoint, endPoint, nextAnchorPoint, t)
+                    if samples then
+                        -- Bones keep the rig's own spacing ratios along the curve.
+                        if restDistances then
+                            local width = restDistances[endIndex] - restDistances[startIndex]
+                            if width > 0.000001 then
+                                t = (restDistances[pointIndex] - restDistances[startIndex]) / width
+                            end
+                        end
+
+                        computed = interpolateAnchorSpan(interpolation, #anchorIndices, previousAnchorPoint, startPoint, endPoint, nextAnchorPoint, spanParameterAtFraction(samples, t))
+                        computed.roll = startPoint.roll + (endPoint.roll - startPoint.roll) * t
                     else
-                        computed = lerpPathPoint(startPoint, endPoint, t)
+                        computed = interpolateAnchorSpan(interpolation, #anchorIndices, previousAnchorPoint, startPoint, endPoint, nextAnchorPoint, t)
                     end
 
                     local point = self.pathPoints[pointIndex]
@@ -1210,8 +1286,138 @@ function bendedMesh:applyPathAlgorithmToNonAnchored()
     return changedAny
 end
 
+---Rig of the mesh, or nil while it loads or for a rig that cannot follow a path.
+---@return bendedRigData?
+function bendedMesh:getRig()
+    local data = bendedRig.get(self.spawnData)
+    if data and data.linear then
+        return data
+    end
+
+    return nil
+end
+
+---Loads the rig; once it arrives the path is refreshed against the real bind pose.
+function bendedMesh:requestRig()
+    local path = self.spawnData
+    local data = bendedRig.get(path, function (rigData)
+        if self.spawnData == path then
+            self:onRigReady(rigData)
+        end
+    end)
+
+    if data then
+        self:onRigReady(data)
+    end
+end
+
+---@param rigData bendedRigData?
+function bendedMesh:onRigReady(rigData)
+    if not rigData or not rigData.linear then return end
+
+    self._restCache = nil
+    self:adoptRigRestPoints(rigData)
+    self:applyImportedDeformation(rigData)
+    self.pendingAutoFit = true
+    self.deformedPreviewSignature = nil
+    self:updatePathVisualization()
+end
+
+---Bone positions at rest: from the rig once loaded, from the static rig table before that.
+---@return table[]? points `{ x, y, z, roll }`, shared; copy before editing.
+function bendedMesh:getRestPoints()
+    local rigData = self:getRig()
+    if rigData then
+        return rigData.rest
+    end
+
+    if not self._staticRest or self._staticRest.path ~= self.spawnData then
+        self._staticRest = { path = self.spawnData, points = cache.getDefaultBendedPathPoints(self.spawnData) }
+    end
+
+    return self._staticRest.points
+end
+
+---Cumulative rest distance of every bone, or nil when it does not match the path.
+---@return number[]?
+function bendedMesh:getRestDistances()
+    local rigData = self:getRig()
+    local count = #(self.pathPoints or {})
+
+    if rigData then
+        return #rigData.distances == count and rigData.distances or nil
+    end
+
+    local points = self:getRestPoints()
+    if not points or #points ~= count then
+        return nil
+    end
+
+    local distances = { 0 }
+    for index = 2, #points do
+        local a, b = points[index - 1], points[index]
+        distances[index] = distances[index - 1] + length3({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
+    end
+
+    return distances
+end
+
+---Paths still on the static rig table's defaults move onto the exact rest pose of the rig.
+---@param rigData bendedRigData
+function bendedMesh:adoptRigRestPoints(rigData)
+    local defaults = cache.getDefaultBendedPathPoints(self.spawnData)
+    local points = self.pathPoints or {}
+
+    if not defaults or #defaults ~= #points or #points ~= #rigData.rest then return end
+
+    for index, point in ipairs(points) do
+        local default = defaults[index]
+        if math.abs(point.x - default.x) > 0.001 or math.abs(point.y - default.y) > 0.001 or math.abs(point.z - default.z) > 0.001 then
+            return
+        end
+    end
+
+    for index, point in ipairs(points) do
+        local rest = rigData.rest[index]
+        point.x, point.y, point.z = rest.x, rest.y, rest.z
+    end
+end
+
+---Turns a deformation imported from a world node back into path frames: `F = Frest * inverseBind * D`.
+---@param rigData bendedRigData
+function bendedMesh:applyImportedDeformation(rigData)
+    local imported = self.importedDeformation
+    if not imported then return end
+    self.importedDeformation = nil
+
+    if #imported ~= #rigData.inverseBind or #imported ~= #(self.pathPoints or {}) then return end
+
+    local restFrames = self:buildRestFrames(rigData.rest)
+    local matrices = {}
+    for index, deformation in ipairs(imported) do
+        local frame = bendedRig.mul(bendedRig.mul(bendedRig.fromFrame(restFrames[index]), rigData.inverseBind[index]), deformation)
+        matrices[index] = {
+            X = { x = frame[1], y = frame[2], z = frame[3] },
+            Y = { x = frame[5], y = frame[6], z = frame[7] },
+            Z = { x = frame[9], y = frame[10], z = frame[11] },
+            W = { x = frame[13], y = frame[14], z = frame[15] }
+        }
+    end
+
+    local points = bendedMesh.pathPointsFromMatrices(matrices, self.pathUpAxis)
+    for index, point in ipairs(points) do
+        point.anchored = self.pathPoints[index].anchored
+    end
+    self.pathPoints = points
+end
+
 ---@return integer?
 function bendedMesh:getMeshBonesQuantity()
+    local rigData = bendedRig.get(self.spawnData)
+    if rigData then
+        return #rigData.inverseBind
+    end
+
     local resourceData = self.meshResourceData
     if not resourceData then
         resourceData = cache.getMeshResource(self.spawnData)
@@ -1315,48 +1521,65 @@ function bendedMesh:getSampledPathPoints()
     return sampled, looped, sampleInfo
 end
 
-function bendedMesh:getPathForward(sampledPoints, index, looped)
-    if #sampledPoints <= 1 then
+---Tangent at a path point. Inner points use their neighbours; ends use the chord, or with
+---`smoothEnds` the tangent of the parabola through the three end points.
+---@return table direction
+local function getPathTangent(points, index, looped, smoothEnds)
+    local count = #points
+    if count <= 1 then
         return { x = 0, y = 1, z = 0 }
     end
 
-    local prevIndex = index - 1
+    local previousIndex = index - 1
     local nextIndex = index + 1
-
     if looped then
-        if prevIndex < 1 then
-            prevIndex = #sampledPoints
-        end
-        if nextIndex > #sampledPoints then
-            nextIndex = 1
-        end
+        if previousIndex < 1 then previousIndex = count end
+        if nextIndex > count then nextIndex = 1 end
     end
 
-    local prevPoint = sampledPoints[prevIndex]
-    local nextPoint = sampledPoints[nextIndex]
-    local current = sampledPoints[index]
+    local previous = points[previousIndex]
+    local nextPoint = points[nextIndex]
+    local current = points[index]
     local forward
 
-    if prevPoint and nextPoint then
-        forward = {
-            x = nextPoint.x - prevPoint.x,
-            y = nextPoint.y - prevPoint.y,
-            z = nextPoint.z - prevPoint.z
-        }
-    elseif nextPoint then
-        forward = {
-            x = nextPoint.x - current.x,
-            y = nextPoint.y - current.y,
-            z = nextPoint.z - current.z
-        }
-    elseif prevPoint then
-        forward = {
-            x = current.x - prevPoint.x,
-            y = current.y - prevPoint.y,
-            z = current.z - prevPoint.z
-        }
+    if previous and nextPoint then
+        forward = { x = nextPoint.x - previous.x, y = nextPoint.y - previous.y, z = nextPoint.z - previous.z }
     else
-        forward = { x = 0, y = 1, z = 0 }
+        if nextPoint then
+            forward = { x = nextPoint.x - current.x, y = nextPoint.y - current.y, z = nextPoint.z - current.z }
+        else
+            forward = { x = current.x - previous.x, y = current.y - previous.y, z = current.z - previous.z }
+        end
+
+        if smoothEnds and count >= 3 then
+            local p0, p1, p2
+            if index == 1 then
+                p0, p1, p2 = points[1], points[2], points[3]
+            else
+                p0, p1, p2 = points[count - 2], points[count - 1], points[count]
+            end
+
+            local h1 = length3({ x = p1.x - p0.x, y = p1.y - p0.y, z = p1.z - p0.z })
+            local h2 = length3({ x = p2.x - p1.x, y = p2.y - p1.y, z = p2.z - p1.z })
+
+            if h1 > 0.000001 and h2 > 0.000001 then
+                local a, b, c
+                if index == 1 then
+                    a, b, c = -(2 * h1 + h2) / (h1 * (h1 + h2)), (h1 + h2) / (h1 * h2), -h1 / (h2 * (h1 + h2))
+                else
+                    a, b, c = h2 / (h1 * (h1 + h2)), -(h1 + h2) / (h1 * h2), (h1 + 2 * h2) / (h2 * (h1 + h2))
+                end
+
+                local smooth = {
+                    x = a * p0.x + b * p1.x + c * p2.x,
+                    y = a * p0.y + b * p1.y + c * p2.y,
+                    z = a * p0.z + b * p1.z + c * p2.z
+                }
+                if dot(smooth, forward) > 0 then
+                    forward = smooth
+                end
+            end
+        end
     end
 
     forward = normalizeDirection(forward)
@@ -1367,14 +1590,19 @@ function bendedMesh:getPathForward(sampledPoints, index, looped)
     return forward
 end
 
-function bendedMesh:getSampledPathFrames()
-    local sampledPoints, looped, sampleInfo = self:getSampledPathPoints()
-    local upHint = getPathUpAxis(self.pathUpAxis)
+---Frames of a list of path points: tangent forward, up from the up axis, then the point's roll.
+---@param points table[]
+---@param looped boolean
+---@param upAxisIndex integer
+---@param smoothEnds boolean
+---@return table[] frames `{ position, right, forward, up }`
+local function buildPathFrames(points, looped, upAxisIndex, smoothEnds)
+    local upHint = getPathUpAxis(upAxisIndex)
     local frames = {}
     local lastRight = nil
 
-    for index, point in ipairs(sampledPoints) do
-        local forward = self:getPathForward(sampledPoints, index, looped)
+    for index, point in ipairs(points) do
+        local forward = getPathTangent(points, index, looped, smoothEnds)
         local right, _, up = buildBasisFromForward(forward, upHint)
 
         if lastRight and dot(right, lastRight) < 0 then
@@ -1383,21 +1611,17 @@ function bendedMesh:getSampledPathFrames()
         end
 
         local roll = utils.toNumber(point.roll, 0)
-        if math.abs(roll) < 0.001 then
-            roll = 0
-        end
-        if math.abs(roll) > 0.00001 then
+        if math.abs(roll) > 0.001 then
             local angle = math.rad(roll)
             right = normalizeDirection(rotateAroundAxis(right, forward, angle))
             up = normalizeDirection(rotateAroundAxis(up, forward, angle))
         end
 
-        local upReference = {
+        local upReference = normalizeDirection({
             x = upHint.x - dot(upHint, forward) * forward.x,
             y = upHint.y - dot(upHint, forward) * forward.y,
             z = upHint.z - dot(upHint, forward) * forward.z
-        }
-        upReference = normalizeDirection(upReference)
+        })
         if not isDirectionZero(upReference) and dot(up, upReference) < 0 then
             right = { x = -right.x, y = -right.y, z = -right.z }
             up = { x = -up.x, y = -up.y, z = -up.z }
@@ -1407,9 +1631,7 @@ function bendedMesh:getSampledPathFrames()
             position = { x = point.x, y = point.y, z = point.z },
             right = right,
             forward = forward,
-            up = up,
-            isControlPoint = sampleInfo[index] and sampleInfo[index].isControlPoint == true or false,
-            controlPointIndex = sampleInfo[index] and sampleInfo[index].controlPointIndex or nil
+            up = up
         })
 
         lastRight = right
@@ -1421,9 +1643,7 @@ function bendedMesh:getSampledPathFrames()
                 position = { x = 0, y = 0, z = 0 },
                 right = { x = 1, y = 0, z = 0 },
                 forward = { x = 0, y = 1, z = 0 },
-                up = { x = 0, y = 0, z = 1 },
-                isControlPoint = true,
-                controlPointIndex = 1
+                up = { x = 0, y = 0, z = 1 }
             }
         }
     end
@@ -1431,27 +1651,77 @@ function bendedMesh:getSampledPathFrames()
     return frames
 end
 
-function bendedMesh:frameToMatrix(frame)
-    local right = frame.right or { x = 1, y = 0, z = 0 }
-    local forward = frame.forward or { x = 0, y = 1, z = 0 }
-    local up = frame.up or { x = 0, y = 0, z = 1 }
-    local position = frame.position or { x = 0, y = 0, z = 0 }
+function bendedMesh:getSampledPathFrames()
+    local sampledPoints, looped, sampleInfo = self:getSampledPathPoints()
+    local frames = buildPathFrames(sampledPoints, looped, self.pathUpAxis, self.pathSolver == PATH_SOLVER_CURVE)
 
-    return {
-        X = Vector4.new(right.x, right.y, right.z, 0),
-        Y = Vector4.new(forward.x, forward.y, forward.z, 0),
-        Z = Vector4.new(up.x, up.y, up.z, 0),
-        W = Vector4.new(position.x, position.y, position.z, 1),
-        isControlPoint = frame.isControlPoint == true,
-        controlPointIndex = frame.controlPointIndex
-    }
+    for index, frame in ipairs(frames) do
+        local info = sampleInfo[index]
+        frame.isControlPoint = info and info.isControlPoint == true or false
+        frame.controlPointIndex = info and info.controlPointIndex or nil
+    end
+
+    return frames
 end
 
+---Frames of the bones at rest, built the same way as the path's.
+---@param restPoints table[]
+---@return table[]
+function bendedMesh:buildRestFrames(restPoints)
+    return buildPathFrames(restPoints, false, self.pathUpAxis, self.pathSolver == PATH_SOLVER_CURVE)
+end
+
+---Per-bone rest correction. `pre = bind * Frest^-1` turns a path frame into the bone's deformation,
+---so the rest path gives back the bind pose whatever the rig's axes. `restInverse = Frest^-1`
+---maps mesh-space geometry into the bone's frame. `pre` is nil until the rig is loaded.
+---@param count integer Path point count.
+---@return table[]? corrections
+function bendedMesh:getRestCorrections(count)
+    local restPoints = self:getRestPoints()
+    if not restPoints or #restPoints ~= count or count == 0 then
+        return nil
+    end
+
+    local rigData = self:getRig()
+    local key = table.concat({ tostring(self.spawnData), tostring(rigData ~= nil), tostring(self.pathUpAxis), tostring(self.pathSolver), tostring(count) }, "|")
+    if self._restCache and self._restCache.key == key then
+        return self._restCache.corrections
+    end
+
+    local corrections = {}
+    for index, frame in ipairs(self:buildRestFrames(restPoints)) do
+        local restInverse = bendedRig.inverse(bendedRig.fromFrame(frame))
+        corrections[index] = {
+            restInverse = restInverse,
+            pre = rigData and bendedRig.mul(rigData.bind[index], restInverse) or nil
+        }
+    end
+
+    self._restCache = { key = key, corrections = corrections }
+    return corrections
+end
+
+---Deformation matrices, one per bone, in the node's local space.
+---@param updateBox boolean Refit the deformed box as well.
+---@return table[] matrices `{ X, Y, Z, W }` Vector4 rows.
 function bendedMesh:rebuildMatricesFromPath(updateBox)
     local frames = self:getSampledPathFrames()
+    local corrections = self:getRestCorrections(#frames)
     local matrices = {}
-    for _, frame in ipairs(frames) do
-        table.insert(matrices, self:frameToMatrix(frame))
+
+    for index, frame in ipairs(frames) do
+        local m = bendedRig.fromFrame(frame)
+        local pre = corrections and corrections[index].pre
+        if pre then
+            m = bendedRig.mul(pre, m)
+        end
+
+        matrices[index] = {
+            X = Vector4.new(m[1], m[2], m[3], 0),
+            Y = Vector4.new(m[5], m[6], m[7], 0),
+            Z = Vector4.new(m[9], m[10], m[11], 0),
+            W = Vector4.new(m[13], m[14], m[15], 1)
+        }
     end
 
     if updateBox then
@@ -1459,6 +1729,25 @@ function bendedMesh:rebuildMatricesFromPath(updateBox)
     end
 
     return matrices
+end
+
+---Length of the path through its bones, and the rig's length at rest.
+---@return number length
+---@return number? restLength
+function bendedMesh:getPathLengths()
+    local sampled, looped = self:getSampledPathPoints()
+    local length = 0
+    for index = 2, #sampled do
+        local a, b = sampled[index - 1], sampled[index]
+        length = length + length3({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
+    end
+    if looped and #sampled > 2 then
+        local a, b = sampled[#sampled], sampled[1]
+        length = length + length3({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
+    end
+
+    local distances = self:getRestDistances()
+    return length, distances and distances[#distances] or nil
 end
 
 function bendedMesh:matrixToPreviewFrame(matrix)
@@ -1495,28 +1784,6 @@ function bendedMesh:matrixToPreviewFrame(matrix)
         isControlPoint = matrix and matrix.isControlPoint == true,
         controlPointIndex = matrix and matrix.controlPointIndex or nil
     }
-end
-
-function bendedMesh:getPreviewFramesFromMatrices(matrices)
-    local frames = {}
-    for _, matrix in ipairs(matrices or {}) do
-        table.insert(frames, self:matrixToPreviewFrame(matrix))
-    end
-
-    if #frames == 0 then
-        return {
-            {
-                position = { x = 0, y = 0, z = 0 },
-                right = { x = 1, y = 0, z = 0 },
-                forward = { x = 0, y = 1, z = 0 },
-                up = { x = 0, y = 0, z = 1 },
-                isControlPoint = true,
-                controlPointIndex = 1
-            }
-        }
-    end
-
-    return frames
 end
 
 ---Rebuilds the editor path from a set of deformation matrices, inverting
@@ -1631,7 +1898,8 @@ function bendedMesh:getDeformedPreviewSignature()
         tostring(self.spawnData), tostring(self.app),
         tostring(self.castShadows), tostring(self.castLocalShadows),
         tostring(self.pathLooped), tostring(self.pathUseAlgorithm),
-        tostring(self.pathInterpolation), tostring(self.pathUpAxis)
+        tostring(self.pathInterpolation), tostring(self.pathUpAxis),
+        tostring(self.pathSolver), tostring(self:getRig() ~= nil)
     }
     local function add(...)
         for _, value in ipairs({ ... }) do
@@ -1959,8 +2227,7 @@ function bendedMesh:updatePathVisualization()
 
     local segmentThickness = PATH_PREVIEW_LINE_THICKNESS
     local looped = self.pathLooped and #self.pathPoints > 2
-    local matrices = self:rebuildMatricesFromPath(false)
-    local frames = self:getPreviewFramesFromMatrices(matrices)
+    local frames = self:getSampledPathFrames()
     local widthMin, widthMax = self:getMeshWidthRange()
     local previousSegmentCount = self.pathPreviewSegmentCount
     local previousControlCount = self.pathPreviewControlCount
@@ -2123,10 +2390,20 @@ function bendedMesh:autoFitDeformedBox(frames)
         Vector4.new(baseMax.x, baseMax.y, baseMax.z, 1)
     }
 
+    -- Geometry around a bone moves with `Frest^-1 * F`, so each bone carries the mesh box with it.
+    local corrections = self:getRestCorrections(#frames)
     local transformed = {}
-    for _, frame in ipairs(frames) do
-        for _, corner in ipairs(corners) do
-            table.insert(transformed, transformPointWithFrame(frame, corner))
+    for index, frame in ipairs(frames) do
+        if corrections then
+            local m = bendedRig.mul(corrections[index].restInverse, bendedRig.fromFrame(frame))
+            for _, corner in ipairs(corners) do
+                local p = bendedRig.transformPoint(m, corner)
+                table.insert(transformed, Vector4.new(p.x, p.y, p.z, 1))
+            end
+        else
+            for _, corner in ipairs(corners) do
+                table.insert(transformed, transformPointWithFrame(frame, corner))
+            end
         end
     end
 
@@ -2384,9 +2661,40 @@ function bendedMesh:drawPathEditor()
         pathVisualizationNeedsUpdate = pathVisualizationNeedsUpdate or changed
     end
 
+    style.mutedText("Bone Placement")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    local solverIndex
+    solverIndex, changed = style.trackedCombo(self.object, "##pathSolver", self.pathSolver - 1, pathSolverOptions, 180, {
+        tooltip = "Along Curve spaces non-anchored bones along the curve with the rig's own spacing, so the mesh does not stretch unevenly, and bends the ends along the curve.\nBy Index places them at even steps of the curve parameter, as older projects did."
+    })
+    if changed then
+        self.pathSolver = math.max(1, math.min(math.floor(solverIndex) + 1, #pathSolverOptions))
+        self:applyPathAlgorithmToNonAnchored()
+    end
+    pathVisualizationNeedsUpdate = pathVisualizationNeedsUpdate or changed
+
     ImGui.Dummy(0, 8 * style.viewSize)
     style.mutedText("Mesh bones quantity : " .. (meshBonesQuantity and tostring(meshBonesQuantity) or "Unknown") .. " " .. IconGlyphs.Bone)
     style.tooltip("Each bended mesh has a rig with specific number of bones.\nEach deformation point refers to a mesh bone.")
+
+    local pathLength, restLength = self:getPathLengths()
+    if restLength and restLength > 0.000001 then
+        local stretch = (pathLength / restLength - 1) * 100
+        local text = string.format("Length : %.2f m (rest %.2f m, %+.1f%%)", pathLength, restLength, stretch)
+        if math.abs(stretch) > 2 then
+            style.styledText(IconGlyphs.AlertOutline .. " " .. text, 0xFF4CB8FF)
+        else
+            style.mutedText(text)
+        end
+    else
+        style.mutedText(string.format("Length : %.2f m", pathLength))
+    end
+    style.tooltip("Path length through the bones, in the mesh's own units (before scale).\nAway from the rest length, the mesh stretches or squashes.")
+
+    if bendedRig.get(self.spawnData) and not self:getRig() then
+        style.styledTextWrapped(IconGlyphs.AlertOutline .. "  This mesh's bones form a grid rather than a line, so a path cannot drive them correctly.", style.extraMutedColor)
+    end
 
     for index, point in ipairs(self.pathPoints) do
         ImGui.PushID(index)
@@ -2520,11 +2828,19 @@ function bendedMesh:drawDeformationMatrices()
 
     local canCreateContinuation = self.object and self.object.parent and (not self.object:isLocked())
     ImGui.BeginDisabled(not canCreateContinuation)
-    if ImGui.Button("Continue as New Mesh") and canCreateContinuation then
-        self:createContinuationMesh()
+    if ImGui.Button("Continue From End") and canCreateContinuation then
+        self:createContinuationMesh(false)
     end
+    style.tooltip("Create a new bended mesh of the same asset joined to the end of this one.")
+    ImGui.SameLine()
+    if ImGui.Button("Continue From Start") and canCreateContinuation then
+        self:createContinuationMesh(true)
+    end
+    style.tooltip("Create a new bended mesh of the same asset joined to the start of this one.")
     ImGui.EndDisabled()
-    style.tooltip("Create a new bended mesh aligned to this mesh end point, using the same asset and appearance.")
+    ImGui.SameLine()
+    self.continuationRepeatShape, _ = style.trackedCheckbox(self.object, "Repeat Curve##continuationRepeatShape", self.continuationRepeatShape)
+    style.tooltip("The new mesh repeats this mesh's curve instead of starting straight.")
 
     self:drawPathEditor()
 
@@ -2597,6 +2913,7 @@ function bendedMesh:draw()
             "Looped Path",
             "Use Algorithm",
             "Path Algorithm",
+            "Bone Placement",
             "Mesh bones quantity",
             "Deformed Preview",
             "In-World Path Viz",
