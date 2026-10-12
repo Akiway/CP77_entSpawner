@@ -417,6 +417,24 @@ function pool.update()
     end
 end
 
+local dissolveRestore = nil
+
+---Streamed nodes fade in over `Rendering/DissolveTime`. At 0 a re-attached slot shows at once.
+---@param state boolean True sets 0 and remembers the current value, false puts it back.
+function pool.setInstantDissolve(state)
+    if not GameOptions or not GameOptions.GetFloat or not GameOptions.SetFloat then return end
+
+    if state then
+        if dissolveRestore then return end
+        local ok, current = pcall(GameOptions.GetFloat, "Rendering", "DissolveTime")
+        dissolveRestore = (ok and type(current) == "number" and current > 0) and current or 0.5
+        pcall(GameOptions.SetFloat, "Rendering", "DissolveTime", 0.0)
+    elseif dissolveRestore then
+        pcall(GameOptions.SetFloat, "Rendering", "DissolveTime", dissolveRestore)
+        dissolveRestore = nil
+    end
+end
+
 ---Forgets every slot and owner. Slot definitions reload with the sector on a new session.
 function pool.reset()
     slots = {}

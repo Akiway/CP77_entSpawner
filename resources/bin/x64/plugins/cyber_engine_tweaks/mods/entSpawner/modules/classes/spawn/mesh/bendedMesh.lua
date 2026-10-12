@@ -10,6 +10,8 @@ local bendedPool = require("modules/utils/preview/bendedPool")
 local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
 local bendedRig = require("modules/utils/game/bendedRig")
+local projectedWireframe = require("modules/utils/editor/projectedWireframe")
+local input = require("modules/utils/core/input")
 
 local bendedMesh = setmetatable({}, { __index = mesh })
 local zeroVector3 = { x = 0, y = 0, z = 0 }
@@ -461,6 +463,7 @@ function bendedMesh:new()
     o.pathPreviewEnabled = true
     o.pathPreviewShowFrames = true
     o.deformedPreviewEnabled = true
+    o.viewportHandlesEnabled = true
     o.deformedPreviewSignature = nil
     o.deformedPreviewIssue = nil
     o.pathPreviewSegmentCount = 0
@@ -526,6 +529,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
+    self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.bendedColliderShape = math.max(0, math.min(2, math.floor(utils.toNumber(data.bendedColliderShape, self.bendedColliderShape))))
     self.bendedColliderStep = math.max(1, math.min(16, math.floor(utils.toNumber(data.bendedColliderStep, self.bendedColliderStep))))
     self.bendedColliderOverlap = math.max(0, math.min(0.5, utils.toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
@@ -605,6 +609,7 @@ function bendedMesh:save()
     data.pathPreviewEnabled = self.pathPreviewEnabled
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
+    data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.bendedColliderShape = self.bendedColliderShape
     data.bendedColliderStep = self.bendedColliderStep
     data.bendedColliderOverlap = self.bendedColliderOverlap
@@ -3020,6 +3025,387 @@ function bendedMesh:autoFitDeformedBox(frames)
     }
 end
 
+--- Viewport handles ---------------------------------------------------------------------------
+
+local HANDLE_POINT_RADIUS = 6
+local HANDLE_TIP_RADIUS = 4
+local HANDLE_PICK_RADIUS = 11
+local HANDLE_CURVE_PICK_RADIUS = 9
+local HANDLE_CURVE_SAMPLES = 24
+
+local handleColors = {
+    path = 0xC8FFE000,
+    point = 0xFF33CCFF,
+    pointHover = 0xFFFFFFFF,
+    pointActive = 0xFF2E8BFF,
+    tangentAuto = 0xC8D0D0D0,
+    tangentManual = 0xFF2EA0FF,
+    hint = 0xFFE8E8E8,
+    hintBackground = 0xB4141414
+}
+
+local function isKeyDown(...)
+    for _, key in ipairs({ ... }) do
+        if ImGui.IsKeyDown(key) then return true end
+    end
+    return false
+end
+
+---Mesh-space point (before scale) of a world point.
+---@param world table
+---@return table
+function bendedMesh:worldToLocalPoint(world)
+    local quat = self.rotation:ToQuat()
+    local offset = { x = world.x - self.position.x, y = world.y - self.position.y, z = world.z - self.position.z }
+    local scale = self.scale or { x = 1, y = 1, z = 1 }
+
+    local function component(axis, s)
+        local a = quat:Transform(axis)
+        local value = offset.x * a.x + offset.y * a.y + offset.z * a.z
+        return math.abs(s) > 0.000001 and value / s or value
+    end
+
+    return {
+        x = component(Vector4.new(1, 0, 0, 0), scale.x),
+        y = component(Vector4.new(0, 1, 0, 0), scale.y),
+        z = component(Vector4.new(0, 0, 1, 0), scale.z)
+    }
+end
+
+---@return boolean
+function bendedMesh:wantsViewportOverlay()
+    return self.viewportHandlesEnabled ~= false
+        and not self.isAssetPreview
+        and self.object ~= nil
+        and self.object.selected == true
+        and not self.object:isLocked()
+end
+
+---Handles of the current edit mode, in world space.
+---@return table[] handles `{ kind = "point"|"tangent", index, side?, world }`
+function bendedMesh:getViewportHandles()
+    local handles = {}
+    self:ensurePathPoints()
+
+    if self:isCurveMode() then
+        local looped = self.pathLooped and #self.curvePoints > 2
+        local tangents = self:getCurveTangents()
+
+        for index, point in ipairs(self.curvePoints) do
+            local world = self:getWorldPointFromLocal(point)
+            table.insert(handles, { kind = "point", index = index, world = world })
+
+            local tangent = tangents[index]
+            for _, side in ipairs({ "in", "out" }) do
+                -- Open ends have one handle that shapes nothing.
+                local used = looped or (side == "in" and index > 1) or (side == "out" and index < #self.curvePoints)
+                local length = side == "in" and -tangent.lenIn or tangent.lenOut
+                if used and math.abs(length) > 0.001 then
+                    table.insert(handles, {
+                        kind = "tangent", index = index, side = side, anchor = world,
+                        world = self:getWorldPointFromLocal({
+                            x = point.x + tangent.dir.x * length,
+                            y = point.y + tangent.dir.y * length,
+                            z = point.z + tangent.dir.z * length
+                        })
+                    })
+                end
+            end
+        end
+    else
+        self:applyPathAlgorithmToNonAnchored()
+        for index, point in ipairs(self.pathPoints) do
+            if self:isPathPointAnchored(index) then
+                table.insert(handles, { kind = "point", index = index, world = self:getWorldPointFromLocal(point) })
+            end
+        end
+    end
+
+    return handles
+end
+
+---Applies a dragged handle's new world position.
+---@param handle table
+---@param world table
+function bendedMesh:moveViewportHandle(handle, world)
+    local target = self:worldToLocalPoint(world)
+
+    if handle.kind == "point" then
+        local point = self:isCurveMode() and self.curvePoints[handle.index] or self.pathPoints[handle.index]
+        if not point then return end
+        point.x, point.y, point.z = target.x, target.y, target.z
+    else
+        local point = self.curvePoints[handle.index]
+        if not point then return end
+
+        local offset = { x = target.x - point.x, y = target.y - point.y, z = target.z - point.z }
+        local length = length3(offset)
+        if length < 0.01 then return end
+
+        if not point.dir then
+            local tangent = self:getCurveTangents()[handle.index]
+            point.lenIn, point.lenOut = tangent.lenIn, tangent.lenOut
+        end
+
+        local sign = handle.side == "in" and -1 or 1
+        point.dir = { x = sign * offset.x / length, y = sign * offset.y / length, z = sign * offset.z / length }
+        if handle.side == "in" then
+            point.lenIn = length
+        else
+            point.lenOut = length
+        end
+    end
+
+    self:ensurePathPoints()
+    self:updatePathVisualization()
+end
+
+---Closest point of the curve under the cursor, as an insertion after control point `index`.
+---@return integer? index Segment start.
+---@return table? local Mesh-space position on the curve.
+function bendedMesh:pickCurveInsertion(screen, mouseX, mouseY)
+    local looped = self.pathLooped and #self.curvePoints > 2
+    local segments = buildCurveSegments(self.curvePoints, looped)
+    local best, bestIndex, bestPoint = HANDLE_CURVE_PICK_RADIUS, nil, nil
+
+    for index, segment in ipairs(segments) do
+        for step = 1, HANDLE_CURVE_SAMPLES - 1 do
+            local localPoint = bezierPoint(segment, step / HANDLE_CURVE_SAMPLES)
+            local projected = projectedWireframe.projectWorldPoint(screen, self:getWorldPointFromLocal(localPoint))
+            if projected and not projected.behind then
+                local distance = math.sqrt((projected.x - mouseX) ^ 2 + (projected.y - mouseY) ^ 2)
+                if distance < best then
+                    best, bestIndex, bestPoint = distance, index, localPoint
+                end
+            end
+        end
+    end
+
+    return bestIndex, bestPoint
+end
+
+---Where a drag of the current handle lands this frame, from the modifiers held.
+local function getDragTarget(self, drag, editor)
+    local origin = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+    local ray = editor.getScreenToWorldRay()
+
+    local mode = "plane"
+    if isKeyDown(ImGuiKey.LeftCtrl, ImGuiKey.RightCtrl) then
+        mode = "snap"
+    elseif isKeyDown(ImGuiKey.X) then
+        mode = "x"
+    elseif isKeyDown(ImGuiKey.Y) then
+        mode = "y"
+    elseif isKeyDown(ImGuiKey.Z, ImGuiKey.LeftShift, ImGuiKey.RightShift) then
+        mode = "z"
+    end
+
+    -- A modifier change restarts the drag from where the handle is now.
+    if mode ~= drag.mode then
+        drag.mode = mode
+        drag.start = { x = drag.current.x, y = drag.current.y, z = drag.current.z }
+        drag.reference = nil
+    end
+
+    if mode == "snap" then
+        local hit = editor.getRaySceneIntersection(ray, origin, { [self.object.id] = true }, true)
+        if hit and hit.hit and hit.result and hit.result.position then
+            local p = hit.result.position
+            return { x = p.x, y = p.y, z = p.z }
+        end
+        return nil
+    end
+
+    if mode == "plane" then
+        if math.abs(ray.z) < 0.0001 then return nil end
+        local distance = (drag.start.z - origin.z) / ray.z
+        if distance <= 0 then return nil end
+        local hit = { x = origin.x + ray.x * distance, y = origin.y + ray.y * distance, z = drag.start.z }
+        drag.reference = drag.reference or { x = hit.x - drag.start.x, y = hit.y - drag.start.y, z = 0 }
+        return { x = hit.x - drag.reference.x, y = hit.y - drag.reference.y, z = drag.start.z }
+    end
+
+    local axis = Vector4.new(mode == "x" and 1 or 0, mode == "y" and 1 or 0, mode == "z" and 1 or 0, 0)
+    local start = Vector4.new(drag.start.x, drag.start.y, drag.start.z, 0)
+    local t = intersection.getTClosestToRay(start, axis, origin, ray)
+    drag.reference = drag.reference or t
+    local along = t - drag.reference
+    return { x = drag.start.x + axis.x * along, y = drag.start.y + axis.y * along, z = drag.start.z + axis.z * along }
+end
+
+---@param drawList table
+local function drawHint(drawList, x, y, text)
+    local width, height = ImGui.CalcTextSize(text)
+    ImGui.ImDrawListAddRectFilled(drawList, x + 14, y + 14, x + 22 + width, y + 20 + height, handleColors.hintBackground, 4)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), x + 18, y + 17, handleColors.hint, text)
+end
+
+---Draws the editing handles and runs their mouse interaction.
+---@param screen table
+---@param drawList table
+function bendedMesh:drawViewportOverlay(screen, drawList)
+    if not self:wantsViewportOverlay() then return end
+
+    local editor = require("modules/utils/editor/editor")
+    local handles = self:getViewportHandles()
+    local curveMode = self:isCurveMode()
+
+    -- Path through the bones.
+    local previous = nil
+    for _, point in ipairs(self.pathPoints) do
+        local world = self:getWorldPointFromLocal(point)
+        if previous then
+            projectedWireframe.drawWorldLine(drawList, screen, previous, world, { color = handleColors.path, thickness = 2 })
+        end
+        previous = world
+    end
+
+    local mouseX, mouseY = ImGui.GetMousePos()
+    local interactive = editor.active and not editor.grab and not editor.rotate and not editor.scale
+        and (input.context.viewport.hovered or self._handleDrag ~= nil)
+        and (self._handleDrag ~= nil or not input.isUIInputActive())
+    local altDown = isKeyDown(ImGuiKey.LeftAlt, ImGuiKey.RightAlt)
+
+    local hovered, hoveredDistance = nil, HANDLE_PICK_RADIUS
+    for _, handle in ipairs(handles) do
+        handle.screen = projectedWireframe.projectWorldPoint(screen, handle.world)
+        if interactive and handle.screen and not handle.screen.behind then
+            local distance = math.sqrt((handle.screen.x - mouseX) ^ 2 + (handle.screen.y - mouseY) ^ 2)
+            -- Points win ties over the tangent tips sitting on top of them.
+            if distance < hoveredDistance or (handle.kind == "point" and hovered and hovered.kind ~= "point" and distance < HANDLE_PICK_RADIUS) then
+                hovered, hoveredDistance = handle, distance
+            end
+        end
+    end
+
+    local drag = self._handleDrag
+    if drag then
+        if ImGui.IsMouseDown(ImGuiMouseButton.Left) then
+            local target = getDragTarget(self, drag, editor)
+            if target then
+                drag.current = target
+                self:moveViewportHandle(drag.handle, target)
+            end
+        else
+            self._handleDrag = nil
+            self:autoFitDeformedBox()
+            self:refreshArrowScale()
+        end
+    elseif interactive and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
+        if hovered and not altDown then
+            history.addAction(history.getElementChange(self.object))
+            self._handleDrag = {
+                handle = { kind = hovered.kind, index = hovered.index, side = hovered.side },
+                current = { x = hovered.world.x, y = hovered.world.y, z = hovered.world.z }
+            }
+            self._handleDrag.start = self._handleDrag.current
+        elseif altDown and curveMode then
+            if hovered and hovered.kind == "point" then
+                if #self.curvePoints > 2 then
+                    history.addAction(history.getElementChange(self.object))
+                    table.remove(self.curvePoints, hovered.index)
+                    self:ensurePathPoints()
+                    self:autoFitDeformedBox()
+                    self:refreshArrowScale()
+                end
+            elseif hovered and hovered.kind == "tangent" then
+                history.addAction(history.getElementChange(self.object))
+                local point = self.curvePoints[hovered.index]
+                point.dir, point.lenIn, point.lenOut = nil, nil, nil
+                self:ensurePathPoints()
+                self:autoFitDeformedBox()
+                self:refreshArrowScale()
+            else
+                local index, localPoint = self:pickCurveInsertion(screen, mouseX, mouseY)
+                if index then
+                    history.addAction(history.getElementChange(self.object))
+                    local a, b = self.curvePoints[index], self.curvePoints[index % #self.curvePoints + 1]
+                    table.insert(self.curvePoints, index + 1, {
+                        x = localPoint.x, y = localPoint.y, z = localPoint.z,
+                        roll = ((a.roll or 0) + (b.roll or 0)) / 2
+                    })
+                else
+                    local hit = editor.getCursorSceneHit({ [self.object.id] = true })
+                    if hit and hit.hit and hit.result and hit.result.position then
+                        history.addAction(history.getElementChange(self.object))
+                        local target = self:worldToLocalPoint(hit.result.position)
+                        table.insert(self.curvePoints, {
+                            x = target.x, y = target.y, z = target.z,
+                            roll = self.curvePoints[#self.curvePoints].roll or 0
+                        })
+                    end
+                end
+                self:ensurePathPoints()
+                self:autoFitDeformedBox()
+                self:refreshArrowScale()
+            end
+        elseif altDown and hovered and hovered.kind == "point" and hovered.index > 1 and hovered.index < #self.pathPoints then
+            history.addAction(history.getElementChange(self.object))
+            self.pathPoints[hovered.index].anchored = false
+            self:ensurePathPoints()
+            self:autoFitDeformedBox()
+            self:refreshArrowScale()
+        end
+    end
+
+    -- Handles may have moved during the drag; draw from the latest positions.
+    if self._handleDrag then
+        handles = self:getViewportHandles()
+        for _, handle in ipairs(handles) do
+            handle.screen = projectedWireframe.projectWorldPoint(screen, handle.world)
+        end
+    end
+
+    local active = self._handleDrag and self._handleDrag.handle
+    local function isSame(a, b)
+        return a and b and a.kind == b.kind and a.index == b.index and a.side == b.side
+    end
+
+    for _, handle in ipairs(handles) do
+        if handle.kind == "tangent" and handle.screen and not handle.screen.behind then
+            local manual = self.curvePoints[handle.index] and self.curvePoints[handle.index].dir ~= nil
+            local color = manual and handleColors.tangentManual or handleColors.tangentAuto
+            projectedWireframe.drawWorldLine(drawList, screen, handle.anchor, handle.world, { color = color, thickness = 1.5 })
+            local radius = (isSame(handle, hovered) or isSame(handle, active)) and HANDLE_TIP_RADIUS + 2 or HANDLE_TIP_RADIUS
+            ImGui.ImDrawListAddRectFilled(drawList, handle.screen.x - radius, handle.screen.y - radius, handle.screen.x + radius, handle.screen.y + radius, color, 1)
+        end
+    end
+
+    for _, handle in ipairs(handles) do
+        if handle.kind == "point" and handle.screen and not handle.screen.behind then
+            local color = handleColors.point
+            if isSame(handle, active) then
+                color = handleColors.pointActive
+            elseif isSame(handle, hovered) then
+                color = handleColors.pointHover
+            end
+            ImGui.ImDrawListAddCircleFilled(drawList, handle.screen.x, handle.screen.y, HANDLE_POINT_RADIUS + 1.5, 0xC8000000, -1)
+            ImGui.ImDrawListAddCircleFilled(drawList, handle.screen.x, handle.screen.y, HANDLE_POINT_RADIUS, color, -1)
+        end
+    end
+
+    if interactive and (hovered or self._handleDrag) then
+        local text
+        if self._handleDrag then
+            text = "Hold: Horizontal (X/Y, hold X or Y to lock an axis)\nShift / Z: vertical (Z)\nCtrl: snap to the surface"
+        elseif hovered.kind == "tangent" then
+            text = "Drag: edit the tangent\nAlt+click: back to automatic"
+        elseif curveMode then
+            text = "Drag: move\nAlt+click: remove the point"
+        else
+            text = "Drag: move\nAlt+click: release the anchor"
+        end
+        drawHint(drawList, mouseX, mouseY, text)
+    elseif interactive and altDown and curveMode then
+        drawHint(drawList, mouseX, mouseY, "Alt+click on the curve: insert a point\nAlt+click elsewhere: add a point at the end")
+    end
+
+    if interactive then
+        editor.handleCapture.hovered = editor.handleCapture.hovered or hovered ~= nil or (altDown and curveMode)
+    end
+    editor.handleCapture.dragging = editor.handleCapture.dragging or self._handleDrag ~= nil
+end
+
 function bendedMesh:drawAppearanceSelector()
     local list = self.apps
     style.pushGreyedOut(#self.apps <= 1)
@@ -3194,6 +3580,12 @@ function bendedMesh:drawPathVisualizationSettings()
         end
     end
 
+    style.mutedText("Viewport Handles")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.viewportHandlesEnabled, changed = style.trackedCheckbox(self.object, "##viewportHandlesEnabled", self.viewportHandlesEnabled)
+    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.")
+
     style.mutedText("In-World Path Viz")
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
@@ -3241,7 +3633,7 @@ function bendedMesh:drawCurvePointEditor(index, point, tangent)
     style.pushStyleColor(manual, ImGuiCol.Text, 0.25, 0.62, 0.97, 1.0)
     local _, clicked = style.toggleButton(IconGlyphs.VectorBezier .. "##curveTangentMode", manual)
     style.popStyleColor(manual)
-    style.tooltip(manual and "Manual tangent. Click to go back to an automatic one." or "Automatic tangent. Click to set heading, slope and handle lengths by hand.")
+    style.tooltip(manual and "Manual tangent.\nClick to go back to an automatic one." or "Automatic tangent.\nClick to set heading, slope and handle lengths by hand.")
     if clicked then
         history.addAction(history.getElementChange(self.object))
         if manual then
@@ -3280,7 +3672,7 @@ function bendedMesh:drawCurvePointEditor(index, point, tangent)
         local heading, slope = directionToAngles(point.dir)
         local headingChanged, slopeChanged
         heading, headingChanged = field.advancedTrackedFloat(self.object, "##curvePointHeading", heading, { suffix = " Heading", width = 96, step = 0.1 })
-        style.tooltip("Tangent direction around the mesh's up axis, in degrees. 0 points along +Y, positive turns left.")
+        style.tooltip("Tangent direction around the mesh's up axis, in degrees.\n0 points along +Y, positive turns left.")
         ImGui.SameLine()
         slope, slopeChanged = field.advancedTrackedFloat(self.object, "##curvePointSlope", slope, { suffix = " Slope", width = 84, step = 0.1, min = -89.9, max = 89.9 })
         style.tooltip("Tangent slope in degrees.")
@@ -3294,7 +3686,7 @@ function bendedMesh:drawCurvePointEditor(index, point, tangent)
         ImGui.SameLine()
         point.lenIn, changed = field.advancedTrackedFloat(self.object, "##curvePointLenIn", point.lenIn or tangent.lenIn, { suffix = " In", width = 60, min = 0 })
         changedAny = changedAny or changed
-        style.tooltip("Length of the incoming handle. Longer keeps the direction further into the curve.")
+        style.tooltip("Length of the incoming handle.\nLonger keeps the direction further into the curve.")
         ImGui.SameLine()
         point.lenOut, changed = field.advancedTrackedFloat(self.object, "##curvePointLenOut", point.lenOut or tangent.lenOut, { suffix = " Out", width = 60, min = 0 })
         changedAny = changedAny or changed
@@ -3330,7 +3722,7 @@ function bendedMesh:drawCurveEditor()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     local lengthIndex
     lengthIndex, changed = style.trackedCombo(self.object, "##pathLengthMode", self.pathLengthMode - 1, lengthModeOptions, 180, {
-        tooltip = "Fit to Curve spreads the bones over the whole curve; the mesh stretches to its length.\nKeep Rest Length places the bones at the mesh's own spacing from the start; the mesh ends where its length runs out, or carries on straight past the last point."
+        tooltip = "Fit to Curve: the bones spread over the whole curve.\nThe mesh stretches to the curve's length.\n\nKeep Rest Length: the bones keep the mesh's own spacing from the start.\nThe mesh ends where its length runs out,\nor carries on straight past the last point."
     })
     if changed then
         self.pathLengthMode = math.max(1, math.min(math.floor(lengthIndex) + 1, #lengthModeOptions))
@@ -3474,7 +3866,7 @@ function bendedMesh:drawPathEditor()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     local solverIndex
     solverIndex, changed = style.trackedCombo(self.object, "##pathSolver", self.pathSolver - 1, pathSolverOptions, 180, {
-        tooltip = "Along Curve spaces non-anchored bones along the curve with the rig's own spacing, so the mesh does not stretch unevenly, and bends the ends along the curve.\nBy Index places them at even steps of the curve parameter, as older projects did."
+        tooltip = "Along Curve: non-anchored bones follow the curve with the rig's own spacing,\nso the mesh does not stretch unevenly, and the ends bend along the curve.\n\nBy Index: bones sit at even steps of the curve parameter, as older projects did."
     })
     if changed then
         self.pathSolver = math.max(1, math.min(math.floor(solverIndex) + 1, #pathSolverOptions))
@@ -3675,7 +4067,7 @@ function bendedMesh:drawColliderGeneration()
     if changed then
         self.bendedColliderStep = math.max(1, math.min(16, math.floor(self.bendedColliderStep)))
     end
-    style.tooltip("Splits each sampled segment into N colliders. Higher values follow bends more closely.")
+    style.tooltip("Splits each sampled segment into N colliders.\nHigher values follow bends more closely.")
 
     style.mutedText("Length Overlap")
     ImGui.SameLine()
@@ -3722,6 +4114,7 @@ function bendedMesh:draw()
             "Length Mode",
             "Mesh bones quantity",
             "Deformed Preview",
+            "Viewport Handles",
             "In-World Path Viz",
             "Show Local Frames",
             "Collider Shape",

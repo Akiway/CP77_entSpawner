@@ -414,6 +414,14 @@ function projectedWireframe.beginOverlay(windowId)
     return screen, ImGui.GetWindowDrawList()
 end
 
+---Projects a world-space point to overlay pixels.
+---@param screen projectedScreenContext
+---@param point Vector4
+---@return screenPoint|nil
+function projectedWireframe.projectWorldPoint(screen, point)
+    return projectWorldPoint(screen, point)
+end
+
 ---Ends the overlay window started by `beginOverlay`.
 function projectedWireframe.endOverlay()
     ImGui.End()

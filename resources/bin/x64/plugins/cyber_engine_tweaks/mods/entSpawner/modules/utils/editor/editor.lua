@@ -62,6 +62,9 @@ local editor = {
     depthElementsMaxWidth = 0,
     boxSelectActive = false,
     boxSelectStart = { x = 0, y = 0 },
+    ---Set by a spawnable's viewport overlay while the cursor is on one of its handles (`hovered`) or
+    ---drags one (`dragging`); selection, gizmo and box select then leave the mouse to it.
+    handleCapture = { hovered = false, dragging = false },
     wireframeCacheEpoch = -1,
     wireframeLeafCache = {},
     wireframeBoundsCache = {},
@@ -443,7 +446,8 @@ function editor.confirmEditingTransform()
         return
     end
 
-    if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit then
+    local handleCaptured = editor.handleCapture.hovered or editor.handleCapture.dragging
+    if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit and not handleCaptured then
         local hierarchyPickActive = editor.spawnedUI
             and type(editor.spawnedUI.isHierarchyPickActive) == "function"
             and editor.spawnedUI.isHierarchyPickActive()
@@ -941,6 +945,17 @@ end
 
 ---Updates hovered transform arrow based on cursor-to-gizmo intersection tests.
 function editor.checkArrow()
+    if editor.currentAxis == "none" and (editor.handleCapture.hovered or editor.handleCapture.dragging) then
+        if editor.hoveredArrow ~= "none" and #editor.spawnedUI.selectedPaths == 1 then
+            local selected = editor.spawnedUI.selectedPaths[1].ref.spawnable
+            if selected and selected:getEntity() then
+                visualizer.highlightArrow(selected:getEntity(), "none")
+            end
+        end
+        editor.hoveredArrow = "none"
+        return
+    end
+
     if #editor.spawnedUI.selectedPaths ~= 1 or editor.currentAxis ~= "none" then
         editor.hoveredArrow = "none"
         return
@@ -1630,6 +1645,8 @@ end
 
 ---Draws spawnable viewport overlays in one shared window.
 local function drawSpawnableViewportOverlays()
+    editor.handleCapture.hovered = false
+    editor.handleCapture.dragging = false
     if not editor.camera or not editor.spawnedUI or not GetPlayer() then return end
 
     editor.spawnedUI.ensureCache()
@@ -1951,7 +1968,8 @@ function editor.handleBoxSelect()
     local x, y = ImGui.GetMousePos()
     local ctrlDown = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) or ImGui.IsKeyDown(ImGuiKey.RightCtrl)
     -- Ignore widget drags that continue over the viewport.
-    if ctrlDown and ImGui.IsMouseDragging(0, style.draggingThreshold) and not editor.boxSelectActive and input.context.viewport.hovered and not input.isUIInputActive() then
+    local handleCaptured = editor.handleCapture.hovered or editor.handleCapture.dragging
+    if ctrlDown and ImGui.IsMouseDragging(0, style.draggingThreshold) and not editor.boxSelectActive and input.context.viewport.hovered and not input.isUIInputActive() and not handleCaptured then
         editor.boxSelectActive = true
         editor.boxSelectStart = { x = x, y = y }
         editor.spawnedUI.unselectAll()
@@ -1998,6 +2016,7 @@ end
 ---@return boolean active
 function editor.hasActiveViewportInteraction()
     return editor.currentAxis ~= "none"
+        or editor.handleCapture.dragging == true
         or editor.grab == true
         or editor.rotate == true
         or editor.scale == true

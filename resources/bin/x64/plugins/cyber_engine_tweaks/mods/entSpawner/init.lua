@@ -197,6 +197,7 @@ function spawner:new()
         -- Explicit saves are queued onto a frame-budgeted pipeline, so a reload can arrive while some
         -- are still waiting. Finish them here rather than dropping work the user asked to save.
         persistenceManager.flushPendingManualSaves()
+        bendedPool.setInstantDissolve(false)
 
         if settings.despawnOnReload then
             self.baseUI.spawnedUI.root:remove()
@@ -226,10 +227,12 @@ function spawner:new()
 
     registerForEvent("onOverlayOpen", function()
         self.runtimeData.cetOpen = true
+        bendedPool.setInstantDissolve(true)
     end)
 
     registerForEvent("onOverlayClose", function()
         self.runtimeData.cetOpen = false
+        bendedPool.setInstantDissolve(false)
 
         -- Arrow distance scaling is driven from onDraw, which stops running here. Reset now so no
         -- gizmo is left frozen at the size it had for a far-away camera. (editor.toggle does the same
