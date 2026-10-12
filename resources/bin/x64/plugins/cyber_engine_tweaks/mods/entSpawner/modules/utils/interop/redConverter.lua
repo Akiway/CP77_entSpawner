@@ -1128,7 +1128,8 @@ function red.JSONToRedData(json, data)
 
             local propData = red.importAny(metaType, propType, value, prop, data, key)
 
-            if propData then
+            -- A Bool imports as `false`, which is a value to write, not a failed import.
+            if propData ~= nil then
                 data[key] = propData
             end
         end
