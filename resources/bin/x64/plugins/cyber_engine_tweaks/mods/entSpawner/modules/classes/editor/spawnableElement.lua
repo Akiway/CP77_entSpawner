@@ -187,6 +187,7 @@ end
 
 function spawnableElement:setVisualizerDirection(direction)
 	positionable.setVisualizerDirection(self, direction)
+	editor.followTransformHover(direction)
 
 	if not self.spawnable:isSpawned() then return end
 

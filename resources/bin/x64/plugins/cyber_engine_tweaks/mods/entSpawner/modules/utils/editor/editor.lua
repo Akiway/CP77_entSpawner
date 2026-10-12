@@ -889,6 +889,22 @@ function editor.setGizmoMode(mode)
     end
 end
 
+local POSITION_DIRECTIONS = { x = true, y = true, z = true, relX = true, relY = true, relZ = true }
+local ROTATION_DIRECTIONS = { pitch = true, roll = true, yaw = true }
+
+---With separate gizmos, hovering a position field shows the arrows and a rotation field the
+---rings, so the right gizmo shows outside 3D mode too, where G and R do nothing.
+---@param direction string Hovered transform field, as passed to `setVisualizerDirection`.
+function editor.followTransformHover(direction)
+    if settings.gizmoRingMode ~= "split" then return end
+
+    if POSITION_DIRECTIONS[direction] then
+        editor.setGizmoMode("move")
+    elseif ROTATION_DIRECTIONS[direction] then
+        editor.setGizmoMode("rotate")
+    end
+end
+
 ---Scales selected gizmos for camera distance while editor mode is active.
 function editor.updateArrowScale()
     if not editor.active then return end
