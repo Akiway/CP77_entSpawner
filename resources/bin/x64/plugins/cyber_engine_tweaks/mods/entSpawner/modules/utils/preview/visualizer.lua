@@ -167,6 +167,20 @@ visualizer.gizmoMode = "move"
 ---Radius of the rotation rings in `ring.mesh` units, before the gizmo scale is applied.
 visualizer.ringRadius = 2.55
 
+-- ring.mesh's radius as a multiple of the arrow length (1.96 in `arrow.mesh`).
+local RING_MESH_SIZE = visualizer.ringRadius / 1.96
+
+---Factor from the arrow scale to the ring scale, for `settings.gizmoRingSize`.
+---@return number
+function visualizer.getRingScaleFactor()
+    return (settings.gizmoRingSize or RING_MESH_SIZE) / RING_MESH_SIZE
+end
+
+local function ringScale(scale)
+    local factor = visualizer.getRingScaleFactor()
+    return { x = scale.x * factor, y = scale.y * factor, z = scale.z * factor }
+end
+
 -- ring.mesh has four quarter chunks per ring, rings in the arrow mesh's order (z, y, x).
 -- Quarter q spans [q * 90, (q + 1) * 90) degrees in the ring's (u, v) basis, listed below.
 local RING_CHUNK_OFFSET = { z = 0, y = 4, x = 8 }
@@ -266,7 +280,7 @@ function visualizer.attachArrows(entity, scale, active, app)
     if not entity then return end
 
     addMesh(entity, "arrows", "base\\spawner\\arrow.mesh", scale, app, active and showsArrows())
-    addMesh(entity, "rings", "base\\spawner\\ring.mesh", scale, app, active and showsRings())
+    addMesh(entity, "rings", "base\\spawner\\ring.mesh", ringScale(scale), app, active and showsRings())
 end
 
 ---Update scale of one preview mesh component.
@@ -287,7 +301,7 @@ function visualizer.updateScale(entity, scale, componentName)
     end
 
     if componentName == "arrows" then
-        visualizer.updateScale(entity, scale, "rings")
+        visualizer.updateScale(entity, ringScale(scale), "rings")
     end
 end
 
@@ -357,7 +371,7 @@ function visualizer.setArrowScale(entity, scale)
     if not entity then return end
 
     setGizmoComponentScale(entity, "arrows", scale)
-    setGizmoComponentScale(entity, "rings", scale)
+    setGizmoComponentScale(entity, "rings", ringScale(scale))
 end
 
 ---Set visibility for the `"arrows"` and `"rings"` gizmo. With move and rotate split, only the
