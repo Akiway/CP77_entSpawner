@@ -21,6 +21,7 @@ local gameUtils = require("modules/utils/game/gameUtils")
 ---@field hoveredArrow string
 ---@field hoveredRing string Rotation ring under the cursor: "x", "y", "z" or "none"
 ---@field ringDrag boolean A rotation ring is being dragged
+---@field ringWedge table? Plane and colour of the angle wedge drawn while a ring is dragged
 ---@field rotationDragSign number Flips a ring drag so the ring follows the cursor when its axis points away from the camera
 ---@field currentAxis string
 ---@field originalDiff table?
@@ -51,6 +52,7 @@ local editor = {
     hoveredRing = "none",
     ringDrag = false,
     rotationDragSign = 1,
+    ringWedge = nil,
     currentAxis = "none",
     originalDiff = {pos = nil, rot = nil, scale = nil},
     dragging = false,
@@ -1148,6 +1150,68 @@ function editor.getScreenRelativeToPoint(position)
     return diff:Transform(dir)
 end
 
+local RING_WEDGE_COLORS = {
+    x = { fill = 0x403B3BFF, edge = 0xC03B3BFF },
+    y = { fill = 0x4045DD3B, edge = 0xC045DD3B },
+    z = { fill = 0x40FF8C4A, edge = 0xC0FF8C4A }
+}
+
+---Builds the plane of the angle wedge for a ring drag starting now: centred on the rings, its
+---first edge pointing where the cursor crosses the ring plane.
+---@param axis Vector4 World rotation axis.
+---@param fallbackCenter Vector4 Used when the rings component has no transform.
+---@return table?
+local function getRingWedge(axis, fallbackCenter)
+    local path = editor.spawnedUI.selectedPaths[1]
+    local spawnable = path and path.ref.spawnable
+    local entity = spawnable and spawnable:getEntity()
+    local rings = entity and entity:FindComponentByName("rings")
+    if not rings then return nil end
+
+    local center = rings:GetLocalToWorld():GetTranslation() or fallbackCenter
+    local size = spawnable:getScaledArrowSize()
+    local radius = visualizer.ringRadius * math.max(size.x, size.y, size.z) * visualizer.getRingScaleFactor()
+
+    local cameraPosition = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+    local hit = intersection.getPlaneIntersection(cameraPosition, editor.getScreenToWorldRay(), center, axis)
+    local startDir
+    if hit.hit then
+        startDir = utils.subVector(hit.position, center)
+        startDir = utils.subVector(startDir, utils.multVector(axis, startDir:Dot(axis)))
+    end
+    if not startDir or Vector4.Length(startDir) < 1e-4 then
+        local helper = math.abs(axis.z) < 0.9 and Vector4.new(0, 0, 1, 0) or Vector4.new(1, 0, 0, 0)
+        startDir = Vector4.Cross(helper, axis)
+    end
+    startDir = Vector4.Normalize(startDir)
+
+    return {
+        center = center,
+        radius = radius,
+        startDir = startDir,
+        sideDir = Vector4.Normalize(Vector4.Cross(axis, startDir)),
+        colors = RING_WEDGE_COLORS[editor.currentAxis] or RING_WEDGE_COLORS.z,
+        angle = 0
+    }
+end
+
+---Draws the angle swept so far while a rotation ring is dragged.
+local function drawRingWedge()
+    local wedge = editor.ringWedge
+    if not editor.ringDrag or editor.currentAxis == "none" or not wedge then return end
+
+    local screen, drawList = projectedWireframe.beginOverlay("##wb-ring-wedge-overlay-wui")
+    if not screen then return end
+
+    projectedWireframe.drawWorldWedge(drawList, screen, wedge.center, wedge.radius, wedge.startDir, wedge.sideDir, wedge.angle, {
+        fillColor = wedge.colors.fill,
+        color = wedge.colors.edge,
+        thickness = 2 * style.viewSize
+    })
+
+    projectedWireframe.endOverlay()
+end
+
 ---Applies live translation/rotation/scale updates while the current transform interaction is active.
 function editor.updateDrag()
     local dragging = ImGui.IsMouseDragging(0, style.draggingThreshold) and not (editor.grab or editor.rotate or editor.scale)
@@ -1254,15 +1318,26 @@ function editor.updateDrag()
             -- The screen angle turns counter-clockwise; a ring whose axis points away from the
             -- camera turns clockwise for the same rotation, so its drag is flipped.
             editor.rotationDragSign = 1
+            editor.ringWedge = nil
             if editor.ringDrag and editor.rotationAxisWorld then
                 local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
                 if editor.rotationAxisWorld:Dot(forward) > 0 then
                     editor.rotationDragSign = -1
                 end
+                editor.ringWedge = getRingWedge(editor.rotationAxisWorld, position)
             end
         end
 
         local angleDelta = (angle - editor.originalDiff.rot) * editor.rotationDragSign + input.getNumeric(0)
+
+        local step = settings.rotationSnapStep or 0
+        if step > 0 and (ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)) then
+            angleDelta = math.floor(angleDelta / step + 0.5) * step
+        end
+
+        if editor.ringWedge then
+            editor.ringWedge.angle = (angleDelta + 180) % 360 - 180
+        end
 
         if editor.ringDrag then
             local shown = (angleDelta + 180) % 360 - 180
@@ -2169,6 +2244,7 @@ function editor.onDraw()
     drawHoveredGroupBounds()
     drawSpawnableStreamingRanges()
     drawSpawnableViewportOverlays()
+    drawRingWedge()
     drawElevatorDoorHelpers()
     drawSoundSystemHelpers()
     editor.updateArrowScale()
