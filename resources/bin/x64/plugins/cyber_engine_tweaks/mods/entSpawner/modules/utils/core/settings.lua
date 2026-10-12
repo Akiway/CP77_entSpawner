@@ -26,6 +26,8 @@ local config = require("modules/utils/core/config")
 ---@field public gizmoOnSelected boolean
 ---@field public arrowScaleWithDistance boolean
 ---@field public arrowSizeMultiplier number
+---@field public gizmoSplitRotate boolean Move and rotate are separate gizmos, switched with G and R
+---@field public gizmoRingQuarters boolean Rotation rings show only the quarter facing the camera
 ---@field public outlineSelected boolean
 ---@field public componentParentChain boolean
 ---@field public componentKindsOpen boolean
@@ -135,6 +137,8 @@ local settingsData = {
     gizmoOnSelected = true,
     arrowScaleWithDistance = true,
     arrowSizeMultiplier = 1.0,
+    gizmoSplitRotate = false,
+    gizmoRingQuarters = false,
     outlineSelected = true,
     componentParentChain = true,
     componentKindsOpen = false,

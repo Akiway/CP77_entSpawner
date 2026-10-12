@@ -19,6 +19,9 @@ local gameUtils = require("modules/utils/game/gameUtils")
 ---@field spawnUI spawnUI?
 ---@field suspendState boolean
 ---@field hoveredArrow string
+---@field hoveredRing string Rotation ring under the cursor: "x", "y", "z" or "none"
+---@field ringDrag boolean A rotation ring is being dragged
+---@field rotationDragSign number Flips a ring drag so the ring follows the cursor when its axis points away from the camera
 ---@field currentAxis string
 ---@field originalDiff table?
 ---@field grab boolean
@@ -45,6 +48,9 @@ local editor = {
     spawnUI = nil,
     suspendState = false,
     hoveredArrow = "none",
+    hoveredRing = "none",
+    ringDrag = false,
+    rotationDragSign = 1,
     currentAxis = "none",
     originalDiff = {pos = nil, rot = nil, scale = nil},
     dragging = false,
@@ -373,6 +379,7 @@ function editor.cancleEditingTransform()
     editor.grab = false
     editor.rotate = false
     editor.scale = false
+    editor.ringDrag = false
 
     local element = editor.getSelected()
     if not element or editor.currentAxis == "none" then return end
@@ -450,7 +457,7 @@ function editor.confirmEditingTransform()
     end
 
     local handleCaptured = editor.handleCapture.hovered or editor.handleCapture.dragging
-    if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and not editor.spawnUI.popupSpawnHit and not handleCaptured then
+    if not editor.grab and not editor.rotate and not editor.scale and editor.hoveredArrow == "none" and editor.hoveredRing == "none" and not editor.spawnUI.popupSpawnHit and not handleCaptured then
         local hierarchyPickActive = editor.spawnedUI
             and type(editor.spawnedUI.isHierarchyPickActive) == "function"
             and editor.spawnedUI.isHierarchyPickActive()
@@ -530,11 +537,19 @@ function editor.init(spawner)
     end)
 
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()
+        if settings.gizmoSplitRotate then
+            editor.setGizmoMode("move")
+            return
+        end
         editor.toggleTransform("translate")
     end, viewportHovered)
 
     input.registerImGuiHotkey({ ImGuiKey.R }, function ()
         if ImGui.IsKeyDown(ImGuiKey.LeftCtrl) then
+            return
+        end
+        if settings.gizmoSplitRotate then
+            editor.setGizmoMode("rotate")
             return
         end
         editor.toggleTransform("rotate")
@@ -836,6 +851,28 @@ function editor.updateArrowColor()
     visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis)
 end
 
+---Switches the split gizmo between the move arrows (`"move"`) and the rotation rings (`"rotate"`).
+---@param mode "move"|"rotate"
+function editor.setGizmoMode(mode)
+    if visualizer.gizmoMode == mode or editor.currentAxis ~= "none" then return end
+
+    visualizer.gizmoMode = mode
+    editor.hoveredArrow = "none"
+    editor.hoveredRing = "none"
+
+    if not editor.spawnedUI then return end
+    for _, path in pairs(editor.spawnedUI.selectedPaths) do
+        local element = path.ref
+        if utils.isA(element, "spawnableElement") and element.spawnable:isSpawned() then
+            local entity = element.spawnable:getEntity()
+            visualizer.showArrows(entity, element.visualizerState)
+            if element.visualizerState then
+                visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize())
+            end
+        end
+    end
+end
+
 ---Scales selected gizmos for camera distance while editor mode is active.
 function editor.updateArrowScale()
     if not editor.active then return end
@@ -847,6 +884,10 @@ function editor.updateArrowScale()
             local entity = element.spawnable:getEntity()
             if entity then
                 visualizer.setArrowScale(entity, element.spawnable:getScaledArrowSize())
+                -- Quarter rings follow the camera, but hold still while one is dragged.
+                if not editor.ringDrag then
+                    visualizer.updateRingQuarters(entity)
+                end
             end
         end
     end
@@ -957,6 +998,49 @@ function editor.recordChange()
     clearGroupRotationDragState()
 end
 
+---Returns the rotation ring under the cursor ray: "x", "y", "z" or "none".
+---A ring is hit where the ray crosses its plane within a band around its radius; with quarter
+---rings, only on the quarter that faces the camera.
+---@param ringsComponent entMeshComponent
+---@param origin Vector4 Ray origin.
+---@param ray Vector4 Ray direction.
+---@param gizmoSize visualizerScale Current gizmo scale.
+---@return string
+local function pickRing(ringsComponent, origin, ray, gizmoSize)
+    local ok, transform = pcall(function ()
+        return ringsComponent:GetLocalToWorld()
+    end)
+    if not ok or not transform then return "none" end
+
+    local rotation = transform:GetRotation()
+    local center = transform:GetTranslation()
+    local size = math.max(gizmoSize.x, gizmoSize.y, gizmoSize.z)
+    local radius = visualizer.ringRadius * size
+    local tolerance = 0.08 * size
+    local camera = settings.gizmoRingQuarters and visualizer.getCameraInGizmoSpace(transform) or nil
+
+    local best, bestDistance = "none", math.huge
+    local normals = { x = rotation:GetRight(), y = rotation:GetForward(), z = rotation:GetUp() }
+    for axis, normal in pairs(normals) do
+        local hit = intersection.getPlaneIntersection(origin, ray, center, normal)
+        if hit.hit and hit.distance > 0 and hit.distance < bestDistance then
+            local offset = utils.subVector(hit.position, center)
+            if math.abs(Vector4.Length(offset) - radius) <= tolerance then
+                local visible = true
+                if camera then
+                    local point = visualizer.toGizmoLocal(offset, rotation)
+                    visible = visualizer.getRingQuarter(axis, point) == visualizer.getRingQuarter(axis, camera)
+                end
+                if visible then
+                    best, bestDistance = axis, hit.distance
+                end
+            end
+        end
+    end
+
+    return best
+end
+
 ---Updates hovered transform arrow based on cursor-to-gizmo intersection tests.
 function editor.checkArrow()
     if editor.currentAxis == "none" and (editor.handleCapture.hovered or editor.handleCapture.dragging) then
@@ -972,6 +1056,7 @@ function editor.checkArrow()
 
     if #editor.spawnedUI.selectedPaths ~= 1 or editor.currentAxis ~= "none" then
         editor.hoveredArrow = "none"
+        editor.hoveredRing = "none"
         return
     end
 
@@ -1007,6 +1092,7 @@ function editor.checkArrow()
 
     local rotation = arrowTransform:GetRotation()
     local position = arrowTransform:GetTranslation()
+    local cameraPosition = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
 
     local xHit = intersection.getBoxIntersection(GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation(), ray, position, rotation, {
         min = { x = 0, y = -arrowWidth, z = -arrowWidth },
@@ -1023,7 +1109,9 @@ function editor.checkArrow()
         max = { x = arrowWidth, y = arrowWidth, z = arrowSize.z * 2 }
     })
 
-    if zHit.hit then
+    if not arrowsComponent:IsEnabled() then
+        editor.hoveredArrow = "none"
+    elseif zHit.hit then
         editor.hoveredArrow = "z"
     elseif xHit.hit then
         editor.hoveredArrow = "x"
@@ -1033,7 +1121,13 @@ function editor.checkArrow()
         editor.hoveredArrow = "none"
     end
 
-    visualizer.highlightArrow(selected:getEntity(), editor.hoveredArrow)
+    editor.hoveredRing = "none"
+    local ringsComponent = entityRef:FindComponentByName("rings")
+    if editor.hoveredArrow == "none" and ringsComponent and ringsComponent:IsEnabled() then
+        editor.hoveredRing = pickRing(ringsComponent, cameraPosition, ray, arrowSize)
+    end
+
+    visualizer.highlightArrow(selected:getEntity(), editor.hoveredArrow, editor.hoveredRing)
 end
 
 ---Returns camera-relative cursor movement from a world position.
@@ -1059,8 +1153,14 @@ function editor.updateDrag()
     local dragging = ImGui.IsMouseDragging(0, style.draggingThreshold) and not (editor.grab or editor.rotate or editor.scale)
     if dragging then
         -- Do not let UI drags reuse a stale hovered arrow.
-        if editor.hoveredArrow ~= "none" and not input.isUIInputActive() then
-            editor.currentAxis = editor.hoveredArrow
+        if not input.isUIInputActive() then
+            if editor.hoveredArrow ~= "none" then
+                editor.currentAxis = editor.hoveredArrow
+                editor.ringDrag = false
+            elseif editor.hoveredRing ~= "none" then
+                editor.currentAxis = editor.hoveredRing
+                editor.ringDrag = true
+            end
         end
     elseif not editor.grab and not editor.rotate and not editor.scale then
         if editor.currentAxis ~= "none" then
@@ -1068,6 +1168,7 @@ function editor.updateDrag()
         end
 
         editor.currentAxis = "none"
+        editor.ringDrag = false
     end
 
     if editor.currentAxis == "none" then return end
@@ -1124,12 +1225,12 @@ function editor.updateDrag()
         editor.originalScale = Vector4.new(scale)
     end
 
-    if editor.grab or dragging then
+    if (editor.grab or dragging) and not editor.ringDrag then
         selected:setPositionDelta(Vector4.new(diff.x - editor.originalDiff.pos.x, diff.y - editor.originalDiff.pos.y, diff.z - editor.originalDiff.pos.z))
         if selected.spawnable and selected.spawnable.onEditorMove then
             selected.spawnable:onEditorMove()
         end
-    elseif editor.rotate then
+    elseif editor.rotate or editor.ringDrag then
         local dir = editor.getScreenRelativeToPoint(position):Normalize()
         local angle = math.atan2(dir.z, dir.x) * 180 / math.pi
 
@@ -1149,9 +1250,24 @@ function editor.updateDrag()
             else
                 editor.rotationAxisWorld = nil
             end
+
+            -- The screen angle turns counter-clockwise; a ring whose axis points away from the
+            -- camera turns clockwise for the same rotation, so its drag is flipped.
+            editor.rotationDragSign = 1
+            if editor.ringDrag and editor.rotationAxisWorld then
+                local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
+                if editor.rotationAxisWorld:Dot(forward) > 0 then
+                    editor.rotationDragSign = -1
+                end
+            end
         end
 
-        local angleDelta = angle - editor.originalDiff.rot + input.getNumeric(0)
+        local angleDelta = (angle - editor.originalDiff.rot) * editor.rotationDragSign + input.getNumeric(0)
+
+        if editor.ringDrag then
+            local shown = (angleDelta + 180) % 360 - 180
+            ImGui.SetTooltip(string.format("%s %+.1f\194\176", string.upper(editor.currentAxis), shown))
+        end
 
         if editor.rotationAxisWorld and editor.originalRotationQuat then
             local stepQuat = Quaternion.SetAxisAngle(editor.rotationAxisWorld, Deg2Rad(angleDelta))
