@@ -22,6 +22,8 @@ local gameUtils = require("modules/utils/game/gameUtils")
 ---@field hoveredRing string Rotation ring under the cursor: "x", "y", "z" or "none"
 ---@field ringDrag boolean A rotation ring is being dragged
 ---@field ringWedge table? Plane and colour of the angle wedge drawn while a ring is dragged
+---@field frame integer Counts editor draws
+---@field cancelledFrame integer? The `frame` in which a transform was last cancelled
 ---@field rotationDragSign number Flips a ring drag so the ring follows the cursor when its axis points away from the camera
 ---@field currentAxis string
 ---@field originalDiff table?
@@ -52,6 +54,8 @@ local editor = {
     hoveredRing = "none",
     ringDrag = false,
     rotationDragSign = 1,
+    frame = 0,
+    cancelledFrame = nil,
     ringWedge = nil,
     currentAxis = "none",
     originalDiff = {pos = nil, rot = nil, scale = nil},
@@ -368,6 +372,14 @@ function editor.teleportToPosition(position, rotationLike, opts, cameraDistance)
     return true
 end
 
+---Whether a transform is running, or was cancelled this frame. Esc and right-click, which cancel
+---one, use this to do nothing else.
+---@return boolean
+function editor.isTransforming()
+    return editor.grab or editor.rotate or editor.scale or editor.currentAxis ~= "none"
+        or editor.cancelledFrame == editor.frame
+end
+
 ---Ends active group-rotation drag state when the current selection is a group.
 local function clearGroupRotationDragState()
     local selected = editor.getSelected()
@@ -378,6 +390,10 @@ end
 
 ---Cancels the transform and restores its original values.
 function editor.cancleEditingTransform()
+    if editor.grab or editor.rotate or editor.scale or editor.currentAxis ~= "none" then
+        editor.cancelledFrame = editor.frame
+    end
+
     editor.grab = false
     editor.rotate = false
     editor.scale = false
@@ -541,7 +557,6 @@ function editor.init(spawner)
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()
         if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("move")
-            return
         end
         editor.toggleTransform("translate")
     end, viewportHovered)
@@ -552,7 +567,6 @@ function editor.init(spawner)
         end
         if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("rotate")
-            return
         end
         editor.toggleTransform("rotate")
     end, viewportHovered)
@@ -2233,6 +2247,8 @@ end
 
 ---Per-frame editor update/draw entrypoint invoked from the main draw loop.
 function editor.onDraw()
+    editor.frame = editor.frame + 1
+
     if editor.spawnedUI and editor.spawnedUI.updateModifierState then
         editor.spawnedUI.updateModifierState()
     end
