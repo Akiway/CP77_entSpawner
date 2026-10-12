@@ -1415,6 +1415,19 @@ function settingsUI.draw(spawner)
         end
         style.tooltip("Overall size of the positioning arrows. Increase this to make them easier to see, e.g. in bright daylight.")
 
+        settings.gizmoSplitRotate, changed = ImGui.Checkbox("Separate move and rotate gizmos", settings.gizmoSplitRotate)
+        if changed then
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("Show either the move arrows or the rotation rings, instead of both together. G switches to the arrows and R to the rings, in place of starting a keyboard move or rotate.")
+
+        settings.gizmoRingQuarters, changed = ImGui.Checkbox("Show only the quarter of each rotation ring facing the camera", settings.gizmoRingQuarters)
+        if changed then
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then
             settings.save()
