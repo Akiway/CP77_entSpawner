@@ -1443,6 +1443,15 @@ function settingsUI.draw(spawner)
             refreshSelectedVisualizers(spawner)
         end
 
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.gizmoRingSize, changed = ImGui.SliderFloat("Rotation ring size", settings.gizmoRingSize, 0.5, 2.0, "%.2f")
+        if changed then
+            settings.gizmoRingSize = math.max(0.5, math.min(settings.gizmoRingSize, 2.0))
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("Radius of the rotation rings, as a multiple of the arrow length. Above 1 the rings sit past the arrow tips.")
+
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then
             settings.save()

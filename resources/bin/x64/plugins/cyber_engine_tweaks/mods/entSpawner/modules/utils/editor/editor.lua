@@ -1014,7 +1014,7 @@ local function pickRing(ringsComponent, origin, ray, gizmoSize)
 
     local rotation = transform:GetRotation()
     local center = transform:GetTranslation()
-    local size = math.max(gizmoSize.x, gizmoSize.y, gizmoSize.z)
+    local size = math.max(gizmoSize.x, gizmoSize.y, gizmoSize.z) * visualizer.getRingScaleFactor()
     local radius = visualizer.ringRadius * size
     local tolerance = 0.08 * size
     local camera = settings.gizmoRingQuarters and visualizer.getCameraInGizmoSpace(transform) or nil
