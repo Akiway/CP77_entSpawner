@@ -1427,7 +1427,7 @@ function settingsUI.draw(spawner)
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G switches to the arrows and R to the rings, in place of starting a keyboard move or rotate.\nDisabled: no rings.")
+        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G also switches to the arrows and R to the rings, and hovering a position or rotation field switches to the matching one.\nDisabled: no rings.")
 
         ImGui.BeginDisabled(settings.gizmoRingMode == "off")
         settings.gizmoRingQuarters, changed = ImGui.Checkbox("Show only the quarter of each rotation ring facing the camera", settings.gizmoRingQuarters)
