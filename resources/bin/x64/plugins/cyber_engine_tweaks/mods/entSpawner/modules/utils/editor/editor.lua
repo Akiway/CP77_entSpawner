@@ -1070,13 +1070,14 @@ end
 ---Updates hovered transform arrow based on cursor-to-gizmo intersection tests.
 function editor.checkArrow()
     if editor.currentAxis == "none" and (editor.handleCapture.hovered or editor.handleCapture.dragging) then
-        if editor.hoveredArrow ~= "none" and #editor.spawnedUI.selectedPaths == 1 then
+        if (editor.hoveredArrow ~= "none" or editor.hoveredRing ~= "none") and #editor.spawnedUI.selectedPaths == 1 then
             local selected = editor.spawnedUI.selectedPaths[1].ref.spawnable
             if selected and selected:getEntity() then
                 visualizer.highlightArrow(selected:getEntity(), "none")
             end
         end
         editor.hoveredArrow = "none"
+        editor.hoveredRing = "none"
         return
     end
 
