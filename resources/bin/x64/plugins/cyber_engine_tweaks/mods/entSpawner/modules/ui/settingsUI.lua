@@ -493,6 +493,24 @@ local function normalizeNonNegativeNumber(value, fallback)
 end
 
 ---@param spawner spawner
+---Shows or hides the component helpers of every spawned entity, after a default setting changes.
+---@param spawner spawner
+local function refreshComponentHelpers(spawner)
+    local root = spawner and spawner.baseUI and spawner.baseUI.spawnedUI and spawner.baseUI.spawnedUI.root
+    if not root then return end
+
+    local function visit(element)
+        local spawnable = element.spawnable
+        if spawnable and spawnable.refreshComponentHelpers then
+            spawnable:refreshComponentHelpers()
+        end
+        for _, child in ipairs(element.childs or {}) do
+            visit(child)
+        end
+    end
+    visit(root)
+end
+
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
     if not spawnedUI then return end
@@ -1431,6 +1449,22 @@ function settingsUI.draw(spawner)
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Visualization Helpers")
         drawSpawnNewVisualizerDefaultSelector(spawner)
+
+        local helpersOn, helpersChanged = ImGui.Checkbox("Show component helpers by default", settings.componentHelpersDefault)
+        if helpersChanged then
+            settings.componentHelpersDefault = helpersOn
+            settings.save()
+            refreshComponentHelpers(spawner)
+        end
+        style.tooltip("An entity component whose helper toggle you have not set shows its helper (light shapes, boxes, collider shapes, markers) while the entity's Visualize is on.\nA toggle you set keeps your choice.")
+
+        local radiusOn, radiusChanged = ImGui.Checkbox("Show component radius spheres by default", settings.componentRadiusHelpersDefault)
+        if radiusChanged then
+            settings.componentRadiusHelpersDefault = radiusOn
+            settings.save()
+            refreshComponentHelpers(spawner)
+        end
+        style.tooltip("The same for the radius spheres of lights and sounds, which can be large.\nA toggle you set keeps your choice.")
         style.sectionHeaderEnd()
 
         ImGui.Dummy(0, 8 * style.viewSize)
@@ -1536,6 +1570,20 @@ function settingsUI.draw(spawner)
         ImGui.SameLine()
         style.styledText(IconGlyphs.Flask, style.activeColor)
         style.tooltip("-{ Experimental feature }-\nInterface may bug when scrolling at the bottom of the hierarchy.")
+
+        local parentChain, parentChainChanged = ImGui.Checkbox("Show what a component is attached to", settings.componentParentChain)
+        if parentChainChanged then
+            settings.componentParentChain = parentChain
+            settings.save()
+        end
+        style.tooltip("An open component in Entity Instance Data lists the components it is attached to, nearest first.")
+
+        local kindsOpen, kindsOpenChanged = ImGui.Checkbox("Open component groups by default", settings.componentKindsOpen)
+        if kindsOpenChanged then
+            settings.componentKindsOpen = kindsOpen
+            settings.save()
+        end
+        style.tooltip("Entity Instance Data opens with every component group open, listing every component.\nOff, it opens with the groups closed.")
 
         ImGui.Dummy(0, 8 * style.viewSize)
         style.sectionHeaderStart("Balance between icons and text")
