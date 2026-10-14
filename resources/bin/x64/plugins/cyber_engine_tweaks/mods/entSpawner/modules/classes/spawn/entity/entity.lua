@@ -15,10 +15,16 @@ local previewControls = require("modules/utils/preview/previewControls")
 local appearanceHelper = require("modules/utils/ui/appearanceHelper")
 local logger = require("modules/utils/core/logger")
 local lightComponentUI = require("modules/utils/ui/lightComponentUI")
+local componentUI = require("modules/utils/ui/componentUI")
+local componentPanels = require("modules/utils/ui/componentPanels")
+local componentHelpers = require("modules/utils/preview/componentHelpers")
 local tweakDb = require("modules/utils/game/tweakDbUtils")
 local saveState = require("modules/utils/project/saveState")
 local audioData = require("modules/utils/data/audioData")
 local soundSelector = require("modules/utils/ui/soundSelector")
+local componentTransform = require("modules/classes/editor/componentTransform")
+local componentKinds = require("modules/utils/data/componentKinds")
+local settings = require("modules/utils/core/settings")
 
 local POSITION_MARKER_COMPONENT = "sphere"
 local POSITION_MARKER_SCALE = { x = 0.05, y = 0.05, z = 0.05 }
@@ -184,6 +190,12 @@ function entity:new()
     o.psControllerID = ""
     o.rescaleEntityMultiplier = 1
     o.componentOverridesByName = {}
+    o.componentTransforms = {}
+    o.focusedComponentID = nil
+    o.focusedComponentFrame = -1
+    o.componentKindOpen = {}
+    o.previewed = true
+    o.componentHelpers = {}
 
     o.showPositionMarker = false
     o.positionMarkerColor = POSITION_MARKER_DEFAULT_COLOR
@@ -690,6 +702,7 @@ function entity:onAssemble(entRef)
     end
 
     self:applyComponentOverrides(entRef)
+    self:attachComponentHelpers(entRef)
 
     self.hasTransformAnimator = false
 
@@ -930,6 +943,8 @@ function entity:save()
     data.defaultComponentData = default
     data.deviceClassName = self.deviceClassName
     data.componentOverridesByName = utils.deepcopy(self.componentOverridesByName)
+    data.previewed = self.previewed
+    data.componentHelpers = utils.deepcopy(self.componentHelpers)
 
     return data
 end
@@ -1875,6 +1890,154 @@ function entity:updatePropValue(componentID, path, value)
     saveState.markDirty(self.object)
 
     self:respawn()
+end
+
+---Writes a component's local transform to the instance data.
+---@param componentID string
+---@param position Vector4
+---@param orientation Quaternion
+function entity:setComponentLocalTransform(componentID, position, orientation)
+    local defaultData = self.defaultComponentData[componentID]
+    if type(defaultData) ~= "table" or type(defaultData.localTransform) ~= "table" then return end
+
+    local changes = self.instanceDataChanges[componentID]
+    local data = { localTransform = utils.deepcopy(changes and changes.localTransform or defaultData.localTransform) }
+
+    writeVectorLikeValue(ensureLocalPositionTable(data, defaultData), { x = position.x, y = position.y, z = position.z })
+
+    local orientationData = type(data.localTransform.Orientation) == "table" and data.localTransform.Orientation or { ["$type"] = "Quaternion" }
+    orientationData.i = orientation.i
+    orientationData.j = orientation.j
+    orientationData.k = orientation.k
+    orientationData.r = orientation.r
+    data.localTransform.Orientation = orientationData
+
+    self:updatePropValue(componentID, { "localTransform" }, data.localTransform)
+end
+
+---Reads a component's local transform from the instance data, or from its defaults.
+---@param componentID string
+---@return Vector4? position
+---@return Quaternion? orientation
+function entity:getComponentStoredTransform(componentID)
+    local defaultData = self.defaultComponentData[componentID]
+    if type(defaultData) ~= "table" then return end
+
+    local changes = self.instanceDataChanges[componentID]
+    local transform = changes and changes.localTransform or defaultData.localTransform
+    if type(transform) ~= "table" then return end
+
+    local position = readVectorLikeValue(getLocalPositionTable({ localTransform = transform }))
+    local orientation = transform.Orientation
+    if not position or type(orientation) ~= "table" then return end
+
+    return Vector4.new(position.x, position.y, position.z, 0),
+        Quaternion.new(orientation.i or 0, orientation.j or 0, orientation.k or 0, orientation.r or 1)
+end
+
+---Writes a component's visual scale to the instance data.
+---@param componentID string
+---@param scale {x: number, y: number, z: number}
+function entity:setComponentVisualScale(componentID, scale)
+    local defaultData = self.defaultComponentData[componentID]
+    if type(defaultData) ~= "table" or type(defaultData.visualScale) ~= "table" then return end
+
+    local changes = self.instanceDataChanges[componentID]
+    local visualScale = utils.deepcopy(changes and changes.visualScale or defaultData.visualScale)
+    writeVectorLikeValue(visualScale, scale)
+
+    self:updatePropValue(componentID, { "visualScale" }, visualScale)
+end
+
+---@param componentID string
+---@return entIPlacedComponent?
+function entity:findPlacedComponent(componentID)
+    local entityRef = self:getEntity()
+    if not entityRef then return end
+
+    for _, component in pairs(entityRef:GetComponents()) do
+        if CRUIDToString(component.id) == componentID and component:IsA("entIPlacedComponent") then
+            return component
+        end
+    end
+end
+
+---The component the editor's gizmo is on. Focus lasts while that component is open in the
+---instance data, and is released the first frame it is not drawn.
+---@return componentTransform?
+function entity:getFocusedComponentTransform()
+    if not self.focusedComponentID then return end
+
+    local transform = self.componentTransforms[self.focusedComponentID]
+    if not transform then
+        self.focusedComponentID = nil
+        return
+    end
+
+    if self.focusedComponentFrame < ImGui.GetFrameCount() - 1 and not transform.editing then
+        transform:releaseFocus()
+        self.focusedComponentID = nil
+        return
+    end
+
+    if transform:getComponent() then
+        return transform
+    end
+end
+
+---Gives the gizmo to a component that is open in the instance data.
+---@param componentID string
+function entity:focusComponent(componentID)
+    local transform = self.componentTransforms[componentID]
+    if not transform or self.focusedComponentID == componentID then return end
+
+    local current = self.focusedComponentID and self.componentTransforms[self.focusedComponentID]
+    if current then
+        if current.editing then return end
+        current:releaseFocus()
+    end
+
+    self.focusedComponentID = componentID
+end
+
+---Reads the stored local transform of a live placed component.
+---@param component entIPlacedComponent
+---@return Vector4? position
+---@return Quaternion? orientation
+function entity:getPlacedComponentStoredTransform(component)
+    return self:getComponentStoredTransform(CRUIDToString(component.id))
+end
+
+---The transform editor of a component, created on first use. Nil for a component with no position.
+---@param componentID string
+---@param component table Default data of the component
+---@return componentTransform?
+function entity:getComponentTransform(componentID, component)
+    if type(component.localTransform) ~= "table" or not self.object then return end
+
+    local transform = self.componentTransforms[componentID]
+    if not transform then
+        transform = componentTransform:new(self.object, componentID, type(component.visualScale) == "table")
+        self.componentTransforms[componentID] = transform
+    end
+
+    return transform
+end
+
+---@param componentID string
+---@param component table Default data of the component
+function entity:drawComponentTransform(componentID, component)
+    local transform = self:getComponentTransform(componentID, component)
+    if not transform then return end
+
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.Download .. "##dropComponent") then
+        transform:dropToSurface(false, Vector4.new(0, 0, -1, 0))
+    end
+    style.pushButtonNoBG(false)
+    style.tooltip("Drop to floor")
+
+    transform:drawTransform()
 end
 
 ---@private
@@ -2985,56 +3148,186 @@ function entity:drawInstanceData()
     self.instanceDataSearchInProperties, _ = ImGui.Checkbox("Search in properties##instanceDataPropertySearch", self.instanceDataSearchInProperties)
     style.tooltip("Include component property names and values in the filter.")
 
+    ImGui.SameLine()
+    self:drawPreviewToggle()
+
+    ImGui.SameLine()
+    style.pushButtonNoBG(true)
+    if ImGui.Button(IconGlyphs.CollapseAllOutline .. "##componentKindsCollapse") then
+        for _, kind in ipairs(componentKinds.kinds) do
+            self.componentKindOpen[kind.label] = false
+        end
+        -- Applied as each component next draws, so one inside a closed kind closes too.
+        self.componentClosePending = {}
+        for key, _ in pairs(self.defaultComponentData) do
+            self.componentClosePending[key] = true
+        end
+    end
+    style.tooltip("Fold all components and kinds")
+
+    ImGui.SameLine()
+    if ImGui.Button(IconGlyphs.ExpandAllOutline .. "##componentKindsExpand") then
+        for _, kind in ipairs(componentKinds.kinds) do
+            self.componentKindOpen[kind.label] = true
+        end
+    end
+    style.tooltip("Expand all kinds")
+    style.pushButtonNoBG(false)
+
     local search = self.instanceDataSearch:lower()
     local propertySearch = (self.instanceDataSearchInProperties and search ~= "") and search or nil
+    local byKind = {}
     for _, entry in ipairs(self:getSortedComponents()) do
-        local key = entry.key
-        local component = entry.component
-        local componentName = entry.componentName
-        local name = entry.name
-
         local matchesSearch = self.instanceDataSearch == ""
-            or string.find(componentName:lower(), search, 1, true) ~= nil
-            or string.find(name:lower(), search, 1, true) ~= nil
+            or string.find(entry.componentName:lower(), search, 1, true) ~= nil
+            or string.find(entry.name:lower(), search, 1, true) ~= nil
 
         if not matchesSearch and self.instanceDataSearchInProperties and search ~= "" then
-            matchesSearch = utils.matchesComponentPropertiesSearch(component, self.instanceDataChanges[key], search)
+            matchesSearch = utils.matchesComponentPropertiesSearch(entry.component, self.instanceDataChanges[entry.key], search)
         end
 
         if matchesSearch then
-            style.pushStyleColor(not self.instanceDataChanges[key], ImGuiCol.Text, style.mutedColor)
+            -- The entity's own record is not a component, so it stays above the kinds.
+            if entry.priority == 0 then
+                self:drawComponentEntry(entry, propertySearch)
+            else
+                local kind = componentKinds.getKind(entry.componentType)
+                byKind[kind] = byKind[kind] or {}
+                table.insert(byKind[kind], entry)
+            end
+        end
+    end
 
-            local expanded = false
-            if ImGui.TreeNodeEx(name, ImGuiTreeNodeFlags.SpanFullWidth) then
-                expanded = true
-                self:drawResetComponent(key)
-                style.popStyleColor(not self.instanceDataChanges[key])
+    self:updateComponentHelperShapes()
 
-                if lightComponentUI.isLightComponentData(component) then
-                    self:drawLightComponentInstanceData(key, component, propertySearch)
-                else
-                    local keys, max = self:getSortedKeys(component)
-                    for _, propKey in pairs(keys) do
-                        local entry = component[propKey]
-                        local modified = self.instanceDataChanges[key] and self.instanceDataChanges[key][propKey]
-                        if modified then entry = self.instanceDataChanges[key][propKey] end
+    -- A search opens every kind with a match, without changing which kinds stay open afterwards.
+    for _, kind in ipairs(componentKinds.kinds) do
+        local entries = byKind[kind]
+        if entries then
+            if self.componentKindOpen[kind.label] == nil then
+                self.componentKindOpen[kind.label] = settings.componentKindsOpen == true
+            end
 
-                        style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
-                        self:drawInstanceDataProperty(key, propKey, entry, { propKey }, max, propertySearch, false)
+            ImGui.SetNextItemOpen(search ~= "" or self.componentKindOpen[kind.label])
+            local open = style.treeNodeWithCount(kind.label .. "##componentKind", #entries)
+            if search == "" then
+                self.componentKindOpen[kind.label] = open
+            end
 
-                        style.popStyleColor(true)
-                    end
+            if open then
+                for _, entry in ipairs(entries) do
+                    self:drawComponentEntry(entry, propertySearch)
                 end
                 ImGui.TreePop()
-            end
-            if not expanded then
-                self:drawResetComponent(key)
-                style.popStyleColor(not self.instanceDataChanges[key])
             end
         end
     end
 end
 
+---Names the components a component is bound to through `parentTransform`, nearest first.
+---@param componentID string
+---@return string[]? chain Nil when the component is not bound to another
+function entity:getComponentParentChain(componentID)
+    local nameToID = {}
+    for key, component in pairs(self.defaultComponentData) do
+        if type(component) == "table" and component.name and component.name["$value"] then
+            nameToID[component.name["$value"]] = key
+        end
+    end
+
+    local chain = {}
+    local current = componentID
+    while current and #chain < 16 do
+        local changes = self.instanceDataChanges[current]
+        local data = changes and changes.parentTransform or (self.defaultComponentData[current] or {}).parentTransform
+        local binding = type(data) == "table" and data.Data or nil
+        local bindName = binding and binding.bindName and binding.bindName["$value"]
+        if not bindName or bindName == "None" then break end
+
+        local slotName = binding.slotName and binding.slotName["$value"]
+        table.insert(chain, (slotName and slotName ~= "None") and (bindName .. " / " .. slotName) or bindName)
+        current = nameToID[bindName]
+    end
+
+    return #chain > 0 and chain or nil
+end
+
+---@param entry table Entry of `getSortedComponents`
+---@param propertySearch string?
+function entity:drawComponentEntry(entry, propertySearch)
+    local key = entry.key
+    local component = entry.component
+
+    style.pushStyleColor(not self.instanceDataChanges[key], ImGuiCol.Text, style.mutedColor)
+
+    if self.componentClosePending and self.componentClosePending[key] then
+        ImGui.SetNextItemOpen(false)
+        self.componentClosePending[key] = nil
+    end
+    -- Lets the helper toggle drawn on the row take the click instead of the row.
+    ImGui.SetNextItemAllowOverlap()
+    local expanded = ImGui.TreeNodeEx(entry.name, ImGuiTreeNodeFlags.SpanFullWidth)
+    local rowHovered = ImGui.IsItemHovered()
+
+    self:drawResetComponent(key)
+    style.popStyleColor(not self.instanceDataChanges[key])
+    self:drawComponentHelperToggle(key, component)
+
+    if not expanded then
+        -- A closed component holds the gizmo only while its row is hovered.
+        if rowHovered and self:getComponentTransform(key, component) then
+            self:focusComponent(key)
+            if self.focusedComponentID == key then
+                self.focusedComponentFrame = ImGui.GetFrameCount()
+            end
+        end
+        return
+    end
+
+    ImGui.BeginGroup()
+    if settings.componentParentChain then
+        local chain = self:getComponentParentChain(key)
+        if chain then
+            style.mutedText("Attached to")
+            ImGui.SameLine()
+            ImGui.Text(table.concat(chain, " > "))
+        end
+    end
+    self:drawComponentTransform(key, component)
+
+    local drawPanel = componentUI.getPanel(component)
+    if drawPanel then
+        drawPanel(self, key, component, propertySearch)
+    else
+        local keys, max = self:getSortedKeys(component)
+        for _, propKey in pairs(keys) do
+            local value = component[propKey]
+            local modified = self.instanceDataChanges[key] and self.instanceDataChanges[key][propKey]
+            if modified then value = self.instanceDataChanges[key][propKey] end
+
+            style.pushStyleColor(true, ImGuiCol.Text, style.mutedColor)
+            self:drawInstanceDataProperty(key, propKey, value, { propKey }, max, propertySearch, false)
+
+            style.popStyleColor(true)
+        end
+    end
+    ImGui.EndGroup()
+
+    -- The gizmo follows the open component under the cursor.
+    if self.componentTransforms[key] then
+        if rowHovered or ImGui.IsItemHovered() then
+            self:focusComponent(key)
+        end
+        if self.focusedComponentID == key then
+            self.focusedComponentFrame = ImGui.GetFrameCount()
+        end
+    end
+    ImGui.TreePop()
+end
+
+componentUI.install(entity)
+componentHelpers.install(entity)
 lightComponentUI.install(entity)
+componentPanels.register()
 
 return entity
