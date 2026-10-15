@@ -12,6 +12,8 @@ local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
 local bendedRig = require("modules/utils/game/bendedRig")
 local bendedCollision = require("modules/utils/game/bendedCollision")
+local settings = require("modules/utils/core/settings")
+local colliderColors = require("modules/classes/spawn/collision/colliderBase").getColliderGenerics().colors
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local input = require("modules/utils/core/input")
 
@@ -466,6 +468,7 @@ function bendedMesh:new()
     o.pathPreviewShowFrames = true
     o.deformedPreviewEnabled = true
     o.liveCollisionEnabled = true
+    o.collisionShapeVisible = false
     o.viewportHandlesEnabled = true
     o.magneticEnds = true
     o.linkJoinedEnds = true
@@ -535,6 +538,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
     self.liveCollisionEnabled = utils.toBoolean(data.liveCollisionEnabled, self.liveCollisionEnabled)
+    self.collisionShapeVisible = utils.toBoolean(data.collisionShapeVisible, self.collisionShapeVisible)
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
     self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
@@ -618,6 +622,7 @@ function bendedMesh:save()
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
     data.liveCollisionEnabled = self.liveCollisionEnabled
+    data.collisionShapeVisible = self.collisionShapeVisible
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.magneticEnds = self.magneticEnds
     data.linkJoinedEnds = self.linkJoinedEnds
@@ -2612,6 +2617,7 @@ function bendedMesh:refreshCollisionPreview()
     end
 
     bendedCollisionPreview.request(self, self:getDeformedPreviewSignature())
+    bendedCollisionPreview.setVisual(self, self.collisionShapeVisible and colliderColors[settings.colliderColor + 1] or nil)
 end
 
 ---Pushes the current deformation to a placeholder node when anything it depends on changed.
@@ -4674,6 +4680,31 @@ function bendedMesh:drawPathVisualizationSettings()
         end
     end
 
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.EyeOutline, "Show Collision"))
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    ImGui.BeginDisabled(not self.liveCollisionEnabled)
+    self.collisionShapeVisible, changed = style.trackedCheckbox(self.object, "##collisionShapeVisible", self.collisionShapeVisible)
+    ImGui.EndDisabled()
+    if changed then
+        self:refreshCollisionPreview()
+    end
+    style.tooltip("Show the live collision as a hologram in the collider color (Settings > Colliders).\nUses bended preview placeholders: one per 251 triangles.")
+
+    if self.collisionShapeVisible and self.liveCollisionEnabled and not self.isAssetPreview then
+        local shown, total = bendedCollisionPreview.getVisualStatus(self)
+        if total > 0 then
+            ImGui.SameLine()
+            if shown == total then
+                style.mutedText(IconGlyphs.CheckCircleOutline)
+                style.tooltip(string.format("Collision shown with %d placeholder(s).", total))
+            else
+                style.mutedText(IconGlyphs.TimerSandEmpty)
+                style.tooltip(string.format("%d of %d placeholder(s) shown.\n%s", shown, total, bendedPool.lastReason ~= "" and bendedPool.lastReason or "Waiting for placeholder nodes."))
+            end
+        end
+    end
+
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
@@ -5223,6 +5254,7 @@ function bendedMesh:draw()
             "Mesh bones quantity",
             style.resolveActionLabelNoIconOnly(IconGlyphs.TriangleWave, "Deformed Preview"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.TextureBox, "Live Collision"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.EyeOutline, "Show Collision"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"),

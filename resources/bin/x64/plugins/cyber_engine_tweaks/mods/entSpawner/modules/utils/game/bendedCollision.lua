@@ -16,6 +16,7 @@ local loaded = {}
 ---@field slice integer 0-based slice along the rig axis the piece belongs to.
 ---@field points number[] Flat rest positions `x, y, z, ...` in mesh space.
 ---@field weights number[] Per point `bone, secondBone, secondWeight` (0-based bones).
+---@field faces integer[]? Hull triangles as flat 0-based point indices, counter-clockwise seen from outside.
 
 ---@class bendedCollisionSource
 ---@field bones integer
@@ -27,6 +28,7 @@ local loaded = {}
 ---@field class string
 ---@field material string
 ---@field points { x: number, y: number, z: number }[]
+---@field faces integer[]? Same as the piece's.
 
 ---@return table<string, string>
 local function getIndex()
@@ -118,7 +120,8 @@ function collision.deform(source, skin)
         shapes[#shapes + 1] = {
             class = piece.class,
             material = source.materials and source.materials[piece.class] or "concrete.physmat",
-            points = points
+            points = points,
+            faces = piece.faces
         }
     end
 

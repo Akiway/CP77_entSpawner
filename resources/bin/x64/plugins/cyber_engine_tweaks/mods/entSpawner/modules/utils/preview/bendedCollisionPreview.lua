@@ -1,17 +1,22 @@
 local builder = require("modules/utils/game/entityBuilder")
 local logger = require("modules/utils/core/logger")
+local bendedPool = require("modules/utils/preview/bendedPool")
 
 ---Live collision of bended meshes in the editor: one host entity per mesh carrying convex colliders,
 ---cooked by the engine from their vertices. Colliders only take effect when added during assembly,
 ---so a changed shape respawns the host. It is removed as soon as the shape changes and rebuilt once
 ---the shape has been stable for `settleTime` with the mouse released, so editor tools that raycast
 ---(surface snap, drape) never hit the mesh's own outdated collision.
+---The pieces can also be shown as a hologram through the bended preview pool: one placeholder per
+---`trianglesPerMesh` hull triangles, each bone of the preview mesh carrying one triangle.
 ---@class bendedCollisionPreview
 local preview = {}
 
 local hostTemplate = "base\\spawner\\empty_entity.ent"
 local settleTime = 0.3
 local collidersPerComponent = 64
+local trianglesPerMesh = 251
+local visualMeshPrefix = "base\\spawner\\bended_collision_"
 
 ---@class bendedCollisionRecord
 ---@field owner table Spawnable providing `getCollisionShapes()`, `position` and `rotation`.
@@ -22,6 +27,11 @@ local collidersPerComponent = 64
 ---@field removedTick integer? Update tick of the last host removal.
 ---@field count integer Convex pieces on the current host.
 ---@field issue string? Why the owner has no collision.
+---@field shapes bendedCollisionShape[]? Pieces of the current host, in the owner's local space.
+---@field position { x: number, y: number, z: number }? Owner transform the shapes were built with.
+---@field quat Quaternion?
+---@field colour string? Hologram colour, nil when hidden.
+---@field parts table[] Pool owners of the hologram, one per placeholder.
 
 local records = {}
 local clock = 0
@@ -34,7 +44,7 @@ local waiting = {}
 local function getRecord(owner)
     local record = records[owner]
     if not record then
-        record = { owner = owner, changedAt = 0, built = false, count = 0 }
+        record = { owner = owner, changedAt = 0, built = false, count = 0, parts = {} }
         records[owner] = record
     end
     return record
@@ -103,6 +113,103 @@ local function addColliders(entity, shapes)
     flush()
 end
 
+---Rotation matrix rows of a quaternion, for row vectors.
+---@param q Quaternion
+---@return number[]
+local function rotationRows(q)
+    local x, y, z, w = q.i, q.j, q.k, q.r
+    return {
+        1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+        2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+        2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)
+    }
+end
+
+---World-space bone matrices placing one hull triangle each, and their bounds.
+---@param record bendedCollisionRecord
+---@return table[] matrices
+---@return number[] box
+local function buildTriangleMatrices(record)
+    local r = rotationRows(record.quat)
+    local px, py, pz = record.position.x, record.position.y, record.position.z
+    local matrices = {}
+    local box = { math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge }
+
+    for _, shape in ipairs(record.shapes) do
+        local world = {}
+        for i, p in ipairs(shape.points) do
+            local x = p.x * r[1] + p.y * r[4] + p.z * r[7] + px
+            local y = p.x * r[2] + p.y * r[5] + p.z * r[8] + py
+            local z = p.x * r[3] + p.y * r[6] + p.z * r[9] + pz
+            world[i] = { x, y, z }
+            box[1], box[2], box[3] = math.min(box[1], x), math.min(box[2], y), math.min(box[3], z)
+            box[4], box[5], box[6] = math.max(box[4], x), math.max(box[5], y), math.max(box[6], z)
+        end
+
+        local faces = shape.faces or {}
+        for f = 1, #faces - 2, 3 do
+            local a, b, c = world[faces[f] + 1], world[faces[f + 1] + 1], world[faces[f + 2] + 1]
+            local ux, uy, uz = b[1] - a[1], b[2] - a[2], b[3] - a[3]
+            local vx, vy, vz = c[1] - a[1], c[2] - a[2], c[3] - a[3]
+            local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+            local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+
+            -- Rows X and Y swapped: the preview mesh shows counter-clockwise faces as back faces.
+            if length > 1e-9 then
+                matrices[#matrices + 1] = {
+                    vx, vy, vz, 0, ux, uy, uz, 0,
+                    nx / length, ny / length, nz / length, 0,
+                    a[1], a[2], a[3], 1
+                }
+            end
+        end
+    end
+
+    return matrices, box
+end
+
+---@param record bendedCollisionRecord
+---@param from integer First part to release.
+local function releaseParts(record, from)
+    for i = #record.parts, from, -1 do
+        bendedPool.release(record.parts[i])
+        record.parts[i] = nil
+    end
+end
+
+---Shows the record's pieces as a hologram, or hides it when there is nothing to show.
+---@param record bendedCollisionRecord
+local function showVisual(record)
+    if not record.colour or not record.shapes or #record.shapes == 0 then
+        releaseParts(record, 1)
+        return
+    end
+
+    local matrices, box = buildTriangleMatrices(record)
+    local count = math.ceil(#matrices / trianglesPerMesh)
+    local mesh = visualMeshPrefix .. record.colour .. ".mesh"
+
+    for part = 1, count do
+        local slice = {}
+        local first = (part - 1) * trianglesPerMesh
+        for bone = 1, trianglesPerMesh do
+            slice[bone] = matrices[first + bone] or { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, box[1], box[2], box[3], 1 }
+        end
+
+        record.parts[part] = record.parts[part] or { record = record, index = part }
+        bendedPool.submit(record.parts[part], {
+            mesh = mesh,
+            appearance = "default",
+            matrices = slice,
+            box = box,
+            castShadows = "Never",
+            castLocalShadows = "Never"
+        })
+    end
+
+    releaseParts(record, count + 1)
+end
+
 ---@param record bendedCollisionRecord
 local function build(record)
     record.built = true
@@ -115,6 +222,11 @@ local function build(record)
         return
     end
     record.issue = issue
+    record.shapes = shapes
+    local position = record.owner.position
+    record.position = { x = position.x, y = position.y, z = position.z }
+    record.quat = record.owner.rotation:ToQuat()
+    showVisual(record)
     if not shapes or #shapes == 0 then return end
 
     local spec = StaticEntitySpec.new()
@@ -178,13 +290,41 @@ function preview.withoutCollision(owner, callback)
     end
 end
 
+---Shows the owner's collision as a hologram of the given colour (`red`, `green`, `blue`), or hides it.
+---The hologram follows the collision: it is replaced each time the collision is rebuilt.
+---@param owner table
+---@param colour string?
+function preview.setVisual(owner, colour)
+    local record = getRecord(owner)
+    if record.colour == colour then return end
+
+    record.colour = colour
+    showVisual(record)
+end
+
 ---@param owner table
 function preview.release(owner)
     local record = records[owner]
     if not record then return end
 
     despawnHost(record)
+    releaseParts(record, 1)
     records[owner] = nil
+end
+
+---Hologram placeholders on screen and in total; 0, 0 when hidden.
+---@param owner table
+---@return integer shown
+---@return integer total
+function preview.getVisualStatus(owner)
+    local record = records[owner]
+    if not record then return 0, 0 end
+
+    local shown = 0
+    for _, part in ipairs(record.parts) do
+        if bendedPool.isShowing(part) then shown = shown + 1 end
+    end
+    return shown, #record.parts
 end
 
 ---`active`, `pending`, `none` or `off`, with the piece count and the reason when there is none.
@@ -237,6 +377,7 @@ end
 function preview.reset()
     waiting = {}
     for _, record in pairs(records) do
+        record.parts = {}
         record.entityID = nil
         record.built = false
         record.count = 0
