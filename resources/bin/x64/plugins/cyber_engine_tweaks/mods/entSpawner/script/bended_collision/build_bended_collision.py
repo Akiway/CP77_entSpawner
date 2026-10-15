@@ -13,6 +13,7 @@ with its skeleton, into a folder that mirrors depot paths (`<glb>\\base\\...\\na
 Step 2 - run this script (needs numpy and scipy):
 
     python build_bended_collision.py <glb folder> [--workers 10] [--filter substring]
+    python build_bended_collision.py --faces      (adds `faces` to existing outputs, no GLB needed)
 
 What it writes, under data/static/bended_collision/:
 
@@ -23,6 +24,7 @@ What it writes, under data/static/bended_collision/:
                          slice    index of the slice along the rig axis
                          points   flat rest positions x, y, z in mesh space
                          weights  per point: bone, second bone, weight of the second bone (0-based)
+                         faces    hull triangles as flat point indices, counter-clockwise seen from outside
 
 A run resumes: meshes whose output and `.stats.json` sidecar exist are skipped. Sidecars and
 `report.json` (coverage of walkable render surface, excess collision over it) go to --report
@@ -129,6 +131,34 @@ def qa(mesh, pieces):
             "openSky": round(float(open_sky.mean()), 3)}
 
 
+def hull_faces(flat):
+    """Hull triangles of a piece's points, wound counter-clockwise seen from outside."""
+    pts = np.asarray(flat, dtype=float).reshape(-1, 3)
+    try:
+        hull = ConvexHull(pts)
+    except Exception:
+        return []
+    faces = []
+    for (a, b, c), eq in zip(hull.simplices, hull.equations):
+        if np.dot(np.cross(pts[b] - pts[a], pts[c] - pts[a]), eq[:3]) < 0:
+            b, c = c, b
+        faces.extend((int(a), int(b), int(c)))
+    return faces
+
+
+def add_faces():
+    """Writes `faces` into every existing output from its stored points."""
+    names = [f for f in os.listdir(OUT) if f.endswith(".json") and f != "index.json"]
+    for name in names:
+        full = os.path.join(OUT, name)
+        data = json.load(open(full))
+        for piece in data["pieces"]:
+            piece["faces"] = hull_faces(piece["points"])
+        with open(full, "w") as f:
+            json.dump(data, f, separators=(",", ":"))
+    print("faces written to", len(names), "files")
+
+
 def top2(w):
     order = np.argsort(-w)
     b0 = int(order[0])
@@ -169,8 +199,9 @@ def run(job):
             weights = []
             for w in p["w"]:
                 weights.extend(top2(w))
-            out["pieces"].append({"class": p["class"], "slice": p["slice"],
-                                  "points": [float(x) for x in np.round(p["pts"], 3).reshape(-1)], "weights": weights})
+            points = [float(x) for x in np.round(p["pts"], 3).reshape(-1)]
+            out["pieces"].append({"class": p["class"], "slice": p["slice"], "points": points, "weights": weights,
+                                  "faces": hull_faces(points)})
         stats = {"pieces": len(pieces), "tris": res["tris"], "time": round(time.time() - t, 2),
                  "verts": int(sum(len(p["pts"]) for p in pieces)), "qa": qa(mesh, pieces),
                  "classes": {c: sum(1 for p in pieces if p["class"] == c) for c in ("ground", "raised", "wall")}}
@@ -185,11 +216,16 @@ def run(job):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("glb", help="folder holding the exported GLBs, mirroring depot paths")
+    ap.add_argument("glb", nargs="?", help="folder holding the exported GLBs, mirroring depot paths")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     ap.add_argument("--filter", default="", help="only meshes whose path contains this")
     ap.add_argument("--report", default=None, help="folder for stats sidecars and report.json")
+    ap.add_argument("--faces", action="store_true", help="only add hull faces to the existing outputs")
     args = ap.parse_args()
+    if args.faces:
+        return add_faces()
+    if not args.glb:
+        ap.error("the GLB folder is required")
     args.report = args.report or os.path.join(args.glb, "_report")
 
     paths = [e["meshPath"] for e in json.load(open(RIGS))]

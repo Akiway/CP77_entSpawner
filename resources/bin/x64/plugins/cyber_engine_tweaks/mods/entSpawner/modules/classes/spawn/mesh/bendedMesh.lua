@@ -469,6 +469,7 @@ function bendedMesh:new()
     o.deformedPreviewEnabled = true
     o.liveCollisionEnabled = true
     o.collisionShapeVisible = false
+    o.exportCollision = true
     o.viewportHandlesEnabled = true
     o.magneticEnds = true
     o.linkJoinedEnds = true
@@ -539,6 +540,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
     self.liveCollisionEnabled = utils.toBoolean(data.liveCollisionEnabled, self.liveCollisionEnabled)
     self.collisionShapeVisible = utils.toBoolean(data.collisionShapeVisible, self.collisionShapeVisible)
+    self.exportCollision = utils.toBoolean(data.exportCollision, self.exportCollision)
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
     self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
@@ -623,6 +625,7 @@ function bendedMesh:save()
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
     data.liveCollisionEnabled = self.liveCollisionEnabled
     data.collisionShapeVisible = self.collisionShapeVisible
+    data.exportCollision = self.exportCollision
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.magneticEnds = self.magneticEnds
     data.linkJoinedEnds = self.linkJoinedEnds
@@ -4705,6 +4708,12 @@ function bendedMesh:drawPathVisualizationSettings()
         end
     end
 
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.Export, "Export Collision"))
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.exportCollision, changed = style.trackedCheckbox(self.object, "##exportCollision", self.exportCollision)
+    style.tooltip("Export the collision pieces with the mesh.\nThe bended meshes of a group share one collision node, placed after the last of them.")
+
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
@@ -5255,6 +5264,7 @@ function bendedMesh:draw()
             style.resolveActionLabelNoIconOnly(IconGlyphs.TriangleWave, "Deformed Preview"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.TextureBox, "Live Collision"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.EyeOutline, "Show Collision"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.Export, "Export Collision"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"),
@@ -5383,6 +5393,36 @@ function bendedMesh:calculateIntersection(origin, ray)
         objectRotation = self.rotation,
         normal = result.normal
     }
+end
+
+---Collision pieces in world space, rounded to the millimetre, for the export.
+---@return table? collision `{ pieces = { { class, material, points = { x, y, z, ... } } } }`
+---@return string? issue
+function bendedMesh:getExportCollision()
+    local shapes, issue = self:getCollisionShapes()
+    if not shapes then
+        return nil, issue
+    end
+
+    local quat = self.rotation:ToQuat()
+    local position = self.position
+    local function round(value)
+        return math.floor(value * 1000 + 0.5) / 1000
+    end
+
+    local pieces = {}
+    for _, shape in ipairs(shapes) do
+        local points = {}
+        for _, point in ipairs(shape.points) do
+            local world = quat:Transform(Vector4.new(point.x, point.y, point.z, 0))
+            table.insert(points, round(world.x + position.x))
+            table.insert(points, round(world.y + position.y))
+            table.insert(points, round(world.z + position.z))
+        end
+        table.insert(pieces, { class = shape.class, material = shape.material, points = points })
+    end
+
+    return { pieces = pieces }
 end
 
 function bendedMesh:export()

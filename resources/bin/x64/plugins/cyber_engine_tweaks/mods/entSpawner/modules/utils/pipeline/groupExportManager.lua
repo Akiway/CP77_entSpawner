@@ -3,6 +3,7 @@ local utils = require("modules/utils/core/utils")
 local Cron = require("modules/utils/vendor/Cron")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local groupExportSidecar = require("modules/utils/pipeline/groupExportSidecar")
+local bendedCollisionExport = require("modules/utils/pipeline/bendedCollisionExport")
 local logger = require("modules/utils/core/logger")
 
 local groupExportManager = {}
@@ -690,8 +691,64 @@ local function prepareCurrentGroupForExport(runtime)
         end
     end
 
+    -- Bended collision: one node per parent group, emitted after the group's last bended mesh.
+    current.collisionLast = {}
+    current.collisionSources = {}
+    current.collisionInserted = {}
+    for index, object in ipairs(current.nodes) do
+        local spawnable = object.ref.spawnable
+        if spawnable and spawnable.exportCollision and spawnable.getExportCollision then
+            current.collisionLast[object.ref.parent or root] = index
+        end
+    end
+
     current.totalNodes = #current.nodes
     current.nodeIndex = 1
+end
+
+---Gathers a bended mesh's collision; after its group's last bended mesh, appends the group's collision nodes.
+---@param current table
+---@param element table
+---@param key integer Index of the element in `current.nodes`.
+local function exportBendedCollision(current, element, key)
+    local parent = element.parent or current.root
+    local last = current.collisionLast[parent]
+    if not last then return end
+
+    local source = bendedCollisionExport.collect(element)
+    if source then
+        current.collisionSources[parent] = current.collisionSources[parent] or {}
+        table.insert(current.collisionSources[parent], source)
+    end
+
+    if key ~= last then return end
+
+    local sources = current.collisionSources[parent]
+    current.collisionSources[parent] = nil
+    if not sources then return end
+
+    for _, node in ipairs(bendedCollisionExport.buildNodes(parent.name or current.exported.name, sources)) do
+        table.insert(current.exported.nodes, node)
+        table.insert(current.collisionInserted, key)
+    end
+end
+
+---Variant ranges start later by the collision nodes inserted before them.
+---@param current table
+local function shiftVariantIndices(current)
+    if not current.collisionInserted or #current.collisionInserted == 0 then return end
+
+    local indices = current.exported.variantIndices
+    for i = 2, #indices do
+        local start = indices[i]
+        local shift = 0
+        for _, key in ipairs(current.collisionInserted) do
+            if key <= start then
+                shift = shift + 1
+            end
+        end
+        indices[i] = start + shift
+    end
 end
 
 local beginNextGroup
@@ -1000,6 +1057,10 @@ beginNextGroup = function (runtime)
                         if object and utils.isA(object.ref, "spawnableElement") and not object.ref.spawnable.noExport and shouldExportNode(runtime, object.ref) then
                             table.insert(exportCurrent.exported.nodes, object.ref.spawnable:export(key, exportCurrent.totalNodes))
 
+                            if object.ref.spawnable.exportCollision and object.ref.spawnable.getExportCollision then
+                                exportBendedCollision(exportCurrent, object.ref, key)
+                            end
+
                             if object.ref.spawnable.node == "worldDeviceNode" then
                                 runtime.request.handleDevice(object, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.nodeRefMap)
                             elseif COMMUNITY_AREA_NODE_TYPES[object.ref.spawnable.node] then
@@ -1049,6 +1110,7 @@ beginNextGroup = function (runtime)
                     exportTimer:Halt()
                     runtime.timer = nil
 
+                    shiftVariantIndices(exportCurrent)
                     mergeGroupExportData(runtime, exportCurrent.group, exportCurrent.exported, exportCurrent.devices, exportCurrent.psEntries, exportCurrent.childs, exportCurrent.communities, exportCurrent.spotNodes)
                     if hasBlockingIssues(runtime) then
                         pauseExport(runtime, "Resolve the export issue popup to continue.", function ()
