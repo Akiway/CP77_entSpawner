@@ -396,52 +396,6 @@ local function rotateAroundAxis(vector, axis, angleRadians)
     }
 end
 
-local function normalizeQuaternion(quat)
-    local length = math.sqrt(quat.i * quat.i + quat.j * quat.j + quat.k * quat.k + quat.r * quat.r)
-    if length <= 0.000001 then
-        return Quaternion.new(0, 0, 0, 1)
-    end
-
-    return Quaternion.new(quat.i / length, quat.j / length, quat.k / length, quat.r / length)
-end
-
-local function quaternionFromBasis(right, forward, up)
-    local m00, m01, m02 = right.x, forward.x, up.x
-    local m10, m11, m12 = right.y, forward.y, up.y
-    local m20, m21, m22 = right.z, forward.z, up.z
-
-    local qx, qy, qz, qw
-    local trace = m00 + m11 + m22
-
-    if trace > 0 then
-        local s = math.sqrt(trace + 1) * 2
-        qw = 0.25 * s
-        qx = (m21 - m12) / s
-        qy = (m02 - m20) / s
-        qz = (m10 - m01) / s
-    elseif m00 > m11 and m00 > m22 then
-        local s = math.sqrt(1 + m00 - m11 - m22) * 2
-        qw = (m21 - m12) / s
-        qx = 0.25 * s
-        qy = (m01 + m10) / s
-        qz = (m02 + m20) / s
-    elseif m11 > m22 then
-        local s = math.sqrt(1 + m11 - m00 - m22) * 2
-        qw = (m02 - m20) / s
-        qx = (m01 + m10) / s
-        qy = 0.25 * s
-        qz = (m12 + m21) / s
-    else
-        local s = math.sqrt(1 + m22 - m00 - m11) * 2
-        qw = (m10 - m01) / s
-        qx = (m02 + m20) / s
-        qy = (m12 + m21) / s
-        qz = 0.25 * s
-    end
-
-    return normalizeQuaternion(Quaternion.new(qx, qy, qz, qw))
-end
-
 function bendedMesh:new()
     local o = mesh.new(self)
 
@@ -494,7 +448,6 @@ function bendedMesh:new()
     o.pathPreviewControlCount = 0
     o.pathPreviewFrameCount = 0
     o.pathPreviewSubdivisionCount = 0
-    o.bendedColliderShape = 0
     o.bendedColliderStep = 1
     o.bendedColliderOverlap = 0.05
     o.version = 0
@@ -570,7 +523,6 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
     self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
-    self.bendedColliderShape = math.max(0, math.min(2, math.floor(utils.toNumber(data.bendedColliderShape, self.bendedColliderShape))))
     self.bendedColliderStep = math.max(1, math.min(16, math.floor(utils.toNumber(data.bendedColliderStep, self.bendedColliderStep))))
     self.bendedColliderOverlap = math.max(0, math.min(0.5, utils.toNumber(data.bendedColliderOverlap, self.bendedColliderOverlap)))
 
@@ -658,7 +610,6 @@ function bendedMesh:save()
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.magneticEnds = self.magneticEnds
     data.linkJoinedEnds = self.linkJoinedEnds
-    data.bendedColliderShape = self.bendedColliderShape
     data.bendedColliderStep = self.bendedColliderStep
     data.bendedColliderOverlap = self.bendedColliderOverlap
     data.pathPoints = {}
@@ -1094,194 +1045,6 @@ function bendedMesh:getWorldPointFromLocal(localPoint)
         self.position.z + worldOffset.z,
         0
     )
-end
-
-function bendedMesh:buildSegmentColliderTransform(startFrame, endFrame, halfWidth, halfHeight, overlapFactor)
-    if not startFrame or not endFrame or not startFrame.position or not endFrame.position then
-        return nil
-    end
-
-    local startPos = self:getWorldPointFromLocal(startFrame.position)
-    local endPos = self:getWorldPointFromLocal(endFrame.position)
-    local diff = {
-        x = endPos.x - startPos.x,
-        y = endPos.y - startPos.y,
-        z = endPos.z - startPos.z
-    }
-    local length = utils.distanceVector(zeroVector3, diff)
-    if length <= 0.0001 then
-        return nil
-    end
-
-    local forward = normalizeDirection(diff)
-    if isDirectionZero(forward) then
-        return nil
-    end
-
-    local objectQuat = self.rotation:ToQuat()
-    local upHintVec = objectQuat:Transform(Vector4.new(
-        startFrame.up and startFrame.up.x or 0,
-        startFrame.up and startFrame.up.y or 0,
-        startFrame.up and startFrame.up.z or 1,
-        0
-    ))
-    local upHint = normalizeDirection(upHintVec)
-    if isDirectionZero(upHint) or math.abs(dot(upHint, forward)) > 0.9999 then
-        upHint = { x = 0, y = 0, z = 1 }
-        if math.abs(dot(upHint, forward)) > 0.9999 then
-            upHint = { x = 1, y = 0, z = 0 }
-        end
-    end
-
-    local right = normalizeDirection(cross(forward, upHint))
-    if isDirectionZero(right) and startFrame.right then
-        local rightHintVec = objectQuat:Transform(Vector4.new(startFrame.right.x, startFrame.right.y, startFrame.right.z, 0))
-        right = normalizeDirection(rightHintVec)
-    end
-    if isDirectionZero(right) then
-        right = { x = 1, y = 0, z = 0 }
-    end
-
-    local up = normalizeDirection(cross(right, forward))
-    if isDirectionZero(up) then
-        up = { x = 0, y = 0, z = 1 }
-    end
-    right = normalizeDirection(cross(forward, up))
-
-    local midpoint = Vector4.new(
-        (startPos.x + endPos.x) * 0.5,
-        (startPos.y + endPos.y) * 0.5,
-        (startPos.z + endPos.z) * 0.5,
-        0
-    )
-    local rotation = quaternionFromBasis(right, forward, up):ToEulerAngles()
-    local halfLength = math.max(0.01, (length * 0.5) * (1 + overlapFactor))
-
-    return midpoint, rotation, {
-        x = math.max(0.005, halfWidth),
-        y = halfLength,
-        z = math.max(0.005, halfHeight)
-    }
-end
-
-function bendedMesh:interpolatePathFrameForSegment(frameA, frameB, t)
-    local function lerpAxis(axisA, axisB, fallback)
-        local a = axisA or fallback
-        local b = axisB or a
-        local axis = normalizeDirection({
-            x = (a.x or fallback.x) + ((b.x or a.x or fallback.x) - (a.x or fallback.x)) * t,
-            y = (a.y or fallback.y) + ((b.y or a.y or fallback.y) - (a.y or fallback.y)) * t,
-            z = (a.z or fallback.z) + ((b.z or a.z or fallback.z) - (a.z or fallback.z)) * t
-        })
-
-        if isDirectionZero(axis) then
-            axis = normalizeDirection(a or fallback)
-        end
-        if isDirectionZero(axis) then
-            axis = fallback
-        end
-
-        return axis
-    end
-
-    local startPos = frameA and frameA.position or { x = 0, y = 0, z = 0 }
-    local endPos = frameB and frameB.position or startPos
-
-    return {
-        right = normalizeDirection(lerpAxis(frameA and frameA.right, frameB and frameB.right, { x = 1, y = 0, z = 0 })),
-        forward = normalizeDirection(lerpAxis(frameA and frameA.forward, frameB and frameB.forward, { x = 0, y = 1, z = 0 })),
-        up = normalizeDirection(lerpAxis(frameA and frameA.up, frameB and frameB.up, { x = 0, y = 0, z = 1 })),
-        position = {
-            x = startPos.x + ((endPos.x or startPos.x) - startPos.x) * t,
-            y = startPos.y + ((endPos.y or startPos.y) - startPos.y) * t,
-            z = startPos.z + ((endPos.z or startPos.z) - startPos.z) * t
-        }
-    }
-end
-
-function bendedMesh:generateBendedColliders()
-    if not self.object or not self.object.parent or self.object:isLocked() then
-        return false
-    end
-
-    local frames = self:getSampledPathFrames()
-    if #frames < 2 then
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "Need at least 2 sampled path points to generate colliders"))
-        return false
-    end
-
-    local width = math.abs((self.bBox.max and self.bBox.max.x or 0.5) - (self.bBox.min and self.bBox.min.x or -0.5)) * math.abs(self.scale.x or 1)
-    local height = math.abs((self.bBox.max and self.bBox.max.z or 0.5) - (self.bBox.min and self.bBox.min.z or -0.5)) * math.abs(self.scale.z or 1)
-    local halfWidth = math.max(0.01, width * 0.5)
-    local halfHeight = math.max(0.01, height * 0.5)
-
-    local splitStep = math.max(1, math.min(16, math.floor(self.bendedColliderStep or 1)))
-    local overlap = math.max(0, math.min(0.5, self.bendedColliderOverlap or 0))
-    local shape = 0
-    if self.bendedColliderShape ~= nil then
-        shape = math.max(0, math.min(2, math.floor(self.bendedColliderShape)))
-    end
-
-    local parent = self.object.parent
-    local index = utils.indexValue(parent.childs, self.object) + 1
-    if index < 1 then
-        index = #parent.childs + 1
-    end
-
-    local group = require("modules/classes/editor/positionableGroup"):new(self.object.sUI)
-    group.name = self.object.name .. "_colliders"
-    group:setParent(parent, index)
-    group.headerOpen = false
-
-    local created = 0
-    for segmentIndex = 1, #frames - 1 do
-        local frameA = frames[segmentIndex]
-        local frameB = frames[segmentIndex + 1]
-
-        for splitIndex = 1, splitStep do
-            local t0 = (splitIndex - 1) / splitStep
-            local t1 = splitIndex / splitStep
-            local subFrameA = self:interpolatePathFrameForSegment(frameA, frameB, t0)
-            local subFrameB = self:interpolatePathFrameForSegment(frameA, frameB, t1)
-            local position, rotation, extents = self:buildSegmentColliderTransform(subFrameA, subFrameB, halfWidth, halfHeight, overlap)
-
-            if position and rotation and extents then
-                local collider = require("modules/classes/spawn/collision/collider"):new()
-                local colliderData = {
-                    shape = shape,
-                    extents = { x = extents.x, y = extents.y, z = extents.z }
-                }
-
-                if shape == 1 then
-                    colliderData.radius = math.max(extents.x, extents.z)
-                    colliderData.height = math.max(0.01, extents.y * 2 - colliderData.radius * 2)
-                elseif shape == 2 then
-                    colliderData.radius = math.max(extents.x, extents.y, extents.z)
-                end
-
-                collider:loadSpawnData(colliderData, position, rotation)
-
-                local colliderElement = require("modules/classes/editor/spawnableElement"):new(self.object.sUI)
-                colliderElement:load({
-                    name = self.object.name .. "_segCollider_" .. tostring(created + 1),
-                    spawnable = collider:save(),
-                    modulePath = "modules/classes/editor/spawnableElement"
-                })
-                colliderElement:setParent(group)
-                created = created + 1
-            end
-        end
-    end
-
-    if created == 0 then
-        group:remove()
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 2500, "No valid bend segments for collider generation"))
-        return false
-    end
-
-    history.addAction(history.getInsert({ group }))
-    ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Success, 2500, string.format("Generated %d bended colliders", created)))
-    return true
 end
 
 function bendedMesh:ensurePathPoints()
@@ -5362,52 +5125,6 @@ function bendedMesh:drawCollisionSettings()
     ImGui.TreePop()
 end
 
-function bendedMesh:drawColliderGeneration()
-    if not ImGui.TreeNodeEx("Collider Generation", ImGuiTreeNodeFlags.SpanFullWidth) then
-        return
-    end
-
-    local changed
-
-    style.mutedText("Collider Shape")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.bendedColliderShape, changed = style.trackedCombo(self.object, "##bendedColliderShape", self.bendedColliderShape, { "Box (Recommended)", "Capsule", "Sphere" }, 170, {
-        tooltip = "Default is Box. Capsule and Sphere are available but less precise for bend following."
-    })
-    if changed then
-        self.bendedColliderShape = math.max(0, math.min(2, math.floor(self.bendedColliderShape)))
-    end
-
-    style.mutedText("Splits / Segment")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.bendedColliderStep, changed, _ = style.trackedDragInt(self.object, "##bendedColliderStep", self.bendedColliderStep, 1, 16, 80)
-    if changed then
-        self.bendedColliderStep = math.max(1, math.min(16, math.floor(self.bendedColliderStep)))
-    end
-    style.tooltip("Splits each sampled segment into N colliders.\nHigher values follow bends more closely.")
-
-    style.mutedText("Length Overlap")
-    ImGui.SameLine()
-    ImGui.SetCursorPosX(self.maxPropertyWidth)
-    self.bendedColliderOverlap, changed, _ = style.trackedDragFloat(self.object, "##bendedColliderOverlap", self.bendedColliderOverlap, 0.005, 0, 0.5, "%.3f", 80)
-    if changed then
-        self.bendedColliderOverlap = math.max(0, math.min(0.5, self.bendedColliderOverlap))
-    end
-    style.tooltip("Extra segment length ratio to reduce gaps between generated colliders.")
-
-    local canGenerate = self.object and self.object.parent and (not self.object:isLocked())
-    ImGui.BeginDisabled(not canGenerate)
-    if ImGui.Button("Generate Bended Colliders") and canGenerate then
-        self:generateBendedColliders()
-    end
-    ImGui.EndDisabled()
-    style.tooltip("Create collider chain that follows the bended deformation path.")
-
-    ImGui.TreePop()
-end
-
 function bendedMesh:draw()
     if self.pendingAutoFit and self.bBoxLoaded then
         self:autoFitDeformedBox()
@@ -5454,7 +5171,6 @@ function bendedMesh:draw()
             "Height Offset",
             style.resolveActionLabelNoIconOnly(IconGlyphs.MapMarkerMultipleOutline, "In-World Path Viz"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.FormatAlignJustify, "Show Local Frames"),
-            "Collider Shape",
             "Splits / Segment",
             "Length Overlap",
             "Collision Mode",
@@ -5501,7 +5217,6 @@ function bendedMesh:draw()
     end
     self:drawDeformationMatrices()
     self:drawCollisionSettings()
-    self:drawColliderGeneration()
     self:drawConversionSelector("##bendedMeshConverterType", "Lossy Conversion##bendedMeshSingle")
 end
 
