@@ -1,0 +1,1 @@
+{"version":1,"mesh":"engine\\meshes\\bended_nodes\\stripes\\bended_mesh_template100x1sub4.mesh","bones":101,"tolerance":0.05,"materials":{"ground":"concrete.physmat","raised":"concrete.physmat","wall":"concrete.physmat"},"pieces":[]}

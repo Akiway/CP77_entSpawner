@@ -35,6 +35,7 @@ local rht = require("modules/utils/interop/rhtPlugin")
 local preview = require("modules/utils/preview/previewUtils")
 local previewSyncManager = require("modules/utils/preview/previewSyncManager")
 local bendedPool = require("modules/utils/preview/bendedPool")
+local bendedCollisionPreview = require("modules/utils/preview/bendedCollisionPreview")
 
 ---@class spawner
 ---@field runtimeData {cetOpen: boolean, inGame: boolean, inMenu: boolean}
@@ -154,6 +155,7 @@ function spawner:new()
             self.runtimeData.inGame = true
             previewSyncManager.reset()
             bendedPool.reset()
+            bendedCollisionPreview.reset()
             setRootVisible(true)
             preview.addHUD()
         end)
@@ -164,6 +166,7 @@ function spawner:new()
             preview.elements = {}
             previewSyncManager.reset()
             bendedPool.reset()
+            bendedCollisionPreview.reset()
         end)
 
         self.runtimeData.inGame = not self.GameUI.IsDetached()
@@ -181,6 +184,7 @@ function spawner:new()
             Cron.Update(dt)
             previewSyncManager.update(dt)
             bendedPool.update()
+            bendedCollisionPreview.update(dt)
         end
 
         -- Deliberately outside the guard above: this is pure Lua over already-cached state, and it is
@@ -209,6 +213,7 @@ function spawner:new()
 
         style.initialize(true)
         self.editor.suspend(self.runtimeData.cetOpen)
+        bendedCollisionPreview.onDraw(self.runtimeData.cetOpen)
 
         if self.runtimeData.cetOpen then
             self.editor.onDraw()

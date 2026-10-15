@@ -7,9 +7,11 @@ local intersection = require("modules/utils/editor/intersection")
 local visualizer = require("modules/utils/preview/visualizer")
 local previewHosts = require("modules/utils/preview/previewHosts")
 local bendedPool = require("modules/utils/preview/bendedPool")
+local bendedCollisionPreview = require("modules/utils/preview/bendedCollisionPreview")
 local field = require("modules/utils/ui/field")
 local cache = require("modules/utils/game/cache")
 local bendedRig = require("modules/utils/game/bendedRig")
+local bendedCollision = require("modules/utils/game/bendedCollision")
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local input = require("modules/utils/core/input")
 
@@ -463,6 +465,7 @@ function bendedMesh:new()
     o.pathPreviewEnabled = true
     o.pathPreviewShowFrames = true
     o.deformedPreviewEnabled = true
+    o.liveCollisionEnabled = true
     o.viewportHandlesEnabled = true
     o.magneticEnds = true
     o.linkJoinedEnds = true
@@ -531,6 +534,7 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.pathPreviewEnabled = utils.toBoolean(data.pathPreviewEnabled, self.pathPreviewEnabled)
     self.pathPreviewShowFrames = utils.toBoolean(data.pathPreviewShowFrames, self.pathPreviewShowFrames)
     self.deformedPreviewEnabled = utils.toBoolean(data.deformedPreviewEnabled, self.deformedPreviewEnabled)
+    self.liveCollisionEnabled = utils.toBoolean(data.liveCollisionEnabled, self.liveCollisionEnabled)
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
     self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
@@ -613,6 +617,7 @@ function bendedMesh:save()
     data.pathPreviewEnabled = self.pathPreviewEnabled
     data.pathPreviewShowFrames = self.pathPreviewShowFrames
     data.deformedPreviewEnabled = self.deformedPreviewEnabled
+    data.liveCollisionEnabled = self.liveCollisionEnabled
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.magneticEnds = self.magneticEnds
     data.linkJoinedEnds = self.linkJoinedEnds
@@ -2447,6 +2452,7 @@ end
 function bendedMesh:despawn()
     self:getPathPreviewHosts():despawn()
     bendedPool.release(self)
+    bendedCollisionPreview.release(self)
     self.deformedPreviewSignature = nil
     mesh.despawn(self)
 end
@@ -2553,8 +2559,63 @@ function bendedMesh:buildDeformedPreviewPayload()
     }
 end
 
----Pushes the current deformation to a placeholder node when anything it depends on changed.
+---Brings the deformed mesh and the live collision up to date with the path.
 function bendedMesh:refreshDeformedPreview()
+    self:refreshDeformedMesh()
+    self:refreshCollisionPreview()
+end
+
+---Convex collision pieces deformed by the current path, in the mesh entity's local space (scaled).
+---@return bendedCollisionShape[]? shapes
+---@return string? issue
+function bendedMesh:getCollisionShapes()
+    local source = bendedCollision.get(self.spawnData)
+    if not source then
+        return nil, "No collision data for this mesh."
+    end
+
+    local rigData = self:getRig()
+    if not rigData then
+        return nil, "Waiting for the mesh rig."
+    end
+
+    if self:isCurveMode() then
+        self:syncCurveBones()
+    end
+
+    local shapes = bendedCollision.deform(source, bendedCollision.getSkinMatrices(rigData, self:rebuildMatricesFromPath(false)))
+    if not shapes then
+        return nil, "The path does not drive every bone of the mesh."
+    end
+
+    local scale = self.scale or { x = 1, y = 1, z = 1 }
+    if scale.x ~= 1 or scale.y ~= 1 or scale.z ~= 1 then
+        for _, shape in ipairs(shapes) do
+            for _, point in ipairs(shape.points) do
+                point.x, point.y, point.z = point.x * scale.x, point.y * scale.y, point.z * scale.z
+            end
+        end
+    end
+
+    return shapes
+end
+
+---Keeps the live collision in step with the path; it is rebuilt once the shape stops changing.
+function bendedMesh:refreshCollisionPreview()
+    if not self.liveCollisionEnabled or self.isAssetPreview or not self:getEntity() then
+        bendedCollisionPreview.release(self)
+        return
+    end
+
+    if self:isCurveMode() then
+        self:syncCurveBones()
+    end
+
+    bendedCollisionPreview.request(self, self:getDeformedPreviewSignature())
+end
+
+---Pushes the current deformation to a placeholder node when anything it depends on changed.
+function bendedMesh:refreshDeformedMesh()
     local active = self.deformedPreviewEnabled and not self.isAssetPreview and self:getEntity() ~= nil
 
     if not active then
@@ -3348,6 +3409,11 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
             else
                 history.addAction(history.getElementChange(self.object))
             end
+            -- Surface snap raycasts must not land on the collision of the meshes being dragged.
+            bendedCollisionPreview.suspend(self)
+            for _, partner in ipairs(partners) do
+                bendedCollisionPreview.suspend(partner.mesh)
+            end
             self._handleDrag = {
                 handle = { kind = hovered.kind, index = hovered.index, side = hovered.side },
                 current = { x = hovered.world.x, y = hovered.world.y, z = hovered.world.z },
@@ -3672,6 +3738,17 @@ function bendedMesh:drapeOnGround(spacing, offset)
         return false
     end
 
+    -- The ground below must not be the mesh's own collision.
+    bendedCollisionPreview.withoutCollision(self, function ()
+        self:drapeOnGroundNow(editor, spacing, offset)
+    end)
+    return true
+end
+
+---@param editor table
+---@param spacing number
+---@param offset number
+function bendedMesh:drapeOnGroundNow(editor, spacing, offset)
     local looped = self.pathLooped and #self.curvePoints > 2
     local segments = buildCurveSegments(self.curvePoints, looped)
     local samples, total = sampleCurveSegments(segments)
@@ -3703,7 +3780,6 @@ function bendedMesh:drapeOnGround(spacing, offset)
     if missed > 0 then
         ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("%d point(s) found no ground below and kept their height.", missed)))
     end
-    return true
 end
 
 ---Puts control point `index` on another mesh's end, with its tangent and bank, so the two meet
@@ -4573,6 +4649,31 @@ function bendedMesh:drawPathVisualizationSettings()
         end
     end
 
+    style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.TextureBox, "Live Collision"))
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.liveCollisionEnabled, changed = style.trackedCheckbox(self.object, "##liveCollisionEnabled", self.liveCollisionEnabled)
+    if changed then
+        self:refreshCollisionPreview()
+    end
+    style.tooltip("Give the mesh real collision in the editor, following its deformation.\nRebuilt once the path stops changing.")
+
+    if self.liveCollisionEnabled and not self.isAssetPreview then
+        local status, count, issue = bendedCollisionPreview.getStatus(self)
+        ImGui.SameLine()
+
+        if status == "active" then
+            style.mutedText(IconGlyphs.CheckCircleOutline)
+            style.tooltip(string.format("Collision active: %d convex pieces.", count))
+        elseif status == "pending" then
+            style.mutedText(IconGlyphs.TimerSandEmpty)
+            style.tooltip("Collision is rebuilt once the path stops changing.")
+        elseif status == "none" then
+            style.mutedText(IconGlyphs.AlertOutline)
+            style.tooltip(issue or "No collision.")
+        end
+    end
+
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"))
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
@@ -5121,6 +5222,7 @@ function bendedMesh:draw()
             "Length Mode",
             "Mesh bones quantity",
             style.resolveActionLabelNoIconOnly(IconGlyphs.TriangleWave, "Deformed Preview"),
+            style.resolveActionLabelNoIconOnly(IconGlyphs.TextureBox, "Live Collision"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.VectorBezier, "Viewport Handles"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"),
             style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"),
