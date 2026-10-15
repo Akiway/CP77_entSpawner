@@ -3261,7 +3261,7 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
                         end
                         drag.partners = {}
                     end
-                    drag.snap = self:findPointSnap(screen, mouseX, mouseY, drag.detached)
+                    drag.snap = self:findPointSnap(screen, mouseX, mouseY, drag.detached, drag.handle.index)
                     if drag.snap then
                         target = drag.snap.position
                     end
@@ -3273,6 +3273,10 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
                     self:joinPointToEnd(drag.handle.index, drag.snap)
                     self:ensurePathPoints()
                     self:updatePathVisualization()
+                elseif drag.snap and drag.snap.ownEnd then
+                    self:joinOwnEnds(drag.handle.index)
+                    self:ensurePathPoints()
+                    self:updatePathVisualization()
                 end
                 self:syncJoinedEnds(drag.handle.index, drag.partners)
             end
@@ -3281,19 +3285,23 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
             self:autoFitDeformedBox()
             self:refreshArrowScale()
             for _, partner in ipairs(drag.partners or {}) do
-                partner.mesh:autoFitDeformedBox()
-                partner.mesh:refreshArrowScale()
+                if partner.mesh ~= self then
+                    partner.mesh:autoFitDeformedBox()
+                    partner.mesh:refreshArrowScale()
+                end
             end
         end
     elseif interactive and ImGui.IsMouseClicked(ImGuiMouseButton.Left) then
         if hovered and not altDown then
             -- Meshes joined at a dragged end move with it, in the same undo step.
             local partners = curveMode and self:findJoinedEnds(hovered.index) or {}
-            if #partners > 0 then
-                local elements = { self.object }
-                for _, partner in ipairs(partners) do
+            local elements = { self.object }
+            for _, partner in ipairs(partners) do
+                if partner.mesh ~= self then
                     table.insert(elements, partner.element)
                 end
+            end
+            if #elements > 1 then
                 history.addAction(history.getMultiSelectChange(elements))
             else
                 history.addAction(history.getElementChange(self.object))
@@ -3301,7 +3309,9 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
             -- Surface snap raycasts must not land on the collision of the meshes being dragged.
             bendedCollisionPreview.suspend(self)
             for _, partner in ipairs(partners) do
-                bendedCollisionPreview.suspend(partner.mesh)
+                if partner.mesh ~= self then
+                    bendedCollisionPreview.suspend(partner.mesh)
+                end
             end
             self._handleDrag = {
                 handle = { kind = hovered.kind, index = hovered.index, side = hovered.side },
@@ -3441,7 +3451,7 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
             end
             text = "Hold: Horizontal (X/Y, hold X or Y to lock an axis)\nShift / Z: vertical (Z)\nCtrl: snap to the surface"
             if curveMode and dragged.kind == "point" then
-                text = text .. "\nAlt: detach linked ends, snap to nearby points"
+                text = text .. "\nAlt: detach linked ends, snap to nearby points and to this mesh's other end"
             end
         elseif hovered.kind == "tangent" then
             title = altDown and ("Reset the tangent of point " .. hovered.index) or ("Tangent of point " .. hovered.index)
@@ -3993,8 +4003,9 @@ end
 ---@param mouseX number
 ---@param mouseY number
 ---@param excluded table<table, boolean>?
----@return table? snap `{ position, frame?, isStart? }`; `frame` is set on mesh ends.
-function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded)
+---@param dragIndex integer? Dragged control point: an end also snaps onto this curve's other end.
+---@return table? snap `{ position, frame?, isStart?, ownEnd? }`; `frame` is set on other meshes' ends.
+function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded, dragIndex)
     local best, bestDistance = nil, POINT_SNAP_PIXELS
 
     local function consider(position, candidate)
@@ -4027,7 +4038,54 @@ function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded)
         end
     end
 
+    local opposite = dragIndex and self:getOppositeEnd(dragIndex)
+    if opposite and not (excluded and excluded[self]) then
+        local world = self:getWorldPointFromLocal(self.curvePoints[opposite])
+        consider(world, {
+            position = { x = world.x, y = world.y, z = world.z },
+            ownEnd = opposite,
+            name = opposite == 1 and "the start of this mesh" or "the end of this mesh"
+        })
+    end
+
     return best
+end
+
+---Other end of an open curve of at least 3 points, when `index` is an end. Both ends can be joined.
+---@param index integer
+---@return integer?
+function bendedMesh:getOppositeEnd(index)
+    local count = #self.curvePoints
+    if not self:isCurveMode() or self.pathLooped or count < 3 then return nil end
+    if index == 1 then return count end
+    if index == count then return 1 end
+    return nil
+end
+
+---Joins end `index` onto the other end of this curve: same position and bank, one shared tangent.
+---@param index integer
+function bendedMesh:joinOwnEnds(index)
+    local opposite = self:getOppositeEnd(index)
+    if not opposite then return end
+
+    local point, target = self.curvePoints[index], self.curvePoints[opposite]
+    local first, last = self.curvePoints[1], self.curvePoints[#self.curvePoints]
+    local dir = target.dir
+    if not dir then
+        -- Same tangent as a looped curve would get at the seam.
+        local previous, nextPoint = self.curvePoints[#self.curvePoints - 1], self.curvePoints[2]
+        local a = subtract(last, previous)
+        local b = subtract(nextPoint, first)
+        local la, lb = length3(a), length3(b)
+        if la < 0.000001 or lb < 0.000001 then return end
+        dir = normalizeDirection({ x = a.x / la + b.x / lb, y = a.y / la + b.y / lb, z = a.z / la + b.z / lb })
+        if isDirectionZero(dir) then return end
+    end
+
+    point.x, point.y, point.z = target.x, target.y, target.z
+    point.roll = target.roll
+    point.dir = { x = dir.x, y = dir.y, z = dir.z }
+    target.dir = { x = dir.x, y = dir.y, z = dir.z }
 end
 
 ---Curve-mode meshes whose first or last control point sits on control point `index` of this one.
@@ -4039,6 +4097,16 @@ function bendedMesh:findJoinedEnds(index)
 
     local world = self:getWorldPointFromLocal(self.curvePoints[index])
     local partners = {}
+
+    -- Both ends of this curve joined together: they continue each other.
+    local opposite = self:getOppositeEnd(index)
+    if opposite then
+        local p = self:getWorldPointFromLocal(self.curvePoints[opposite])
+        if length3({ x = p.x - world.x, y = p.y - world.y, z = p.z - world.z }) < JOINED_END_TOLERANCE then
+            table.insert(partners, { mesh = self, element = self.object, index = opposite, flip = false })
+        end
+    end
+
     local sUI = self.object and self.object.sUI
     if not sUI then return partners end
     sUI.ensureCache()
@@ -4096,7 +4164,7 @@ function bendedMesh:splitIntoChain(count)
         return false
     end
     if self.pathLooped then
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, "A looped curve cannot be split into a chain."))
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, "A looped curve cannot be split into a chain.\nTurn Looped off and drag one end onto the other with Alt."))
         return false
     end
 
@@ -4379,7 +4447,7 @@ function bendedMesh:drawShapeTools()
     if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SetSplit, "Split into Chain", "bendedSplitIntoChain")) then
         self:splitIntoChain(chainCount)
     end
-    style.tooltip("Cuts the curve into that many meshes of this asset, each on its own stretch of the same curve.\nThis mesh keeps the first stretch; the others are added right after it.\n\nDraw a long curve first (handles, Alt+click, shapes), then split it.")
+    style.tooltip("Cuts the curve into that many meshes of this asset, each on its own stretch of the same curve.\nThis mesh keeps the first stretch; the others are added right after it.\n\nDraw a long curve first (handles, Alt+click, shapes), then split it.\nFor a closed ring, turn Looped off and drag one end onto the other with Alt.", ImGuiHoveredFlags.AllowWhenDisabled)
     ImGui.EndDisabled()
 
     ImGui.Dummy(0, 6 * style.viewSize)
@@ -4641,7 +4709,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.viewportHandlesEnabled, changed = style.trackedCheckbox(self.object, "##viewportHandlesEnabled", self.viewportHandlesEnabled)
-    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.\nAlt+Ctrl+click: add a point at the start.")
+    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points and to this mesh's other end.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.\nAlt+Ctrl+click: add a point at the start.")
 
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"))
     ImGui.SameLine()
@@ -4653,7 +4721,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.linkJoinedEnds, changed = style.trackedCheckbox(self.object, "##linkJoinedEnds", self.linkJoinedEnds)
-    style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\nJoined points are drawn in purple.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.")
+    style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\nJoined points are drawn in purple.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.\nDrag one end onto the other with Alt to close the curve into a ring.")
 
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.MapMarkerMultipleOutline, "In-World Path Viz"))
     ImGui.SameLine()
