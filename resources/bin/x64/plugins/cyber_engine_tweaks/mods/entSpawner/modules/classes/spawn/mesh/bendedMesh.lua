@@ -13,7 +13,17 @@ local cache = require("modules/utils/game/cache")
 local bendedRig = require("modules/utils/game/bendedRig")
 local bendedCollision = require("modules/utils/game/bendedCollision")
 local settings = require("modules/utils/core/settings")
-local colliderColors = require("modules/classes/spawn/collision/colliderBase").getColliderGenerics().colors
+local colliderBase = require("modules/classes/spawn/collision/colliderBase")
+local colliderColors = colliderBase.getColliderGenerics().colors
+local colliderPresets = colliderBase.getColliderGenerics().presets
+local colliderMaterials = colliderBase.getColliderGenerics().materials
+
+local COLLISION_MODE_PIECES = 0
+local COLLISION_MODE_BOXES = 1
+local COLLISION_CLASSES = { "ground", "raised", "wall" }
+local COLLISION_CLASS_LABELS = { ground = "Ground", raised = "Raised", wall = "Wall" }
+local AUTO_MATERIAL_LABEL = "Automatic"
+local DEFAULT_COLLISION_PRESET = "World Static"
 local projectedWireframe = require("modules/utils/editor/projectedWireframe")
 local input = require("modules/utils/core/input")
 
@@ -470,6 +480,11 @@ function bendedMesh:new()
     o.liveCollisionEnabled = true
     o.collisionShapeVisible = false
     o.exportCollision = true
+    o.collisionMode = COLLISION_MODE_PIECES
+    o.collisionMaterials = { ground = "", raised = "", wall = "" }
+    o.collisionPresets = { ground = DEFAULT_COLLISION_PRESET, raised = DEFAULT_COLLISION_PRESET, wall = DEFAULT_COLLISION_PRESET }
+    o.collisionMaterialSearch = {}
+    o.collisionPresetSearch = {}
     o.viewportHandlesEnabled = true
     o.magneticEnds = true
     o.linkJoinedEnds = true
@@ -541,6 +556,17 @@ function bendedMesh:loadSpawnData(data, position, rotation)
     self.liveCollisionEnabled = utils.toBoolean(data.liveCollisionEnabled, self.liveCollisionEnabled)
     self.collisionShapeVisible = utils.toBoolean(data.collisionShapeVisible, self.collisionShapeVisible)
     self.exportCollision = utils.toBoolean(data.exportCollision, self.exportCollision)
+    self.collisionMode = math.max(0, math.min(1, math.floor(utils.toNumber(data.collisionMode, self.collisionMode))))
+    -- Fresh tables: the payload may be shared with the project cache or the clipboard.
+    local materials, presets = {}, {}
+    for _, class in ipairs(COLLISION_CLASSES) do
+        local material = type(data.collisionMaterials) == "table" and data.collisionMaterials[class] or nil
+        local preset = type(data.collisionPresets) == "table" and data.collisionPresets[class] or nil
+        materials[class] = type(material) == "string" and material or ""
+        presets[class] = type(preset) == "string" and preset ~= "" and preset or DEFAULT_COLLISION_PRESET
+    end
+    self.collisionMaterials = materials
+    self.collisionPresets = presets
     self.viewportHandlesEnabled = utils.toBoolean(data.viewportHandlesEnabled, self.viewportHandlesEnabled)
     self.magneticEnds = utils.toBoolean(data.magneticEnds, self.magneticEnds)
     self.linkJoinedEnds = utils.toBoolean(data.linkJoinedEnds, self.linkJoinedEnds)
@@ -626,6 +652,9 @@ function bendedMesh:save()
     data.liveCollisionEnabled = self.liveCollisionEnabled
     data.collisionShapeVisible = self.collisionShapeVisible
     data.exportCollision = self.exportCollision
+    data.collisionMode = self.collisionMode
+    data.collisionMaterials = utils.deepcopy(self.collisionMaterials)
+    data.collisionPresets = utils.deepcopy(self.collisionPresets)
     data.viewportHandlesEnabled = self.viewportHandlesEnabled
     data.magneticEnds = self.magneticEnds
     data.linkJoinedEnds = self.linkJoinedEnds
@@ -2577,12 +2606,25 @@ end
 ---@return bendedCollisionShape[]? shapes
 ---@return string? issue
 function bendedMesh:getCollisionShapes()
+    local rigData = self:getRig()
     local source = bendedCollision.get(self.spawnData)
-    if not source then
-        return nil, "No collision data for this mesh."
+
+    if self.collisionMode == COLLISION_MODE_BOXES then
+        if not rigData then
+            return nil, "Waiting for the mesh rig."
+        end
+        if not self.bBoxLoaded then
+            return nil, "Waiting for the mesh bounds."
+        end
+        local material = source and source.materials and source.materials.ground or "concrete.physmat"
+        source = bendedCollision.buildBoxSource(rigData, self.bBox, self.bendedColliderStep, self.bendedColliderOverlap, material)
+    elseif not source then
+        return nil, "No collision data for this mesh. Box mode works without it."
     end
 
-    local rigData = self:getRig()
+    if not source then
+        return nil, "No collision for this rig."
+    end
     if not rigData then
         return nil, "Waiting for the mesh rig."
     end
@@ -2605,7 +2647,26 @@ function bendedMesh:getCollisionShapes()
         end
     end
 
+    for _, shape in ipairs(shapes) do
+        local material = self.collisionMaterials[shape.class]
+        if material and material ~= "" then
+            shape.material = material
+        end
+        shape.preset = self.collisionPresets[shape.class] or DEFAULT_COLLISION_PRESET
+    end
+
     return shapes
+end
+
+---Fingerprint of the collision settings, on top of the deformation.
+---@return string
+function bendedMesh:getCollisionSettingsSignature()
+    local parts = { tostring(self.collisionMode), tostring(self.bendedColliderStep), string.format("%.3f", self.bendedColliderOverlap or 0) }
+    for _, class in ipairs(COLLISION_CLASSES) do
+        table.insert(parts, tostring(self.collisionMaterials[class]))
+        table.insert(parts, tostring(self.collisionPresets[class]))
+    end
+    return table.concat(parts, "|")
 end
 
 ---Keeps the live collision in step with the path; it is rebuilt once the shape stops changing.
@@ -2619,7 +2680,7 @@ function bendedMesh:refreshCollisionPreview()
         self:syncCurveBones()
     end
 
-    bendedCollisionPreview.request(self, self:getDeformedPreviewSignature())
+    bendedCollisionPreview.request(self, self:getDeformedPreviewSignature() .. "#" .. self:getCollisionSettingsSignature())
     bendedCollisionPreview.setVisual(self, self.collisionShapeVisible and colliderColors[settings.colliderColor + 1] or nil)
 end
 
@@ -5191,6 +5252,116 @@ function bendedMesh:drawDeformationMatrices()
     ImGui.TreePop()
 end
 
+---Material and preset selectors of one collision class.
+---@param class string
+---@return boolean changed
+function bendedMesh:drawCollisionClass(class)
+    local changed = false
+
+    style.mutedText(COLLISION_CLASS_LABELS[class])
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+
+    local materialLabels = { AUTO_MATERIAL_LABEL }
+    for _, label in ipairs(colliderBase.getMaterialDisplayOptions()) do
+        table.insert(materialLabels, label)
+    end
+
+    local current = self.collisionMaterials[class]
+    local selected = AUTO_MATERIAL_LABEL
+    if current ~= "" then
+        for index, name in ipairs(colliderMaterials) do
+            if name == current then
+                selected = colliderBase.getMaterialDisplayByIndex(index - 1)
+                break
+            end
+        end
+    end
+
+    local materialChanged
+    selected, self.collisionMaterialSearch[class], materialChanged = style.trackedSearchDropdown(
+        "##collisionMaterial" .. class,
+        "Search material...",
+        selected,
+        self.collisionMaterialSearch[class] or "",
+        materialLabels,
+        { element = self.object, width = 150, matchContentWidth = true, tooltip = "Physics material. Automatic: from the mesh (asphalt, concrete, dirt)." }
+    )
+    if materialChanged then
+        local index = colliderBase.getMaterialIndexByDisplay(selected)
+        self.collisionMaterials[class] = index and colliderMaterials[index + 1] or ""
+        changed = true
+    end
+
+    ImGui.SameLine()
+    local presetChanged
+    local preset = self.collisionPresets[class]
+    preset, self.collisionPresetSearch[class], presetChanged = style.trackedSearchDropdown(
+        "##collisionPreset" .. class,
+        "Search preset...",
+        preset,
+        self.collisionPresetSearch[class] or "",
+        colliderPresets,
+        { element = self.object, width = 150, matchContentWidth = true, tooltip = "Collision preset." }
+    )
+    if presetChanged then
+        self.collisionPresets[class] = preset
+        changed = true
+    end
+
+    return changed
+end
+
+function bendedMesh:drawCollisionSettings()
+    if not ImGui.TreeNodeEx("Collision", ImGuiTreeNodeFlags.SpanFullWidth) then
+        return
+    end
+
+    local changed, anyChanged
+
+    style.mutedText("Collision Mode")
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(self.maxPropertyWidth)
+    self.collisionMode, changed = style.trackedCombo(self.object, "##collisionMode", self.collisionMode, { "Pieces", "Boxes" }, 150, {
+        tooltip = "Pieces: convex pieces fitted to the mesh.\nBoxes: one box per bone segment, sized to the mesh bounds."
+    })
+    anyChanged = changed
+
+    if self.collisionMode == COLLISION_MODE_BOXES then
+        style.mutedText("Splits / Segment")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        self.bendedColliderStep, changed, _ = style.trackedDragInt(self.object, "##collisionBoxSplits", self.bendedColliderStep, 1, 16, 80)
+        if changed then
+            self.bendedColliderStep = math.max(1, math.min(16, math.floor(self.bendedColliderStep)))
+            anyChanged = true
+        end
+        style.tooltip("Boxes per bone segment.\nHigher values follow bends more closely.")
+
+        style.mutedText("Length Overlap")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(self.maxPropertyWidth)
+        self.bendedColliderOverlap, changed, _ = style.trackedDragFloat(self.object, "##collisionBoxOverlap", self.bendedColliderOverlap, 0.005, 0, 0.5, "%.3f", 80)
+        if changed then
+            self.bendedColliderOverlap = math.max(0, math.min(0.5, self.bendedColliderOverlap))
+            anyChanged = true
+        end
+        style.tooltip("Extra box length, as a share of its length, to close gaps in bends.")
+
+        anyChanged = self:drawCollisionClass("ground") or anyChanged
+    else
+        for _, class in ipairs(COLLISION_CLASSES) do
+            anyChanged = self:drawCollisionClass(class) or anyChanged
+        end
+    end
+
+    if anyChanged then
+        self:refreshCollisionPreview()
+    end
+
+    ImGui.TreePop()
+end
+
 function bendedMesh:drawColliderGeneration()
     if not ImGui.TreeNodeEx("Collider Generation", ImGuiTreeNodeFlags.SpanFullWidth) then
         return
@@ -5285,7 +5456,11 @@ function bendedMesh:draw()
             style.resolveActionLabelNoIconOnly(IconGlyphs.FormatAlignJustify, "Show Local Frames"),
             "Collider Shape",
             "Splits / Segment",
-            "Length Overlap"
+            "Length Overlap",
+            "Collision Mode",
+            "Ground",
+            "Raised",
+            "Wall"
         }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
     end
 
@@ -5325,6 +5500,7 @@ function bendedMesh:draw()
         self:refreshArrowScale()
     end
     self:drawDeformationMatrices()
+    self:drawCollisionSettings()
     self:drawColliderGeneration()
     self:drawConversionSelector("##bendedMeshConverterType", "Lossy Conversion##bendedMeshSingle")
 end
@@ -5396,7 +5572,7 @@ function bendedMesh:calculateIntersection(origin, ray)
 end
 
 ---Collision pieces in world space, rounded to the millimetre, for the export.
----@return table? collision `{ pieces = { { class, material, points = { x, y, z, ... } } } }`
+---@return table? collision `{ pieces = { { class, material, preset, points = { x, y, z, ... } } } }`
 ---@return string? issue
 function bendedMesh:getExportCollision()
     local shapes, issue = self:getCollisionShapes()
@@ -5419,7 +5595,7 @@ function bendedMesh:getExportCollision()
             table.insert(points, round(world.y + position.y))
             table.insert(points, round(world.z + position.z))
         end
-        table.insert(pieces, { class = shape.class, material = shape.material, points = points })
+        table.insert(pieces, { class = shape.class, material = shape.material, preset = shape.preset, points = points })
     end
 
     return { pieces = pieces }

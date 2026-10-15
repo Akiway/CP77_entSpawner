@@ -60,10 +60,11 @@ local function despawnHost(record)
     record.count = 0
 end
 
+---@param preset string
 ---@return physicsFilterData
-local function makeFilter()
+local function makeFilter(preset)
     local filterData = physicsFilterData.new()
-    filterData.preset = CName.new("World Static")
+    filterData.preset = CName.new(preset)
 
     local query = physicsQueryFilter.new()
     query.mask1 = 0
@@ -81,36 +82,50 @@ end
 ---@param entity entEntity
 ---@param shapes bendedCollisionShape[]
 local function addColliders(entity, shapes)
-    local colliders = {}
-    local part = 0
-
-    local function flush()
-        if #colliders == 0 then return end
-        part = part + 1
-        local component = entColliderComponent.new()
-        component.name = CName.new("bendedCollision" .. part)
-        component.colliders = colliders
-        component.filterData = makeFilter()
-        entity:AddComponent(component)
-        colliders = {}
-    end
-
+    -- The filter is per component: one set of components per preset.
+    local byPreset = {}
+    local order = {}
     for _, shape in ipairs(shapes) do
-        local vertices = {}
-        for i, point in ipairs(shape.points) do
-            vertices[i] = Vector3.new(point.x, point.y, point.z)
+        local preset = shape.preset or "World Static"
+        if not byPreset[preset] then
+            byPreset[preset] = {}
+            table.insert(order, preset)
         end
-
-        local convex = physicsColliderConvex.new()
-        convex.vertices = vertices
-        convex.material = CName.new(shape.material)
-        table.insert(colliders, convex)
-
-        if #colliders >= collidersPerComponent then
-            flush()
-        end
+        table.insert(byPreset[preset], shape)
     end
-    flush()
+
+    local part = 0
+    for _, preset in ipairs(order) do
+        local colliders = {}
+
+        local function flush()
+            if #colliders == 0 then return end
+            part = part + 1
+            local component = entColliderComponent.new()
+            component.name = CName.new("bendedCollision" .. part)
+            component.colliders = colliders
+            component.filterData = makeFilter(preset)
+            entity:AddComponent(component)
+            colliders = {}
+        end
+
+        for _, shape in ipairs(byPreset[preset]) do
+            local vertices = {}
+            for i, point in ipairs(shape.points) do
+                vertices[i] = Vector3.new(point.x, point.y, point.z)
+            end
+
+            local convex = physicsColliderConvex.new()
+            convex.vertices = vertices
+            convex.material = CName.new(shape.material)
+            table.insert(colliders, convex)
+
+            if #colliders >= collidersPerComponent then
+                flush()
+            end
+        end
+        flush()
+    end
 end
 
 ---Rotation matrix rows of a quaternion, for row vectors.

@@ -14,7 +14,7 @@ local componentName = "Collider1461"
 local collidersPerNode = 256
 
 ---@class bendedCollisionExportSource
----@field pieces table[] `{ class, material, points = { x, y, z, ... } }` in world space.
+---@field pieces table[] `{ class, material, preset, points = { x, y, z, ... } }` in world space.
 ---@field reference table Streaming reference point of the mesh.
 ---@field range number Streaming range of the mesh.
 
@@ -68,8 +68,9 @@ end
 ---Complete collider component replacing the template's, as an instance data chunk.
 ---@param pieces table[]
 ---@param origin table
+---@param preset string
 ---@return table
-local function createComponent(pieces, origin)
+local function createComponent(pieces, origin, preset)
     local colliders = {}
     for _, piece in ipairs(pieces) do
         table.insert(colliders, createConvex(piece, origin))
@@ -85,7 +86,7 @@ local function createComponent(pieces, origin)
         filterData = {
             Data = {
                 ["$type"] = "physicsFilterData",
-                preset = cname("World Static"),
+                preset = cname(preset),
                 queryFilter = { ["$type"] = "physicsQueryFilter", mask1 = "0", mask2 = "70107400" },
                 simulationFilter = { ["$type"] = "physicsSimulationFilter", mask1 = "114696", mask2 = "23627" }
             }
@@ -130,19 +131,42 @@ function collisionExport.collect(element)
     }
 end
 
----Collision nodes of one group: one per `collidersPerNode` pieces, each streamed whenever one of the
----group's meshes is.
+---Collision nodes of one group: one per preset and `collidersPerNode` pieces, each streamed whenever one
+---of the group's meshes is.
 ---@param name string Group name, for the node names.
 ---@param sources bendedCollisionExportSource[]
 ---@return table[] nodes
 function collisionExport.buildNodes(name, sources)
-    local pieces = {}
+    local byPreset = {}
+    local order = {}
     for _, source in ipairs(sources) do
         for _, piece in ipairs(source.pieces) do
-            table.insert(pieces, piece)
+            local preset = piece.preset or "World Static"
+            if not byPreset[preset] then
+                byPreset[preset] = {}
+                table.insert(order, preset)
+            end
+            table.insert(byPreset[preset], piece)
         end
     end
 
+    local nodes = {}
+    for _, preset in ipairs(order) do
+        local label = preset == "World Static" and name or (name .. " (" .. preset .. ")")
+        for _, node in ipairs(collisionExport.buildPresetNodes(label, byPreset[preset], preset, sources)) do
+            table.insert(nodes, node)
+        end
+    end
+
+    return nodes
+end
+
+---@param name string
+---@param pieces table[]
+---@param preset string
+---@param sources bendedCollisionExportSource[]
+---@return table[] nodes
+function collisionExport.buildPresetNodes(name, pieces, preset, sources)
     local nodes = {}
     local count = math.ceil(#pieces / collidersPerNode)
 
@@ -203,7 +227,7 @@ function collisionExport.buildNodes(name, sources)
                                 Sections = 6,
                                 CruidIndex = -1,
                                 CruidDict = { ["0"] = componentId },
-                                Chunks = { createComponent(slice, origin) }
+                                Chunks = { createComponent(slice, origin, preset) }
                             }
                         }
                     }
