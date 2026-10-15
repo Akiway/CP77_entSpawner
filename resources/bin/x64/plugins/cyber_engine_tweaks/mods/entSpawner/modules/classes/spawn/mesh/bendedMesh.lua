@@ -2940,17 +2940,22 @@ end
 local HANDLE_POINT_RADIUS = 6
 local HANDLE_TIP_RADIUS = 4
 local HANDLE_PICK_RADIUS = 11
-local HANDLE_CURVE_PICK_RADIUS = 9
-local HANDLE_CURVE_SAMPLES = 24
+local HANDLE_CURVE_PICK_RADIUS = 20
+local HANDLE_CURVE_SAMPLES = 32
 
 local handleColors = {
     path = 0xC8FFE000,
     point = 0xFF33CCFF,
     pointHover = 0xFFFFFFFF,
     pointActive = 0xFF2E8BFF,
+    pointJoined = 0xFFE860E0,
+    pointRemove = 0xFF3333FF,
+    pointInsert = 0xFF66E666,
+    pointInsertLine = 0x9666E666,
     tangentAuto = 0xC8D0D0D0,
     tangentManual = 0xFF2EA0FF,
     hint = 0xFFE8E8E8,
+    hintTitle = 0xFF33CCFF,
     hintBackground = 0xB4141414
 }
 
@@ -3078,17 +3083,33 @@ function bendedMesh:pickCurveInsertion(screen, mouseX, mouseY)
     local segments = buildCurveSegments(self.curvePoints, looped)
     local best, bestIndex, bestPoint = HANDLE_CURVE_PICK_RADIUS, nil, nil
 
+    -- Distance to the projected polyline, so the pick follows the curve between samples.
+    local bestT, bestSegment = nil, nil
     for index, segment in ipairs(segments) do
-        for step = 1, HANDLE_CURVE_SAMPLES - 1 do
-            local localPoint = bezierPoint(segment, step / HANDLE_CURVE_SAMPLES)
-            local projected = projectedWireframe.projectWorldPoint(screen, self:getWorldPointFromLocal(localPoint))
+        local previous, previousT = nil, 0
+        for step = 0, HANDLE_CURVE_SAMPLES do
+            local t = step / HANDLE_CURVE_SAMPLES
+            local projected = projectedWireframe.projectWorldPoint(screen, self:getWorldPointFromLocal(bezierPoint(segment, t)))
             if projected and not projected.behind then
-                local distance = math.sqrt((projected.x - mouseX) ^ 2 + (projected.y - mouseY) ^ 2)
-                if distance < best then
-                    best, bestIndex, bestPoint = distance, index, localPoint
+                if previous then
+                    local dx, dy = projected.x - previous.x, projected.y - previous.y
+                    local lengthSquared = dx * dx + dy * dy
+                    local u = lengthSquared > 0.0001 and math.max(0, math.min(1, ((mouseX - previous.x) * dx + (mouseY - previous.y) * dy) / lengthSquared)) or 0
+                    local distance = math.sqrt((previous.x + dx * u - mouseX) ^ 2 + (previous.y + dy * u - mouseY) ^ 2)
+                    if distance < best then
+                        best, bestIndex, bestSegment = distance, index, segment
+                        bestT = math.max(0.01, math.min(0.99, previousT + (t - previousT) * u))
+                    end
                 end
+                previous, previousT = projected, t
+            else
+                previous = nil
             end
         end
+    end
+
+    if bestSegment then
+        bestPoint = bezierPoint(bestSegment, bestT)
     end
 
     return bestIndex, bestPoint
@@ -3143,12 +3164,26 @@ local function getDragTarget(self, drag, editor)
     return { x = drag.start.x + axis.x * along, y = drag.start.y + axis.y * along, z = drag.start.z + axis.z * along }
 end
 
+---Hint box: the current action as a title, a blank line, then the hotkeys.
 ---@param drawList table
-local function drawHint(drawList, x, y, text)
-    local width, height = ImGui.CalcTextSize(text)
+---@param title string
+---@param text string
+---@param titleColor number?
+local function drawHint(drawList, x, y, title, text, titleColor)
+    local body = "\n\n" .. text
+    local width, height = ImGui.CalcTextSize(title .. body)
     ImGui.ImDrawListAddRectFilled(drawList, x + 14, y + 14, x + 22 + width, y + 20 + height, handleColors.hintBackground, 4)
-    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), x + 18, y + 17, handleColors.hint, text)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), x + 18, y + 17, titleColor or handleColors.hintTitle, title)
+    ImGui.ImDrawListAddText(drawList, ImGui.GetFontSize(), x + 18, y + 17, handleColors.hint, body)
 end
+
+local dragModeLabels = {
+    plane = "horizontal",
+    x = "along X",
+    y = "along Y",
+    z = "vertical",
+    snap = "on the surface"
+}
 
 ---Draws the editing handles and runs their mouse interaction.
 ---@param screen table
@@ -3189,6 +3224,27 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
     end
 
     local drag = self._handleDrag
+
+    -- Where an Alt+click would add a point: on the curve under the cursor, else at the end.
+    -- Alt+Ctrl always adds at the start.
+    local insertion = nil
+    local atStart = isKeyDown(ImGuiKey.LeftCtrl, ImGuiKey.RightCtrl)
+    if interactive and altDown and curveMode and not drag and not hovered then
+        local index, localPoint = nil, nil
+        if not atStart then
+            index, localPoint = self:pickCurveInsertion(screen, mouseX, mouseY)
+        end
+        if index then
+            insertion = { index = index, localPoint = localPoint }
+        else
+            local hit = editor.getCursorSceneHit({ [self.object.id] = true })
+            if hit and hit.hit and hit.result and hit.result.position then
+                local position = hit.result.position
+                insertion = { world = { x = position.x, y = position.y, z = position.z }, atStart = atStart }
+            end
+        end
+    end
+
     if drag then
         if ImGui.IsMouseDown(ImGuiMouseButton.Left) then
             local target = getDragTarget(self, drag, editor)
@@ -3269,26 +3325,25 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
                 self:ensurePathPoints()
                 self:autoFitDeformedBox()
                 self:refreshArrowScale()
-            else
-                local index, localPoint = self:pickCurveInsertion(screen, mouseX, mouseY)
-                if index then
-                    history.addAction(history.getElementChange(self.object))
+            elseif insertion then
+                history.addAction(history.getElementChange(self.object))
+                if insertion.index then
+                    local index, localPoint = insertion.index, insertion.localPoint
                     local a, b = self.curvePoints[index], self.curvePoints[index % #self.curvePoints + 1]
                     table.insert(self.curvePoints, index + 1, {
                         x = localPoint.x, y = localPoint.y, z = localPoint.z,
                         roll = ((a.roll or 0) + (b.roll or 0)) / 2
                     })
                 else
-                    local hit = editor.getCursorSceneHit({ [self.object.id] = true })
-                    if hit and hit.hit and hit.result and hit.result.position then
-                        history.addAction(history.getElementChange(self.object))
-                        local target = self:worldToLocalPoint(hit.result.position)
-                        table.insert(self.curvePoints, {
-                            x = target.x, y = target.y, z = target.z,
-                            roll = self.curvePoints[#self.curvePoints].roll or 0
-                        })
-                    end
+                    local target = self:worldToLocalPoint(insertion.world)
+                    local position = insertion.atStart and 1 or #self.curvePoints + 1
+                    local neighbour = insertion.atStart and self.curvePoints[1] or self.curvePoints[#self.curvePoints]
+                    table.insert(self.curvePoints, position, {
+                        x = target.x, y = target.y, z = target.z,
+                        roll = neighbour.roll or 0
+                    })
                 end
+                insertion = nil
                 self:ensurePathPoints()
                 self:autoFitDeformedBox()
                 self:refreshArrowScale()
@@ -3325,16 +3380,44 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
         end
     end
 
+    -- Ends joined to another mesh's end move together.
+    local joined = {}
+    if curveMode then
+        for _, index in ipairs({ 1, #self.curvePoints }) do
+            joined[index] = #self:findJoinedEnds(index) > 0
+        end
+    end
+
+    -- Alt+click on the hovered point removes it (Curve) or releases its anchor (Bones).
+    local removable = altDown and not self._handleDrag and hovered and hovered.kind == "point"
+        and (curveMode and #self.curvePoints > 2 or (not curveMode and hovered.index > 1 and hovered.index < #self.pathPoints))
+
     for _, handle in ipairs(handles) do
         if handle.kind == "point" and handle.screen and not handle.screen.behind then
             local color = handleColors.point
             if isSame(handle, active) then
                 color = handleColors.pointActive
             elseif isSame(handle, hovered) then
-                color = handleColors.pointHover
+                color = removable and handleColors.pointRemove or handleColors.pointHover
+            elseif joined[handle.index] then
+                color = handleColors.pointJoined
             end
             ImGui.ImDrawListAddCircleFilled(drawList, handle.screen.x, handle.screen.y, HANDLE_POINT_RADIUS + 1.5, 0xC8000000, -1)
             ImGui.ImDrawListAddCircleFilled(drawList, handle.screen.x, handle.screen.y, HANDLE_POINT_RADIUS, color, -1)
+        end
+    end
+
+    if insertion then
+        local world = insertion.world or self:getWorldPointFromLocal(insertion.localPoint)
+        world = Vector4.new(world.x, world.y, world.z, 1)
+        local projected = projectedWireframe.projectWorldPoint(screen, world)
+        if projected and not projected.behind then
+            if not insertion.index then
+                local neighbour = self:getWorldPointFromLocal(self.curvePoints[insertion.atStart and 1 or #self.curvePoints])
+                projectedWireframe.drawWorldLine(drawList, screen, neighbour, world, { color = handleColors.pointInsertLine, thickness = 1.5 })
+            end
+            ImGui.ImDrawListAddCircleFilled(drawList, projected.x, projected.y, HANDLE_POINT_RADIUS + 1.5, 0xC8000000, -1)
+            ImGui.ImDrawListAddCircleFilled(drawList, projected.x, projected.y, HANDLE_POINT_RADIUS, handleColors.pointInsert, -1)
         end
     end
 
@@ -3347,25 +3430,41 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
     end
 
     if interactive and (hovered or self._handleDrag) then
-        local text
+        local title, text, titleColor
         if self._handleDrag then
+            local dragged = self._handleDrag.handle
+            local target = dragged.kind == "tangent" and ("the tangent of point " .. dragged.index) or ("point " .. dragged.index)
+            if self._handleDrag.snap then
+                title = IconGlyphs.Magnet .. " Snapping " .. target .. " to " .. tostring(self._handleDrag.snap.name)
+            else
+                title = "Moving " .. target .. " " .. dragModeLabels[self._handleDrag.mode or "plane"]
+            end
             text = "Hold: Horizontal (X/Y, hold X or Y to lock an axis)\nShift / Z: vertical (Z)\nCtrl: snap to the surface"
-            if curveMode and self._handleDrag.handle.kind == "point" then
+            if curveMode and dragged.kind == "point" then
                 text = text .. "\nAlt: detach linked ends, snap to nearby points"
             end
-            if self._handleDrag.snap then
-                text = text .. "\n" .. IconGlyphs.Magnet .. " " .. tostring(self._handleDrag.snap.name)
-            end
         elseif hovered.kind == "tangent" then
+            title = altDown and ("Reset the tangent of point " .. hovered.index) or ("Tangent of point " .. hovered.index)
             text = "Drag: edit the tangent\nAlt+click: back to automatic"
-        elseif curveMode then
-            text = "Drag: move\nAlt+click: remove the point"
         else
-            text = "Drag: move\nAlt+click: release the anchor"
+            if removable then
+                title = (curveMode and "Remove point " or "Release the anchor of point ") .. hovered.index
+                titleColor = handleColors.pointRemove
+            elseif altDown then
+                title = curveMode and "A curve keeps at least 2 points" or "The ends stay anchored"
+            else
+                title = "Point " .. hovered.index
+            end
+            text = curveMode and "Drag: move\nAlt+click: remove the point" or "Drag: move\nAlt+click: release the anchor"
         end
-        drawHint(drawList, mouseX, mouseY, text)
+        drawHint(drawList, mouseX, mouseY, title, text, titleColor)
     elseif interactive and altDown and curveMode then
-        drawHint(drawList, mouseX, mouseY, "Alt+click on the curve: insert a point\nAlt+click elsewhere: add a point at the end")
+        local title, titleColor = "No surface under the cursor", nil
+        if insertion then
+            title = insertion.index and "Insert a point on the curve" or (insertion.atStart and "Add a point at the start" or "Add a point at the end")
+            titleColor = handleColors.pointInsert
+        end
+        drawHint(drawList, mouseX, mouseY, title, "Alt+click on the curve: insert a point\nAlt+click elsewhere: add a point at the end\nAlt+Ctrl+click: add a point at the start", titleColor)
     end
 
     if interactive then
@@ -4542,7 +4641,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.viewportHandlesEnabled, changed = style.trackedCheckbox(self.object, "##viewportHandlesEnabled", self.viewportHandlesEnabled)
-    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.")
+    style.tooltip("While the mesh is selected in editor mode, drag its points and tangents in the viewport.\n\nHold: Horizontal (X/Y, hold X or Y to lock an axis).\nShift / Z: vertical (Z).\nCtrl: snap to the surface under the cursor.\nAlt: detach linked ends, snap to nearby points.\n\nAlt+click on a point: remove it.\nAlt+click on a tangent tip: back to automatic.\nAlt+click on the curve: insert a point.\nAlt+click elsewhere: add a point at the end.\nAlt+Ctrl+click: add a point at the start.")
 
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.Magnet, "Magnetic Ends"))
     ImGui.SameLine()
@@ -4554,7 +4653,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.linkJoinedEnds, changed = style.trackedCheckbox(self.object, "##linkJoinedEnds", self.linkJoinedEnds)
-    style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.")
+    style.tooltip("Dragging a first or last point in the viewport also moves\nthe end of any bended mesh joined there, tangent included.\nJoined points are drawn in purple.\n\nHold Alt while dragging to detach the point from them.\nHold Alt on a free point to snap it onto nearby points.")
 
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.MapMarkerMultipleOutline, "In-World Path Viz"))
     ImGui.SameLine()
@@ -4994,15 +5093,15 @@ function bendedMesh:drawDeformationMatrices()
 
     local canCreateContinuation = self.object and self.object.parent and (not self.object:isLocked())
     ImGui.BeginDisabled(not canCreateContinuation)
-    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.RayStartArrow, "Continue From End", "bendedContinueFromEnd")) and canCreateContinuation then
-        self:createContinuationMesh(false)
-    end
-    style.tooltip("Create a new bended mesh of the same asset joined to the end of this one.")
-    ImGui.SameLine()
     if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.RayEndArrow, "Continue From Start", "bendedContinueFromStart")) and canCreateContinuation then
         self:createContinuationMesh(true)
     end
     style.tooltip("Create a new bended mesh of the same asset joined to the start of this one.")
+    ImGui.SameLine()
+    if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.RayStartArrow, "Continue From End", "bendedContinueFromEnd")) and canCreateContinuation then
+        self:createContinuationMesh(false)
+    end
+    style.tooltip("Create a new bended mesh of the same asset joined to the end of this one.")
     ImGui.EndDisabled()
     ImGui.SameLine()
     self.continuationRepeatShape, _ = style.trackedCheckbox(self.object, "Repeat Curve##continuationRepeatShape", self.continuationRepeatShape)
