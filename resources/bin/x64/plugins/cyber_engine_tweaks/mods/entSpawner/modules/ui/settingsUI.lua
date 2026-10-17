@@ -493,6 +493,10 @@ local function normalizeNonNegativeNumber(value, fallback)
 end
 
 ---@param spawner spawner
+local ringModeValues = { "combined", "split", "off" }
+local ringModeLabels = { "With arrows", "Separate", "Disabled" }
+local ringModeIndices = { combined = 0, split = 1, off = 2 }
+
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
     if not spawnedUI then return end
@@ -1414,6 +1418,41 @@ function settingsUI.draw(spawner)
             refreshSelectedVisualizers(spawner)
         end
         style.tooltip("Overall size of the positioning arrows. Increase this to make them easier to see, e.g. in bright daylight.")
+
+        local ringModeIndex = ringModeIndices[settings.gizmoRingMode] or 0
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        ringModeIndex, changed = ImGui.Combo("Rotation rings", ringModeIndex, ringModeLabels, #ringModeLabels)
+        if changed then
+            settings.gizmoRingMode = ringModeValues[ringModeIndex + 1]
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G also switches to the arrows and R to the rings, and hovering a position or rotation field switches to the matching one.\nDisabled: no rings.")
+
+        ImGui.BeginDisabled(settings.gizmoRingMode == "off")
+        settings.gizmoRingQuarters, changed = ImGui.Checkbox("Show only the quarter of each rotation ring facing the camera", settings.gizmoRingQuarters)
+        if changed then
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.gizmoRingSize, changed = ImGui.SliderFloat("Rotation ring size", settings.gizmoRingSize, 0.5, 2.0, "%.2f")
+        if changed then
+            settings.gizmoRingSize = math.max(0.5, math.min(settings.gizmoRingSize, 2.0))
+            settings.save()
+            refreshSelectedVisualizers(spawner)
+        end
+        style.tooltip("Radius of the rotation rings, as a multiple of the arrow length. Above 1 the rings sit past the arrow tips.")
+        ImGui.EndDisabled()
+
+        ImGui.SetNextItemWidth(150 * style.viewSize)
+        settings.rotationSnapStep, changed = ImGui.SliderFloat("Rotation snap step", settings.rotationSnapStep, 1, 90, "%.0f")
+        if changed then
+            settings.rotationSnapStep = math.max(1, math.min(settings.rotationSnapStep, 90))
+            settings.save()
+        end
+        style.tooltip("Degrees a rotation snaps to while Shift is held, dragging a rotation ring or rotating with R.")
 
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then

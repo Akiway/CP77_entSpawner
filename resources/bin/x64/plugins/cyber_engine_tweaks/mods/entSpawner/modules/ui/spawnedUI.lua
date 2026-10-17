@@ -1186,7 +1186,7 @@ function spawnedUI.registerHotkeys()
             spawnedUI.cancelHierarchyPick()
             return
         end
-        if #spawnedUI.selectedPaths == 0 or editor.grab or editor.rotate or editor.scale then return end -- Escape is also used for cancling editing
+        if #spawnedUI.selectedPaths == 0 or editor.isTransforming() then return end -- Escape is also used for cancling editing
         spawnedUI.unselectAll()
     end, hotkeyRunCondition)
     input.registerImGuiHotkey({ ImGuiKey.H }, function()
@@ -1261,7 +1261,7 @@ function spawnedUI.registerHotkeys()
     -- Open context menu for selected from editor mode
     input.registerMouseAction(ImGuiMouseButton.Right, function()
         if hasActiveNameEdit() then return end
-        if #spawnedUI.selectedPaths == 0 or editor.grab or editor.rotate or editor.scale then return end
+        if #spawnedUI.selectedPaths == 0 or editor.isTransforming() then return end
 
         spawnedUI.openContextMenu.state = true
         spawnedUI.openContextMenu.path = spawnedUI.selectedPaths[1].path
