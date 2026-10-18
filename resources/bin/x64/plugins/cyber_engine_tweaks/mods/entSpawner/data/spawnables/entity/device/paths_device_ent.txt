@@ -1666,3 +1666,6 @@ DestructibleMasterDeviceControllerPS base\gameplay\devices\electrical_poles\elec
  base\gameplay\devices\lights\indestructible\ceiling_lamps\corridor_light_d_hospital.ent
 ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\street_lamp_a_cz.ent
 ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\street_lamp_northside_i_cold.ent
+GenericDeviceControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case.ent
+ComputerControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case802.ent
+NetrunnerChairControllerPS base\quest\minor_quests\mq060\entities\mq060_chair_02.ent

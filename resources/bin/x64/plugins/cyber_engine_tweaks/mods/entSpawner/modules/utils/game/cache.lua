@@ -348,8 +348,8 @@ local function getMeshResourceKeys(spawnData)
     }
 end
 
----Loads and memoizes a spawn-set file as a normalized lookup table.
----@param path string Path to a text file containing one spawn path per line.
+---Loads and memoizes a spawn set as a normalized lookup table.
+---@param path string Text file with one spawn path per line, or a folder (trailing `/`) whose `.txt` lists are all read, as Spawn New reads them.
 ---@return table<string, boolean> set
 function cache.getSpawnSet(path)
     cache.staticData.spawnSets = cache.staticData.spawnSets or {}
@@ -359,6 +359,15 @@ function cache.getSpawnSet(path)
     end
 
     local set = {}
+    if path:sub(-1) == "/" then
+        for _, entry in ipairs(config.loadLists(path)) do
+            set[normalizeSpawnPath(entry.data.spawnData)] = true
+        end
+
+        cache.staticData.spawnSets[path] = set
+        return set
+    end
+
     local file = io.open(path, "r")
     if file then
         for line in file:lines() do

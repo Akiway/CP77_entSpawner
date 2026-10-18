@@ -1,4 +1,3 @@
- ep1\characters\entities\player\player_wa_fpp_ep1.ent
  base\open_world\street_stories\heywood\glenn\sts_hey_gle_06\characters\sts_hey_gle_06_valentinos.ent
  base\items\interactive\misc\int_misc_002__keyboard_table_c.ent
  base\gameplay\devices\advertising\digital\neomilitary\neomilitary_digital_billboard_9x21_a_single.ent
@@ -885,7 +884,6 @@
  ep1\vehicles\decoration\entities\v_deco_thorton_colby_kurtz_02b.ent
  ep1\gameplay\items\equipment\face\player_face_item_ep1.ent
  ep1\vehicles\sport\v_sport1_villefort_alvarado\entities\v_sport2_villefort_alvarado_hearse__ext01_wheel_fr_a_01.ent
- ep1\characters\entities\player\replacer\bella_replacer.ent
  ep1\characters\garment\citizen_casual\torso\t2_156_ma_hood__sweater.ent
  ep1\openworld\street_stories\sts_ep1_08\entities\sts_ep1_08_client.ent
  ep1\vehicles\standard\v_standard2_thorton_colby_kurtz\entities\v_standard25_thorton_colby_pickup_kurtz__ext01_wheel_fl_01.ent
@@ -1305,7 +1303,6 @@
  base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi__ext01_wing_l_01.ent
  base\characters\common\hair\hh_036_wa__high_tight.ent
  base\characters\common\base_bodies\t0_000_wa_base__torso_cyberarm_l.ent
- base\characters\entities\player\player_menu_fpp.ent
  base\characters\garment\citizen_casual\feet\s1_007_mb_shoe__velcro_sport.ent
  base\characters\garment\gang_nomad\feet\s1_026_ma_boot__heavy.ent
  base\vehicles\standard\v_standard25_villefort_columbus\entities\v_standard25_villefort_columbus__ext01_wheel_br_01.ent
@@ -5924,7 +5921,6 @@ GenericDeviceControllerPS base\quest\minor_quests\mq016\entities\mq016_fusebox.e
  base\quest\minor_quests\mq038\characters\mq038_surgeon.ent
  base\quest\minor_quests\mq033\entities\mq033_the_moon_wolf_b_no_glitch.ent
  base\weapons\firearms\rifle_assault\nokota_copperhead\entities\w_rifle_assault__nokota_copperhead__mag_std_01_decal_01.ent
- base\quest\main_quests\part1\q116\characters\q116_v_male.ent
  base\gameplay\items\consumables\food\appearances\synth_snack.ent
  base\gameplay\weakspots\puppet\head\armor_head_helmet.ent
  base\environment\decoration\lighting\street\street_lamp\destruction\street_lamp_h_tall_dst.ent
@@ -6487,7 +6483,6 @@ GenericDeviceControllerPS base\quest\minor_quests\mq016\entities\mq016_fusebox.e
  base\vehicles\standard\v_standard3_thorton_mackinaw_suv\entities\v_standard3_thorton_mackinaw_suv__ext01_body_01.ent
  base\characters\garment\gang_aldecaldos\torso\t2_094_ma_full__racing_suit_tied.ent
  base\characters\entities\npc_instances\inst_totentanz\inst_totentanz_ma_01_04.ent
- base\characters\entities\player\photo_mode\player_wa_photomode.ent
  base\characters\boss\adam_smasher\i1_004_mm_slot__adam_smasher_grenades.ent
  base\characters\garment\corp_arasaka\hands\g1_014_mba_gloves__ninja_gloves.ent
  base\characters\garment\citizen_casual\hands\g1_011_wa_gloves__clair.ent
@@ -7314,7 +7309,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  ep1\quest\main_quests\q305\characters\q305_sandra_dorsett_ep1.ent
  ep1\items\quest\q301__platform_d.ent
  ep1\characters\entities\service\service__ep1_sexworker_ma.ent
- ep1\characters\entities\player\player_ma_tpp_ep1.ent
  ep1\quest\main_quests\q302\assets\destruction\simulated\q302_gate_a_sim_destro.ent
  ep1\vehicles\utility\v_utilty4_chevalier_centurion\entities\cargo_04.ent
  ep1\openworld\street_stories\sts_ep1_03\entities\sts_ep1_03_lexington_krausser_jago_prop.ent
@@ -7704,7 +7698,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  ep1\characters\appearances\citizen\test\corpo__nusa_mb.ent
  ep1\characters\entities\service\service__ep1_municipial_ma.ent
  ep1\characters\appearances\corpse\generated\head\h0_765_ma_c__middle_big_beard.ent
- ep1\quest\main_quests\q304\characters\q304_v_in_a_jar_wa_2.ent
  ep1\characters\appearances\citizen\test\corpo__maxtac_ma.ent
  ep1\characters\appearances\citizen\test\citizen__stacks_wa.ent
  ep1\characters\entities\corpo\corpo__ep1_civilianguard_ma.ent
@@ -8072,7 +8065,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  base\characters\main_npc\trio\t2_001_ma_jacket__trio.ent
  base\characters\garment\citizen_formal\torso\t1_035_wa_shirt__suit.ent
  base\vehicles\standard\v_standard3_thorton_mackinaw\entities\v_standard3_thorton_mackinaw__ext01_wheel_fl_01.ent
- base\characters\entities\player\player_ma_tpp_cutscene_no_impostor.ent
  base\characters\entities\citizen\citizen__rich_ma.ent
  base\environment\decoration\lighting\street\street_lamp\destruction\street_lamp_d_dst.ent
  base\gameplay\devices\vending_machines\appearances\vending_machine_o_cirrus.ent
@@ -8152,7 +8144,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  base\gameplay\items\misc\appearances\surgical_tongs_junk.ent
  base\quest\main_quests\part1\q105\entities\q105_item_evelyns_cigarette_case.ent
  base\gameplay\devices\advertising\digital\entropy\entropy_digital_billboard_1x3_3_a_single.ent
- base\quest\main_quests\prologue\q000\entities\hym\q000_hym_v_tpp_female.ent
  base\weapons\firearms\handgun\w_handgun__mag_std.ent
  base\items\light_crowd_items\locomotion\purse.ent
  base\gameplay\devices\doors\double_door\appearances\decorative\swinging_f.ent
@@ -8916,7 +8907,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  ep1\characters\garment\player_equipment\torso\t2_152_pma_jacket__hoodie.ent
  ep1\vehicles\standard\v_standard2_mizutani_hozuki\entities\v_standard2_mizutani_hozuki__ext01_bumper_f_player_01.ent
  ep1\gameplay\vehicles\visual_customization\decals\quadra_sport_r7\vcc_quadra_sport_r7_trunk_stripes_02_blue.ent
- base\characters\entities\player\player_wa_fpp.ent
  ep1\characters\garment\citizen_casual\legs\l1_070_ma_pants__loose_dec_blood.ent
  ep1\vehicles\standard\v_standard2_mizutani_hozuki\entities\v_standard2_mizutani_hozuki__ext01_trunk_b_player_01.ent
  base\quest\main_quests\part1\q103\characters\q103_afterlife_claws.ent
@@ -8971,7 +8961,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  base\vehicles\standard\v_standard2_thorton_colby\entities\v_standard2_thorton_colby__ext01_junk_bumper_f_01.ent
  base\characters\head\ma\h0_001_ma_c__cyberware_02.ent
  base\characters\head\mc\h0_151_mc_c__young.ent
- base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
  base\characters\head\mba\h0_069_mba_a__middle.ent
  base\characters\head\mb\h0_014_mb_c__middle.ent
  base\characters\main_npc\monster\l1_001_mm_pants__monster_dec.ent
@@ -9172,7 +9161,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  base\open_world\vendors\santo_domingo\arroyo\std_arr_melee_01\character\std_arr_melee_01.ent
  base\items\quest\sq028__yacht_a_veh.ent
  base\environment\architecture\common\windows\window_generic\window_generic_w50_a_glass_yellow_dst.ent
- base\open_world\mini_world_stories\badlands\se5\mws_se5_03\characters\mws_se5_03_player.ent
  base\static\base\gameplay\devices\doors\double_door\appearances\swinging_f_static.ent
  base\gameplay\devices\vending_machines\appearances\vending_machine_a_mrwhitey.ent
  base\quest\side_quests\sq024\characters\sq024_snake_clan_racer.ent
@@ -9385,7 +9373,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  ep1\characters\cyberware\player\a0_001_ma__personal_link_npc_ep1.ent
  ep1\characters\entities\service\service__ep1_vendor_mc.ent
  ep1\characters\garment\gang_voodoo\torso\t0_011_ma_body__cyberware_knuckles.ent
- ep1\quest\main_quests\q304\characters\q304_netrunner_replacer_temp.ent
  ep1\characters\appearances\service\test\service_ma.ent
  ep1\characters\main_npc\reed\l1_083_mb_pants__reed.ent
  ep1\characters\garment\player_equipment\torso\t2_148_pma_jacket__harford_slim.ent
@@ -9410,7 +9397,6 @@ SecuritySystemControllerPS base\gameplay\devices\security_systems\security_syste
  ep1\vehicles\special\av_zetatech_atlus\entities\av_zetatech_atlus__ext01_body_fia_stickers_01.ent
  ep1\vehicles\utility\v_utilty4_militech_behemoth\entities\v_utility4_militech_behemoth_police__ext01_wheel_br_01.ent
  ep1\quest\main_quests\q304\characters\q304_doris.ent
- ep1\characters\entities\player\replacer\kurt_replacer.ent
  ep1\quest\tertiary_characters\victor_vector_ep1.ent
  ep1\characters\main_npc\kurt\t2_001_mb_vest__kurt_belt_fpp.ent
  ep1\characters\common\hair\hh_230_ma__wagner.ent
@@ -9976,7 +9962,6 @@ vehicleControllerPS ep1\vehicles\special\av_spaceforce1_destry.ent
  ep1\gameplay\devices\doors\appearances\sf1_single_door.ent
  ep1\characters\garment\corp_black_ops\item\i1_002_ma_slot__pouches_black_ops.ent
  ep1\weapons\firearms\special\krausser_authority\entities\w_special__krausser_authority__mag_stdr_01_decal_d01.ent
- ep1\characters\entities\player\replacer\theo_replacer.ent
  ep1\vehicles\standard\v_standard25_villefort_columbus_songbird\entities\v_standard25_villefort_columbus__int01_songbird_01.ent
  ep1\mechanical\mech\mch_004__militech_chimera\entities\meshes\destructible\mch_004__militech_chimera__ext01_leg_fl_armor_front_03_dst.ent
  ep1\characters\appearances\corpse\generated\head\h0_153_wa_h__young.ent
@@ -10211,7 +10196,6 @@ WindowControllerPS ep1\quest\main_quests\q303\entities\q303_tunnels_pipe_gate.en
  ep1\characters\appearances\corpse\generated\head\h0_069_mba_a__middle.ent
  ep1\vehicles\special\av_ep1_bombus__basic.ent
  ep1\characters\garment\gang_voodoo\item\i1_141_ma_neck__shard_necklace_bottom.ent
- ep1\characters\entities\player\photo_mode\player_ma_photomode_ep1.ent
  ep1\vehicles\sport\v_sport2_villefort_deleon\entities\v_sport2_villefort_deleon__ext01_wheel_cortes_fr_03.ent
  ep1\characters\main_npc\victor\t1_087_ma_shirt__high_collar_victor.ent
  ep1\characters\common\hair\hh_222_mb__dread_bun.ent
@@ -10384,7 +10368,6 @@ WindowControllerPS ep1\quest\main_quests\q303\entities\q303_tunnels_pipe_gate.en
  base\environment\ld_kit\marker_yellow.ent
  base\mechanical\mech\mch_002__centaur.ent
  ep1\vehicles\sport\v_sport1_villefort_alvarado\entities\v_sport2_villefort_alvarado_hearse__ext01_wheel_quartz_bl_a_01.ent
- ep1\quest\minor_quests\mq301\characters\kurt_replacer.ent
 DoorControllerPS ep1\quest\main_quests\q302\entities\q302_shutter.ent
 SurveillanceCameraControllerPS ep1\quest\main_quests\q305\entities\q305_invisible_drone_camera.ent
 RadioControllerPS ep1\quest\main_quests\q302\entities\q302_squat_fake_radio.ent
@@ -11429,8 +11412,6 @@ ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\str
  ep1\vehicles\sport\v_sport1_herrera_riptide\entities\v_sport1_herrera_riptide__ext01_wheel_br_01.ent
  ep1\quest\secondary_characters\baron.ent
  ep1\weapons\firearms\handgun\krausser_grit\entities\w_handgun__krausser_grit__base1_01_decal_military_d01.ent
- base\characters\entities\player\player_ma_fpp.ent
- base\characters\entities\player\player_wa_tpp_reflexion.ent
  engine\ink\util\ad_widget_component_capture.ent
  engine\fallback\helper_no_entity.ent
  base\gameplay\gui\fullscreen\main_menu\prefabs\empty_room_char_creation_male.ent
@@ -11439,7 +11420,6 @@ ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\str
  base\gameplay\gui\fullscreen\main_menu\prefabs\empty_room_inventory.ent
  engine\fallback\helper_missing_appearance.ent
  base\entities\cameras\3dmap\3dmap_cursor.ent
- base\characters\entities\player\player_ma_tpp_reflexion.ent
  engine\scenesystem\dynamic_choice_spot.ent
  engine\scenesystem\camera.ent
  base\gameplay\devices\street_signs\road_signs\road_sign_dynamic.ent
@@ -11549,7 +11529,6 @@ ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\str
  ep1\characters\entities\citizen\citizen__ep1_creole_mb.ent
  ep1\characters\garment\citizen_fashion\torso\t2_144_ma_jacket__mr_hands.ent
  ep1\weapons\firearms\rifle_sniper\tsunami_rasetsu\w_rifle_sniper__tsunami_rasetsu__mag_std.ent
- ep1\characters\entities\player\player_ma_fpp_ep1.ent
  ep1\weapons\firearms\handgun\krausser_grit\entities\w_handgun__krausser_grit__base1_01_decal_n01.ent
  ep1\characters\garment\player_equipment\item\i1_137_pwa_full__hazmat_panel.ent
  ep1\characters\main_npc\preacher\t0_001_ma_body__fingers_preacher.ent
@@ -12394,7 +12373,6 @@ ExplosiveTriggerDeviceControllerPS ep1\gameplay\devices\activated\traps\laser_tr
  base\gameplay\devices\masters\terminals\appearances\simple_terminal_appearance_1.ent
  base\gameplay\cyberware\personal_link.ent
  base\weapons\explosives\w_explosives__homing\entities\w_explosives__homing.ent
- base\quest\main_quests\part1\q116\characters\q116_v_female.ent
  base\weapons\firearms\attachments\scope\w_att__scope_short_05\entities\w_att__scope_short_05_01_decal_d.ent
  base\environment\decoration\furniture\outdoor\poor_utility_table\poor_utility_table_d_dst.ent
  base\weapons\firearms\attachments\scope\w_att__scope_sniper_03\entities\w_att__scope_sniper_03_01.ent
@@ -12972,7 +12950,6 @@ ActivatedDeviceControllerPS ep1\quest\main_quests\q303\entities\q303_tech_floor_
  ep1\characters\appearances\corpse\generated\head\h0_072_ma_b__older.ent
  base\characters\base_entities\man_base\logic_rig\man_base_logic.ent
  ep1\quest\minor_quests\mq303\entities\mq303_ent_lina_water.ent
- ep1\characters\entities\player\player_wa_tpp_ep1.ent
  ep1\gameplay\vehicles\visual_customization\decals\quadra_sport_r7\vcc_quadra_sport_r7_body_stickers_black.ent
  ep1\vehicles\sport\v_sport1_quadra_sport_r7\entities\v_sport1_quadra_sport_r7__ext01_wheel_fr_05.ent
  ep1\quest\main_quests\q306\characters\q306_oa_guard_combat_ma.ent
@@ -13197,7 +13174,6 @@ ActivatedDeviceControllerPS ep1\quest\main_quests\q303\entities\q303_tech_floor_
  base\characters\garment\citizen_casual\torso\t1_029_wa_full__swim_turtleneck.ent
  base\characters\appearances\corpse\generated\head\h0_060_waf_l__middle.ent
  base\characters\head\ma\h0_005_ma_c__head.ent
- base\characters\entities\player\replacer\braindance_replacer.ent
  base\characters\garment\corp_arasaka\torso\t2_079_mb_vest__military.ent
  base\characters\head\player_base_heads\appearances\entity\hairs\hh_047_pwa__hairs_143.ent
  base\characters\common\player_base_bodies\appearances\entity\a0_000_pwa_fpp__nails.ent
@@ -13999,7 +13975,6 @@ DoorControllerPS base\gameplay\devices\doors\gates\gate_metal_fence_1.ent
  base\characters\garment\gang_maelstrom\torso\t1_034_ma_tank__bulletproof.ent
  base\characters\main_npc\hanako\t0_001_wa_body__hanako.ent
  base\characters\common\base_bodies\t0_000_wa_base__twag_hql.ent
- base\characters\entities\player\photo_mode\player_ma_photomode.ent
  base\characters\garment\citizen_formal\torso\t2_038_wa_jacket__suit_open_shirt.ent
  base\characters\entities\npc_instances\inst_club\inst_club_wa_03_05.ent
  base\characters\garment\corp_arasaka\feet\s1_073_wa_shoe__high_heels.ent
@@ -14403,7 +14378,6 @@ DoorControllerPS base\gameplay\devices\doors\gates\gate_metal_fence_1.ent
  base\characters\garment\player_equipment\legs\l1_088_pma_pants__sergeant.ent
  base\characters\common\base_bodies\man_average\droid\a0_007_ma_droid__heavy.ent
  base\characters\garment\gang_maelstrom\feet\s1_036_ma_boot__motorcycle.ent
- base\characters\entities\player\icons_generation\player_ma_icon_generation.ent
  base\vehicles\standard\v_standard2_villefort_cortes\entities\v_standard2_villefort_cortes__ext01_wheel_br_police_01.ent
  base\characters\common\base_bodies\a0_001_ma_base_hq__full_l.ent
  base\characters\garment\light_crowd\head\h1_005_wa_hat__stoop_king_lc.ent
@@ -14568,7 +14542,6 @@ DoorControllerPS base\gameplay\devices\doors\gates\gate_metal_fence_1.ent
  base\characters\main_npc\misty\i1_001_wa_neck__misty.ent
  base\vehicles\special\av_militech_griffin__basic_01.ent
  base\vehicles\sport\v_sport2_mizutani_shion\entities\v_sport2_mizutani_shion__ext01_doors_fr_01.ent
- base\characters\entities\player\icons_generation\player_wa_icon_generation.ent
  base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi__ext01_body_01.ent
  base\characters\common\hair\hh_045_mf__short_spiked.ent
  base\characters\entities\npc_instances\inst_holograms\inst_holograms_ma_02.ent
@@ -14587,7 +14560,6 @@ DoorControllerPS base\gameplay\devices\doors\gates\gate_metal_fence_1.ent
  base\vehicles\standard\v_standard2_archer_quartz\entities\v_standard2_archer_quartz__ext01_junk_solar_01.ent
  base\characters\garment\citizen_casual\item\i1_046_wa_neck__skull_dangle.ent
  base\characters\garment\gang_valentino\item\i1_092_ma_belt__harness_one_side.ent
- base\characters\base_entities\player_base\player_base.ent
  base\characters\common\hair\h1_065_ma_hat__guard_hh_04.ent
  base\characters\common\base_bodies\t0_000_wba_base__collar.ent
  base\characters\garment\citizen_casual\feet\s1_062_wa_shoe__player.ent
@@ -14697,7 +14669,6 @@ DoorControllerPS base\gameplay\devices\doors\gates\gate_metal_fence_1.ent
  base\characters\garment\citizen_casual\head\h1_072_mb_mask__glasses_flip.ent
  base\characters\garment\citizen_service\item\i1_040_ma_neck__stewardess.ent
  base\characters\garment\gang_animals\hands\g1_010_mba_gloves__fighting.ent
- base\characters\entities\player\replacer\cyberspace_replacer_wa.ent
  base\characters\garment\citizen_casual\torso\t1_039_ma_tank__tanktop.ent
  base\characters\garment\citizen_casual\torso\t1_053_mf_tshirt__boxer.ent
  base\characters\garment\citizen_prostitute\hands\g1_002_mb_gloves__sleeves.ent
@@ -15851,7 +15822,6 @@ vehicleControllerPS base\vehicles\special\av_zetatech_atlus_basic_01.ent
  base\weapons\firearms\lmg\midnight_ma70hb\entities\w_lmg__midnight_ma70hb__mag_stdr_01.ent
  base\weapons\firearms\revolver\techtronika_burya\entities\w_revolver__techtronika_burya__mag_stdr_01.ent
  base\gameplay\vehicles\e3_passengers\driver.ent
- base\quest\main_quests\prologue\q000\entities\hym\q000_hym_v_tpp_male.ent
  base\media\characters\kovachek.ent
  base\items\interactive\dining_accessories\int_dining_accessories_001__tableware_entropy_a_mug_b\int_dining_accessories_001__tableware_entropy_a_mug_b_part.ent
  base\gameplay\devices\doors\base\visuals_kitsch_net.ent
@@ -16029,11 +15999,8 @@ vehicleControllerPS base\vehicles\_e3_content\zodiac_boat.ent
  ep1\characters\entities\citizen\citizen__ep1_combat_zone_business_crowd_wa.ent
  base\characters\cyberware\player\a0_005__strongarms\entities\a0_005__strongarms.ent
  base\characters\entities\player\items\torso\t2_formal_04.ent
- base\characters\entities\player\player_wa_tpp_cutscene_no_impostor.ent
  base\characters\head\player_base_heads\appearances\entity\tattoo\hx_000_pwa__tattoo_07.ent
  base\characters\entities\player\items\torso\t1_tshirt_04.ent
- base\characters\entities\player\player_wa_tpp_cutscene.ent
- base\characters\entities\player\player_ma_tpp_cutscene.ent
  base\characters\head\player_base_heads\appearances\entity\hairs\fpp\hh_035_pwa__hairs_083_braid_01_fpp.ent
  base\characters\garment\player_equipment\torso\t2_091_pma_jacket__racing.ent
  base\characters\head\mba\h0_070_mba_b__middle.ent
@@ -16311,12 +16278,10 @@ SurveillanceCameraControllerPS base\gameplay\devices\security_systems\surveillan
  base\characters\garment\citizen_casual\item\i1_002_mc_full__jewelery_bracelets.ent
  base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi__ext01_kit_01.ent
  base\characters\appearances\corpse\generated\head\h0_035_ma_a__middle.ent
- base\characters\entities\player\replacer\cyberspace_replacer_ma.ent
  base\characters\head\player_base_heads\appearances\entity\hairs\hh_040_pma__hairs_049.ent
  base\characters\common\hair\hh_096_ma__saburo_arasaka_old_common.ent
  base\characters\head\mb\h0_093_mb_c__maelstrom.ent
  base\characters\appearances\corpse\generated\head\h0_007_ma_droid__heavy.ent
- ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
  ep1\characters\common\base_bodies\man_average\droid\t0_007_ma_droid__nusa_maxtac.ent
  ep1\quest\minor_quests\mq301\characters\inst_barghest_ma_01_05.ent
  ep1\weapons\firearms\rifle_sniper\techtronika_grad\entities\w_rifle_sniper__techtronika_grad__base1_01_scav_decals.ent
@@ -16988,7 +16953,6 @@ GenericDeviceControllerPS base\open_world\street_stories\santo_domingo\rancho_co
  base\characters\garment\gang_tyger_claws\item\i1_097_wa_slot__rubber_leg.ent
  base\characters\common\base_bodies\t0_000_wa_base__full_hql.ent
  base\characters\head\player_base_heads\appearances\entity\hairs\fpp\hh_034_pwa__hairs_006_fpp.ent
- base\characters\entities\player\replacer\tutorial_replacer.ent
  base\characters\entities\npc_instances\inst_totentanz\inst_totentanz_ma_03_03.ent
  base\characters\appearances\corpse\generated\earring\i1_090_wa_full__jewlery_earrings_07.ent
  base\characters\garment\gang_kurtz\head\h1_085_ma_mask__hockey_v2.ent
@@ -17339,7 +17303,6 @@ GenericDeviceControllerPS base\open_world\street_stories\santo_domingo\rancho_co
  base\vehicles\sport\v_sport2_mizutani_shion\entities\v_sport2_mizutani_shion__ext01_wheel_custom_fr_01.ent
  base\characters\entities\gang\gang_kurtz_v2_ma.ent
  base\characters\main_npc\fingers\i1_003_ma_neck__fingers_collar.ent
- base\characters\entities\player\player_wa_tpp.ent
  base\characters\entities\player\items\head\h1_cap_04.ent
  base\vehicles\standard\v_standard2_thorton_galena\entities\v_standard2_thorton_galena__ext01_body_q000_01.ent
  base\characters\head\player_base_heads\appearances\entity\face_decals\hx_000_pwa__basehead_pimples_01.ent
@@ -18191,7 +18154,6 @@ ElectricLightControllerPS ep1\quest\main_quests\q301\entities\q301_border_hacked
  ep1\characters\main_npc\theo\l1_001_ma_pants__theo.ent
  ep1\characters\entities\service\service__ep1_combat_zone_vendor_ma.ent
  ep1\vehicles\sport\v_sport1_quadra_sport_r7\entities\v_sport1_quadra_sport_r7__ext01_wheel_fr_08.ent
- ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
  ep1\vehicles\sport\v_sport1_villefort_alvarado\entities\v_sport2_villefort_alvarado_hearse__ext01_wheel_hozuki_fr_b_01.ent
  ep1\characters\garment\gang_kurtz\torso\t2_153_wa_vest__tactical.ent
  ep1\characters\main_npc\michal_kicinski\h0_001_ma_c__michal_kicinski.ent
@@ -18601,7 +18563,6 @@ ElectricLightControllerPS base\gameplay\devices\lighting\public_utility\electric
  base\characters\head\ma\h0_776_ma_c__middle_jenkins.ent
  base\characters\head\wa\hx_000_wa__basehead_dec_doll_chip.ent
  base\characters\garment\citizen_formal\item\i1_021_ma_slot__laptop_bag.ent
- base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
  base\vehicles\special\v_militech_basilisk\entities\av_militech_basilisk__ext01_body_canopy.ent
  base\characters\garment\light_crowd\torso\t2_111_wa_jacket__short_lc.ent
  base\characters\head\wa\h0_029_wa_a__older.ent
@@ -20179,11 +20140,9 @@ DestructibleMasterLightControllerPS base\gameplay\devices\electrical_poles\elect
  ep1\vehicles\decoration\entities\v_deco_thorton_colby_kurtz_01b.ent
  base\gameplay\devices\doors\double_door\appearances\neokitsch_l.ent
  ep1\quest\main_quests\q303\entities\q303_concert_lights\q303_diamonds.ent
- ep1\quest\main_quests\q304\characters\q304_v_in_a_jar_ma_2.ent
  ep1\characters\entities\gang\gang__ep1_scavenger_wa.ent
  ep1\characters\entities\citizen\citizen__ep1_combat_zone_obese_waf.ent
  ep1\characters\entities\corpo\corpo__ep1_max_tac_ma.ent
- ep1\characters\entities\player\photo_mode\player_wa_photomode_ep1.ent
  ep1\characters\entities\citizen\citizen__ep1_combat_zone_stacks_lowlife_ma.ent
  ep1\vehicles\standard\v_standard2_mizutani_hozuki\entities\v_standard2_mizutani_hozuki__ext01_wheel_quatz_bl_01.ent
  ep1\weapons\firearms\handgun\arasaka_kenshin\entities\w_handgun__arasaka_kenshin__base1_02.ent
@@ -20404,7 +20363,6 @@ DestructibleMasterLightControllerPS base\gameplay\devices\electrical_poles\elect
  base\characters\main_npc\weyland\t2_001_ma_vest__weyland.ent
  base\characters\common\hair\hh_085_wa__takemura_common.ent
  base\characters\head\player_base_heads\h0_000_pma_c__basehead.ent
- base\characters\entities\player\player_ma_tpp.ent
  base\characters\garment\citizen_casual\feet\s1_007_ma_shoe__velcro_sport_ducktape.ent
  base\characters\main_npc\mq025_pregnant\t2_001_wa_jacket__mq025_pregnant.ent
  base\characters\main_npc\weyland\i1_003_mb_slot__weyland_bag.ent
@@ -21103,3 +21061,54 @@ DoorControllerPS base\quest\side_quests\sq018\entities\sq018_jackies_door.ent
  base\characters\garment\citizen_casual\head\h1_080_ma_specs__braindance.ent
  ep1\vehicles\utility\v_utilty4_chevalier_centurion\entities\v_utility4_chevalier_centurion__ext01_body_bed_01.ent
  ep1\vehicles\sport\v_sport1_quadra_sport_r7\entities\v_sport1_quadra_sport_r7__ext01_wheel_fl_03.ent
+ base\characters\entities\player\photo_mode\lana_prince\lana_photomode.ent
+ ep1\characters\entities\player\photo_mode\aurore_cassel\aurore_photomode.ent
+ base\characters\entities\player\photo_mode\sebastian_ibarra\sebastian_photomode.ent
+ base\characters\entities\player\photo_mode\wakako_okada\wakako_photomode.ent
+ ep1\characters\entities\player\photo_mode\lina_malina\lina_photomode.ent
+ base\characters\entities\player\photo_mode\regina_jones\regina_photomode.ent
+ base\characters\entities\player\photo_mode\gerald_winkler\garry_photomode.ent
+ base\characters\entities\player\photo_mode\dumdum\dumdum_photomode.ent
+ ep1\characters\entities\player\photo_mode\alex\alex_photomode.ent
+ base\characters\entities\player\photo_mode\ozob\ozob_photomode.ent
+ base\characters\entities\player\photo_mode\dakota_smith\dakota_photomode.ent
+ base\characters\entities\player\photo_mode\dexter_deshawn\dexter_photomode.ent
+ base\characters\entities\player\photo_mode\muamar_reyes\muamar_photomode.ent
+ ep1\characters\entities\player\photo_mode\aymeric_cassel\aymeric_photomode.ent
+ base\characters\entities\player\photo_mode\rachel_casich\rachel_photomode.ent
+ ep1\characters\entities\player\photo_mode\wade_bleecker\wade_photomode.ent
+ base\characters\entities\player\photo_mode\jesse_johnson\jesse_photomode.ent
+ base\characters\entities\player\photo_mode\misty\misty_photomode.ent
+ base\characters\entities\player\photo_mode\cheri_nowlin\cheri_photomode.ent
+ ep1\characters\entities\player\photo_mode\dante_caruso\dante_photomode.ent
+ ep1\characters\entities\player\photo_mode\stella_ramos\stella_photomode.ent
+ base\characters\entities\player\photo_mode\dino_dinovic\dino_photomode.ent
+ base\characters\entities\player\photo_mode\claire\claire_photomode.ent
+ base\characters\entities\player\photo_mode\royce\royce_photomode.ent
+ base\characters\entities\player\photo_mode\rita_wheeler\rita_photomode.ent
+ base\open_world\cinematic_camera\cinematic_camera.ent
+ base\quest\minor_quests\mq060\entities\mq060_billboard_01.ent
+ base\quest\minor_quests\mq060\entities\mq060_billboard_03.ent
+ base\quest\minor_quests\mq060\entities\mq060_billboard_02.ent
+ base\quest\minor_quests\mq060\entities\mq060_container.ent
+GenericDeviceControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case.ent
+ base\quest\minor_quests\mq059\entities\mq059_corpo_corpse.ent
+ base\quest\minor_quests\mq060\entities\mq060_chair.ent
+ base\quest\minor_quests\mq059\entities\mq059_tire_tracks_clue.ent
+ComputerControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case802.ent
+ base\quest\minor_quests\mq059\entities\mq059_antenna_01.ent
+ base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi_asm_r250__ext01_axle_f_01.ent
+ base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi_asm_r250__ext01_body_01.ent
+ base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi_asm_r250__ext01_wheel_r_01.ent
+ base\characters\entities\player\photo_mode\brendan\brendan_photomode.ent
+ base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi_asm_r250__ext01_wheel_f_01.ent
+ base\characters\entities\player\photo_mode\iguana\iguana_photomode.ent
+ base\vehicles\sportbike\v_sportbike1_yaiba_kusanagi\entities\v_sportbike1_yaiba_kusanagi_asm_r250__ext01_axle_b_01.ent
+NetrunnerChairControllerPS base\quest\minor_quests\mq060\entities\mq060_chair_02.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_07.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_01.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_04.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_02.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_03.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_05.ent
+ base\quest\minor_quests\mq060\entities\mq060_android_shopping_06.ent
