@@ -140,6 +140,11 @@
     "Carriable.q113_av_glass": [
       "base\\items\\prop_base_skeleton.rig"
     ],
+    "Character.AdamSmasher_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_massive\\deformations_rig\\man_massive_deformations.rig",
+      "base\\characters\\base_entities\\man_massive\\man_massive.rig",
+      "base\\characters\\boss\\adam_smasher\\adam_smasher_skeleton.rig"
+    ],
     "Character.Afterlife_Barman": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -152,9 +157,31 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.Alex_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\garments_rigs\\shirtcollar.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig",
+      "base\\characters\\garment\\gang_valentino\\item\\i1_090_full__jewlery\\i1_090_wa_full__jewlery_earrings_dangle_skeleton.rig",
+      "ep1\\characters\\main_npc\\dawn\\h0_001_wa_b__dawn\\h0_001_wa_b__dawn_skeleton.rig",
+      "ep1\\characters\\main_npc\\dawn\\t1_001_wa_shirt__dawn_dangle_skeleton.rig",
+      "ep1\\characters\\main_npc\\giselle\\giselle_dangle_skeleton.rig"
+    ],
     "Character.Alt": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.AltJohnny_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Alt_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_breasts.rig",
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig",
+      "base\\characters\\common\\hair\\hh_090_wa__alt\\hh_090_wa__alt_dangle_skeleton.rig",
+      "base\\characters\\common\\hair\\hh_090_wa__alt\\hh_090_wa__alt_sex_scene_dangle_skeleton.rig",
+      "base\\characters\\main_npc\\alt\\alt_dangle_skeleton.rig",
+      "base\\characters\\main_npc\\alt\\h0_001_wa_c__alt\\h0_001_wa_c__alt_skeleton.rig"
     ],
     "Character.Alt_cyberspace": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
@@ -213,11 +240,23 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.Aurore_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Aymeric_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Bartender_NPC_Base": [],
     "Character.Bartender_NPC_Base_Female": [],
     "Character.Bickle": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.BlueMoon_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.Bob": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
@@ -237,6 +276,9 @@
     "Character.BrainhackNPC_wa": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Brendan_Puppet_Photomode": [
+      "base\\characters\\entities\\player\\photo_mode\\brendan\\brendan_photomode.rig"
     ],
     "Character.Brick": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
@@ -260,6 +302,10 @@
     ],
     "Character.Cerberus_NPC_Base": [
       "ep1\\mechanical\\mech\\mch_005__militech_cerberus\\rig\\mch_005__militech_cerberus.rig"
+    ],
+    "Character.Cheri_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.ChildAverage": [
       "base\\characters\\base_entities\\man_child\\deformations_rig\\man_child_deformations.rig",
@@ -374,6 +420,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Claire": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Claire_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -562,6 +612,14 @@
     ],
     "Character.Cyberware_NPC_Base": [],
     "Character.Cyberware_NPC_Base_Female": [],
+    "Character.Dakota_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Dante_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.DefaultNCResidentFemale": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
@@ -585,6 +643,14 @@
     "Character.Dexter": [
       "base\\characters\\base_entities\\man_fat\\deformations_rigs\\man_fat_deformations.rig",
       "base\\characters\\base_entities\\man_fat\\man_fat.rig"
+    ],
+    "Character.Dexter_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_fat\\deformations_rigs\\man_fat_deformations.rig",
+      "base\\characters\\base_entities\\man_fat\\man_fat.rig"
+    ],
+    "Character.Dino_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.DollFemale": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
@@ -624,6 +690,10 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.Dumdum_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Elcoyote_Barman": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
@@ -637,6 +707,10 @@
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
     "Character.Evelyn": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Evelyn_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -678,6 +752,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Gameplay_NPC_Base": [],
+    "Character.Garry_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Ghost_Henry_Blake": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -687,6 +765,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Gilchrist": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Goro_Puppet_Photomode": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
@@ -709,6 +791,10 @@
     "Character.Gun_NPC_Base": [],
     "Character.Gun_NPC_Base_Female": [],
     "Character.Hanako": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Hanako_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -833,15 +919,26 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.Iguana_Puppet_Photomode": [
+      "base\\characters\\common\\base_bodies\\animals\\iguana\\skeleton.rig"
+    ],
     "Character.Interactable_NPC_Base": [],
     "Character.ItemsPoolExample": [],
     "Character.Jackie": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
+    "Character.Jackie_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
     "Character.Jefferson_Peralez": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Jesse_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
     "Character.JockMale": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
@@ -863,11 +960,19 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.JohnnyNPC_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Johnny_Puppet_Photomode": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Judy": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Judy_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -893,6 +998,10 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.Kerry_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Kiosk": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -904,6 +1013,14 @@
     "Character.Kurt_Miniboss_Tests": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "Character.Kurt_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "Character.Lana_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.LightCrowd_Base": [],
     "Character.LightCrowd_arroyo_ma": [
@@ -1034,6 +1151,14 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.Lina_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Lizzy_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Lizzy_Wizzy": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
@@ -1148,6 +1273,10 @@
     "Character.Medical_NPC_Base_Female": [],
     "Character.Melee_NPC_Base": [],
     "Character.Melee_NPC_Base_Female": [],
+    "Character.Meredith_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Mia": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -1161,6 +1290,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Misty": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Misty_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -1201,6 +1334,10 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.Muamar_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.MunicipialMale": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -1208,6 +1345,10 @@
     "Character.MunicipialMaleDriver": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Myers_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.NPC_Base": [],
     "Character.NPC_Melee": [],
@@ -1317,6 +1458,10 @@
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
+    "Character.Ozob_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
     "Character.Packed_Food": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -1332,6 +1477,14 @@
     "Character.Panam": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Panam_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_breasts.rig",
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig",
+      "base\\characters\\common\\hair\\hh_095_wa__panam\\hh_095_wa__panam_dangle_skeleton.rig",
+      "base\\characters\\main_npc\\panam\\h0_001_wa_c__panam\\h0_001_wa_c__panam_skeleton.rig",
+      "base\\characters\\main_npc\\panam\\panam_dangle_skeleton.rig"
     ],
     "Character.Placide": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
@@ -1402,12 +1555,32 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig",
       "base\\characters\\head\\wa\\h0_000_wa_c__basehead\\h0_000_wa_c__basehead_skeleton.rig"
     ],
+    "Character.PurpleForce_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Q304_boss_placeholder": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Quest_Combat_NPC_Base": [],
     "Character.Quest_NPC_Base": [],
+    "Character.Rachel_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.RedMenace_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Reed_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "Character.Regina_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Reginald": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -1434,6 +1607,14 @@
     ],
     "Character.Ripperdoc_NPC_Base": [],
     "Character.Ripperdoc_NPC_Base_Female": [],
+    "Character.RitaWheeler_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.River_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
     "Character.Roadhouse_Barman": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -1442,11 +1623,23 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.RogueOld_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.RogueYoung_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Roxanne": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.Royce": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "Character.Royce_Puppet_Photomode": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
@@ -1480,6 +1673,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.Scorpion": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Sebastian_Puppet_Photomode": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
@@ -1593,9 +1790,17 @@
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
+    "Character.Songbird_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.Stanley_Media": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.Stella_Puppet_Photomode": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.Steve": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
@@ -1746,6 +1951,11 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig",
       "base\\characters\\cyberware\\npc\\g1_001_ma_gloves__ripper_doc\\g1_001_ma_gloves__ripper_doc_skeleton.rig"
     ],
+    "Character.Viktor_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\cyberware\\npc\\g1_001_ma_gloves__ripper_doc\\g1_001_ma_gloves__ripper_doc_skeleton.rig"
+    ],
     "Character.Voodoo_Queen": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
@@ -1754,7 +1964,15 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.Wade_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Waitress": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.Wakako_Puppet_Photomode": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
@@ -2096,6 +2314,48 @@
     "Character.alex": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.android_guards": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_replacer": [
+      "base\\characters\\entities\\player\\deformations_rigs_ma\\player_man_fpp_deformations.rig",
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\shadow_rig_ma\\shadow_rig_ma.rig"
+    ],
+    "Character.android_replacer_f": [
+      "base\\characters\\entities\\player\\deformations_rigs_wa\\player_woman_base_deformations.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig",
+      "base\\characters\\entities\\player\\shadow_rig_wa\\shadow_rig_wa.rig"
+    ],
+    "Character.android_shopping_01": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_02": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_03": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_04": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_05": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_06": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.android_shopping_07": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.animals_base": [],
     "Character.animals_base_mb": [
@@ -10309,6 +10569,18 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.merc_mq059_4": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.merc_mq059_5": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.merc_mq059_6": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.militech_android_android2_ajax_ma": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -11519,6 +11791,58 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.mq057_driver_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq057_driver_02": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "Character.mq058_gangster_01_patrol_range_elite_ma": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq058_gangster_02_melee_normal_ma": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq058_gangster_03_melee_normal_wa": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq058_gangster_04_patrol_melee_rare_ma": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq058_gangster_05_range_normal_wa": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq059_6th_street_grenadier": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq059_6th_street_gun": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq059_engineer": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq059_merc_1": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq059_merc_2": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq059_merc_3": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
     "Character.mq301_ambush_scav_butcher3_hmelee2_machete_mb_rare": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
@@ -12251,6 +12575,18 @@
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.mws_se5_06_netwatch_shotgun_ma": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mws_thenerves_crowd_01": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mws_thenerves_driver_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mws_thenerves_driver_02": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
@@ -29354,6 +29690,35 @@
     "Vehicle.mq056_discount_courier_car": [
       "base\\vehicles\\sportbike\\v_sportbike3_brennan_apollo\\rig\\v_sportbike3_brennan_apollo_01.rig"
     ],
+    "Vehicle.mq057_semimaru_car": [
+      "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
+      "base\\vehicles\\sport\\v_sport1_yaiba_semimaru\\rig\\v_sport1_yaiba_semimaru_01__basic_01.rig"
+    ],
+    "Vehicle.mq059_gang_car": [
+      "base\\vehicles\\base_rig\\v_base_x4_341_169_55\\v_base_x4_341_169_55.rig",
+      "base\\vehicles\\standard\\v_standard25_villefort_columbus\\rig\\v_standard25_villefort_columbus_01__basic_01.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_aggresive": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_designerfavorite": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_jackofalltrades": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_lowkeypredator": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_minimalist": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_showoff": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.mq060_yaiba_muramasa_yaibabrandclassic": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
     "Vehicle.mq301_kurt_delivery_car": [
       "base\\vehicles\\base_rig\\v_base_x6_479_237_77\\v_base_x6_479_237_77.rig",
       "base\\vehicles\\utility\\v_utility4_militech_behemoth\\rig\\v_utility4_militech_behemoth__basic_01.rig"
@@ -29448,6 +29813,14 @@
     "Vehicle.mws_standard25_thorton_kurtz": [
       "base\\vehicles\\base_rig\\v_base_x4_306_156_46\\v_base_x4_306_156_46.rig",
       "base\\vehicles\\standard\\v_standard25_thorton_colby_pickup\\rig\\v_standard25_thorton_colby_pickup_01__basic_01.rig"
+    ],
+    "Vehicle.mws_thenerves_quadra_1_sm": [
+      "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
+      "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
+    ],
+    "Vehicle.mws_thenerves_quadra_2_sm": [
+      "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
+      "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
     ],
     "Vehicle.mws_thorton_mackinaw_country_poor": [
       "base\\vehicles\\base_rig\\v_base_x4_338_172_60\\v_base_x4_338_172_60.rig",
@@ -30602,6 +30975,11 @@
       "base\\vehicles\\base_rig\\v_base_x4_341_169_55\\v_base_x4_341_169_55.rig",
       "base\\vehicles\\standard\\v_standard25_villefort_columbus\\rig\\v_standard25_villefort_columbus_01__basic_01.rig"
     ],
+    "Vehicle.sq006_av": [
+      "base\\vehicles\\base_rig\\v_base_x4_262_126_40\\v_base_x4_262_126_40.rig",
+      "base\\vehicles\\special\\av_zetatech_atlus\\rig\\av_zetatech_atlus_skeleton.rig",
+      "base\\vehicles\\standard\\v_standard2_thorton_galena\\rig\\v_standard2_thorton_galena_01__basic_01.rig"
+    ],
     "Vehicle.sq006_mobile_lab": [
       "base\\vehicles\\base_rig\\v_base_x4_363_188_61\\v_base_x4_363_188_61.rig",
       "base\\vehicles\\standard\\v_standard3_chevalier_emperor\\rig\\v_standard3_chevalier_emperor_01__basic_01.rig"
@@ -30940,6 +31318,10 @@
       "base\\vehicles\\sportbike\\v_sportbike3_brennan_apollo\\rig\\v_sportbike3_brennan_apollo_01.rig"
     ],
     "Vehicle.v_bubble_demo_trigger": [],
+    "Vehicle.v_delamain_taxi": [
+      "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
+      "base\\vehicles\\standard\\v_standard2_villefort_cortes\\rig\\v_standard2_villefort_cortes_01__basic_01.rig"
+    ],
     "Vehicle.v_golf_demo_trigger": [],
     "Vehicle.v_kaukaz_z71_aras": [
       "base\\vehicles\\base_rig\\v_base_x4_236_160_60\\v_base_x4_236_160_60.rig",
@@ -31138,6 +31520,14 @@
       "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
       "base\\vehicles\\sport\\v_sport1_rayfield_caliburn\\rig\\v_sport1_rayfield_caliburn_01__basic_01.rig"
     ],
+    "Vehicle.v_sport1_rayfield_caliburn_mordred": [
+      "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
+      "base\\vehicles\\sport\\v_sport1_rayfield_caliburn\\rig\\v_sport1_rayfield_caliburn_01__basic_01.rig"
+    ],
+    "Vehicle.v_sport1_rayfield_caliburn_mordred_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
+      "base\\vehicles\\sport\\v_sport1_rayfield_caliburn\\rig\\v_sport1_rayfield_caliburn_01__basic_01.rig"
+    ],
     "Vehicle.v_sport1_rayfield_caliburn_murdered": [
       "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
       "base\\vehicles\\sport\\v_sport1_rayfield_caliburn\\rig\\v_sport1_rayfield_caliburn_01__basic_01.rig"
@@ -31150,7 +31540,19 @@
       "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
       "base\\vehicles\\sport\\v_sport1_rayfield_caliburn\\rig\\v_sport1_rayfield_caliburn_01__basic_01.rig"
     ],
+    "Vehicle.v_sport1_yaiba_semimaru": [
+      "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
+      "base\\vehicles\\sport\\v_sport1_yaiba_semimaru\\rig\\v_sport1_yaiba_semimaru_01__basic_01.rig"
+    ],
+    "Vehicle.v_sport1_yaiba_semimaru_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_320_160_41\\v_base_x4_320_160_41.rig",
+      "base\\vehicles\\sport\\v_sport1_yaiba_semimaru\\rig\\v_sport1_yaiba_semimaru_01__basic_01.rig"
+    ],
     "Vehicle.v_sport2_mizutani_shion": [
+      "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
+      "base\\vehicles\\sport\\v_sport2_mizutani_shion\\rig\\v_sport2_mizutani_shion_01__basic_01.rig"
+    ],
+    "Vehicle.v_sport2_mizutani_shion_base_player": [
       "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
       "base\\vehicles\\sport\\v_sport2_mizutani_shion\\rig\\v_sport2_mizutani_shion_01__basic_01.rig"
     ],
@@ -31226,6 +31628,10 @@
       "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
       "base\\vehicles\\sport\\v_sport2_mizutani_shion\\rig\\v_sport2_mizutani_shion_01__basic_01.rig"
     ],
+    "Vehicle.v_sport2_mizutani_shion_targa_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
+      "base\\vehicles\\sport\\v_sport2_mizutani_shion\\rig\\v_sport2_mizutani_shion_01__basic_01.rig"
+    ],
     "Vehicle.v_sport2_mizutani_shion_tdr": [
       "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
       "base\\vehicles\\sport\\v_sport2_mizutani_shion\\rig\\v_sport2_mizutani_shion_01__basic_01.rig"
@@ -31274,6 +31680,10 @@
       "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
       "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
     ],
+    "Vehicle.v_sport2_quadra_type66_base_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
+      "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
+    ],
     "Vehicle.v_sport2_quadra_type66_bulleat": [
       "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
       "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
@@ -31283,6 +31693,10 @@
       "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
     ],
     "Vehicle.v_sport2_quadra_type66_courier_expanded": [
+      "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
+      "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
+    ],
+    "Vehicle.v_sport2_quadra_type66_gt_player": [
       "base\\vehicles\\base_rig\\v_base_x4_338_172_44\\v_base_x4_338_172_44.rig",
       "base\\vehicles\\sport\\v_sport2_quadra_type66\\rig\\v_sport2_quadra_type66_01__basic_01.rig"
     ],
@@ -31438,6 +31852,10 @@
       "ep1\\vehicles\\base_rig\\v_base_x4_305_168_44\\v_base_x4_305_168_44.rig",
       "ep1\\vehicles\\sport\\v_sport2_villefort_deleon\\rig\\v_sport2_villefort_deleon_01__basic_01.rig"
     ],
+    "Vehicle.v_sport2_villefort_deleon_sport_player": [
+      "ep1\\vehicles\\base_rig\\v_base_x4_305_168_44\\v_base_x4_305_168_44.rig",
+      "ep1\\vehicles\\sport\\v_sport2_villefort_deleon\\rig\\v_sport2_villefort_deleon_01__basic_01.rig"
+    ],
     "Vehicle.v_sport2_villefort_deleon_vindicator": [
       "ep1\\vehicles\\base_rig\\v_base_x4_305_168_44\\v_base_x4_305_168_44.rig",
       "ep1\\vehicles\\sport\\v_sport2_villefort_deleon\\rig\\v_sport2_villefort_deleon_01__basic_01.rig"
@@ -31483,6 +31901,57 @@
       "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
     ],
     "Vehicle.v_sportbike1_yaiba_kusanagi_tyger_player": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_as": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_as_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_as_ns": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_as_ns_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_ns": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_naked_ns_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_player": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_as": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_as_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_as_ns": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_as_ns_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_nr": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_ns": [
+      "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
+    ],
+    "Vehicle.v_sportbike1_yaiba_muramasa_regular_ns_nr": [
       "base\\vehicles\\sportbike\\v_sportbike1_yaiba_kusanagi\\rig\\v_sportbike1_yaiba_kusanagi.rig"
     ],
     "Vehicle.v_sportbike2_arch": [
@@ -31588,6 +32057,10 @@
       "base\\vehicles\\standard\\v_standard25_mahir_supron\\rig\\v_standard25_mahir_supron_01__basic_01.rig"
     ],
     "Vehicle.v_standard25_mahir_supron_courier_expanded": [
+      "base\\vehicles\\base_rig\\v_base_x4_262_146_40\\v_base_x4_262_146_40.rig",
+      "base\\vehicles\\standard\\v_standard25_mahir_supron\\rig\\v_standard25_mahir_supron_01__basic_01.rig"
+    ],
+    "Vehicle.v_standard25_mahir_supron_gt_player": [
       "base\\vehicles\\base_rig\\v_base_x4_262_146_40\\v_base_x4_262_146_40.rig",
       "base\\vehicles\\standard\\v_standard25_mahir_supron\\rig\\v_standard25_mahir_supron_01__basic_01.rig"
     ],
@@ -31951,6 +32424,10 @@
       "base\\vehicles\\base_rig\\v_base_x4_263_131_45\\v_base_x4_263_131_45.rig",
       "base\\vehicles\\standard\\v_standard2_archer_quartz\\rig\\v_standard2_archer_quartz_01__basic_01.rig"
     ],
+    "Vehicle.v_standard2_archer_quartz_base_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_263_131_45\\v_base_x4_263_131_45.rig",
+      "base\\vehicles\\standard\\v_standard2_archer_quartz\\rig\\v_standard2_archer_quartz_01__basic_01.rig"
+    ],
     "Vehicle.v_standard2_archer_quartz_courier": [
       "base\\vehicles\\base_rig\\v_base_x4_263_131_45\\v_base_x4_263_131_45.rig",
       "base\\vehicles\\standard\\v_standard2_archer_quartz\\rig\\v_standard2_archer_quartz_01__basic_01.rig"
@@ -32159,6 +32636,10 @@
       "ep1\\vehicles\\base_rig\\v_base_x4_286_164_40\\v_base_x4_286_164_40.rig",
       "ep1\\vehicles\\standard\\v_standard2_mizutani_hozuki\\rig\\v_standard2_mizutani_hozuki_01__basic_01.rig"
     ],
+    "Vehicle.v_standard2_mizutani_hozuki_gt_player": [
+      "ep1\\vehicles\\base_rig\\v_base_x4_286_164_40\\v_base_x4_286_164_40.rig",
+      "ep1\\vehicles\\standard\\v_standard2_mizutani_hozuki\\rig\\v_standard2_mizutani_hozuki_01__basic_01.rig"
+    ],
     "Vehicle.v_standard2_mizutani_hozuki_player": [
       "ep1\\vehicles\\base_rig\\v_base_x4_286_164_40\\v_base_x4_286_164_40.rig",
       "ep1\\vehicles\\standard\\v_standard2_mizutani_hozuki\\rig\\v_standard2_mizutani_hozuki_01__basic_01.rig"
@@ -32200,6 +32681,10 @@
       "base\\vehicles\\standard\\v_standard2_thorton_colby\\rig\\v_standard2_thorton_colby_01__basic_01.rig"
     ],
     "Vehicle.v_standard2_thorton_colby_gt": [
+      "base\\vehicles\\base_rig\\v_base_x4_306_156_46\\v_base_x4_306_156_46.rig",
+      "base\\vehicles\\standard\\v_standard2_thorton_colby\\rig\\v_standard2_thorton_colby_01__basic_01.rig"
+    ],
+    "Vehicle.v_standard2_thorton_colby_gt_player": [
       "base\\vehicles\\base_rig\\v_base_x4_306_156_46\\v_base_x4_306_156_46.rig",
       "base\\vehicles\\standard\\v_standard2_thorton_colby\\rig\\v_standard2_thorton_colby_01__basic_01.rig"
     ],
@@ -32264,6 +32749,10 @@
       "base\\vehicles\\standard\\v_standard2_thorton_galena\\rig\\v_standard2_thorton_galena_01__basic_01.rig"
     ],
     "Vehicle.v_standard2_thorton_galena_gt": [
+      "base\\vehicles\\base_rig\\v_base_x4_262_126_40\\v_base_x4_262_126_40.rig",
+      "base\\vehicles\\standard\\v_standard2_thorton_galena\\rig\\v_standard2_thorton_galena_01__basic_01.rig"
+    ],
+    "Vehicle.v_standard2_thorton_galena_gt_player": [
       "base\\vehicles\\base_rig\\v_base_x4_262_126_40\\v_base_x4_262_126_40.rig",
       "base\\vehicles\\standard\\v_standard2_thorton_galena\\rig\\v_standard2_thorton_galena_01__basic_01.rig"
     ],
@@ -32376,6 +32865,10 @@
       "base\\vehicles\\standard\\v_standard2_villefort_cortes\\rig\\v_standard2_villefort_cortes_01__basic_01.rig"
     ],
     "Vehicle.v_standard2_villefort_cortes_delamain_player": [
+      "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
+      "base\\vehicles\\standard\\v_standard2_villefort_cortes\\rig\\v_standard2_villefort_cortes_01__basic_01.rig"
+    ],
+    "Vehicle.v_standard2_villefort_cortes_delamain_taxi": [
       "base\\vehicles\\base_rig\\v_base_x4_337_170_45\\v_base_x4_337_170_45.rig",
       "base\\vehicles\\standard\\v_standard2_villefort_cortes\\rig\\v_standard2_villefort_cortes_01__basic_01.rig"
     ],
@@ -32714,6 +33207,18 @@
     "Vehicle.v_utility4_chevalier_centurion_poor_dogtown": [
       "ep1\\vehicles\\base_rig\\v_base_x6_508_161_77\\v_base_x6_508_161_77.rig",
       "ep1\\vehicles\\utility\\v_utilty4_chevalier_centurion\\rig\\v_utility4_chevalier_centurion_01__basic_01.rig"
+    ],
+    "Vehicle.v_utility4_chevalier_legatus_aquila_basic": [
+      "base\\vehicles\\base_rig\\v_base_x6_508_161_77\\v_base_x6_508_161_77.rig",
+      "base\\vehicles\\utility\\v_utility4_chevalier_legatus\\rig\\v_utility4_chevalier_legatus_01__basic_01.rig"
+    ],
+    "Vehicle.v_utility4_chevalier_legatus_basic": [
+      "base\\vehicles\\base_rig\\v_base_x6_508_161_77\\v_base_x6_508_161_77.rig",
+      "base\\vehicles\\utility\\v_utility4_chevalier_legatus\\rig\\v_utility4_chevalier_legatus_01__basic_01.rig"
+    ],
+    "Vehicle.v_utility4_chevalier_legatus_player": [
+      "base\\vehicles\\base_rig\\v_base_x6_508_161_77\\v_base_x6_508_161_77.rig",
+      "base\\vehicles\\utility\\v_utility4_chevalier_legatus\\rig\\v_utility4_chevalier_legatus_01__basic_01.rig"
     ],
     "Vehicle.v_utility4_kaukaz_bratsk": [
       "base\\vehicles\\base_rig\\v_base_x6_530_220_85\\v_base_x6_530_220_85.rig",
