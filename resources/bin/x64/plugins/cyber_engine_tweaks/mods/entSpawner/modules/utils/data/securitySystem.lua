@@ -173,7 +173,7 @@ for _, record in ipairs(securitySystem.PINNED_ATTITUDE_GROUPS) do
 end
 
 ---Static TweakDB record list; CET cannot enumerate these records live.
-securitySystem.ATTITUDE_GROUPS_FILE = "data/spawnables/entity/records/attitudeGroups.txt"
+securitySystem.ATTITUDE_GROUPS_FILE = "data/static/attitude_groups.txt"
 
 local attitudeGroups = nil
 local attitudeGroupSet = nil
