@@ -214,8 +214,9 @@ function reflection:onAssemble(entity)
     component.allInShadow = self.allInShadow
     component.size = Vector3.new(self.scale.x, self.scale.y, self.scale.z) -- Size is extents, not size
     component.edgeScale = Vector3.new(self.edgeScale.x, self.edgeScale.y, self.edgeScale.z)
-    component.ambientMode = Enum.new("envUtilsReflectionProbeAmbientContributionMode", self.ambientMode)
-    component.neighborMode = Enum.new("envUtilsNeighborMode", self.neighborMode)
+    -- ambientMode/neighborMode are 1-based indices into the name lists; build by name like export().
+    component.ambientMode = Enum.new("envUtilsReflectionProbeAmbientContributionMode", self.ambientModes[self.ambientMode])
+    component.neighborMode = Enum.new("envUtilsNeighborMode", self.neighborModes[self.neighborMode])
     component.emissiveScale = self.emissiveScale
     component.streamingDistance = self.streamingDistance
     entity:AddComponent(component)
