@@ -403,8 +403,8 @@ function componentTransform:drawTransform()
     end
 
     -- Not committed from `onEdited`: the position buttons never call it, and `drawProp` calls it
-    -- before applying that frame's last change.
-    if self.editing and not history.propBeingEdited then
+    -- before applying that frame's last change. Not during a gizmo drag either: each commit respawns.
+    if self.editing and not history.propBeingEdited and editor.currentAxis == "none" then
         self:commit()
     end
 end
