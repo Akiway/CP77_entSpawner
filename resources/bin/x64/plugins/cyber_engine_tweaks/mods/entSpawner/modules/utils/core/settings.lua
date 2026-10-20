@@ -27,6 +27,10 @@ local config = require("modules/utils/core/config")
 ---@field public arrowScaleWithDistance boolean
 ---@field public arrowSizeMultiplier number
 ---@field public outlineSelected boolean
+---@field public componentParentChain boolean
+---@field public componentKindsOpen boolean
+---@field public componentHelpersDefault boolean
+---@field public componentRadiusHelpersDefault boolean
 ---@field public selectedVisualizersEnabled boolean
 ---@field public outlineColor integer
 ---@field public editorWidth integer
@@ -132,6 +136,10 @@ local settingsData = {
     arrowScaleWithDistance = true,
     arrowSizeMultiplier = 1.0,
     outlineSelected = true,
+    componentParentChain = true,
+    componentKindsOpen = false,
+    componentHelpersDefault = false,
+    componentRadiusHelpersDefault = false,
     selectedVisualizersEnabled = true,
     outlineColor = 0,
     editorWidth = 0,

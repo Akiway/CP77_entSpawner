@@ -628,8 +628,11 @@ function editor.getSelected()
         if editor.spawnedUI.selectedPaths[1].ref:isLocked() then
             return
         end
-        if utils.isA(editor.spawnedUI.selectedPaths[1].ref, "positionable") then
-            return editor.spawnedUI.selectedPaths[1].ref
+        local ref = editor.spawnedUI.selectedPaths[1].ref
+        if utils.isA(ref, "positionable") then
+            -- An entity can hand the gizmo to one of its components.
+            local focused = ref.spawnable and ref.spawnable.getFocusedComponentTransform and ref.spawnable:getFocusedComponentTransform()
+            return focused or ref
         end
     else
         return editor.spawnedUI.multiSelectGroup
@@ -824,6 +827,9 @@ end
 ---Updates transform-gizmo arrow highlight for the currently selected spawnable element.
 function editor.updateArrowColor()
     local selected = editor.getSelected()
+    if selected and utils.isA(selected, "componentTransform") then
+        selected = selected.owner
+    end
 
     if not selected or not utils.isA(selected, "spawnableElement") then return end
 
@@ -928,7 +934,7 @@ function editor.recordChange()
     element:setPosition(editor.originalPosition)
     element:setRotation(editor.originalRotation)
     element:setScale(editor.originalScale, false)
-    if utils.isA(element, "spawnableElement") then
+    if utils.isA(element, "spawnableElement") or utils.isA(element, "componentTransform") then
         history.addAction(history.getElementChange(element))
     else
         history.addAction(history.getMultiSelectChange(element.childs))
@@ -2050,6 +2056,11 @@ function editor.onDraw()
     drawElevatorDoorHelpers()
     drawSoundSystemHelpers()
     editor.updateArrowScale()
+
+    local selected = editor.getSelected()
+    if selected and utils.isA(selected, "componentTransform") then
+        selected:updateGizmo(editor.currentAxis == "none")
+    end
 
     if editor.active then
         if editor.isBrushActive() then

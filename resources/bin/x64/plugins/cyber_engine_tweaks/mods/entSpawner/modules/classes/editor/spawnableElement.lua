@@ -292,12 +292,7 @@ function spawnableElement:getScale()
 end
 
 function spawnableElement:setScaleDelta(delta, finished)
-	self.spawnable.scale.x = self.spawnable.scale.x + delta.x
-	self.spawnable.scale.y = self.spawnable.scale.y + delta.y
-	self.spawnable.scale.z = self.spawnable.scale.z + delta.z
-	if self.scaleLocked and delta.x ~= 0 then self.spawnable.scale.y = self.spawnable.scale.x  self.spawnable.scale.z = self.spawnable.scale.x end
-	if self.scaleLocked and delta.y ~= 0 then self.spawnable.scale.x = self.spawnable.scale.y  self.spawnable.scale.z = self.spawnable.scale.y end
-	if self.scaleLocked and delta.z ~= 0 then self.spawnable.scale.y = self.spawnable.scale.z  self.spawnable.scale.x = self.spawnable.scale.z end
+	self:addScaleDelta(self.spawnable.scale, delta)
 
     self.spawnable:updateScale(finished, delta)
     invalidateParentAutoCenter(self)

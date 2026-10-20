@@ -754,6 +754,13 @@ function miscUtils.isA(object, class)
     return miscUtils.has_value(object.class, class)
 end
 
+---A component ID as the string instance data is keyed by.
+---@param id CRUID
+---@return string
+function miscUtils.CRUIDToString(id)
+    return (tostring(CRUIDToHash(id)):gsub("ULL", ""))
+end
+
 ---Sets a nested value by key path.
 ---@param tbl table Root table.
 ---@param keys (string|number)[] Path of keys.
@@ -871,13 +878,15 @@ end
 ---Queues a highlight-outline event on an entity.
 ---@param entity entEntity?
 ---@param color integer Outline index.
+---@param componentName string|CName? Outlines only this component.
 ---@return nil
-function miscUtils.sendOutlineEvent(entity, color)
+function miscUtils.sendOutlineEvent(entity, color, componentName)
     if not entity then return end
 
     entity:QueueEvent(entRenderHighlightEvent.new({
         seeThroughWalls = true,
         outlineIndex = color,
+        componentName = componentName,
         opacity = 1
     }))
 end
