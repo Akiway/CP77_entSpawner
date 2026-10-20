@@ -24,7 +24,10 @@ local gameUtils = require("modules/utils/game/gameUtils")
 ---@field ringWedge table? Plane and colour of the angle wedge drawn while a ring is dragged
 ---@field frame integer Counts editor draws
 ---@field cancelledFrame integer? The `frame` in which a transform was last cancelled
----@field rotationDragSign number Flips a ring drag so the ring follows the cursor when its axis points away from the camera
+---@field ringGrabPoint Vector4? World point of the hovered ring nearest the cursor, where a ring drag starts
+---@field rotationDragSign number Flips a keyboard rotation so it follows the cursor when its axis points away from the camera
+---@field rotationLastAngle number? Cursor angle of the rotation in progress on the previous frame
+---@field rotationSwept number Degrees the rotation in progress has turned, unwrapped past 180
 ---@field currentAxis string
 ---@field originalDiff table?
 ---@field grab boolean
@@ -53,7 +56,10 @@ local editor = {
     hoveredArrow = "none",
     hoveredRing = "none",
     ringDrag = false,
+    ringGrabPoint = nil,
     rotationDragSign = 1,
+    rotationLastAngle = nil,
+    rotationSwept = 0,
     frame = 0,
     cancelledFrame = nil,
     ringWedge = nil,
@@ -554,9 +560,11 @@ function editor.init(spawner)
         return not isSpawnedNameEditActive() and editor.active and (input.context.viewport.focused or input.context.hierarchy.focused)
     end)
 
+    -- With separate gizmos, G and R also switch the gizmo shown; with Shift they only switch it.
     input.registerImGuiHotkey({ ImGuiKey.G }, function ()
         if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("move")
+            if ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift) then return end
         end
         editor.toggleTransform("translate")
     end, viewportHovered)
@@ -567,6 +575,7 @@ function editor.init(spawner)
         end
         if settings.gizmoRingMode == "split" then
             editor.setGizmoMode("rotate")
+            if ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift) then return end
         end
         editor.toggleTransform("rotate")
     end, viewportHovered)
@@ -864,7 +873,12 @@ function editor.updateArrowColor()
 
     if not selected or not utils.isA(selected, "spawnableElement") then return end
 
-    visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis)
+    -- Light only the gizmo that performs the transform: the rings for a rotation, the arrows otherwise.
+    if editor.rotate or editor.ringDrag then
+        visualizer.highlightArrow(selected.spawnable:getEntity(), "none", editor.currentAxis)
+    else
+        visualizer.highlightArrow(selected.spawnable:getEntity(), editor.currentAxis, "none")
+    end
 end
 
 ---Switches the split gizmo between the move arrows (`"move"`) and the rotation rings (`"rotate"`).
@@ -1030,47 +1044,66 @@ function editor.recordChange()
     clearGroupRotationDragState()
 end
 
----Returns the rotation ring under the cursor ray: "x", "y", "z" or "none".
----A ring is hit where the ray crosses its plane within a band around its radius; with quarter
----rings, only on the quarter that faces the camera.
+local RING_PICK_SAMPLES = 8 -- Points sampled per ring sector.
+
+---Returns the rotation ring under the cursor ray: "x", "y", "z" or "none", and the ring point it
+---was picked at. Samples the sectors the rings currently show and takes the one nearest the ray,
+---so a ring seen edge-on can be picked as well as one seen face-on.
+---@param entity entEntity
 ---@param ringsComponent entMeshComponent
 ---@param origin Vector4 Ray origin.
----@param ray Vector4 Ray direction.
+---@param ray Vector4 Normalized ray direction.
 ---@param gizmoSize visualizerScale Current gizmo scale.
----@return string
-local function pickRing(ringsComponent, origin, ray, gizmoSize)
+---@return string axis
+---@return Vector4? point
+local function pickRing(entity, ringsComponent, origin, ray, gizmoSize)
     local ok, transform = pcall(function ()
         return ringsComponent:GetLocalToWorld()
     end)
-    if not ok or not transform then return "none" end
+    if not ok or not transform then return "none", nil end
 
     local rotation = transform:GetRotation()
     local center = transform:GetTranslation()
     local size = math.max(gizmoSize.x, gizmoSize.y, gizmoSize.z) * visualizer.getRingScaleFactor()
     local radius = visualizer.ringRadius * size
     local tolerance = 0.08 * size
-    local camera = settings.gizmoRingQuarters and visualizer.getCameraInGizmoSpace(transform) or nil
 
-    local best, bestDistance = "none", math.huge
-    local normals = { x = rotation:GetRight(), y = rotation:GetForward(), z = rotation:GetUp() }
-    for axis, normal in pairs(normals) do
-        local hit = intersection.getPlaneIntersection(origin, ray, center, normal)
-        if hit.hit and hit.distance > 0 and hit.distance < bestDistance then
-            local offset = utils.subVector(hit.position, center)
-            if math.abs(Vector4.Length(offset) - radius) <= tolerance then
-                local visible = true
-                if camera then
-                    local point = visualizer.toGizmoLocal(offset, rotation)
-                    visible = visualizer.getRingQuarter(axis, point) == visualizer.getRingQuarter(axis, camera)
-                end
-                if visible then
-                    best, bestDistance = axis, hit.distance
+    local nearMask = tonumber(ringsComponent.chunkMask) or 0
+    local far = entity:FindComponentByName("rings_far")
+    local farMask = far and far:IsEnabled() and tonumber(far.chunkMask) or 0
+
+    local cx, cy, cz = center.x - origin.x, center.y - origin.y, center.z - origin.z
+    local rx, ry, rz = ray.x, ray.y, ray.z
+    local sectors = visualizer.ringSectors
+    local sectorAngle = 2 * math.pi / sectors
+
+    local best, bestScore, bestPoint = "none", math.huge, nil
+    for _, axis in ipairs({ "x", "y", "z" }) do
+        local u, v = visualizer.getRingBasis(axis, rotation)
+        for sector = 0, sectors - 1 do
+            if visualizer.isRingSectorShown(nearMask, axis, sector) or visualizer.isRingSectorShown(farMask, axis, sector) then
+                for i = 0, RING_PICK_SAMPLES - 1 do
+                    local angle = (sector + (i + 0.5) / RING_PICK_SAMPLES) * sectorAngle
+                    local c, s = math.cos(angle) * radius, math.sin(angle) * radius
+                    local px = cx + u.x * c + v.x * s
+                    local py = cy + u.y * c + v.y * s
+                    local pz = cz + u.z * c + v.z * s
+                    local t = px * rx + py * ry + pz * rz
+                    if t > 0 then
+                        local dx, dy, dz = px - rx * t, py - ry * t, pz - rz * t
+                        local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+                        -- Distance over depth ranks samples by how close they look on screen.
+                        if distance <= tolerance and distance / t < bestScore then
+                            best, bestScore = axis, distance / t
+                            bestPoint = Vector4.new(px + origin.x, py + origin.y, pz + origin.z, 0)
+                        end
+                    end
                 end
             end
         end
     end
 
-    return best
+    return best, bestPoint
 end
 
 ---Updates hovered transform arrow based on cursor-to-gizmo intersection tests.
@@ -1155,9 +1188,10 @@ function editor.checkArrow()
     end
 
     editor.hoveredRing = "none"
+    editor.ringGrabPoint = nil
     local ringsComponent = entityRef:FindComponentByName("rings")
     if editor.hoveredArrow == "none" and ringsComponent and ringsComponent:IsEnabled() then
-        editor.hoveredRing = pickRing(ringsComponent, cameraPosition, ray, arrowSize)
+        editor.hoveredRing, editor.ringGrabPoint = pickRing(entityRef, ringsComponent, cameraPosition, ray, arrowSize)
     end
 
     visualizer.highlightArrow(selected:getEntity(), editor.hoveredArrow, editor.hoveredRing)
@@ -1187,8 +1221,12 @@ local RING_WEDGE_COLORS = {
     z = { fill = 0x40FF8C4A, edge = 0xC0FF8C4A }
 }
 
----Builds the plane of the angle wedge for a ring drag starting now: centred on the rings, its
----first edge pointing where the cursor crosses the ring plane.
+-- Below this |cos| between the cursor ray and the ring axis, a ring drag follows the ring's tangent
+-- instead of the cursor's angle in the ring plane, which is unstable that close to edge-on.
+local RING_PLANE_MIN_COS = 0.25
+
+---Builds the angle wedge for a ring drag starting now: centred on the rings, its first edge
+---pointing at the picked ring point, plus how the drag is measured (`mode`).
 ---@param axis Vector4 World rotation axis.
 ---@param fallbackCenter Vector4 Used when the rings component has no transform.
 ---@return table?
@@ -1204,10 +1242,17 @@ local function getRingWedge(axis, fallbackCenter)
     local radius = visualizer.ringRadius * math.max(size.x, size.y, size.z) * visualizer.getRingScaleFactor()
 
     local cameraPosition = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
-    local hit = intersection.getPlaneIntersection(cameraPosition, editor.getScreenToWorldRay(), center, axis)
+    local ray = editor.getScreenToWorldRay()
     local startDir
-    if hit.hit then
-        startDir = utils.subVector(hit.position, center)
+    if editor.ringGrabPoint then
+        startDir = utils.subVector(editor.ringGrabPoint, center)
+    else
+        local hit = intersection.getPlaneIntersection(cameraPosition, ray, center, axis)
+        if hit.hit then
+            startDir = utils.subVector(hit.position, center)
+        end
+    end
+    if startDir then
         startDir = utils.subVector(startDir, utils.multVector(axis, startDir:Dot(axis)))
     end
     if not startDir or Vector4.Length(startDir) < 1e-4 then
@@ -1219,11 +1264,40 @@ local function getRingWedge(axis, fallbackCenter)
     return {
         center = center,
         radius = radius,
+        axis = axis,
         startDir = startDir,
         sideDir = Vector4.Normalize(Vector4.Cross(axis, startDir)),
+        mode = math.abs(ray:Dot(axis)) >= RING_PLANE_MIN_COS and "plane" or "tangent",
         colors = RING_WEDGE_COLORS[editor.currentAxis] or RING_WEDGE_COLORS.z,
         angle = 0
     }
+end
+
+---Returns the cursor's angle for the rotation in progress, in degrees, and whether it wraps at 360.
+---A ring drag measures it in the ring plane, or as arc length along the ring's tangent at the
+---picked point when the ring is near edge-on; keyboard rotation uses the screen angle round the pivot.
+---@param position Vector4 Rotation pivot.
+---@return number angle
+---@return boolean periodic
+local function getRotationDragAngle(position)
+    local wedge = editor.ringWedge
+    local cameraPosition = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetTranslation()
+
+    if wedge and wedge.mode == "plane" then
+        local hit = intersection.getPlaneIntersection(cameraPosition, editor.getScreenToWorldRay(), wedge.center, wedge.axis)
+        if hit.hit and hit.distance > 0 then
+            local offset = utils.subVector(hit.position, wedge.center)
+            return math.deg(math.atan2(offset:Dot(wedge.sideDir), offset:Dot(wedge.startDir))), true
+        end
+        return editor.rotationLastAngle or 0, true
+    elseif wedge then
+        local grab = utils.addVector(wedge.center, utils.multVector(wedge.startDir, wedge.radius))
+        local t = intersection.getTClosestToRay(grab, wedge.sideDir, cameraPosition, editor.getScreenToWorldRay())
+        return math.deg(t / wedge.radius), false
+    end
+
+    local dir = editor.getScreenRelativeToPoint(position):Normalize()
+    return math.deg(math.atan2(dir.z, dir.x)) * editor.rotationDragSign, true
 end
 
 ---Draws the angle swept so far while a rotation ring is dragged.
@@ -1326,11 +1400,7 @@ function editor.updateDrag()
             selected.spawnable:onEditorMove()
         end
     elseif editor.rotate or editor.ringDrag then
-        local dir = editor.getScreenRelativeToPoint(position):Normalize()
-        local angle = math.atan2(dir.z, dir.x) * 180 / math.pi
-
         if not editor.originalDiff.rot then
-            editor.originalDiff.rot = angle
             editor.originalRotationQuat = editor.originalRotation:ToQuat()
             if selected.beginRotationDrag and utils.isA(selected, "positionableGroup") then
                 selected:beginRotationDrag()
@@ -1346,33 +1416,49 @@ function editor.updateDrag()
                 editor.rotationAxisWorld = nil
             end
 
-            -- The screen angle turns counter-clockwise; a ring whose axis points away from the
-            -- camera turns clockwise for the same rotation, so its drag is flipped.
+            -- The screen angle turns counter-clockwise; round an axis pointing away from the camera
+            -- the same rotation turns clockwise, so it is flipped to follow the cursor.
             editor.rotationDragSign = 1
             editor.ringWedge = nil
-            if editor.ringDrag and editor.rotationAxisWorld then
+            if editor.rotationAxisWorld then
                 local forward = GetPlayer():GetFPPCameraComponent():GetLocalToWorld():GetRotation():GetForward()
                 if editor.rotationAxisWorld:Dot(forward) > 0 then
                     editor.rotationDragSign = -1
                 end
-                editor.ringWedge = getRingWedge(editor.rotationAxisWorld, position)
+                if editor.ringDrag then
+                    editor.ringWedge = getRingWedge(editor.rotationAxisWorld, position)
+                end
             end
+
+            editor.originalDiff.rot = getRotationDragAngle(position)
+            editor.rotationLastAngle = editor.originalDiff.rot
+            editor.rotationSwept = 0
         end
 
-        local angleDelta = (angle - editor.originalDiff.rot) * editor.rotationDragSign + input.getNumeric(0)
+        -- Accumulated frame to frame, so the angle keeps counting past +-180.
+        local angle, periodic = getRotationDragAngle(position)
+        local turned = angle - editor.rotationLastAngle
+        if periodic then
+            turned = (turned + 180) % 360 - 180
+        end
+        editor.rotationSwept = editor.rotationSwept + turned
+        editor.rotationLastAngle = angle
 
+        local swept = editor.rotationSwept
         local step = settings.rotationSnapStep or 0
         if step > 0 and (ImGui.IsKeyDown(ImGuiKey.LeftShift) or ImGui.IsKeyDown(ImGuiKey.RightShift)) then
-            angleDelta = math.floor(angleDelta / step + 0.5) * step
+            swept = math.floor(swept / step + 0.5) * step
         end
 
+        -- A typed value is added as is, not snapped.
+        local angleDelta = swept + input.getNumeric(0)
+
         if editor.ringWedge then
-            editor.ringWedge.angle = (angleDelta + 180) % 360 - 180
+            editor.ringWedge.angle = angleDelta
         end
 
         if editor.ringDrag then
-            local shown = (angleDelta + 180) % 360 - 180
-            ImGui.SetTooltip(string.format("%s %+.1f\194\176", string.upper(editor.currentAxis), shown))
+            ImGui.SetTooltip(string.format("%s %+.1f\194\176", string.upper(editor.currentAxis), angleDelta))
         end
 
         if editor.rotationAxisWorld and editor.originalRotationQuat then

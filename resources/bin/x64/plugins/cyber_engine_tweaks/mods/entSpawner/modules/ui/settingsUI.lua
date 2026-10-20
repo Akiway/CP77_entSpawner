@@ -22,6 +22,9 @@ local exportFormatLabels = { "JSON", "YAML" }
 local variantDefaultStateLabels = { "Visible", "Hidden" }
 local PROJECT_NEUTRAL_LABEL = "No Project"
 local outlineColors = { "Green", "Red", "Blue", "Orange", "Yellow", "Light Blue", "White", "Black" }
+local ringModeValues = { "combined", "split", "off" }
+local ringModeLabels = { "With arrows", "Separate", "Disabled" }
+local ringModeIndices = { combined = 0, split = 1, off = 2 }
 local windowNames = { "World Builder", "Object Spawner", "Entity Spawner", "World Additor", "World Editing Toolkit", "World Editor", "WheezeKit", "Buildy McBuildface", "Keanus Editing Kit (Kek)", "Redkit at home" }
 local groupLoadSpeedOptions = { "Fast - with FPS drops", "Slow - without FPS drops" }
 local wireframeColorStyles = { "Darker + white text", "Lighter + black text" }
@@ -125,6 +128,11 @@ local settingsSectionSearchText = {
         "Show arrows when element is selected",
         "Scale arrows with camera distance",
         "Arrow size multiplier",
+        "Rotation rings",
+        table.concat(ringModeLabels, " "),
+        "Show only the quarter of each rotation ring facing the camera",
+        "Rotation ring size",
+        "Rotation snap step",
         "Show outline when element is selected",
         "Outline color",
         table.concat(outlineColors, " "),
@@ -508,10 +516,6 @@ local function refreshComponentHelpers(spawner)
 end
 
 ---@param spawner spawner
-local ringModeValues = { "combined", "split", "off" }
-local ringModeLabels = { "With arrows", "Separate", "Disabled" }
-local ringModeIndices = { combined = 0, split = 1, off = 2 }
-
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
     if not spawnedUI then return end
@@ -1442,7 +1446,7 @@ function settingsUI.draw(spawner)
             settings.save()
             refreshSelectedVisualizers(spawner)
         end
-        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G also switches to the arrows and R to the rings, and hovering a position or rotation field switches to the matching one.\nDisabled: no rings.")
+        style.tooltip("With arrows: rings and arrows show together.\nSeparate: either the arrows or the rings show. G also switches to the arrows and R to the rings, Shift+G and Shift+R only switch, and hovering a position or rotation field switches to the matching one.\nDisabled: no rings.")
 
         ImGui.BeginDisabled(settings.gizmoRingMode == "off")
         settings.gizmoRingQuarters, changed = ImGui.Checkbox("Show only the quarter of each rotation ring facing the camera", settings.gizmoRingQuarters)
@@ -1462,12 +1466,12 @@ function settingsUI.draw(spawner)
         ImGui.EndDisabled()
 
         ImGui.SetNextItemWidth(150 * style.viewSize)
-        settings.rotationSnapStep, changed = ImGui.SliderFloat("Rotation snap step", settings.rotationSnapStep, 1, 90, "%.0f")
+        settings.rotationSnapStep, changed = ImGui.SliderInt("Rotation snap step", math.floor(settings.rotationSnapStep or 15), 1, 90)
         if changed then
             settings.rotationSnapStep = math.max(1, math.min(settings.rotationSnapStep, 90))
             settings.save()
         end
-        style.tooltip("Degrees a rotation snaps to while Shift is held, dragging a rotation ring or rotating with R.")
+        style.tooltip("Degrees a rotation snaps to while Shift is held, dragging a rotation ring or rotating with R. Steps count from the starting angle; a typed value is not snapped.")
 
         settings.outlineSelected, changed = ImGui.Checkbox("Show outline when element is selected", settings.outlineSelected)
         if changed then

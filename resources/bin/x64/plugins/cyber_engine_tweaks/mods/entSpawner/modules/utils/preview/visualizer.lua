@@ -198,11 +198,24 @@ local function ringScale(scale)
 end
 
 -- ring.mesh has 16 sector chunks per ring, rings in the arrow mesh's order (z, y, x). Sector k
--- spans [k, k + 1) * 22.5 degrees in the ring's (u, v) basis (listed at `getRingQuarter`), so
+-- spans [k, k + 1) * 22.5 degrees in the ring's (u, v) basis (listed at `getRingBasis`), so
 -- quarter q is sectors 4q to 4q + 3. "rings" draws the half facing the camera and "rings_far",
 -- with the `far_` appearances, the other half.
 local RING_SECTORS = 16
 local RING_CHUNK_OFFSET = { z = 0, y = RING_SECTORS, x = 2 * RING_SECTORS }
+local SECTOR_BITS = 2 ^ RING_SECTORS
+local QUARTER_BITS = 2 ^ (RING_SECTORS / 4) - 1
+
+-- Camera closer to a ring's axis than this (sine of the angle) keeps the ring's half: which side
+-- faces it is undefined there.
+local AXIS_HOLD = 0.1
+-- Degrees the camera must move past a gizmo plane before the quarters shown follow it.
+local QUARTER_HYSTERESIS = 6
+
+-- Signs of the ring's (u, v) coordinates in each quarter.
+local QUARTER_SIGNS = { [0] = { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } }
+
+visualizer.ringSectors = RING_SECTORS
 
 local function showsArrows()
     return settings.gizmoRingMode ~= "split" or visualizer.gizmoMode == "move"
@@ -211,11 +224,6 @@ end
 local function showsRings()
     if settings.gizmoRingMode == "off" then return false end
     return settings.gizmoRingMode ~= "split" or visualizer.gizmoMode == "rotate"
-end
-
-local function quarterIndex(u, v)
-    if u >= 0 then return v >= 0 and 0 or 3 end
-    return v >= 0 and 1 or 2
 end
 
 ---Converts a world-space offset into the gizmo's local axes.
@@ -230,15 +238,59 @@ function visualizer.toGizmoLocal(offset, rotation)
     }
 end
 
----Returns which quarter (0-3) of a ring a gizmo-local point lies in.
+---Returns a ring's in-plane basis in world space: sector k spans [k, k + 1) * 22.5 degrees from `u` towards `v`.
 ---Ring bases: x uses (y, z), y uses (x, z), z uses (x, y).
 ---@param axis string `"x"`, `"y"` or `"z"`.
----@param point { x: number, y: number, z: number } Gizmo-local point.
----@return integer
-function visualizer.getRingQuarter(axis, point)
-    if axis == "x" then return quarterIndex(point.y, point.z) end
-    if axis == "y" then return quarterIndex(point.x, point.z) end
-    return quarterIndex(point.x, point.y)
+---@param rotation Quaternion|EulerAngles Gizmo world rotation.
+---@return Vector4 u
+---@return Vector4 v
+function visualizer.getRingBasis(axis, rotation)
+    if axis == "x" then return rotation:GetForward(), rotation:GetUp() end
+    if axis == "y" then return rotation:GetRight(), rotation:GetUp() end
+    return rotation:GetRight(), rotation:GetForward()
+end
+
+local function getAxisBits(mask, axis)
+    return math.floor(mask / 2 ^ RING_CHUNK_OFFSET[axis]) % SECTOR_BITS
+end
+
+---Whether a ring sector is set in a `ring.mesh` chunk mask.
+---@param mask number Chunk mask, as read with `tonumber(component.chunkMask)`.
+---@param axis string `"x"`, `"y"` or `"z"`.
+---@param sector integer 0 to `visualizer.ringSectors - 1`.
+---@return boolean
+function visualizer.isRingSectorShown(mask, axis, sector)
+    return math.floor(getAxisBits(mask, axis) / 2 ^ sector) % 2 == 1
+end
+
+local function getShownQuarter(bits)
+    for quarter = 0, 3 do
+        if bits == QUARTER_BITS * 2 ^ (quarter * RING_SECTORS / 4) then return quarter end
+    end
+    return nil
+end
+
+local function getQuarter(signU, signV)
+    if signU > 0 then return signV > 0 and 0 or 3 end
+    return signV > 0 and 1 or 2
+end
+
+---Returns the camera octant the shown quarters stand for, one sign per gizmo axis, or nil when the
+---mask does not hold one quarter per ring that agree with each other.
+local function getShownOctant(mask)
+    local quarterX = getShownQuarter(getAxisBits(mask, "x"))
+    local quarterY = getShownQuarter(getAxisBits(mask, "y"))
+    local quarterZ = getShownQuarter(getAxisBits(mask, "z"))
+    if not quarterX or not quarterY or not quarterZ then return nil end
+
+    local octant = { x = QUARTER_SIGNS[quarterZ][1], y = QUARTER_SIGNS[quarterZ][2], z = QUARTER_SIGNS[quarterY][2] }
+    if QUARTER_SIGNS[quarterY][1] ~= octant.x
+        or QUARTER_SIGNS[quarterX][1] ~= octant.y
+        or QUARTER_SIGNS[quarterX][2] ~= octant.z then
+        return nil
+    end
+
+    return octant
 end
 
 local function getCameraPosition()
@@ -279,7 +331,9 @@ end
 
 ---Sets which ring sectors show: with `settings.gizmoRingQuarters` only the quarter of each ring
 ---facing the camera; otherwise the half facing the camera on "rings" and the far half, fainter,
----on "rings_far". Refreshes a component only when its chunk mask changes.
+---on "rings_far". Quarters follow the camera octant, which only changes once the camera is
+---`QUARTER_HYSTERESIS` degrees past a gizmo plane, so the three rings always agree; a ring seen
+---almost face-on keeps its half. Refreshes a component only when its chunk mask changes.
 ---@param entity entEntity Target entity.
 function visualizer.updateRingQuarters(entity)
     if not entity then return end
@@ -298,24 +352,49 @@ function visualizer.updateRingQuarters(entity)
     local camera = visualizer.getCameraInGizmoSpace(rings:GetLocalToWorld())
     if not camera then return end
 
+    local cameraDistance = math.sqrt(camera.x * camera.x + camera.y * camera.y + camera.z * camera.z)
+    local currentNear = tonumber(rings.chunkMask) or 0
+    local currentFar = far and tonumber(far.chunkMask) or 0
+
     local near, farMask = 0, 0
-    for axis, offset in pairs(RING_CHUNK_OFFSET) do
-        if settings.gizmoRingQuarters then
-            local first = visualizer.getRingQuarter(axis, camera) * RING_SECTORS / 4
-            for k = first, first + RING_SECTORS / 4 - 1 do
-                near = near + 2 ^ (offset + k)
+    if settings.gizmoRingQuarters then
+        local shown = getShownOctant(currentNear)
+        local margin = math.sin(math.rad(QUARTER_HYSTERESIS)) * cameraDistance
+        local octant = {}
+        for _, axis in ipairs({ "x", "y", "z" }) do
+            local value = camera[axis]
+            if shown and math.abs(value) < margin then
+                octant[axis] = shown[axis]
+            else
+                octant[axis] = value >= 0 and 1 or -1
             end
-        else
+        end
+
+        for axis, offset in pairs(RING_CHUNK_OFFSET) do
+            local u, v = ringPlaneCoords(axis, octant)
+            near = near + QUARTER_BITS * 2 ^ (getQuarter(u, v) * RING_SECTORS / 4 + offset)
+        end
+    else
+        for axis, offset in pairs(RING_CHUNK_OFFSET) do
+            local nearBits, farBits = getAxisBits(currentNear, axis), getAxisBits(currentFar, axis)
+            local valid = nearBits ~= 0 and nearBits + farBits == SECTOR_BITS - 1
+
             local u, v = ringPlaneCoords(axis, camera)
-            local facing = math.atan2(v, u)
-            for k = 0, RING_SECTORS - 1 do
-                local center = (k + 0.5) * 2 * math.pi / RING_SECTORS
-                if math.cos(center - facing) > 0 then
-                    near = near + 2 ^ (offset + k)
-                else
-                    farMask = farMask + 2 ^ (offset + k)
+            if not valid or math.sqrt(u * u + v * v) >= AXIS_HOLD * cameraDistance then
+                local facing = math.deg(math.atan2(v, u))
+                nearBits, farBits = 0, 0
+                for k = 0, RING_SECTORS - 1 do
+                    local center = (k + 0.5) * 360 / RING_SECTORS
+                    if math.cos(math.rad(center - facing)) > 0 then
+                        nearBits = nearBits + 2 ^ k
+                    else
+                        farBits = farBits + 2 ^ k
+                    end
                 end
             end
+
+            near = near + nearBits * 2 ^ offset
+            farMask = farMask + farBits * 2 ^ offset
         end
     end
 

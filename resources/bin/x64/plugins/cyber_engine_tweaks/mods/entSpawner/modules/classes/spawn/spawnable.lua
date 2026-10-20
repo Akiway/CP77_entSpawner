@@ -1201,7 +1201,8 @@ function spawnable:getArrowDistanceFactor()
     if not cameraComponent then return multiplier end
 
     local cameraPosition = cameraComponent:GetLocalToWorld():GetTranslation()
-    local distance = Vector4.Distance(cameraPosition, self:getCenter())
+    -- The gizmo sits at the node origin; the bounds centre would move as the node rotates.
+    local distance = Vector4.Distance(cameraPosition, self.position)
 
     local factor = (distance / ARROW_REFERENCE_DISTANCE)
     factor = math.max(ARROW_MIN_FACTOR, math.min(factor, ARROW_MAX_FACTOR))
