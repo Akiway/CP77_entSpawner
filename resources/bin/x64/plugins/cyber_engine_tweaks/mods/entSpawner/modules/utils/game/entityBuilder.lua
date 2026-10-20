@@ -103,6 +103,94 @@ function builder.registerLoadResource(path, callback)
     end
 end
 
+---Appearance lists of `.mesh` resources, kept in memory: the cache hands out a deepcopy per call,
+---and pickers read the list every frame.
+---@type table<string, string[]>
+local meshAppearances = {}
+---Loads in flight, so a picker drawn every frame queues one load, not one per frame.
+---@type table<string, boolean>
+local meshAppearancesPending = {}
+
+---@param key string
+---@param resRef ResRef
+---@param path string?
+local function requestMeshAppearances(key, resRef, path)
+    meshAppearancesPending[key] = true
+
+    local function complete(apps)
+        meshAppearances[key] = apps or {}
+        meshAppearancesPending[key] = nil
+
+        -- Same key the mesh spawnable uses. Only the appearance list is written: `addMeshResource`
+        -- would also stamp a bounding box this never measured.
+        if path and path ~= "" then
+            cache.addValue(path .. "_apps", meshAppearances[key])
+        end
+    end
+
+    -- A token for a resource that is not in the depot never fires its callback.
+    local depot = Game.GetResourceDepot()
+    local exists = false
+    if depot then
+        pcall(function () exists = depot:ResourceExists(resRef) end)
+    end
+    if not exists then
+        complete({})
+        return
+    end
+
+    local ok = pcall(function ()
+        builder.registerLoadResource(resRef, function (resource)
+            local apps = {}
+
+            if resource and resource.appearances then
+                for _, appearance in ipairs(resource.appearances) do
+                    if appearance and appearance.name and appearance.name.value then
+                        table.insert(apps, appearance.name.value)
+                    end
+                end
+            end
+
+            complete(apps)
+        end)
+    end)
+
+    if not ok then
+        complete({})
+    end
+end
+
+---Appearance names of a `.mesh`. Nil while loading: the first call queues the load.
+---@param key string Depot path, or the hash string when the path is not known
+---@param path string? Depot path, for the persistent cache
+---@param resRef ResRef? Built from `path` when omitted
+---@return string[]?
+function builder.getMeshAppearances(key, path, resRef)
+    local known = meshAppearances[key]
+    if known then return known end
+
+    if path and path ~= "" then
+        local cached = cache.getValue(path .. "_apps")
+        if type(cached) == "table" then
+            meshAppearances[key] = cached
+            return cached
+        end
+    end
+
+    if not meshAppearancesPending[key] then
+        resRef = resRef or ResRef.FromString(path)
+        requestMeshAppearances(key, resRef, path)
+    end
+
+    return meshAppearances[key]
+end
+
+---Drops the in-memory appearance lists, so an archive reload is picked up.
+function builder.invalidateMeshAppearances()
+    meshAppearances = {}
+    meshAppearancesPending = {}
+end
+
 ---Gets the positional and rotational offset of a component, relative to the owner entity
 ---@param component entIComponent
 function builder.getComponentOffset(entity, component)

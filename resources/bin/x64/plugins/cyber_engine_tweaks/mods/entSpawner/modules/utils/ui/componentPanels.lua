@@ -1,6 +1,5 @@
 local style = require("modules/ui/style")
 local utils = require("modules/utils/core/utils")
-local cache = require("modules/utils/game/cache")
 local builder = require("modules/utils/game/entityBuilder")
 local componentUI = require("modules/utils/ui/componentUI")
 
@@ -8,50 +7,14 @@ local componentUI = require("modules/utils/ui/componentUI")
 ---Each panel styles some fields; componentUI draws the rest under "Other".
 local componentPanels = {}
 
-local meshAppearances = {}
-local meshAppearancesLoading = {}
-
----Appearance names of a mesh, from the mesh cache or loaded once in the background.
----@param path string
----@return string[]? apps Nil until loaded, or when the path is not a mesh
-local function getMeshAppearances(path)
-    if type(path) ~= "string" or path == "" or path == "0" then
-        return nil
-    end
-
-    if meshAppearances[path] then
-        return meshAppearances[path]
-    end
-
-    local cached = cache.getMeshResource(path)
-    if cached and cached.apps then
-        meshAppearances[path] = cached.apps
-        return cached.apps
-    end
-
-    if not meshAppearancesLoading[path] then
-        meshAppearancesLoading[path] = true
-        builder.registerLoadResource(path, function(resource)
-            if not resource or not resource.appearances then return end
-
-            local apps = {}
-            for _, appearance in ipairs(resource.appearances) do
-                table.insert(apps, appearance.name.value)
-            end
-            meshAppearances[path] = apps
-        end)
-    end
-
-    return nil
-end
-
 ---Mesh appearance as a dropdown of the appearances the mesh has; the text field until they are loaded.
 local function drawMeshAppearance(entity, componentID, component, componentChanges, max)
     local path = { "meshAppearance", "$value" }
-    local meshPath = componentUI.getValue(component, componentChanges, { "mesh", "DepotPath", "$value" })
-    local apps = getMeshAppearances(tostring(meshPath or ""))
+    local meshPath = tostring(componentUI.getValue(component, componentChanges, { "mesh", "DepotPath", "$value" }) or "")
+    local apps = (meshPath ~= "" and meshPath ~= "0") and builder.getMeshAppearances(meshPath, meshPath) or nil
 
-    if not apps then
+    -- An empty list (no such mesh, or none listed) keeps the text field too.
+    if not apps or #apps == 0 then
         entity:drawComponentPropertyRow(componentID, component, componentChanges, "meshAppearance", max - ImGui.GetCursorPosX())
         return
     end
@@ -74,7 +37,7 @@ local function drawMeshAppearance(entity, componentID, component, componentChang
         200,
         { tooltip = "Appearances of the mesh" }
     )
-    entity:drawComponentReset(componentID, path, "CName")
+    entity:drawResetProp(componentID, path, "CName")
     style.popStyleColor(modified)
 
     if changed then

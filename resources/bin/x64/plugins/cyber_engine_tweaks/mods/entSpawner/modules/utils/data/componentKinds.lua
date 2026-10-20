@@ -23,47 +23,52 @@ componentKinds.kinds = {
 }
 
 local other = componentKinds.kinds[#componentKinds.kinds]
-local kindByClass = {}
+
+---Match per list, then per class; `false` caches a miss.
+local matchCache = setmetatable({}, { __mode = "k" })
+
+---First entry of `entries` with a base class that `className` derives from, cached per list.
+---@param entries { bases: string[] }[]
+---@param className string RED class of the component, its `$type`
+---@return table? entry
+function componentKinds.findByBase(entries, className)
+    local cache = matchCache[entries]
+    if not cache then
+        cache = {}
+        matchCache[entries] = cache
+    end
+
+    local cached = cache[className]
+    if cached ~= nil then return cached or nil end
+
+    local found = false
+    local class = type(className) == "string" and className ~= "" and Reflection.GetClass(className) or nil
+    if class then
+        for _, entry in ipairs(entries) do
+            for _, base in ipairs(entry.bases) do
+                if class:IsA(base) then
+                    found = entry
+                    break
+                end
+            end
+            if found then break end
+        end
+    end
+
+    cache[className] = found
+    return found or nil
+end
+
+---Drops the cached matches of a list, after it changed.
+---@param entries table
+function componentKinds.clearCache(entries)
+    matchCache[entries] = nil
+end
 
 ---@param className string RED class of the component, its `$type`
 ---@return table kind Entry of `componentKinds.kinds`
 function componentKinds.getKind(className)
-    local cached = kindByClass[className]
-    if cached then return cached end
-
-    local found = other
-    local class = type(className) == "string" and Reflection.GetClass(className) or nil
-    if class then
-        for _, kind in ipairs(componentKinds.kinds) do
-            for _, base in ipairs(kind.bases) do
-                if class:IsA(base) then
-                    found = kind
-                    break
-                end
-            end
-            if found ~= other then break end
-        end
-    end
-
-    kindByClass[className] = found
-    return found
-end
-
-local isACache = {}
-
----@param className string RED class of the component, its `$type`
----@param base string
----@return boolean
-function componentKinds.isA(className, base)
-    local key = tostring(className) .. ">" .. base
-    local cached = isACache[key]
-    if cached ~= nil then return cached end
-
-    local class = type(className) == "string" and className ~= "" and Reflection.GetClass(className) or nil
-    local result = class ~= nil and class:IsA(base) == true
-
-    isACache[key] = result
-    return result
+    return componentKinds.findByBase(componentKinds.kinds, className) or other
 end
 
 return componentKinds

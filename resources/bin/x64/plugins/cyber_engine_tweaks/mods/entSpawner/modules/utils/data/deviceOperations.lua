@@ -14,7 +14,6 @@
 local deviceOperations = {}
 
 local transformAnimations = require("modules/utils/data/transformAnimations")
-local cache = require("modules/utils/game/cache")
 local builder = require("modules/utils/game/entityBuilder")
 local redValue = require("modules/utils/data/redValue")
 
@@ -813,87 +812,6 @@ function deviceOperations.getEffectNames(spawnable)
     return sortedNames(names)
 end
 
----Appearance lists of the `.mesh` resources this entity's components point at, keyed by the path
----the component names. Kept in memory rather than read back off `cache` every frame: the cache hands
----out a deepcopy per call, and this list is rebuilt on every frame the picker is drawn.
----@type table<string, string[]>
-local meshAppearanceCache = {}
----Paths with a resource load already in flight, so a picker drawn every frame queues one load, not
----one per frame.
----@type table<string, boolean>
-local meshAppearancePending = {}
-
----@param key string Cache key: the depot path, or the raw hash when the path is not known
----@param resRef ResRef
----@param path string? Depot path, when there is one
-local function requestMeshAppearances(key, resRef, path)
-    if meshAppearanceCache[key] or meshAppearancePending[key] then return end
-
-    meshAppearancePending[key] = true
-
-    local function complete(apps)
-        meshAppearanceCache[key] = apps or {}
-        meshAppearancePending[key] = nil
-
-        -- Same key the mesh spawnable uses, so a mesh whose appearances were read once is not read
-        -- again next session. Only the appearance list is written: `addMeshResource` would also
-        -- stamp a bounding box this never measured.
-        if path and path ~= "" then
-            cache.addValue(path .. "_apps", meshAppearanceCache[key])
-        end
-    end
-
-    -- A token for a resource that is not in the depot never fires its callback, which would leave
-    -- the picker reading "loading" forever.
-    local depot = Game.GetResourceDepot()
-    local exists = false
-    if depot then
-        pcall(function () exists = depot:ResourceExists(resRef) end)
-    end
-    if not exists then
-        complete({})
-        return
-    end
-
-    local ok = pcall(function ()
-        builder.registerLoadResource(resRef, function (resource)
-            local apps = {}
-
-            if resource and resource.appearances then
-                for _, appearance in ipairs(resource.appearances) do
-                    if appearance and appearance.name and appearance.name.value then
-                        table.insert(apps, appearance.name.value)
-                    end
-                end
-            end
-
-            complete(apps)
-        end)
-    end)
-
-    if not ok then
-        complete({})
-    end
-end
-
----@param key string
----@param path string?
----@return string[]? apps nil while the list is not known yet
-local function readMeshAppearances(key, path)
-    local known = meshAppearanceCache[key]
-    if known then return known end
-
-    if path and path ~= "" then
-        local cached = cache.getValue(path .. "_apps")
-        if type(cached) == "table" then
-            meshAppearanceCache[key] = cached
-            return cached
-        end
-    end
-
-    return nil
-end
-
 ---Resolved mesh references, so rebuilding the picker's list costs a table lookup rather than a
 ---`ResRef` round trip per component per frame. Keyed by hash string or depot path, whichever the
 ---component gave; `false` marks a reference that never resolved.
@@ -1030,11 +948,10 @@ function deviceOperations.getMeshAppearanceNames(spawnable)
     local sources = getMeshSources(spawnable)
 
     for _, source in ipairs(sources) do
-        local apps = readMeshAppearances(source.key, source.path)
+        local apps = builder.getMeshAppearances(source.key, source.path, source.resRef)
 
         if not apps then
             pending = true
-            requestMeshAppearances(source.key, source.resRef, source.path)
         else
             for _, app in ipairs(apps) do
                 if type(app) == "string" and app ~= "" then
@@ -1116,8 +1033,7 @@ end
 ---picked up.
 function deviceOperations.invalidate()
     recordNameCache = {}
-    meshAppearanceCache = {}
-    meshAppearancePending = {}
+    builder.invalidateMeshAppearances()
     meshRefCache = {}
 end
 

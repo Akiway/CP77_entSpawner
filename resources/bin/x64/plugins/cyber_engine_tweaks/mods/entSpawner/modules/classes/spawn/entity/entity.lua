@@ -410,6 +410,14 @@ end
 
 function entity:loadSpawnData(data, position, rotation)
     spawnable.loadSpawnData(self, data, position, rotation)
+
+    -- The payload is shared with long lived tables (clipboard, project cache, history), and these
+    -- tables are edited in place.
+    self.instanceDataChanges = utils.deepcopy(self.instanceDataChanges or {})
+    self.defaultComponentData = utils.deepcopy(self.defaultComponentData or {})
+    self.componentOverridesByName = utils.deepcopy(self.componentOverridesByName or {})
+    self.componentHelpers = utils.deepcopy(self.componentHelpers or {})
+
     self.appSearch = self.appSearch or ""
     self.appSearch = utils.stripNonASCII(self.appSearch)
     self.deviceClassName = utils.sanitizeText(self.deviceClassName)
@@ -425,9 +433,7 @@ function entity:spawn(ignoreSpawning)
     end
 end
 
-local function CRUIDToString(id)
-    return tostring(CRUIDToHash(id)):gsub("ULL", "")
-end
+local CRUIDToString = utils.CRUIDToString
 
 local customNumericPropertyRanges = {
     colorGroupSaturation = { min = 0, max = 100, integer = true },
@@ -1900,8 +1906,8 @@ function entity:setComponentLocalTransform(componentID, position, orientation)
     local defaultData = self.defaultComponentData[componentID]
     if type(defaultData) ~= "table" or type(defaultData.localTransform) ~= "table" then return end
 
-    local changes = self.instanceDataChanges[componentID]
-    local data = { localTransform = utils.deepcopy(changes and changes.localTransform or defaultData.localTransform) }
+    local current = componentUI.getValue(defaultData, self.instanceDataChanges[componentID], { "localTransform" })
+    local data = { localTransform = utils.deepcopy(current) }
 
     writeVectorLikeValue(ensureLocalPositionTable(data, defaultData), { x = position.x, y = position.y, z = position.z })
 
@@ -1923,8 +1929,7 @@ function entity:getComponentStoredTransform(componentID)
     local defaultData = self.defaultComponentData[componentID]
     if type(defaultData) ~= "table" then return end
 
-    local changes = self.instanceDataChanges[componentID]
-    local transform = changes and changes.localTransform or defaultData.localTransform
+    local transform = componentUI.getValue(defaultData, self.instanceDataChanges[componentID], { "localTransform" })
     if type(transform) ~= "table" then return end
 
     local position = readVectorLikeValue(getLocalPositionTable({ localTransform = transform }))
@@ -1942,8 +1947,7 @@ function entity:setComponentVisualScale(componentID, scale)
     local defaultData = self.defaultComponentData[componentID]
     if type(defaultData) ~= "table" or type(defaultData.visualScale) ~= "table" then return end
 
-    local changes = self.instanceDataChanges[componentID]
-    local visualScale = utils.deepcopy(changes and changes.visualScale or defaultData.visualScale)
+    local visualScale = utils.deepcopy(componentUI.getValue(defaultData, self.instanceDataChanges[componentID], { "visualScale" }))
     writeVectorLikeValue(visualScale, scale)
 
     self:updatePropValue(componentID, { "visualScale" }, visualScale)
@@ -2000,20 +2004,42 @@ function entity:focusComponent(componentID)
     self.focusedComponentID = componentID
 end
 
----Reads the stored local transform of a live placed component.
----@param component entIPlacedComponent
----@return Vector4? position
----@return Quaternion? orientation
-function entity:getPlacedComponentStoredTransform(component)
-    return self:getComponentStoredTransform(CRUIDToString(component.id))
+---ID of the component carrying the entity's placement: the unbound placed component whose live local
+---position is the entity's world position. Nil when the engine added its own root.
+---@return string?
+function entity:getTransformRootComponentID()
+    local entityRef = self:getEntity()
+    if not entityRef then return end
+
+    local hash = entityRef:GetEntityID().hash
+    if self.transformRootCache and self.transformRootCache.hash == hash then
+        return self.transformRootCache.id
+    end
+
+    local origin = entityRef:GetWorldPosition()
+    local rootID
+    for _, component in pairs(entityRef:GetComponents()) do
+        if component:IsA("entIPlacedComponent") and not component.parentTransform then
+            local id = CRUIDToString(component.id)
+            if id ~= "0" and utils.distanceVector(component:GetLocalPosition(), origin) < 0.001 then
+                rootID = id
+                break
+            end
+        end
+    end
+
+    self.transformRootCache = { hash = hash, id = rootID }
+    return rootID
 end
 
----The transform editor of a component, created on first use. Nil for a component with no position.
+---The transform editor of a component, created on first use. Nil for a component with no position,
+---and for the root, whose transform is the entity's placement.
 ---@param componentID string
 ---@param component table Default data of the component
 ---@return componentTransform?
 function entity:getComponentTransform(componentID, component)
     if type(component.localTransform) ~= "table" or not self.object then return end
+    if componentID == self:getTransformRootComponentID() then return end
 
     local transform = self.componentTransforms[componentID]
     if not transform then
@@ -3238,8 +3264,7 @@ function entity:getComponentParentChain(componentID)
     local chain = {}
     local current = componentID
     while current and #chain < 16 do
-        local changes = self.instanceDataChanges[current]
-        local data = changes and changes.parentTransform or (self.defaultComponentData[current] or {}).parentTransform
+        local data = componentUI.getValue(self.defaultComponentData[current], self.instanceDataChanges[current], { "parentTransform" })
         local binding = type(data) == "table" and data.Data or nil
         local bindName = binding and binding.bindName and binding.bindName["$value"]
         if not bindName or bindName == "None" then break end

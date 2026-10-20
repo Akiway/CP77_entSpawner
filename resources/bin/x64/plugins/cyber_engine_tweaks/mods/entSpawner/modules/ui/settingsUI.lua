@@ -492,25 +492,22 @@ local function normalizeNonNegativeNumber(value, fallback)
     return math.max(0, numberValue)
 end
 
----@param spawner spawner
 ---Shows or hides the component helpers of every spawned entity, after a default setting changes.
 ---@param spawner spawner
 local function refreshComponentHelpers(spawner)
-    local root = spawner and spawner.baseUI and spawner.baseUI.spawnedUI and spawner.baseUI.spawnedUI.root
-    if not root then return end
+    local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
+    if not spawnedUI then return end
 
-    local function visit(element)
-        local spawnable = element.spawnable
+    spawnedUI.ensureCache()
+    for _, entry in ipairs(spawnedUI.paths) do
+        local spawnable = entry.ref.spawnable
         if spawnable and spawnable.refreshComponentHelpers then
             spawnable:refreshComponentHelpers()
         end
-        for _, child in ipairs(element.childs or {}) do
-            visit(child)
-        end
     end
-    visit(root)
 end
 
+---@param spawner spawner
 local function refreshSelectedVisualizers(spawner)
     local spawnedUI = spawner and spawner.baseUI and spawner.baseUI.spawnedUI
     if not spawnedUI then return end

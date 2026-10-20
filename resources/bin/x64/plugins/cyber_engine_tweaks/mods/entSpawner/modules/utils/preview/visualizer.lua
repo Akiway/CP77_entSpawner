@@ -55,7 +55,16 @@ function visualizer.bindToPlacedParent(entity, component)
     component.parentTransform = parentTransform
 end
 
-local function addMesh(entity, name, mesh, scale, app, enabled)
+---Attach a preview mesh component.
+---@param entity entEntity Target entity.
+---@param name string Component name.
+---@param mesh string Depot mesh path.
+---@param scale visualizerScale Mesh scale.
+---@param app string? Appearance name.
+---@param enabled boolean? Initial visibility.
+---@param bindName string? Component to bind to; the entity's placed parent when omitted.
+---@return entMeshComponent
+function visualizer.addMeshComponent(entity, name, mesh, scale, app, enabled, bindName)
     if app == "green" then app = "lime" end
 
     local component = entMeshComponent.new()
@@ -65,9 +74,16 @@ local function addMesh(entity, name, mesh, scale, app, enabled)
     component.meshAppearance = app
     component.isEnabled = enabled
 
-    visualizer.bindToPlacedParent(entity, component)
+    if bindName then
+        local parentTransform = entHardTransformBinding.new()
+        parentTransform.bindName = bindName
+        component.parentTransform = parentTransform
+    else
+        visualizer.bindToPlacedParent(entity, component)
+    end
 
     entity:AddComponent(component)
+    return component
 end
 
 ---Attach a generic preview mesh named `"mesh"`.
@@ -79,7 +95,7 @@ end
 function visualizer.addMesh(entity, scale, mesh, app, name)
     if not entity then return end
 
-    addMesh(entity, name or "mesh", mesh, scale, app or "default", true)
+    visualizer.addMeshComponent(entity, name or "mesh", mesh, scale, app or "default", true)
 end
 
 ---Attach a cube preview mesh named `"box"`.
@@ -94,7 +110,7 @@ function visualizer.addBox(entity, scale, color)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, "box", "base\\spawner\\cube.mesh", scale, color, true)
+    visualizer.addMeshComponent(entity, "box", "base\\spawner\\cube.mesh", scale, color, true)
 end
 
 ---Attach a sphere preview mesh named `"sphere"`.
@@ -110,7 +126,7 @@ function visualizer.addSphere(entity, scale, color, name)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, name or "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
+    visualizer.addMeshComponent(entity, name or "sphere", "base\\spawner\\sphere.mesh", scale, color, true)
 end
 
 ---Attach a cone preview mesh named `"cone"`.
@@ -126,7 +142,7 @@ function visualizer.addCone(entity, scale, color, name)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, name or "cone", "base\\spawner\\cone.mesh", scale, color, true)
+    visualizer.addMeshComponent(entity, name or "cone", "base\\spawner\\cone.mesh", scale, color, true)
 end
 
 ---Attach a three-part capsule preview (`capsule_body`, `capsule_top`, `capsule_bottom`).
@@ -143,9 +159,9 @@ function visualizer.addCapsule(entity, radius, height, color)
         color = colors[math.random(1, 3)]
     end
 
-    addMesh(entity, "capsule_body", "base\\spawner\\capsule_body.mesh", { x = radius, y = radius, z = height / 2 }, color, true)
-    addMesh(entity, "capsule_bottom", "base\\spawner\\capsule_cap.mesh", { x = radius, y = radius, z = radius }, color, true)
-    addMesh(entity, "capsule_top", "base\\spawner\\capsule_cap.mesh", { x = radius, y = radius, z = radius }, color, true)
+    visualizer.addMeshComponent(entity, "capsule_body", "base\\spawner\\capsule_body.mesh", { x = radius, y = radius, z = height / 2 }, color, true)
+    visualizer.addMeshComponent(entity, "capsule_bottom", "base\\spawner\\capsule_cap.mesh", { x = radius, y = radius, z = radius }, color, true)
+    visualizer.addMeshComponent(entity, "capsule_top", "base\\spawner\\capsule_cap.mesh", { x = radius, y = radius, z = radius }, color, true)
 
     local component = entity:FindComponentByName("capsule_top")
     if component then
@@ -166,7 +182,7 @@ end
 function visualizer.attachArrows(entity, scale, active, app)
     if not entity then return end
 
-    addMesh(entity, "arrows", "base\\spawner\\arrow.mesh", scale, app, active)
+    visualizer.addMeshComponent(entity, "arrows", "base\\spawner\\arrow.mesh", scale, app, active)
 end
 
 ---Update scale of one preview mesh component.

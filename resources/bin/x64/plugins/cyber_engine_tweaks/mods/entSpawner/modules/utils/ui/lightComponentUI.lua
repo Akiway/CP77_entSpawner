@@ -5,17 +5,6 @@ local colorUtil = require("modules/utils/ui/color")
 local iesProfiles = require("modules/utils/data/iesProfiles")
 local componentUI = require("modules/utils/ui/componentUI")
 
-local getComponentValue = componentUI.getValue
-local isComponentPathModified = componentUI.isPathModified
-local toComponentBool = componentUI.toBool
-local getComponentWidgetPath = componentUI.getWidgetPath
-local getComponentWidgetID = componentUI.getWidgetID
-local getComponentPendingKey = componentUI.getPendingKey
-local shouldDrawComponentPath = componentUI.shouldDrawPath
-local shouldDrawAnyComponentField = componentUI.shouldDrawAnyField
-local drawComponentSectionHeader = componentUI.drawSectionHeader
-local drawComponentLabelRow = componentUI.drawLabelRow
-
 ---UI for drawing light component instance data on the entity spawnable class, for every class deriving from entLightComponent.
 ---Installed onto the entity class via lightComponentUI.install(entity).
 local lightComponentUI = {}
@@ -230,9 +219,9 @@ function lightComponentUI.install(entity)
     ---@return string
     function entity:drawLightComponentTypeTabs(componentID, component, componentChanges, propertySearch)
         local path = { "type" }
-        local lightType = normalizeLightComponentType(getComponentValue(component, componentChanges, path))
+        local lightType = normalizeLightComponentType(componentUI.getValue(component, componentChanges, path))
 
-        if not shouldDrawComponentPath(component, componentChanges, path, "Type", propertySearch) then
+        if not componentUI.shouldDrawPath(component, componentChanges, path, "Type", propertySearch) then
             return lightType
         end
 
@@ -265,7 +254,7 @@ function lightComponentUI.install(entity)
             end
         end
 
-        self:drawComponentReset(componentID, path, "ELightType")
+        self:drawResetProp(componentID, path, "ELightType")
         ImGui.Spacing()
 
         return lightType
@@ -278,34 +267,34 @@ function lightComponentUI.install(entity)
     ---@return boolean
     function entity:drawLightComponentColor(componentID, component, componentChanges, propertySearch)
         local path = { "color" }
-        if not shouldDrawComponentPath(component, componentChanges, path, "Color", propertySearch) then
+        if not componentUI.shouldDrawPath(component, componentChanges, path, "Color", propertySearch) then
             return false
         end
 
         self.lightComponentColorHexText = self.lightComponentColorHexText or {}
         self.lightComponentColorHexEditing = self.lightComponentColorHexEditing or {}
 
-        local stateKey = tostring(componentID) .. ":" .. getComponentWidgetPath(path)
-        local colorData = getComponentValue(component, componentChanges, path)
+        local stateKey = tostring(componentID) .. ":" .. componentUI.getWidgetPath(path)
+        local colorData = componentUI.getValue(component, componentChanges, path)
         local pendingColor = self:getComponentPendingValue(componentID, path)
         local color = pendingColor or colorDataToUnit(colorData)
         local currentHex = colorUtil.formatHexRGB(color)
 
         local popupId = "##lightComponentColorPicker" .. stateKey
-        local modified = pendingColor ~= nil or isComponentPathModified(component, componentChanges, path)
+        local modified = pendingColor ~= nil or componentUI.isPathModified(component, componentChanges, path)
 
         local changed, finished
         self.lightComponentColorHexText[stateKey], self.lightComponentColorHexEditing[stateKey], changed, finished = style.drawLightColorSwatch(
             self.object,
             popupId,
-            getComponentWidgetID(componentID, path, "Hex"),
+            componentUI.getWidgetID(componentID, path, "Hex"),
             color,
             self.lightComponentColorHexText[stateKey],
             self.lightComponentColorHexEditing[stateKey],
             {
                 modified = modified,
                 afterHexInput = function()
-                    self:drawComponentReset(componentID, path, "Color")
+                    self:drawResetProp(componentID, path, "Color")
                 end
             }
         )
@@ -331,7 +320,7 @@ function lightComponentUI.install(entity)
         end
 
         if ImGui.BeginPopup(popupId) then
-            local newColor, colorChanged, colorFinished = style.trackedColorPicker(self.object, getComponentWidgetID(componentID, path, "Picker"), color)
+            local newColor, colorChanged, colorFinished = style.trackedColorPicker(self.object, componentUI.getWidgetID(componentID, path, "Picker"), color)
             if colorChanged then
                 newColor[4] = color[4]
                 self:setComponentPendingValue(componentID, path, newColor)
@@ -370,7 +359,7 @@ function lightComponentUI.install(entity)
             { path = { "intensity" }, label = "Intensity" },
             { path = { "radius" }, label = "Radius" }
         }
-        local drawPrimaryFields = shouldDrawAnyComponentField(component, componentChanges, primaryFields, propertySearch)
+        local drawPrimaryFields = componentUI.shouldDrawAnyField(component, componentChanges, primaryFields, propertySearch)
 
         if drewColor and drawPrimaryFields then
             ImGui.SameLine()
@@ -424,7 +413,7 @@ function lightComponentUI.install(entity)
             }, propertySearch)
         end
 
-        local spotCapsule = toComponentBool(getComponentValue(component, componentChanges, { "spotCapsule" }))
+        local spotCapsule = utils.toBoolean(componentUI.getValue(component, componentChanges, { "spotCapsule" }))
         if lightType == LIGHT_COMPONENT_TYPE_SPOT or (lightType == LIGHT_COMPONENT_TYPE_AREA and spotCapsule) then
             self:drawComponentFloatRow(componentID, component, componentChanges, { "innerAngle" }, "Inner Angle", {
                 icon = IconGlyphs.Cone,
@@ -467,19 +456,19 @@ function lightComponentUI.install(entity)
     ---@param propertySearch string?
     function entity:drawLightComponentIESProfile(componentID, component, componentChanges, propertySearch)
         local path = { "iesProfile" }
-        if not shouldDrawComponentPath(component, componentChanges, path, "IES Profile", propertySearch) then
+        if not componentUI.shouldDrawPath(component, componentChanges, path, "IES Profile", propertySearch) then
             return
         end
 
         self.lightComponentIESSearch = self.lightComponentIESSearch or {}
-        local stateKey = getComponentPendingKey(componentID, path)
+        local stateKey = componentUI.getPendingKey(componentID, path)
         self.lightComponentIESSearch[stateKey] = self.lightComponentIESSearch[stateKey] or ""
 
         local defaultValue = utils.getNestedValue(component, path)
         local defaultPath = iesProfiles.extractPath(defaultValue)
-        local currentValue = getComponentValue(component, componentChanges, path)
+        local currentValue = componentUI.getValue(component, componentChanges, path)
         local currentPath = iesProfiles.extractPath(currentValue)
-        local modified = isComponentPathModified(component, componentChanges, path)
+        local modified = componentUI.isPathModified(component, componentChanges, path)
 
         ---Applies a new IES profile path, reverting to the component default when they match
         ---so no spurious change is stored.
@@ -493,12 +482,12 @@ function lightComponentUI.install(entity)
         end
 
         local max = utils.getTextMaxWidth({ "IES Profile" }) + 2 * ImGui.GetStyle().ItemSpacing.x + ImGui.GetCursorPosX()
-        drawComponentLabelRow("IES Profile", max, modified)
+        componentUI.drawLabelRow("IES Profile", max, modified)
 
         local list = iesProfiles.getSelectable()
         style.pushStyleColor(modified, ImGuiCol.Text, style.regularColor)
         local newPath, newSearch, changed = style.trackedSearchDropdown(
-            getComponentWidgetID(componentID, path),
+            componentUI.getWidgetID(componentID, path),
             "Search IES profile...",
             currentPath,
             self.lightComponentIESSearch[stateKey],
@@ -514,7 +503,7 @@ function lightComponentUI.install(entity)
             }
         )
         self.lightComponentIESSearch[stateKey] = newSearch
-        self:drawComponentReset(componentID, path, "raRef:CIESDataResource")
+        self:drawResetProp(componentID, path, "raRef:CIESDataResource")
         style.popStyleColor(modified)
 
         if changed and newPath ~= currentPath then
@@ -524,7 +513,7 @@ function lightComponentUI.install(entity)
         ImGui.SameLine()
         ImGui.BeginDisabled(#iesProfiles.get() == 0)
         style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.SkipPrevious .. getComponentWidgetID(componentID, path, "CyclePrevious")) then
+        if ImGui.Button(IconGlyphs.SkipPrevious .. componentUI.getWidgetID(componentID, path, "CyclePrevious")) then
             local previousProfile, cycled = iesProfiles.getPrevious(currentPath)
             if cycled then
                 history.addAction(history.getElementChange(self.object))
@@ -533,7 +522,7 @@ function lightComponentUI.install(entity)
         end
         style.tooltip("Select the previous IES profile.")
         ImGui.SameLine()
-        if ImGui.Button(IconGlyphs.SkipNext .. getComponentWidgetID(componentID, path, "Cycle")) then
+        if ImGui.Button(IconGlyphs.SkipNext .. componentUI.getWidgetID(componentID, path, "Cycle")) then
             local nextProfile, cycled = iesProfiles.getNext(currentPath)
             if cycled then
                 history.addAction(history.getElementChange(self.object))
@@ -546,7 +535,7 @@ function lightComponentUI.install(entity)
 
         ImGui.SameLine()
         style.pushButtonNoBG(true)
-        if ImGui.Button(IconGlyphs.Reload .. getComponentWidgetID(componentID, path, "Reload")) then
+        if ImGui.Button(IconGlyphs.Reload .. componentUI.getWidgetID(componentID, path, "Reload")) then
             iesProfiles.reload()
         end
         style.pushButtonNoBG(false)
@@ -568,11 +557,11 @@ function lightComponentUI.install(entity)
             { path = { "shadowFadeDistance" }, label = "Shadow Fade Distance" },
             { path = { "shadowFadeRange" }, label = "Shadow Fade Range" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Shadow Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Shadow Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Contact Shadows",
                 "Local Shadows",
@@ -593,7 +582,7 @@ function lightComponentUI.install(entity)
             }, propertySearch)
             self:drawComponentBoolRow(componentID, component, componentChanges, { "enableLocalShadowsForceStaticsOnly" }, "Local Shadows (Statics Only)", {
                 max = max,
-                disabled = not toComponentBool(getComponentValue(component, componentChanges, { "enableLocalShadows" }))
+                disabled = not utils.toBoolean(componentUI.getValue(component, componentChanges, { "enableLocalShadows" }))
             }, propertySearch)
             self:drawComponentFloatRow(componentID, component, componentChanges, { "shadowAngle" }, "Shadow Angle", {
                 max = max,
@@ -650,11 +639,11 @@ function lightComponentUI.install(entity)
             { path = { "flicker", "flickerStrength" }, label = "Flicker Strength" },
             { path = { "flicker", "positionOffset" }, label = "Flicker Offset" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Flicker Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Flicker Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Flicker Period",
                 "Flicker Strength",
@@ -696,18 +685,18 @@ function lightComponentUI.install(entity)
     ---@param propertySearch string?
     function entity:drawLightComponentChannelsSection(componentID, component, componentChanges, propertySearch)
         local path = { "lightChannel" }
-        if not shouldDrawComponentPath(component, componentChanges, path, "Light Channels", propertySearch) then
+        if not componentUI.shouldDrawPath(component, componentChanges, path, "Light Channels", propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Light Channels", self:isAnyComponentFieldModified(componentID, component, componentChanges, {
+        if componentUI.drawSectionHeader("Light Channels", self:isAnyComponentFieldModified(componentID, component, componentChanges, {
             { path = path }
         })) then
-            local selection = decodeLightChannelSelection(getComponentValue(component, componentChanges, path))
+            local selection = decodeLightChannelSelection(componentUI.getValue(component, componentChanges, path))
             local previous = encodeLightChannelSelection(selection)
             selection = style.drawLightChannelsSelector(self.object, selection)
             local current = encodeLightChannelSelection(selection)
-            self:drawComponentReset(componentID, path, "rendLightChannel")
+            self:drawResetProp(componentID, path, "rendLightChannel")
 
             if current ~= previous then
                 self:updatePropValue(componentID, path, current)
@@ -727,11 +716,11 @@ function lightComponentUI.install(entity)
             { path = { "envColorGroup" }, label = "Env. Color Group" },
             { path = { "colorGroupSaturation" }, label = "Color Group Saturation" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Group Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Group Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Light Group",
                 "Env. Color Group",
@@ -772,7 +761,7 @@ function lightComponentUI.install(entity)
         -- Hidden for the other light types, which ignore these properties anyway, but still
         -- reachable through the property search so a stored value never becomes uneditable.
         local searchActive = type(propertySearch) == "string" and propertySearch ~= ""
-        local lightType = normalizeLightComponentType(getComponentValue(component, componentChanges, { "type" }))
+        local lightType = normalizeLightComponentType(componentUI.getValue(component, componentChanges, { "type" }))
         if lightType ~= LIGHT_COMPONENT_TYPE_AREA and not searchActive then
             return
         end
@@ -783,11 +772,11 @@ function lightComponentUI.install(entity)
             { path = { "areaRectSideA" }, label = "Rect Side A" },
             { path = { "areaRectSideB" }, label = "Rect Side B" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Area Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Area Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Area Shape",
                 "Two Sided",
@@ -855,11 +844,11 @@ function lightComponentUI.install(entity)
             { path = { "portalAngleCutoff" }, label = "Portal Angle Cutoff" },
             { path = { "allowDistantLight" }, label = "Allow Distant Light" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Misc. Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Misc. Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Directional",
                 "Use in particles",
@@ -1010,11 +999,11 @@ function lightComponentUI.install(entity)
             { path = { "pathTracingOverrideScaleGI" }, label = "PT Override Scale GI" },
             { path = { "rtxdiShadowStartingDistance" }, label = "RTXDI Shadow Start Distance" }
         }
-        if not shouldDrawAnyComponentField(component, componentChanges, fields, propertySearch) then
+        if not componentUI.shouldDrawAnyField(component, componentChanges, fields, propertySearch) then
             return
         end
 
-        if drawComponentSectionHeader("Ray/Path Tracing Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
+        if componentUI.drawSectionHeader("Ray/Path Tracing Settings", self:isAnyComponentFieldModified(componentID, component, componentChanges, fields)) then
             local max = utils.getTextMaxWidth({
                 "Ray Traced Shadows Platform",
                 "RT Light Source Radius",
@@ -1075,14 +1064,6 @@ function lightComponentUI.install(entity)
 
     ---@param componentID string|number
     ---@param component table
-    ---@param componentChanges table?
-    ---@param propertySearch string?
-    function entity:drawLightComponentOtherSection(componentID, component, componentChanges, propertySearch)
-        self:drawComponentOtherSection(componentID, component, componentChanges, lightComponentNewUIKeys, propertySearch)
-    end
-
-    ---@param componentID string|number
-    ---@param component table
     ---@param propertySearch string?
     function entity:drawLightComponentInstanceData(componentID, component, propertySearch)
         local componentChanges = self.instanceDataChanges[componentID]
@@ -1097,7 +1078,7 @@ function lightComponentUI.install(entity)
         self:drawLightComponentAreaSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentMiscSection(componentID, component, componentChanges, propertySearch)
         self:drawLightComponentRayPathTracingSection(componentID, component, componentChanges, propertySearch)
-        self:drawLightComponentOtherSection(componentID, component, componentChanges, propertySearch)
+        self:drawComponentOtherSection(componentID, component, componentChanges, lightComponentNewUIKeys, propertySearch)
     end
 end
 

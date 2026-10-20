@@ -1327,6 +1327,18 @@ function positionable:setScaleDelta(delta, finished)
 
 end
 
+---Adds `delta` to `scale` in place. With the scale lock on, the axis being changed drives all three.
+---@param scale {x: number, y: number, z: number}
+---@param delta {x: number, y: number, z: number}
+function positionable:addScaleDelta(scale, delta)
+	scale.x = scale.x + delta.x
+	scale.y = scale.y + delta.y
+	scale.z = scale.z + delta.z
+	if self.scaleLocked and delta.x ~= 0 then scale.y = scale.x scale.z = scale.x end
+	if self.scaleLocked and delta.y ~= 0 then scale.x = scale.y scale.z = scale.y end
+	if self.scaleLocked and delta.z ~= 0 then scale.y = scale.z scale.x = scale.z end
+end
+
 function positionable:getSize()
 
 end

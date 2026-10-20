@@ -82,15 +82,24 @@ end
 ---@return Vector4 position
 ---@return Quaternion orientation
 local function getStoredParentSpace(spawnable, entity, component, depth)
-    local binding = component.parentTransform
-    if not binding or depth > 16 then
+    if depth > 16 then
         return getLiveParentSpace(component)
+    end
+
+    -- An unbound component is relative to the element's placement. Nothing is read from the game here:
+    -- the entity's transform follows its root when the root animates (a hologram's transform animator).
+    local binding = component.parentTransform
+    if not binding then
+        return spawnable.position, spawnable.rotation:ToQuat()
     end
 
     local slotName = binding.slotName and binding.slotName.value or "None"
     local bindName = binding.bindName and binding.bindName.value or "None"
-    if slotName ~= "None" or bindName == "None" then
+    if slotName ~= "None" then
         return getLiveParentSpace(component)
+    end
+    if bindName == "None" then
+        return spawnable.position, spawnable.rotation:ToQuat()
     end
 
     local parent = entity:FindComponentByName(bindName)
@@ -98,14 +107,14 @@ local function getStoredParentSpace(spawnable, entity, component, depth)
         return getLiveParentSpace(component)
     end
 
-    -- The root of the chain sits at the element's placement. Nothing is read from the game here: the
-    -- root's transform, and the entity's, follow the root when it is the animated component itself
-    -- (a hologram's transform animator).
-    if not parent.parentTransform then
+    -- The root's stored transform is the placement it was read at, not a local offset. A root the
+    -- engine added has no ID.
+    local parentID = utils.CRUIDToString(parent.id)
+    if not parent.parentTransform and (parentID == "0" or parentID == spawnable:getTransformRootComponentID()) then
         return spawnable.position, spawnable.rotation:ToQuat()
     end
 
-    local parentLocalPosition, parentLocalOrientation = spawnable:getPlacedComponentStoredTransform(parent)
+    local parentLocalPosition, parentLocalOrientation = spawnable:getComponentStoredTransform(parentID)
     if not parentLocalPosition then
         return getLiveParentSpace(component)
     end
@@ -235,13 +244,7 @@ end
 function componentTransform:setScaleDelta(delta, finished)
     if not self.hasScale then return end
 
-    self.scale.x = self.scale.x + delta.x
-    self.scale.y = self.scale.y + delta.y
-    self.scale.z = self.scale.z + delta.z
-    if self.scaleLocked and delta.x ~= 0 then self.scale.y = self.scale.x self.scale.z = self.scale.x end
-    if self.scaleLocked and delta.y ~= 0 then self.scale.x = self.scale.y self.scale.z = self.scale.y end
-    if self.scaleLocked and delta.z ~= 0 then self.scale.y = self.scale.z self.scale.x = self.scale.z end
-
+    self:addScaleDelta(self.scale, delta)
     self:applyScaleToComponent()
 end
 
@@ -313,12 +316,7 @@ function componentTransform:setOutline(color)
     local component = self:getComponent()
     if not entity or not component then return end
 
-    entity:QueueEvent(entRenderHighlightEvent.new({
-        seeThroughWalls = true,
-        outlineIndex = color or self.owner.spawnable.outline or 0,
-        componentName = component.name,
-        opacity = 1
-    }))
+    utils.sendOutlineEvent(entity, color or self.owner.spawnable.outline or 0, component.name)
 end
 
 ---Picks an outline colour that differs from the selection outline.
@@ -414,17 +412,10 @@ end
 -- The editor's gizmo and visualizer arrows belong to the owning entity.
 function componentTransform:setVisualizerDirection(direction)
     self.visualizerDirection = direction
-    if editor.followTransformHover then
-        editor.followTransformHover(direction)
-    end
 end
 
 function componentTransform:setVisualizerState(state)
     self.visualizerState = state
-end
-
-function componentTransform:getDimensionLines()
-    return nil, nil
 end
 
 function componentTransform:getPath()

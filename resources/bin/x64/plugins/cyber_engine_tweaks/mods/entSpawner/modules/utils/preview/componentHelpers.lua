@@ -3,8 +3,11 @@ local style = require("modules/ui/style")
 local history = require("modules/utils/project/history")
 local settings = require("modules/utils/core/settings")
 local visualizer = require("modules/utils/preview/visualizer")
+local radiusSphere = require("modules/utils/preview/radiusSphere")
 local componentKinds = require("modules/utils/data/componentKinds")
 local light = require("modules/classes/spawn/light/light")
+local sound = require("modules/classes/spawn/audio/audio")
+local decal = require("modules/classes/spawn/visual/decal")
 local colliderBase = require("modules/classes/spawn/collision/colliderBase")
 
 ---The preview helpers of an entity's components: the shapes World Builder draws for the matching
@@ -23,8 +26,6 @@ local CUBE_MESH = "base\\spawner\\cube.mesh"
 local CONE_MESH = "base\\spawner\\cone.mesh"
 local CAPSULE_BODY_MESH = "base\\spawner\\capsule_body.mesh"
 local CAPSULE_CAP_MESH = "base\\spawner\\capsule_cap.mesh"
-local RADIUS_COLOR = "ghostwhite"
-local DECAL_THICKNESS = 0.025
 
 ---@param x number
 ---@param y number?
@@ -130,7 +131,7 @@ local specs = {
                 lightType = enumIndex(get("type")),
                 intensity = tonumber(get("intensity")) or 0,
                 capsuleLength = tonumber(get("capsuleLength")) or 0,
-                spotCapsule = get("spotCapsule") == true or get("spotCapsule") == 1,
+                spotCapsule = utils.toBoolean(get("spotCapsule")),
                 innerAngle = tonumber(get("innerAngle")) or 0,
                 outerAngle = tonumber(get("outerAngle")) or 0,
                 areaShape = enumIndex(get("areaShape"))
@@ -141,16 +142,15 @@ local specs = {
         bases = { "gameaudioSoundComponentBase" },
         radius = "maxPlayDistance",
         shape = function(get)
-            -- Sized as the sound spawnable sizes its marker from its radius.
-            local markerSize = math.max(math.min((tonumber(get("maxPlayDistance")) or 0) / 125, 0.33), 0.125)
-            return { { mesh = SPHERE_MESH, color = "mediumvioletred", scale = size(markerSize) } }
+            local markerSize = sound.getVisualizerSize({ radius = tonumber(get("maxPlayDistance")) or 0 })
+            return { { mesh = SPHERE_MESH, color = "mediumvioletred", scale = markerSize } }
         end
     },
     {
         bases = { "entDecalComponent" },
         shape = function(get)
-            local scale = get("visualScale")
-            return { { mesh = CUBE_MESH, color = "violet", scale = size(math.abs(scale.x) / 2, math.abs(scale.y) / 2, DECAL_THICKNESS * math.abs(scale.z) / 2) } }
+            local boxSize = decal.getVisualizerSize(setmetatable({ scale = get("visualScale") }, { __index = decal }))
+            return { { mesh = CUBE_MESH, color = "violet", scale = boxSize } }
         end
     },
     {
@@ -199,27 +199,10 @@ local specs = {
     }
 }
 
-local specByClass = {}
-
 ---@param className string `$type` of the component
 ---@return table? spec
 function componentHelpers.getSpec(className)
-    local cached = specByClass[className]
-    if cached ~= nil then return cached or nil end
-
-    local found = false
-    for _, spec in ipairs(specs) do
-        for _, base in ipairs(spec.bases) do
-            if componentKinds.isA(className, base) then
-                found = spec
-                break
-            end
-        end
-        if found then break end
-    end
-
-    specByClass[className] = found
-    return found or nil
+    return componentKinds.findByBase(specs, className)
 end
 
 ---@param componentID string|number
@@ -236,18 +219,7 @@ end
 ---@param part table
 ---@param enabled boolean
 local function addPart(entRef, bindName, name, part, enabled)
-    local mesh = entMeshComponent.new()
-    mesh.name = name
-    mesh.mesh = ResRef.FromString(part.mesh)
-    mesh.meshAppearance = part.color == "green" and "lime" or part.color
-    mesh.visualScale = ToVector3(part.scale)
-    mesh.isEnabled = enabled
-
-    local binding = entHardTransformBinding.new()
-    binding.bindName = bindName
-    mesh.parentTransform = binding
-
-    entRef:AddComponent(mesh)
+    local mesh = visualizer.addMeshComponent(entRef, name, part.mesh, part.scale, part.color, enabled, bindName)
 
     if part.orientation then
         mesh:SetLocalOrientation(part.orientation)
@@ -277,6 +249,14 @@ local function valueReader(entity, componentID, live)
         return live[field]
     end
 end
+
+---@param value any
+---@return number
+local function toRadius(value)
+    return math.max(tonumber(value) or 0, 0)
+end
+
+local VISUALIZE_OFF_TOOLTIP = "Enable Visualize in Entity Instance Data to show component helpers"
 
 ---The sizes and placements of a helper's parts as text, to tell whether a refresh would change them.
 ---@param parts table[]
@@ -317,19 +297,6 @@ function componentHelpers.install(entity)
         return settings.componentHelpersDefault == true
     end
 
-    ---The radius a range sphere shows: the value being dragged, else the live component's.
-    ---@param componentID string|number
-    ---@param spec table
-    ---@param live entIComponent?
-    ---@return number
-    function entity:getComponentHelperRadius(componentID, spec, live)
-        local value = self:getComponentPendingValue(componentID, { spec.radius })
-        if value == nil and live then
-            value = live[spec.radius]
-        end
-        return math.max(tonumber(value) or 0, 0)
-    end
-
     ---Adds the helpers switched on for each component, to a freshly assembled entity. They are added
     ---whether or not Visualize is on, so that switching it later needs no respawn.
     ---@param entRef entEntity
@@ -339,15 +306,16 @@ function componentHelpers.install(entity)
         for _, live in ipairs(entRef:GetComponents()) do
             local spec = componentHelpers.getSpec(live:GetClassName().value)
             if spec then
-                local componentID = (tostring(CRUIDToHash(live.id)):gsub("ULL", ""))
+                local componentID = utils.CRUIDToString(live.id)
                 local liveName = live.name.value
+                local read = valueReader(self, componentID, live)
                 -- `hasRadius`, and an empty `shape` list when building it fails, keep a refresh from
                 -- respawning for a part the component can never have.
                 local parts = { name = liveName, hasRadius = spec.radius ~= nil }
 
                 if self:isComponentHelperOn(componentID, "shape") then
                     parts.shape = {}
-                    local ok, shapeParts = pcall(spec.shape, valueReader(self, componentID, live), live)
+                    local ok, shapeParts = pcall(spec.shape, read, live)
                     if ok then
                         parts.shapeSignature = partsSignature(shapeParts)
                         for index, part in ipairs(shapeParts) do
@@ -359,9 +327,9 @@ function componentHelpers.install(entity)
                 end
 
                 if spec.radius and self:isComponentHelperOn(componentID, "radius") then
-                    local radius = self:getComponentHelperRadius(componentID, spec, live)
+                    local radius = toRadius(read(spec.radius))
                     local name = partName(componentID, "radius", 1)
-                    addPart(entRef, liveName, name, { mesh = SPHERE_MESH, color = RADIUS_COLOR, scale = size(radius) },
+                    addPart(entRef, liveName, name, { mesh = SPHERE_MESH, color = radiusSphere.COLOR, scale = size(radius) },
                         self:isComponentHelperShown(componentID, "radius") and radius > 0)
                     parts.radius = { name }
                     parts.radiusValue = radius
@@ -424,14 +392,9 @@ function componentHelpers.install(entity)
                         for index, part in ipairs(shapeParts) do
                             local mesh = entRef:FindComponentByName(parts.shape[index])
                             if mesh then
-                                mesh.visualScale = ToVector3(part.scale)
                                 if part.orientation then mesh:SetLocalOrientation(part.orientation) end
                                 if part.position then mesh:SetLocalPosition(part.position) end
-                                -- A new visualScale takes once the mesh is toggled.
-                                if mesh:IsEnabled() then
-                                    mesh:Toggle(false)
-                                    mesh:Toggle(true)
-                                end
+                                visualizer.updateScale(entRef, part.scale, parts.shape[index])
                             end
                         end
                     end
@@ -485,39 +448,7 @@ function componentHelpers.install(entity)
         current[kind] = state == true
         self.componentHelpers[componentID] = current
 
-        if state then
-            self:refreshComponentHelpers(componentID)
-        else
-            local parts = self.componentHelperParts and self.componentHelperParts[componentID]
-            local entRef = self:getEntity()
-            for _, name in ipairs(parts and parts[kind] or {}) do
-                local part = entRef and entRef:FindComponentByName(name)
-                if part and part:IsEnabled() then
-                    part:Toggle(false)
-                end
-            end
-        end
-    end
-
-    ---Draws a helper toggle, disabled while the entity's Visualize is off.
-    ---@param componentID string|number
-    ---@param component table
-    ---@param kind string
-    ---@param icon string
-    ---@param onTooltip string
-    ---@param offTooltip string
-    local function drawToggle(self, componentID, component, kind, icon, onTooltip, offTooltip)
-        local state = self:isComponentHelperOn(componentID, kind)
-
-        ImGui.BeginDisabled(not self.previewed)
-        local newState, toggled = style.toggleButton(icon .. "##componentHelper" .. kind .. tostring(componentID), state)
-        ImGui.EndDisabled()
-        style.tooltip((not self.previewed and "Enable Visualize in Entity Instance Data to show component helpers")
-            or (state and onTooltip or offTooltip))
-
-        if toggled then
-            setHelper(self, componentID, component, kind, newState)
-        end
+        self:refreshComponentHelpers(componentID)
     end
 
     ---Draws the toggle for a component's shape helper, when its class has one. Call it on the row.
@@ -540,7 +471,7 @@ function componentHelpers.install(entity)
         style.popStyleColor(not state)
         style.pushButtonNoBG(false)
         ImGui.EndDisabled()
-        style.tooltip((not self.previewed and "Enable Visualize in Entity Instance Data to show component helpers")
+        style.tooltip((not self.previewed and VISUALIZE_OFF_TOOLTIP)
             or (state and "Hide this component's helper" or "Show this component's helper"))
 
         if clicked then
@@ -555,14 +486,25 @@ function componentHelpers.install(entity)
         local spec = componentHelpers.getSpec(tostring(component["$type"] or ""))
         if not spec or not spec.radius then return end
 
+        local state = self:isComponentHelperOn(componentID, "radius")
+
         ImGui.SameLine()
-        drawToggle(self, componentID, component, "radius", IconGlyphs.RadiusOutline, "Hide the radius sphere", "Show the radius at true scale")
+        ImGui.BeginDisabled(not self.previewed)
+        local newState, toggled = style.toggleButton(IconGlyphs.RadiusOutline .. "##componentHelperradius" .. tostring(componentID), state)
+        ImGui.EndDisabled()
+        style.tooltip((not self.previewed and VISUALIZE_OFF_TOOLTIP)
+            or (state and "Hide the radius sphere" or "Show the radius at true scale"))
+
+        if toggled then
+            setHelper(self, componentID, component, "radius", newState)
+        end
 
         -- Follows the value while it is dragged, before the edit respawns the entity.
         local parts = self.componentHelperParts and self.componentHelperParts[componentID]
-        if parts and parts.radius then
-            local radius = self:getComponentHelperRadius(componentID, spec, nil)
-            if self:getComponentPendingValue(componentID, { spec.radius }) ~= nil and radius ~= parts.radiusValue then
+        local pending = self:getComponentPendingValue(componentID, { spec.radius })
+        if parts and parts.radius and pending ~= nil then
+            local radius = toRadius(pending)
+            if radius ~= parts.radiusValue then
                 parts.radiusValue = radius
                 local entRef = self:getEntity()
                 if entRef then

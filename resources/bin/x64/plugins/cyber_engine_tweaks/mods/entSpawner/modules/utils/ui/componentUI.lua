@@ -11,7 +11,6 @@ local componentUI = {}
 ---Panels in registration order, the first whose bases the component derives from draws it.
 ---@type { bases: string[], draw: fun(entity: table, componentID: string|number, component: table, propertySearch: string?) }[]
 local panels = {}
-local panelByClass = {}
 
 ---@param source table?
 ---@param path table
@@ -50,12 +49,6 @@ local function isPathModified(component, componentChanges, path)
     local defaultValue = getNestedValue(component, path)
 
     return not utils.deepcompare(currentValue, defaultValue, false)
-end
-
----@param value any
----@return boolean
-local function toBool(value)
-    return value == true or value == 1
 end
 
 ---@param value boolean
@@ -206,7 +199,7 @@ end
 ---@param draw fun(entity: table, componentID: string|number, component: table, propertySearch: string?)
 function componentUI.registerPanel(bases, draw)
     table.insert(panels, { bases = bases, draw = draw })
-    panelByClass = {}
+    componentKinds.clearCache(panels)
 end
 
 ---@param component table
@@ -216,25 +209,8 @@ function componentUI.getPanel(component)
         return nil
     end
 
-    local className = tostring(component["$type"] or "")
-    local cached = panelByClass[className]
-    if cached ~= nil then
-        return cached or nil
-    end
-
-    local found = false
-    for _, panel in ipairs(panels) do
-        for _, base in ipairs(panel.bases) do
-            if componentKinds.isA(className, base) then
-                found = panel.draw
-                break
-            end
-        end
-        if found then break end
-    end
-
-    panelByClass[className] = found
-    return found or nil
+    local panel = componentKinds.findByBase(panels, tostring(component["$type"] or ""))
+    return panel and panel.draw
 end
 
 ---Draws a panel described as data: sections of rows, then "Other" for every key no row claims.
@@ -346,13 +322,6 @@ function componentUI.install(entity)
     end
 
     ---@param componentID string|number
-    ---@param path table
-    ---@param typeName string?
-    function entity:drawComponentReset(componentID, path, typeName)
-        self:drawResetProp(componentID, utils.deepcopy(path), typeName)
-    end
-
-    ---@param componentID string|number
     ---@param component table
     ---@param componentChanges table?
     ---@param path table
@@ -391,7 +360,7 @@ function componentUI.install(entity)
             opts.format or "%.2f",
             opts.width or 90
         )
-        self:drawComponentReset(componentID, path, opts.typeName or "Float")
+        self:drawResetProp(componentID, path, opts.typeName or "Float")
         style.popStyleColor(modified)
 
         if changed then
@@ -439,7 +408,7 @@ function componentUI.install(entity)
             opts.maxValue or 255,
             opts.width or 110
         )
-        self:drawComponentReset(componentID, path, opts.typeName or "Int32")
+        self:drawResetProp(componentID, path, opts.typeName or "Int32")
         style.popStyleColor(modified)
 
         if changed then
@@ -485,10 +454,10 @@ function componentUI.install(entity)
         local newValue, changed = style.trackedCheckbox(
             self.object,
             getWidgetID(componentID, path),
-            toBool(currentValue),
+            utils.toBoolean(currentValue),
             opts.disabled
         )
-        self:drawComponentReset(componentID, path, opts.typeName or "Bool")
+        self:drawResetProp(componentID, path, opts.typeName or "Bool")
         style.popStyleColor(modified)
 
         if changed then
@@ -551,7 +520,7 @@ function componentUI.install(entity)
             opts.width or 130,
             { tooltip = tooltipText }
         )
-        self:drawComponentReset(componentID, path, enumName)
+        self:drawResetProp(componentID, path, enumName)
         style.popStyleColor(modified)
 
         if changed then
@@ -657,16 +626,12 @@ end
 
 componentUI.getValue = getValue
 componentUI.isPathModified = isPathModified
-componentUI.toBool = toBool
-componentUI.fromBool = fromBool
 componentUI.getWidgetPath = getWidgetPath
 componentUI.getWidgetID = getWidgetID
 componentUI.getPendingKey = getPendingKey
 componentUI.shouldDrawPath = shouldDrawPath
 componentUI.shouldDrawAnyField = shouldDrawAnyField
 componentUI.drawSectionHeader = drawSectionHeader
-componentUI.drawLabel = drawLabel
 componentUI.drawLabelRow = drawLabelRow
-componentUI.getOtherKeys = getOtherKeys
 
 return componentUI
