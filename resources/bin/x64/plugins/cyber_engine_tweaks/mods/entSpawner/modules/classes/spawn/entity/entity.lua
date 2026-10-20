@@ -3213,8 +3213,8 @@ function entity:drawInstanceData()
         end
 
         if matchesSearch then
-            -- The entity's own record is not a component, so it stays above the kinds.
-            if entry.priority == 0 then
+            -- The entity record and the controller stay above the kinds.
+            if entry.priority <= 1 then
                 self:drawComponentEntry(entry, propertySearch)
             else
                 local kind = componentKinds.getKind(entry.componentType)
