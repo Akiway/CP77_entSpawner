@@ -187,6 +187,7 @@ end
 
 function spawnableElement:setVisualizerDirection(direction)
 	positionable.setVisualizerDirection(self, direction)
+	editor.followTransformHover(direction)
 
 	if not self.spawnable:isSpawned() then return end
 
@@ -200,7 +201,12 @@ function spawnableElement:setVisualizerDirection(direction)
 	local entity = self.spawnable:getEntity()
 	if not entity then return end
 
-	visualizer.highlightArrow(entity, color)
+	-- Rotation fields light their ring, the others their arrow.
+	if direction == "pitch" or direction == "roll" or direction == "yaw" then
+		visualizer.highlightArrow(entity, "none", color)
+	else
+		visualizer.highlightArrow(entity, color, "none")
+	end
     local arrowsComponent = entity:FindComponentByName("arrows")
     if not arrowsComponent then return end
 

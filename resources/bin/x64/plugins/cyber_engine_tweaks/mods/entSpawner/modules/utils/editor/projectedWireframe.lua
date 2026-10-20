@@ -522,6 +522,53 @@ function projectedWireframe.drawWorldCircle(drawList, screen, center, radius, op
     return true
 end
 
+---Draws a filled wedge (circle sector) on a world plane, with lines along both edges.
+---The sector starts at `startDir` and turns by `sweep` degrees towards `sideDir`.
+---@param drawList table ImGui draw list obtained from `beginOverlay`.
+---@param screen projectedScreenContext Projection context obtained from `beginOverlay`.
+---@param center Vector4 Sector centre in world space.
+---@param radius number Sector radius in world units.
+---@param startDir Vector4 Unit direction of the first edge.
+---@param sideDir Vector4 Unit direction a positive sweep turns towards.
+---@param sweep number Angle in degrees; negative turns away from `sideDir`.
+---@param options table|nil `{ fillColor, color, thickness }`
+---@return boolean drawn
+function projectedWireframe.drawWorldWedge(drawList, screen, center, radius, startDir, sideDir, sweep, options)
+    options = options or {}
+    sweep = clamp(tonumber(sweep) or 0, -360, 360)
+    if radius <= 0 or math.abs(sweep) < 0.01 then return false end
+
+    local segments = math.max(2, math.ceil(math.abs(sweep) / 4))
+    local centerPoint = projectWorldPoint(screen, center)
+    if not centerPoint or centerPoint.behind then return false end
+
+    local points = {}
+    for i = 0, segments do
+        local angle = math.rad(sweep * i / segments)
+        local c, s = math.cos(angle) * radius, math.sin(angle) * radius
+        local projected = projectWorldPoint(screen, Vector4.new(
+            center.x + startDir.x * c + sideDir.x * s,
+            center.y + startDir.y * c + sideDir.y * s,
+            center.z + startDir.z * c + sideDir.z * s,
+            0
+        ))
+        if not projected or projected.behind then return false end
+        table.insert(points, projected)
+    end
+
+    local fillColor = options.fillColor or 0x40FFFFFF
+    for i = 1, #points - 1 do
+        drawTriangle(drawList, { centerPoint, points[i], points[i + 1] }, fillColor)
+    end
+
+    local color = options.color or 0xC0FFFFFF
+    local thickness = tonumber(options.thickness) or 2.0
+    ImGui.ImDrawListAddLine(drawList, centerPoint.x, centerPoint.y, points[1].x, points[1].y, color, thickness)
+    ImGui.ImDrawListAddLine(drawList, centerPoint.x, centerPoint.y, points[#points].x, points[#points].y, color, thickness)
+
+    return true
+end
+
 ---Draws a world-space segment, clipped against the near plane so a line running past the camera
 ---does not wrap across the screen.
 ---@param drawList table ImGui draw list obtained from `beginOverlay`.
