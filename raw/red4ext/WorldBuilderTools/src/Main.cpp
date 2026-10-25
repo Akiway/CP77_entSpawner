@@ -261,10 +261,10 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = PluginName;
     aInfo->author = PluginAuthor;
-    aInfo->version = RED4EXT_V1_SEMVER(1, 0, 0);
-    // Runtime-independent: this plugin only uses RTTI lookups, no hardcoded addresses, so it
-    // does not need rebuilding for each game patch.
-    aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;
+    aInfo->version = RED4EXT_V1_SEMVER(1, 1, 0);
+    // Pinned: CGlobalFunction and CStackFrame layouts are compiled in and changed in 2.5, so a
+    // build for another patch must be refused rather than corrupt the heap.
+    aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_LATEST;
     aInfo->sdk = RED4EXT_V1_SDK_VERSION_CURRENT;
 }
 
