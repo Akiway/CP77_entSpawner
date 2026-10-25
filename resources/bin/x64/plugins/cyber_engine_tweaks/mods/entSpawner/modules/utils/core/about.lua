@@ -194,7 +194,7 @@ about.dependencies = {
         required = true,
         blocking = true,
         minVersion = CODEWARE_VERSION,
-        provides = "Exposes Reflection, ResRef and NodeRef to Lua, which every spawned node and every export goes through.",
+        provides = "Exposes Reflection, ResRef and NodeRef to Lua, which every spawned node and every export goes through. Also reaches and toggles the placeholder world nodes the Bended Mesh deformed preview renders through.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/7780",
         check = function()
             return checkPlugin(Codeware, CODEWARE_VERSION)
@@ -272,7 +272,7 @@ about.dependencies = {
         id = "redHotTools",
         name = "Red Hot Tools",
         required = false,
-        provides = "Provides the World Inspector that World Builder adds its own actions to: send a node to the search, run the Replacer on it, copy its AXL node mutation. Also the only route to the placeholder world nodes the Spline preview NPC walks and the Bended Mesh deformed preview renders through.",
+        provides = "Provides the World Inspector that World Builder adds its own actions to: send a node to the search, run the Replacer on it, copy its AXL node mutation. Also the only route to the placeholder world nodes the Spline preview NPC walks.",
         url = "https://github.com/psiberx/cp2077-red-hot-tools",
         check = function()
             if getMod("RedHotTools") then

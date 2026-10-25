@@ -4,18 +4,20 @@ local logger = require("modules/utils/core/logger")
 ---Each slot is a `worldBendedMeshNode` alone in a prefab variant of the World Builder preview
 ---sector. The engine reads `deformationData` only when a node attaches, so a slot is updated by
 ---turning its variant off, writing the definition, and turning it back on.
+---Definitions are read from the sector resource and variants toggled through Codeware.
 ---@class bendedPool
 local pool = {}
 
 -- Must match the nodes shipped in the archive.
 local slotCount = 200
-local refRoot = "$/mods/entSpawner/preview_bended/#wb_preview_bended_"
 local prefabPath = "$/mods/entSpawner/preview_bended/#all"
 local variantPrefix = "wb_bended_v"
+local sectorPath = "world_builder\\sectors\\wb_preview_bended.streamingsector"
 
 -- Off and on in the same frame is a no-op; one frame apart re-attaches.
 local detachFrames = 1
-local attachTimeoutFrames = 300
+-- Nothing reports the re-attach, so the cycle waits this long after turning the variant back on.
+local attachFrames = 5
 local resolveTimeoutFrames = 60
 
 local parkedPayload = {
@@ -39,7 +41,6 @@ end
 ---@class bendedPoolSlot
 ---@field index integer 0-based slot index.
 ---@field variant string Variant name.
----@field hash any? Global node hash, resolved once per session.
 ---@field state string `idle`, `resolving`, `detaching` or `attaching`.
 ---@field frames integer
 ---@field definition worldBendedMeshNode?
@@ -57,18 +58,13 @@ end
 local slots = {}
 local owners = {}
 local prefabRef = nil
+---Held so the preview sector resource stays loaded.
+local sectorToken = nil
+---Slot definitions by node index, read from the sector resource.
+local sectorNodes = nil
 
 ---Last claim error shown in the UI.
 pool.lastReason = ""
-
----@return worldInspector?
-local function getInspector()
-    local ok, inspector = pcall(function()
-        return Game.GetWorldInspector and Game.GetWorldInspector()
-    end)
-
-    return ok and inspector or nil
-end
 
 ---@return WorldStateSystem?
 local function getWorldState()
@@ -79,10 +75,19 @@ local function getWorldState()
     return ok and system or nil
 end
 
+---@return ResourceDepot?
+local function getDepot()
+    local ok, depot = pcall(function()
+        return Game.GetResourceDepot and Game.GetResourceDepot()
+    end)
+
+    return ok and depot or nil
+end
+
 ---Whether the runtime pieces the pool needs are present.
 ---@return boolean
 function pool.isAvailable()
-    return getInspector() ~= nil and getWorldState() ~= nil
+    return getDepot() ~= nil and getWorldState() ~= nil
 end
 
 ---@param index integer
@@ -97,27 +102,91 @@ local function getSlot(index)
     return slot
 end
 
+local sectorIssue = nil
+
+---Shows why the sector cannot be read yet; each new reason is logged once.
+---@param issue string
+---@param quiet boolean?
+local function reportSector(issue, quiet)
+    pool.lastReason = issue
+    if issue ~= sectorIssue then
+        sectorIssue = issue
+        if not quiet then
+            logger:warn("[bendedPool] " .. issue)
+        end
+    end
+end
+
+---Slot definition read from the preview sector resource, the one the streamed node uses.
 ---@param slot bendedPoolSlot
 ---@return worldBendedMeshNode?
 local function resolve(slot)
-    local inspector = getInspector()
-    if not inspector then return nil end
+    if not sectorNodes then
+        local depot = getDepot()
+        if not depot then
+            reportSector("Codeware's resource depot is not available.")
+            return nil
+        end
 
-    if not slot.hash then
-        local ok, hash = pcall(function()
-            local ref = CreateEntityReference(refRoot .. slot.index, {}).reference
-            return ResolveNodeRef(ref, GlobalNodeID.GetRoot()).hash
+        if not sectorToken then
+            local ok, token = pcall(function()
+                return depot:LoadResource(ResRef.FromString(sectorPath))
+            end)
+            if not ok or not token then
+                reportSector("Could not request the preview sector: " .. tostring(token))
+                return nil
+            end
+            sectorToken = token
+        end
+
+        local ok, issue = pcall(function()
+            if sectorToken:IsFailed() then
+                return "The preview sector failed to load. Is the World Builder archive installed?"
+            end
+            if not sectorToken:IsLoaded() then
+                return false
+            end
+
+            local sector = sectorToken:GetResource()
+            if not sector then
+                return "The preview sector resource is empty."
+            end
+
+            -- debugName is editor data, so slots are found by node index: node N is slot N.
+            local count = sector:GetNodeCount()
+            if count ~= slotCount then
+                return string.format("The preview sector holds %d nodes, expected %d. Is the World Builder archive up to date?", count, slotCount)
+            end
+
+            local nodes = {}
+            for i = 0, count - 1 do
+                nodes[i] = sector:GetNode(i)
+            end
+            sectorNodes = nodes
+            return nil
         end)
-        if not ok or not hash then return nil end
-        slot.hash = hash
+
+        if not ok then
+            reportSector("Could not read the preview sector: " .. tostring(issue))
+            return nil
+        elseif issue == false then
+            reportSector("Loading the preview sector...", true)
+            return nil
+        elseif issue then
+            reportSector(issue)
+            return nil
+        end
     end
 
-    local ok, streamed = pcall(function()
-        return inspector:FindStreamedNode(slot.hash)
-    end)
-    if not ok or not streamed or not streamed.nodeDefinition then return nil end
+    local node = sectorNodes[slot.index]
+    if not node then
+        reportSector(string.format("Placeholder node %d is missing from the preview sector.", slot.index))
+    elseif sectorIssue then
+        sectorIssue = nil
+        pool.lastReason = ""
+    end
 
-    return streamed.nodeDefinition
+    return node
 end
 
 ---@param slot bendedPoolSlot
@@ -234,7 +303,7 @@ local function step(slot)
             end
         end
     elseif slot.state == "attaching" then
-        if resolve(slot) or slot.frames > attachTimeoutFrames then
+        if slot.frames >= attachFrames then
             finish(slot, not slot.job.failed)
         end
     end
@@ -350,7 +419,7 @@ end
 ---@return boolean queued False when the pool cannot run at all.
 function pool.submit(owner, payload)
     if not pool.isAvailable() then
-        pool.lastReason = "Red Hot Tools is not installed. The deformed preview needs it to reach the placeholder bended nodes."
+        pool.lastReason = "Codeware is not installed. The deformed preview needs it to reach and toggle the placeholder bended nodes."
         return false
     end
 
@@ -440,6 +509,9 @@ function pool.reset()
     slots = {}
     owners = {}
     prefabRef = nil
+    sectorToken = nil
+    sectorNodes = nil
+    sectorIssue = nil
     pool.lastReason = ""
 end
 

@@ -404,7 +404,7 @@ function bendedMesh:new()
     o.spawnDataPath = "data/spawnables/mesh/bended/"
     o.node = "worldBendedMeshNode"
     o.description = "Places a world bended mesh node with path-based deformation editing and deformed bounding box."
-    o.previewNote = "Deformation is previewed through a placeholder world node; without Red Hot Tools the mesh is shown undeformed."
+    o.previewNote = "Deformation is previewed through a placeholder world node; without Codeware the mesh is shown undeformed."
     o.icon = IconGlyphs.SineWave
 
     o.isBendedRoad = true
@@ -4628,7 +4628,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.deformedPreviewEnabled, changed = style.trackedCheckbox(self.object, "##deformedPreviewEnabled", self.deformedPreviewEnabled)
     changedAny = changedAny or changed
-    style.tooltip("Show the real deformed mesh through a World Builder placeholder node.\nNeeds Red Hot Tools; otherwise the mesh stays undeformed.")
+    style.tooltip("Show the real deformed mesh through a World Builder placeholder node.\nNeeds Codeware; otherwise the mesh stays undeformed.")
 
     if self.deformedPreviewEnabled and not self.isAssetPreview then
         local status = bendedPool.getStatus(self)
@@ -4642,7 +4642,7 @@ function bendedMesh:drawPathVisualizationSettings()
             style.tooltip("Deformed preview active.")
         elseif status == "pending" then
             style.mutedText(IconGlyphs.TimerSandEmpty)
-            style.tooltip("Waiting for a placeholder node.")
+            style.tooltip(bendedPool.lastReason ~= "" and ("Waiting for a placeholder node.\n" .. bendedPool.lastReason) or "Waiting for a placeholder node.")
         else
             style.mutedText(IconGlyphs.AlertOutline)
             style.tooltip(bendedPool.lastReason ~= "" and bendedPool.lastReason or "Deformed preview unavailable; the mesh is shown undeformed.")
