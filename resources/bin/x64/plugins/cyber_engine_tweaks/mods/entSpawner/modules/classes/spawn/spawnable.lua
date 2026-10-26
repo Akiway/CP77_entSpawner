@@ -542,6 +542,13 @@ function spawnable:getEntity()
     return nil
 end
 
+---Display name of an asset path, used for Spawn New entries and spawned elements.
+---@param path string
+---@return string
+function spawnable.getAssetName(path)
+    return utils.getFileName(path)
+end
+
 --- Generate valid name from given name / path
 ---@param name string
 ---@return string newName The generated/sanitized name

@@ -1735,6 +1735,10 @@ local function drawComboWithDisabledOptions(text, selected, options, comboWidth,
             local optionText = tostring(option)
             local isSelected = (index - 1) == selected
 
+            if opts.separatorsBefore and opts.separatorsBefore[index] then
+                ImGui.Separator()
+            end
+
             ImGui.PushID(index)
             if not isSelected and isComboOptionDisabled(disabledOptions, index, optionText) then
                 ImGui.Selectable(optionText, false, ImGuiSelectableFlags.Disabled)
@@ -1779,6 +1783,7 @@ end
 ---@field comboFlags number? Optional `ImGuiComboFlags`; switches to the selectable combo path.
 ---@field maxPopupHeight number? Optional max popup height in pixels; switches to the selectable combo path.
 ---@field popupMaxHeight number? Alias for `maxPopupHeight`.
+---@field separatorsBefore table<number, boolean>? 1-based option indices preceded by a separator; switches to the selectable combo path.
 ---@param element table? Element used for undo history tracking. When nil, no history action is recorded.
 ---@param text string Combo label / ID.
 ---@param selected number Current selected index.
@@ -1805,6 +1810,7 @@ function style.trackedCombo(element, text, selected, options, width, opts)
         or opts.comboFlags ~= nil
         or opts.maxPopupHeight ~= nil
         or opts.popupMaxHeight ~= nil
+        or opts.separatorsBefore ~= nil
         or opts.tooltipFn ~= nil then
         newValue, changed = drawComboWithDisabledOptions(text, selected, options, width * style.viewSize, disabledOptions, opts)
     else

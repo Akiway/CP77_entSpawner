@@ -30,7 +30,8 @@ local conversionTargets = {
     { modulePath = "physics/destructibleMesh", icon = IconGlyphs.GlassFragile, text = "Instanced Destructible Mesh", plural = "instanced destructible meshes" },
     { modulePath = "physics/physicalDestruction", icon = IconGlyphs.CubeUnfolded, text = "Physical Destruction Mesh", plural = "physical destruction meshes" },
     { modulePath = "physics/bakedDestruction", icon = IconGlyphs.CubeOffOutline, text = "Baked Destruction Mesh", plural = "baked destruction meshes" },
-    { modulePath = "mesh/proxyMesh", icon = IconGlyphs.BoxShadow, text = "Proxy Mesh", plural = "proxy meshes" }
+    { modulePath = "mesh/proxyMesh", icon = IconGlyphs.BoxShadow, text = "Proxy Mesh", plural = "proxy meshes" },
+    { modulePath = "mesh/roadIntersection", icon = IconGlyphs.RoadVariant, text = "Static Road Intersection", plural = "static road intersections" }
 }
 
 ---@param target table
@@ -78,7 +79,14 @@ local lossyConversionPairs = {
     ["mesh/proxyMesh>mesh/rotatingMesh"] = true,
     ["mesh/proxyMesh>mesh/clothMesh"] = true,
     ["mesh/proxyMesh>physics/dynamicMesh"] = true,
-    ["mesh/proxyMesh>physics/destructibleMesh"] = true
+    ["mesh/proxyMesh>physics/destructibleMesh"] = true,
+    -- Static Road Intersection is a Static Mesh with road ports, so it gains and loses the same.
+    ["mesh/bendedMesh>mesh/roadIntersection"] = true,
+    ["mesh/rotatingMesh>mesh/roadIntersection"] = true,
+    ["mesh/clothMesh>mesh/roadIntersection"] = true,
+    ["physics/dynamicMesh>mesh/roadIntersection"] = true,
+    ["physics/destructibleMesh>mesh/roadIntersection"] = true,
+    ["mesh/proxyMesh>mesh/roadIntersection"] = true
 }
 
 -- The two destruction subtypes pair with every other target in both directions, which would
@@ -104,7 +112,7 @@ for _, target in ipairs(conversionTargets) do
 
     -- Baked destruction keeps those, so only subtypes with settings of their own lose
     -- anything on the way in.
-    if path ~= "physics/bakedDestruction" and path ~= "mesh/mesh" then
+    if path ~= "physics/bakedDestruction" and path ~= "mesh/mesh" and path ~= "mesh/roadIntersection" then
         lossyConversionPairs[path .. ">physics/bakedDestruction"] = true
     end
 end

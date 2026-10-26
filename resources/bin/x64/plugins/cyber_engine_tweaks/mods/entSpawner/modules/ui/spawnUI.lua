@@ -21,6 +21,7 @@ local assetFavorites = require("modules/utils/project/assetFavorites")
 local assetValidation = require("modules/utils/game/assetValidation")
 local colorUtil = require("modules/utils/ui/color")
 local workspotSync = require("modules/utils/game/workspotSync")
+local spawnableClass = require("modules/classes/spawn/spawnable")
 
 local types = {
     ["Entity"] = {
@@ -62,7 +63,8 @@ local types = {
                 previewNote = "Destruction is not simulated in-editor. The intact mesh and its physics body are previewed."
             },
             ["Bended Mesh"] = { class = require("modules/classes/spawn/mesh/bendedMesh"), index = 6 },
-            ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 7 }
+            ["Proxy Mesh"] = { class = require("modules/classes/spawn/mesh/proxyMesh"), index = 7 },
+            ["Static Road Intersection"] = { class = require("modules/classes/spawn/mesh/roadIntersection"), index = 8, separatorBefore = true }
         },
         index = 2
     },
@@ -166,12 +168,21 @@ local typeNames = utils.getKeys(types)
 table.sort(typeNames, function (a, b) return types[a].index < types[b].index end)
 
 local variantNamesByType = {}
+-- Type name -> 1-based variant indices drawn after a separator, nil when the type has none.
+local variantSeparatorsByType = {}
 for _, typeName in ipairs(typeNames) do
     local names = utils.getKeys(types[typeName].variants)
     table.sort(names, function (a, b)
         return types[typeName].variants[a].index < types[typeName].variants[b].index
     end)
     variantNamesByType[typeName] = names
+
+    for index, name in ipairs(names) do
+        if types[typeName].variants[name].separatorBefore then
+            variantSeparatorsByType[typeName] = variantSeparatorsByType[typeName] or {}
+            variantSeparatorsByType[typeName][index] = true
+        end
+    end
 end
 
 ---Display-ordered variant names of one type. The returned table is shared, do not mutate it.
@@ -629,6 +640,12 @@ function spawnUI.loadSpawnData(spawner)
             if variant.sources then
                 spawnList.data = mergeHostedSpawnSources(spawnList, variant.sources)
                 spawnList.info = buildHostedSpawnInfo(spawnList, variant, variantInstance)
+            end
+
+            if isPaths and variant.class.getAssetName ~= spawnableClass.getAssetName then
+                for _, entry in ipairs(spawnList.data) do
+                    entry.fileName = variant.class.getAssetName(entry.name)
+                end
             end
 
             if variantInstance.collapseSpawnList then
@@ -2274,7 +2291,7 @@ function spawnUI.savePrefabFromEntry(entry, class)
     data.rotation = { roll = 0, pitch = 0, yaw = 0 }
 
     new:load({
-        name = utils.getFileName(entry.name),
+        name = entry.fileName or utils.getFileName(entry.name),
         modulePath = new.modulePath,
         spawnable = data
     })
@@ -2484,7 +2501,7 @@ local function drawSpawnResultEntryRow(entry, activeSpawnList, xSpace, buttonTex
 
     local buttonText = buttonTextOverride or entry.name
     if not buttonTextOverride and activeSpawnList.isPaths and settings.spawnUIOnlyNames then
-        buttonText = utils.getFileName(entry.name)
+        buttonText = entry.fileName or utils.getFileName(entry.name)
     end
 
     local originTagInfo = getEntryPathOriginTagInfo(entry, activeSpawnList)
@@ -3123,6 +3140,7 @@ function spawnUI.drawAll()
     style.fieldLabel("variant")
 	spawnUI.selectedVariant, variantChanged = style.trackedCombo(nil, "##objectVariant", spawnUI.selectedVariant, variantNames, 140, {
         maxPopupHeight = style.getPopupMaxHeight(),
+        separatorsBefore = variantSeparatorsByType[typeNames[spawnUI.selectedType + 1]],
         tooltipFn = function (currentValue)
             style.spawnableInfo(spawnUI.getActiveSpawnList().info, currentValue)
         end
@@ -3427,7 +3445,7 @@ function spawnUI.spawnNew(entry, class, isFavorite, options)
         end
     else
         new:load({
-            name = utils.getFileName(entry.name),
+            name = entry.fileName or utils.getFileName(entry.name),
             modulePath = new.modulePath,
             spawnable = data
         })
@@ -3620,8 +3638,12 @@ function spawnUI.drawPopup()
         for _, typeName in pairs(typeNames) do
             if ImGui.BeginMenu(typeName) then
                 local variantKeys = getSortedVariantNames(typeName)
+                local separators = variantSeparatorsByType[typeName] or {}
 
-                for _, variantName in pairs(variantKeys) do
+                for index, variantName in ipairs(variantKeys) do
+                    if separators[index] then
+                        ImGui.Separator()
+                    end
                     if ImGui.BeginMenu(variantName) then
                         spawnUI.drawPopupVariant(typeName, variantName)
                         ImGui.EndMenu()

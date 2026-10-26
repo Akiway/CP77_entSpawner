@@ -1791,7 +1791,7 @@ function spawnedUI.drawAssetFavoriteMenuItem(element)
     spawnUI.favoritesUI.drawContextMenuItem(
         modulePath,
         assetPath,
-        utils.getFileName(assetPath),
+        element.spawnable.getAssetName(assetPath),
         { spawnData = assetPath },
         "Spawned"
     )

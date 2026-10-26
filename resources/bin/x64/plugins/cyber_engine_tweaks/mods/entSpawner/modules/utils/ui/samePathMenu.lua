@@ -149,7 +149,7 @@ function samePathMenu.spawn(element, entry, spawnList)
     local sUI = element.sUI
     local new = require("modules/classes/editor/spawnableElement"):new(sUI)
     new:load({
-        name = utils.getFileName(getEntryPath(entry)),
+        name = entry.fileName or utils.getFileName(getEntryPath(entry)),
         modulePath = new.modulePath,
         spawnable = data
     })

@@ -2954,6 +2954,7 @@ local handleColors = {
     pointInsertLine = 0x9666E666,
     tangentAuto = 0xC8D0D0D0,
     tangentManual = 0xFF2EA0FF,
+    snapCandidate = 0xFFA0A0A0,
     hint = 0xFFE8E8E8,
     hintTitle = 0xFF33CCFF,
     hintBackground = 0xB4141414
@@ -3253,6 +3254,7 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
 
                 -- Alt: a linked end lets go of the meshes joined to it, a free point snaps onto nearby points.
                 drag.snap = nil
+                drag.candidates = nil
                 if altDown and drag.handle.kind == "point" and curveMode then
                     if drag.partners and #drag.partners > 0 then
                         drag.detached = drag.detached or {}
@@ -3261,7 +3263,8 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
                         end
                         drag.partners = {}
                     end
-                    drag.snap = self:findPointSnap(screen, mouseX, mouseY, drag.detached, drag.handle.index)
+                    drag.candidates = self:collectPointSnapCandidates(drag.detached, drag.handle.index)
+                    drag.snap = bendedMesh.findPointSnap(screen, mouseX, mouseY, drag.candidates)
                     if drag.snap then
                         target = drag.snap.position
                     end
@@ -3378,6 +3381,18 @@ function bendedMesh:drawViewportOverlay(screen, drawList)
     local active = self._handleDrag and self._handleDrag.handle
     local function isSame(a, b)
         return a and b and a.kind == b.kind and a.index == b.index and a.side == b.side
+    end
+
+    -- Alt+drag: every point the dragged one can snap onto. This curve's own end is already a handle.
+    for _, candidate in ipairs(self._handleDrag and self._handleDrag.candidates or {}) do
+        if not candidate.ownEnd then
+            local position = candidate.position
+            local projected = projectedWireframe.projectWorldPoint(screen, Vector4.new(position.x, position.y, position.z, 1))
+            if projected and not projected.behind then
+                ImGui.ImDrawListAddCircleFilled(drawList, projected.x, projected.y, HANDLE_TIP_RADIUS + 1.5, 0xC8000000, -1)
+                ImGui.ImDrawListAddCircleFilled(drawList, projected.x, projected.y, HANDLE_TIP_RADIUS, handleColors.snapCandidate, -1)
+            end
+        end
     end
 
     for _, handle in ipairs(handles) do
@@ -3765,7 +3780,7 @@ function bendedMesh:snapEndToNearest(atStart, options)
 
     if not best then
         if options.quiet then return false end
-        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("No bended mesh end within %d m.", SNAP_END_RANGE)))
+        ImGui.ShowToast(ImGui.Toast.new(ImGui.ToastType.Warning, 3000, string.format("No bended mesh end or intersection port within %d m.", SNAP_END_RANGE)))
         return false
     end
 
@@ -3976,8 +3991,8 @@ function bendedMesh:worldDirectionToLocal(world, dir)
     return normalizeDirection({ x = b.x - a.x, y = b.y - a.y, z = b.z - a.z })
 end
 
----Ends of every other bended mesh in the scene, in world space.
----@return table[] ends `{ mesh, name, isStart, frame }`
+---Ends of every other bended mesh in the scene, and the road ports of placed intersections, in world space.
+---@return table[] ends `{ mesh, name, isStart, frame, port? }`
 function bendedMesh:collectOtherEnds()
     local ends = {}
     local sUI = self.object and self.object.sUI
@@ -3991,36 +4006,27 @@ function bendedMesh:collectOtherEnds()
             local frames = other:getSampledPathFrames()
             table.insert(ends, { mesh = other, name = entry.ref.name, isStart = true, frame = other:pathFrameToWorld(frames[1]) })
             table.insert(ends, { mesh = other, name = entry.ref.name, isStart = false, frame = other:pathFrameToWorld(frames[#frames]) })
+        elseif other and other.getPortEnds and entry.ref.visible ~= false then
+            for _, port in ipairs(other:getPortEnds()) do
+                table.insert(ends, port)
+            end
         end
     end
 
     return ends
 end
 
----Nearest point of another bended mesh under the cursor: its ends, and its control points in
----Curve mode. Meshes in `excluded` are skipped.
----@param screen table
----@param mouseX number
----@param mouseY number
+---Points a dragged control point can snap onto: other bended meshes' ends and Curve mode control
+---points, intersection road ports, and this curve's other end. Meshes in `excluded` are skipped.
 ---@param excluded table<table, boolean>?
 ---@param dragIndex integer? Dragged control point: an end also snaps onto this curve's other end.
----@return table? snap `{ position, frame?, isStart?, ownEnd? }`; `frame` is set on other meshes' ends.
-function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded, dragIndex)
-    local best, bestDistance = nil, POINT_SNAP_PIXELS
-
-    local function consider(position, candidate)
-        local projected = projectedWireframe.projectWorldPoint(screen, Vector4.new(position.x, position.y, position.z, 1))
-        if projected and not projected.behind then
-            local distance = math.sqrt((projected.x - mouseX) ^ 2 + (projected.y - mouseY) ^ 2)
-            if distance < bestDistance then
-                best, bestDistance = candidate, distance
-            end
-        end
-    end
+---@return table[] candidates `{ position, name, frame?, isStart?, ownEnd? }`; `frame` is set on ends and ports.
+function bendedMesh:collectPointSnapCandidates(excluded, dragIndex)
+    local candidates = {}
 
     for _, other in ipairs(self:collectOtherEnds()) do
         if not (excluded and excluded[other.mesh]) then
-            consider(other.frame.position, { position = other.frame.position, frame = other.frame, isStart = other.isStart, name = other.name })
+            table.insert(candidates, { position = other.frame.position, frame = other.frame, isStart = other.isStart, name = other.name })
         end
     end
 
@@ -4032,7 +4038,7 @@ function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded, dragIndex)
             for index, point in ipairs(other.curvePoints or {}) do
                 if index > 1 and index < #other.curvePoints then
                     local world = other:getWorldPointFromLocal(point)
-                    consider(world, { position = { x = world.x, y = world.y, z = world.z }, name = entry.ref.name })
+                    table.insert(candidates, { position = { x = world.x, y = world.y, z = world.z }, name = entry.ref.name })
                 end
             end
         end
@@ -4041,11 +4047,34 @@ function bendedMesh:findPointSnap(screen, mouseX, mouseY, excluded, dragIndex)
     local opposite = dragIndex and self:getOppositeEnd(dragIndex)
     if opposite and not (excluded and excluded[self]) then
         local world = self:getWorldPointFromLocal(self.curvePoints[opposite])
-        consider(world, {
+        table.insert(candidates, {
             position = { x = world.x, y = world.y, z = world.z },
             ownEnd = opposite,
             name = opposite == 1 and "the start of this mesh" or "the end of this mesh"
         })
+    end
+
+    return candidates
+end
+
+---Nearest snap candidate under the cursor.
+---@param screen table
+---@param mouseX number
+---@param mouseY number
+---@param candidates table[] From `collectPointSnapCandidates`.
+---@return table? snap
+function bendedMesh.findPointSnap(screen, mouseX, mouseY, candidates)
+    local best, bestDistance = nil, POINT_SNAP_PIXELS
+
+    for _, candidate in ipairs(candidates) do
+        local position = candidate.position
+        local projected = projectedWireframe.projectWorldPoint(screen, Vector4.new(position.x, position.y, position.z, 1))
+        if projected and not projected.behind then
+            local distance = math.sqrt((projected.x - mouseX) ^ 2 + (projected.y - mouseY) ^ 2)
+            if distance < bestDistance then
+                best, bestDistance = candidate, distance
+            end
+        end
     end
 
     return best
@@ -4418,12 +4447,12 @@ function bendedMesh:drawShapeTools()
     if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SourceCommitStart, "Snap Start", "bendedSnapStart")) then
         self:snapEndToNearest(true)
     end
-    style.tooltip(string.format("Joins the first point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
+    style.tooltip(string.format("Joins the first point to the nearest end of another bended mesh,\nor road port of a placed intersection, within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
     ImGui.SameLine()
     if ImGui.Button(style.resolveActionLabelNoIconOnly(IconGlyphs.SourceCommitEnd, "Snap End", "bendedSnapEnd")) then
         self:snapEndToNearest(false)
     end
-    style.tooltip(string.format("Joins the last point to the nearest end of another bended mesh within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
+    style.tooltip(string.format("Joins the last point to the nearest end of another bended mesh,\nor road port of a placed intersection, within %d m.\nPosition, tangent and bank are matched.", SNAP_END_RANGE))
     ImGui.SameLine()
     if ImGui.Button("Bake Rotation") then
         self:bakeRotation()
@@ -4715,7 +4744,7 @@ function bendedMesh:drawPathVisualizationSettings()
     ImGui.SameLine()
     ImGui.SetCursorPosX(self.maxPropertyWidth)
     self.magneticEnds, changed = style.trackedCheckbox(self.object, "##magneticEnds", self.magneticEnds)
-    style.tooltip("While the mesh is moved with the gizmo, an end that comes within " .. MAGNET_RANGE .. " m\nof another bended mesh's end snaps onto it and turns to follow it.\nOn release the joined tangent and bank are matched too.\n\nHold Alt while moving to place the mesh freely.")
+    style.tooltip("While the mesh is moved with the gizmo, an end that comes within " .. MAGNET_RANGE .. " m\nof another bended mesh's end, or of a placed intersection's road port,\nsnaps onto it and turns to follow it.\nOn release the joined tangent and bank are matched too.\n\nHold Alt while moving to place the mesh freely.")
 
     style.mutedText(style.resolveActionLabelNoIconOnly(IconGlyphs.LinkVariant, "Linked Ends"))
     ImGui.SameLine()

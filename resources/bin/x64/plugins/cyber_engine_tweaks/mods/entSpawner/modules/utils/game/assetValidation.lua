@@ -56,6 +56,7 @@ declare(kinds.entity, { "entity/entity", "entity/entityTemplate", "entity/ammEnt
 declare(kinds.mesh, { "mesh/mesh", "mesh/rotatingMesh", "mesh/proxyMesh", "physics/destructionMesh" })
 declare(kinds.mesh, { "mesh/clothMesh" }, "data/spawnables/mesh/cloth/")
 declare(kinds.mesh, { "mesh/bendedMesh" }, "data/spawnables/mesh/bended/")
+declare(kinds.mesh, { "mesh/roadIntersection" }, "data/spawnables/mesh/roadIntersection/")
 declare(kinds.mesh, { "physics/dynamicMesh" }, "data/spawnables/mesh/physics/")
 declare(kinds.mesh, { "physics/destructibleMesh" }, "data/spawnables/mesh/destructible/")
 declare(kinds.mesh, { "physics/physicalDestruction" }, "data/spawnables/mesh/physicalDestruction/")
