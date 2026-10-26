@@ -2773,6 +2773,11 @@
       "base\\characters\\base_entities\\man_big\\man_big.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "base\\quest\\minor_quests\\mq061\\workspots\\base__master_male__stand_ground__wait_nervous__02.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "base\\vehicles\\_e3_content\\zodiac_boat\\driver_zodiac_boat.workspot": [
       "base\\characters\\base_entities\\man_base\\man_base.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig",
@@ -7554,6 +7559,7 @@
       "base\\characters\\entities\\player\\player_woman_skeleton.rig"
     ],
     "base\\workspots\\player\\table\\player__stand_table_lean_front__stand_around__02.workspot": [],
+    "base\\workspots\\quest\\glamdocs\\sho_workspot.workspot": [],
     "base\\workspots\\quest\\main_quests\\epilogue\\q201\\q201_01_cyberspace\\q201__johnny__sit_chair_lean0__rh_on_backrest__02.workspot": [
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
@@ -11131,6 +11137,107 @@
     ],
     "base\\workspots\\quest\\minor_quests\\mq055\\mq055__river__synced__hangouts_cuddle_with_female_player_idle__01.workspot": [
       "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq057\\mq057__player__sit_car_personal_link__sit_around__01.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_darius_player_knocked_out_idle.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_darius_techgate_gestures.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_darius_transitions_to_stand_2h_rifle.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_guard3_player_knocked_out_idle.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_guard3_transitions_stand_2h_rifle_aim.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_guard3_transitions_to_stand_2h_rifle.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_johnny__stand_wall_lean_right__stand_around__02.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_player_handscan.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_player_rh_front_to_knockdown.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_tabletguard_2guards_interaction_stand_lh_tablet_to_2h_back.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_tabletguard_aim_tazer_knockdown.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_tabletguard_gestures.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_tabletguard_handscan_to_aim.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_02_tabletguard_player_knocked_out_idle.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_03_guard_1_stand_2h_back_baton.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_03_player_lie.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_03_wex_sit_chair_lean0__2h_folded__01.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_00.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_01.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_02.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_04.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_05.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_05_cellblock_inmate_07.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_07_bathroom_mirror.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_07_bathroom_mirror_tpp.workspot": [
+      "base\\characters\\base_entities\\man_base\\man_base.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_09_wex_lie_bd_chair_cam.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_09_wex_lie_bd_chair_cam_panting.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_09_wex_lie_bd_chair_cam_pass_out.workspot": [
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "base\\workspots\\quest\\minor_quests\\mq062\\mq062_16_escape_explosive_detonator.workspot": [
+      "base\\characters\\entities\\player\\player_man_skeleton.rig",
+      "base\\characters\\entities\\player\\player_woman_skeleton.rig"
     ],
     "base\\workspots\\quest\\side_quests\\sq004\\sq004_02_intro\\sq004__generic__sit_chair__unconscious__01.workspot": [
       "base\\characters\\base_entities\\man_base\\man_base.rig"

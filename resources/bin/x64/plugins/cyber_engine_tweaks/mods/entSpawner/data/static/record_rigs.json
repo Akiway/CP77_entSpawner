@@ -1450,6 +1450,10 @@
       "base\\characters\\base_entities\\man_fat\\deformations_rigs\\man_fat_deformations.rig",
       "base\\characters\\base_entities\\man_fat\\man_fat.rig"
     ],
+    "Character.Oda_Puppet_Photomode": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.Ogawa": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -3902,6 +3906,10 @@
     "Character.cct_dtn_food_02": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.cct_dtn_glamdoc_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.cct_dtn_guns_01": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
@@ -11843,6 +11851,50 @@
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
     ],
+    "Character.mq061_Aera": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq061_Haze": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq061_Richard_Night": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq061_drone": [
+      "base\\vehicles\\special\\av_militech_wyvern\\rig\\av_militech_wyvern_01.rig"
+    ],
+    "Character.mq061_squatter_2": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq062_King": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq062_Meshuga": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq062_Spencer_Calder": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.mq062_Wex": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.mq062_Yard_Combat2_Exosqueleton": [
+      "base\\characters\\base_entities\\man_big\\man_big.rig",
+      "base\\characters\\base_entities\\man_massive\\deformations_rig\\man_massive_deformations.rig",
+      "base\\mechanical\\mech\\mch_002__centaur\\mch_002__centaur.rig"
+    ],
+    "Character.mq062_guard_intercom": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
     "Character.mq301_ambush_scav_butcher3_hmelee2_machete_mb_rare": [
       "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
       "base\\characters\\base_entities\\man_big\\man_big.rig"
@@ -13571,6 +13623,10 @@
     "Character.pac_wwd_ripdoc_01": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.pac_wwe_glamdoc_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
     "Character.paco": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
@@ -21822,6 +21878,14 @@
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
     ],
+    "Character.std_rcr_glamdoc2_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
+    "Character.std_rcr_glamdoc_01": [
+      "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
+      "base\\characters\\base_entities\\woman_base\\woman_base.rig"
+    ],
     "Character.std_rcr_gunsmith_01": [
       "base\\characters\\base_entities\\woman_base\\deformations_rigs\\woman_base_deformations.rig",
       "base\\characters\\base_entities\\woman_base\\woman_base.rig"
@@ -25043,6 +25107,10 @@
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
+    "Character.wat_kab_glamdoc_01": [
+      "base\\characters\\base_entities\\man_big\\deformations_rigs\\man_big_deformations.rig",
+      "base\\characters\\base_entities\\man_big\\man_big.rig"
+    ],
     "Character.wat_kab_gunsmith_01": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
@@ -25166,6 +25234,10 @@
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
     "Character.wbr_hil_foodshop_02": [
+      "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
+      "base\\characters\\base_entities\\man_base\\man_base.rig"
+    ],
+    "Character.wbr_hil_glamdoc_01": [
       "base\\characters\\base_entities\\man_base\\deformations_rigs\\man_base_deformations.rig",
       "base\\characters\\base_entities\\man_base\\man_base.rig"
     ],
@@ -25913,6 +25985,10 @@
     ],
     "Props.mq055_prop_tequila_bottle": [
       "base\\items\\prop_base_skeleton.rig"
+    ],
+    "Props.mq062_King_Gun_Prop": [
+      "base\\weapons\\firearms\\revolver\\techtronika_burya\\rig\\w_revolver__techtronika_burya__base1.rig",
+      "base\\weapons\\firearms\\revolver\\techtronika_burya\\rig\\w_revolver__techtronika_burya__mag_std.rig"
     ],
     "Props.mq301_deep_dive": [],
     "Props.mq301_vodka_bottle": [

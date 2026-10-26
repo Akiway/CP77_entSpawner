@@ -1669,3 +1669,15 @@ ElectricLightControllerPS base\gameplay\devices\lighting\street\street_lamps\str
 GenericDeviceControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case.ent
 ComputerControllerPS base\quest\minor_quests\mq060\entities\mq060_android_case802.ent
 NetrunnerChairControllerPS base\quest\minor_quests\mq060\entities\mq060_chair_02.ent
+DoorControllerPS base\gameplay\devices\doors\final\single_door_glamdoc.ent
+SecurityAlarmControllerPS base\gameplay\devices\masters\alarm_security\alarm_neokitsch_nothackable.ent
+MovableDeviceControllerPS base\quest\minor_quests\mq061\entities\intro\movable_metal_sheet.ent
+MovableDeviceControllerPS base\quest\minor_quests\mq061\entities\intro\mq061_movable_dumpster.ent
+ElectricLightControllerPS base\quest\minor_quests\mq062\entities\mq062_devices_lamp_alarm_a.ent
+ElectricLightControllerPS base\quest\minor_quests\mq062\entities\mq062_devices_lamp_alarm_b.ent
+ExplosiveDeviceControllerPS base\quest\minor_quests\mq062\entities\mq062_explosive_mine.ent
+ExplosiveDeviceControllerPS base\quest\minor_quests\mq062\entities\mq062_explosive_mine_dummy.ent
+SecurityAlarmControllerPS base\quest\minor_quests\mq062\entities\mq062_prison_alarm.ent
+DoorControllerPS base\quest\minor_quests\mq062\entities\mq062_single_door.ent
+DoorControllerPS base\quest\minor_quests\mq062\entities\mq062_stealth_cells_grid.ent
+GenericDeviceControllerPS base\quest\minor_quests\mq062\entities\mq062_stealth_monitoring_genericdevice_01.ent

@@ -4366,3 +4366,14 @@ ep1\quest\main_quests\q303\fx\q303_06a_paradise_roleplay_restaurant_floor_pour_2
 ep1\fx\quest\q305\q305_monitor_failure.effect
 base\gameplay\vehicles\visual_customization\vvc_reset_color.effect
 ep1\fx\quest\q301\crash_site_av_nonlinearities_thruster_sabotage\q301_av_manticore_thruster_fail.effect
+base\fx\player\p_photomode\photomode_filter_90s_crt.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_body.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_body_size15.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_body_size30.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_body_size50.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_face_2.effect
+base\fx\quest\mq061\mq061_hologram_glitch_fx_face_alt.effect
+base\quest\minor_quests\mq061\shaders\giant_richard_teleport_15.effect
+base\quest\minor_quests\mq061\shaders\giant_richard_teleport_30.effect
+base\quest\minor_quests\mq061\shaders\giant_richard_teleport_50.effect
+base\quest\minor_quests\mq062\entities\mq062_escape_fire_medium_effect.effect

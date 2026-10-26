@@ -344,6 +344,8 @@
   "mq001_using_gas_can",
   "mq007_skippy_glitches",
   "mq018_terminal_feedback",
+  "mq062_loudness_riots",
+  "mq062_mix_prison",
   "mq301_deep_dive_buff",
   "mq301_initiation_crowd_intensity",
   "mq304_community_mute",
@@ -719,6 +721,7 @@
   "radio_station_12_growl_fm",
   "radio_station_13_dark_star",
   "radio_station_14_impulse_fm",
+  "radio_station_15_edgerunners",
   "radio_station_kurtz",
   "radio_station_police"
  ],

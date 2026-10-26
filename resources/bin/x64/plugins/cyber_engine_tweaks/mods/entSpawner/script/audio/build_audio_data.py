@@ -30,7 +30,7 @@ What it writes:
                                       from `audioEmitterMetadata`, base and EP1 merged.
   data/audio/audioVocabularies.json   the closed name sets behind Reverb, Metadata Parent,
                                       Parameters, and the radio tables.
-  data/spawnables/visual/sounds/...   the Sounds browser list, regenerated from the same set.
+  data/spawnables/audio/sounds/...    the Sounds browser list, regenerated from the same set.
 
 Nothing already listed is dropped: the event list is the union of what the metadata says is valid
 and whatever the previous list held, so an event CDPR placed but the tables disagree with survives.
@@ -44,7 +44,7 @@ import sys
 # Repo root, two levels up from script/audio/.
 MOD = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 AUDIO = os.path.join(MOD, "data", "audio")
-SOUND_LIST = os.path.join(MOD, "data", "spawnables", "visual", "sounds", "sounds.txt")
+SOUND_LIST = os.path.join(MOD, "data", "spawnables", "audio", "sounds", "sounds.txt")
 
 # A tag must describe at least this many listed events to be offered as a browser filter, which
 # keeps the ~830 raw tags down to a list somebody can actually scan.

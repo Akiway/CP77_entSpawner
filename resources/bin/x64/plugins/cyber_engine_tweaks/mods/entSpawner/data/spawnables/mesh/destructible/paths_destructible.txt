@@ -5543,6 +5543,7 @@ base\environment\decoration\misc\sculptures\exotic_sculpture\exotic_sculpture_a.
 base\environment\decoration\misc\sculptures\exotic_sculpture\exotic_sculpture_a_huge_orb.mesh
 base\environment\decoration\misc\sculptures\exotic_sculpture\exotic_sculpture_a_parade.mesh
 base\environment\decoration\misc\sculptures\exotic_sculpture\exotic_sculpture_b.mesh
+base\environment\decoration\misc\sculptures\fine_art_plaque_b.mesh
 base\environment\decoration\misc\sculptures\flamingo_sculpture_01\flamingo_sculpture_01_a.mesh
 base\environment\decoration\misc\sculptures\flamingo_sculpture_01\flamingo_sculpture_01_b.mesh
 base\environment\decoration\misc\sculptures\fountain\fountain_a_dolphins_dst.mesh
@@ -11615,6 +11616,8 @@ base\worlds\03_night_city\sectors\_external\proxy\930747224\loc_q113_arasaka_est
 base\worlds\03_night_city\sectors\_external\proxy\963496650\w300_h250_mall.mesh
 base\worlds\03_night_city\sectors\_external\proxy\988930001\hvdr_02_f_terrain_side_01.mesh
 base\worlds\03_night_city\sectors\_external\proxy\996989566\ebunike_cargo_ship_a_decorations.mesh
+base\worlds\03_night_city\sectors\_external\proxy\doors_single_mq062_cell_grid\doors_single_mq062_cell_grid.mesh
+base\worlds\03_night_city\sectors\_external\proxy\mq062_cell_grid_double\doors_double_mq062_cell_grid_double.mesh
 base\worlds\03_night_city\sectors\c_westbrook\japan_town\loc_q112_parade_area\loc_q112_parade_area_env\loc_q112_parade_area_final_barges\fish_barge\barge_fish_deco_a.mesh
 base\worlds\03_night_city\sectors\c_westbrook\japan_town\loc_q112_parade_area\loc_q112_parade_area_env\loc_q112_parade_area_final_barges\fish_barge\barge_fish_deco_b.mesh
 base\worlds\03_night_city\sectors\c_westbrook\japan_town\loc_q112_parade_area\loc_q112_parade_area_env\loc_q112_parade_area_final_barges\fish_barge\barge_fish_deco_c.mesh

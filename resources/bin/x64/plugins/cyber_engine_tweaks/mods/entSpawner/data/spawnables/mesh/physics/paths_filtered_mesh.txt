@@ -13813,3 +13813,6 @@ base\environment\decoration\misc\shops\spiderbot_01_prototype_decoration\spiderb
 base\environment\architecture\common\tank_industrial\tank_industrial_large_a_mid_h300_b.mesh
 base\environment\decoration\industrial\equipment\gas_pump\gas_pump_a_pipes_a.mesh
 base\environment\decoration\lighting\lab\interior_lab_lamp\interior_lab_lamp_b.mesh
+base\environment\decoration\misc\sculptures\fine_art_plaque_b.mesh
+base\worlds\03_night_city\sectors\_external\proxy\doors_single_mq062_cell_grid\doors_single_mq062_cell_grid.mesh
+base\worlds\03_night_city\sectors\_external\proxy\mq062_cell_grid_double\doors_double_mq062_cell_grid_double.mesh

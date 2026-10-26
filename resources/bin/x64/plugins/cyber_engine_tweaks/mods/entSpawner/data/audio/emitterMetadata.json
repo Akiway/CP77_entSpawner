@@ -347,6 +347,12 @@
 "startClose": "dev_cerberus_doors_double_neom_start_close",
 "startOpen": "dev_cerberus_doors_double_neom_start_open"
 },
+"dev_corpoplaza_loudspeaker": {
+"class": "DistanceSoundDecoratorMetadata",
+"onEnter": "dev_corpoplaza_loudspeaker_emitter",
+"stopOnlyVirtualSounds": 1,
+"triggerDistance": 300
+},
 "dev_doors_cerberus_double_glass_decorator": {
 "class": "DoorDecoratorMetadata",
 "closeLoop": "dev_cerberus_doors_double_glass_close_loop",
