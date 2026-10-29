@@ -42,7 +42,8 @@ local about = {
     name = "World Builder",
     version = "a.1.6.0-beta.1",
     author = "NexusGuy999",
-    contributors = { "Akiway", "spiritualspirit", "tordalor", "MisterChedda", "SunliveQ", "theCyanideX" },
+    maintainer = "Akiway",
+    contributors = { "spiritualspirit", "tordalor", "Spuddeh", "MisterChedda", "SunliveQ", "theCyanideX" },
     thanks = "A huge thank you to everyone supporting World Builder: the testers, the bug reporters, everyone sending feedback and ideas, and everyone sharing what they build with it. The mod keeps growing because of you.",
     states = {
         ok = "ok",
@@ -164,7 +165,7 @@ about.dependencies = {
         id = "red4ext",
         name = "RED4ext",
         required = true,
-        provides = "Loads ArchiveXL and Codeware, and backs the reflection the game bindings rest on.",
+        provides = "Loads plugins for ArchiveXL and Codeware and World Builder.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/2380",
         check = function()
             -- It has no Lua side of its own; it is what loads ArchiveXL and Codeware, so either
@@ -194,7 +195,7 @@ about.dependencies = {
         required = true,
         blocking = true,
         minVersion = CODEWARE_VERSION,
-        provides = "Exposes Reflection, ResRef and NodeRef to Lua, which every spawned node and every export goes through. Also reaches and toggles the placeholder world nodes the Bended Mesh deformed preview renders through.",
+        provides = "Gives World Builder the game access it needs to spawn and export objects. Also used for the Bended Mesh preview.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/7780",
         check = function()
             return checkPlugin(Codeware, CODEWARE_VERSION)
@@ -222,7 +223,7 @@ about.dependencies = {
         id = "collisionPreviewArchive",
         name = "Collision Mesh Preview archive",
         required = false,
-        provides = "Supplies the preview meshes that make collision meshes visible in the world. Optional download on the World Builder page.",
+        provides = "Makes collision meshes visible in the world. Optional file on the World Builder Nexus page.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/20660?tab=files",
         check = function()
             if archiveInstalled(COLLISION_PREVIEW_ARCHIVE) then
@@ -236,7 +237,7 @@ about.dependencies = {
         id = "unlimitedGeometryCacheStreaming",
         name = "UnlimitedGeometryCacheStreaming",
         required = false,
-        provides = "Opens up every geometry cache entry to the whole map, so mesh colliders keep their collision wherever they are placed instead of only near the sector their shape came from.\nIt is required if you want to use Collision Meshes. If you create a mod with them, your users will also require this mod.",
+        provides = "Needed for Collision Meshes: keeps their collision working anywhere on the map, not only near their original sector.\nMods that use Collision Meshes need it too.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/29096",
         check = function()
             -- No Lua API, so it is detected through the two halves it registers: the .reds service
@@ -254,7 +255,7 @@ about.dependencies = {
         id = "worldBuilderTools",
         name = "World Builder Tools",
         required = false,
-        provides = "Ships with World Builder. Writes SplinePoint tangents, which CET cannot: without it the Spline preview NPC walks engine-fitted tangents instead of the authored ones.",
+        provides = "Included with World Builder. Lets the Spline preview NPC follow your exact tangents instead of engine-computed ones.",
         check = function()
             -- The plugin registers a global RTTI function rather than a class, so ask it directly.
             local ok, ready = pcall(function()
@@ -272,7 +273,7 @@ about.dependencies = {
         id = "redHotTools",
         name = "Red Hot Tools",
         required = false,
-        provides = "Provides the World Inspector that World Builder adds its own actions to: send a node to the search, run the Replacer on it, copy its AXL node mutation. Also the only route to the placeholder world nodes the Spline preview NPC walks.",
+        provides = "Adds World Builder actions to its World Inspector (search, Replacer, copy AXL node mutation). Required for the Spline preview NPC.",
         url = "https://github.com/psiberx/cp2077-red-hot-tools",
         check = function()
             if getMod("RedHotTools") then
@@ -286,7 +287,7 @@ about.dependencies = {
         id = "removalEditor",
         name = "Removal Editor",
         required = false,
-        provides = "Keeps the removal presets the Replacer records original world nodes into, so a replacement really takes the place of the node it copied.",
+        provides = "Lets the Replacer hide the original object it replaces, by adding it to a Removal Editor preset.",
         check = function()
             if getMod("removalEditor") then
                 return about.states.ok
@@ -299,7 +300,7 @@ about.dependencies = {
         id = "appearanceMenuMod",
         name = "Appearance Menu Mod",
         required = false,
-        provides = "Supplies the prop list that becomes the spawnable entries of Entity > Template (AMM). Presets placed in data\\AMMImport import without it.",
+        provides = "Adds the AMM props to the spawn list, under Entity > Template (AMM). Not needed to import AMM presets from data\\AMMImport.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/790",
         check = function()
             if getMod("AppearanceMenuMod") then
@@ -313,7 +314,7 @@ about.dependencies = {
         id = "windowUtils",
         name = "WindowUtils",
         required = false,
-        provides = "Takes over drawing the World Builder windows, adding its own window handling to the plain CET ones.",
+        provides = "Adds extra window handling to the World Builder windows.",
         check = function()
             if getMod("WindowUtils") then
                 return about.states.ok
@@ -326,7 +327,7 @@ about.dependencies = {
         id = "windowSwitcher",
         name = "WindowSwitcher",
         required = false,
-        provides = "Adds a taskbar entry for World Builder, which hides itself while 3D-Editor mode is active.",
+        provides = "Adds a World Builder taskbar entry, hidden while in 3D-Editor mode.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/30005",
         check = function()
             if getMod("WindowSwitcher") then
@@ -340,7 +341,7 @@ about.dependencies = {
         id = "xUtils",
         name = "XUtils",
         required = false,
-        provides = "Adds a free camera World Builder recognizes as a detached camera, so while flying it new objects spawn at the camera instead of snapping to the player height.",
+        provides = "While its free camera is active, new objects spawn at the camera instead of at player height.",
         check = function()
             if getMod("XUtils") then
                 return about.states.ok
@@ -353,7 +354,7 @@ about.dependencies = {
         id = "freefly",
         name = "FreeFly",
         required = false,
-        provides = "Adds a flight mode World Builder recognizes as a detached camera, so while flying it new objects spawn at the camera instead of snapping to the player height. Flying mode suspends when 3D-Editor mode starts and restores when it ends.",
+        provides = "While flying, new objects spawn at the camera instead of at player height. Flight pauses while in 3D-Editor mode.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/780",
         check = function()
             if getMod("freefly") then

@@ -227,6 +227,7 @@ local settingsSectionSearchText = {
         "About",
         "Version",
         "Author",
+        "Maintainer",
         "Contributors",
         "Thanks"
     }, " "),
@@ -967,7 +968,7 @@ local function drawBindingsSection()
     ImGui.TreePop()
 end
 
-local aboutRowLabels = { "Version", "Author", "Contributors" }
+local aboutRowLabels = { "Version", "Author", "Maintainer", "Contributors" }
 
 ---Width of the label column of the About rows, so every value lines up.
 ---@return number
@@ -1011,6 +1012,7 @@ local function drawAboutSection()
 
     drawAboutRow("Version", about.version, labelWidth)
     drawAboutRow("Author", about.author, labelWidth)
+    drawAboutRow("Maintainer", about.maintainer, labelWidth)
     drawAboutRow("Contributors", table.concat(about.contributors, ", "), labelWidth, true)
 
     ImGui.Dummy(0, 8 * style.viewSize)
@@ -1154,7 +1156,7 @@ local function drawDependenciesSummary(statuses)
     if missingRequired > 0 then
         style.styledTextWrapped(string.format("%d required %s missing or outdated.", missingRequired, missingRequired == 1 and "dependency is" or "dependencies are"), dependencyErrorColor)
     elseif missingOptional > 0 then
-        style.styledTextWrapped("Everything required is installed, some optional integrations are not.", style.successColor)
+        style.styledTextWrapped("All required dependencies are installed. Some optional ones are missing.", style.successColor)
     else
         style.styledTextWrapped("Everything is installed.", style.successColor)
     end
@@ -1185,7 +1187,7 @@ local function drawDependenciesSection()
     style.sectionHeaderEnd()
 
     ImGui.Dummy(0, 8 * style.viewSize)
-    style.sectionHeaderStart("Optional integrations", "Other mods World Builder makes use of when they are installed. Everything else keeps working without them.")
+    style.sectionHeaderStart("Optional integrations", "Extra features when installed. World Builder works without them.")
     for _, status in ipairs(optional) do
         drawDependencyRow(status)
     end
