@@ -34,8 +34,8 @@
 ---@field installed boolean Present in any version.
 ---@field satisfied boolean Present and new enough.
 
-local ARCHIVE_XL_VERSION = "1.26.0"
-local CODEWARE_VERSION = "1.18.0"
+local ARCHIVE_XL_VERSION = "1.28.1"
+local CODEWARE_VERSION = "1.21.2"
 local COLLISION_PREVIEW_ARCHIVE = "scc_collision.archive"
 
 local about = {
