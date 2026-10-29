@@ -32,8 +32,6 @@ local Cron = require("modules/utils/vendor/Cron")
 ---@field protected despawning boolean
 ---@field protected queueRespawn boolean
 ---@field public primaryRange number
----@field public uk10 integer
----@field public uk11 integer
 ---@field protected streamingMultiplier number
 ---@field public isHovered boolean
 ---@field protected arrowDirection string all|red|green|blue
@@ -124,8 +122,6 @@ function spawnable:new()
 
     o.noExport = false
     o.primaryRange = streamingPresetValues[defaultPreset + 1] or 120
-    o.uk10 = 1024
-    o.uk11 = 512
     o.streamingMultiplier = 1
     o.nodeRef = ""
     o.streamingRefPointOverride = false
@@ -572,8 +568,6 @@ function spawnable:save()
         app = self.app,
         rotationRelative = self.rotationRelative,
         primaryRange = self.primaryRange,
-        uk10 = self.uk10,
-        uk11 = self.uk11,
         nodeRef = self.nodeRef,
         streamingRefPointOverride = self.streamingRefPointOverride,
         streamingRefPoint = utils.fromVector(self.streamingRefPoint),
@@ -1267,7 +1261,7 @@ end
 
 ---Calculates the streaming distance values for the spawnable based on getSize()
 ---@param multiplier number
----@return table {primary, secondary, uk10, uk11}
+---@return table {primary, secondary}
 function spawnable:calculateStreamingValues(multiplier)
     -- TODO: Maybe make the multiplier scale non-linearly, so small things get boosted less than big things
     -- multiplier = math.min(1, math.max(0, falloffRange * math.log(math.max(0, maxAxis + minSize))))
@@ -1277,7 +1271,7 @@ function spawnable:calculateStreamingValues(multiplier)
     primary = math.min(primary, 200 * multiplier)
     local secondary = primary * 1.2
 
-    return { primary = primary, secondary = secondary, uk10 = self.uk10, uk11 = self.uk11 }
+    return { primary = primary, secondary = secondary }
 end
 
 ---Keys that identify the class rather than the object, and so must never be restored from a
@@ -1321,9 +1315,6 @@ function spawnable:loadSpawnData(data, position, rotation)
     local presetRange = streamingPresetValues[self.streamingPresetIndex + 1]
     self.primaryRange = data.primaryRange or presetRange or self.primaryRange or 100
 
-    self.uk10 = data.uk10 or self.uk10
-    self.uk11 = data.uk11 or self.uk11
-
     self.streamingRefPointOverride = data.streamingRefPointOverride or false
     self.streamingRefPoint = data.streamingRefPoint and utils.getVector(data.streamingRefPoint) or Vector4.new(0, 0, 0, 0)
 
@@ -1344,8 +1335,6 @@ function spawnable:export(key, length)
         scale = { x = 1, y = 1, z = 1 },
         primaryRange = self.primaryRange,
         secondaryRange = self.primaryRange * 0.85,
-        uk10 = self.uk10,
-        uk11 = self.uk11,
         nodeRef = self.nodeRef,
         type = "worldEntityNode",
         name = "[" .. self.dataType .. "] " .. self.object.name,

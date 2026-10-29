@@ -9,7 +9,7 @@ local groupExportManager = require("modules/utils/pipeline/groupExportManager")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local soundSystemData = require("modules/utils/data/soundSystem")
 
-local minScriptVersion = "1.0.4"
+local minScriptVersion = "1.0.5"
 local sectorCategory
 local ELEVATOR_FLOOR_TERMINAL_CONTROLLER_CLASS = "ElevatorFloorTerminalControllerPS"
 local SOUND_SYSTEM_CONTROLLER_CLASS = soundSystemData.SOUND_SYSTEM_CONTROLLER_CLASS
@@ -2223,10 +2223,8 @@ function exportUI.handleCommunities(projectName, communities, spotNodes, nodeRef
                 },
                 ["primaryRange"] = 99999999,
                 ["secondaryRange"] = 17.320507,
-                ["uk11"] = 512,
                 ["type"] = "worldCommunityRegistryNode",
-                ["nodeRef"] = "",
-                ["uk10"] = 32
+                ["nodeRef"] = ""
             }
         }
     }

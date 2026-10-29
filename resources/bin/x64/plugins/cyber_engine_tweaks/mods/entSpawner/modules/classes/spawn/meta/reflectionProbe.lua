@@ -75,9 +75,6 @@ function reflection:new()
     o.envProbeSearch = ""
     o.envProbeFilterCache = nil
 
-    o.uk10 = 1056
-    o.uk11 = 512
-
     setmetatable(o, { __index = self })
    	return o
 end

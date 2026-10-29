@@ -50,9 +50,6 @@ function fog:new()
     o.previewed = true
     o.previewShape = "box"
 
-    o.uk10 = 1056
-    o.uk11 = 512
-
     setmetatable(o, { __index = self })
    	return o
 end

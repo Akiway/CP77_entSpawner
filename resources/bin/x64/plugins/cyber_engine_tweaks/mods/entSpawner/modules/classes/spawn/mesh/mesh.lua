@@ -148,7 +148,6 @@ end
 ---@field protected convertTarget integer
 ---@field public assetPreviewType string
 ---@field public assetPreviewDelay number
----@field protected uk10 integer
 local mesh = setmetatable({}, { __index = spawnable })
 
 ---Creates a new static mesh spawnable with mesh-specific defaults.
@@ -201,8 +200,6 @@ function mesh:new()
     o.assetStartTime = 0
     o.assetPreviewYaw = 0
     o.assetPreviewAppIndex = 0
-
-    o.uk10 = 1040
 
     setmetatable(o, { __index = self })
    	return o

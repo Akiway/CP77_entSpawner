@@ -206,8 +206,6 @@ function collisionExport.buildPresetNodes(name, pieces, preset, sources)
             scale = { x = 1, y = 1, z = 1 },
             primaryRange = range,
             secondaryRange = range * 0.85,
-            uk10 = 1024,
-            uk11 = 512,
             nodeRef = "",
             type = "worldEntityNode",
             name = "[Bended Collision] " .. name .. (count > 1 and (" " .. part) or ""),

@@ -4,6 +4,7 @@ local Cron = require("modules/utils/vendor/Cron")
 local pipelineCommon = require("modules/utils/pipeline/common")
 local groupExportSidecar = require("modules/utils/pipeline/groupExportSidecar")
 local bendedCollisionExport = require("modules/utils/pipeline/bendedCollisionExport")
+local nodeStreaming = require("modules/utils/data/nodeStreaming")
 local logger = require("modules/utils/core/logger")
 
 local groupExportManager = {}
@@ -277,6 +278,31 @@ local function hostAlwaysLoadedCommunities(project, communities, alwaysLoaded)
             end
 
             table.insert(alwaysLoaded.nodes, node)
+        end
+    end
+end
+
+---Numbers the top-level handles of every node, unique within its sector. WolvenKit 10 templates
+---pre-create some handles (filterData, Settings) with HandleId "0", which the import script's merge
+---keeps unless the export sets one, and "0" resolves to the sector's first node.
+---@param sectors table[]
+local function assignHandleIds(sectors)
+    for _, sector in ipairs(sectors or {}) do
+        local nextId = 1000000
+
+        for _, node in ipairs(sector.nodes or {}) do
+            local keys = {}
+            for key, value in pairs(type(node.data) == "table" and node.data or {}) do
+                if type(value) == "table" and type(value.Data) == "table" and value.Data["$type"] then
+                    table.insert(keys, key)
+                end
+            end
+            table.sort(keys)
+
+            for _, key in ipairs(keys) do
+                node.data[key].HandleId = tostring(nextId)
+                nextId = nextId + 1
+            end
         end
     end
 end
@@ -807,6 +833,10 @@ local function finalizeExportRuntime(runtime)
                 hostAlwaysLoadedCommunities(runtime.project, runtime.state.communities, alwaysLoaded)
                 table.insert(runtime.project.sectors, alwaysLoaded)
             end
+
+            -- Last, once every node sits in its final sector: the flags depend on the sector category.
+            nodeStreaming.applyToSectors(runtime.project.sectors)
+            assignHandleIds(runtime.project.sectors)
 
             runtime.finalizePrepared = true
         end

@@ -40,9 +40,6 @@ function occluder:new()
     o.previewShape = "box"
     o.maxPropertyWidth = nil
 
-    o.uk10 = 1120
-    o.uk11 = 640
-
     setmetatable(o, { __index = self })
    	return o
 end

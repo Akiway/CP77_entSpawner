@@ -205,8 +205,6 @@ function entity:new()
     o.assetPreviewTimer = 0
     o.assetPreviewBackplane = nil
 
-    o.uk10 = 1056
-
     setmetatable(o, { __index = self })
    	return o
 end

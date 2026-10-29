@@ -391,42 +391,24 @@ function destructibleMesh:export()
     -- written with the value the game uses, to keep the node consistent when inspected.
     data.data.navigationSetting = redExport.navigationSetting("Blocking")
 
-    -- The node renders one entry per cooked instance transform, relative to the node
-    -- transform. World Builder places a single instance, so the buffer holds one identity
-    -- transform. `instanceTransforms` stays empty, matching cooked sectors.
-    data.data.cookedInstanceTransforms = {
-        ["$type"] = "worldTransformBuffer",
-        ["startIndex"] = 0,
-        ["numElements"] = 1,
-        ["sharedDataBuffer"] = {
-            ["Data"] = {
-                ["$type"] = "worldSharedDataBuffer",
-                ["buffer"] = {
-                    ["BufferId"] = utils.nextExportBufferId("CookedInstanceTransformsBuffer"),
-                    ["Flags"] = 4063232,
-                    ["Type"] = "WolvenKit.RED4.Archive.Buffer.CookedInstanceTransformsBuffer, WolvenKit.RED4",
-                    ["Data"] = {
-                        ["Transforms"] = {
-                            {
-                                ["$type"] = "Transform",
-                                ["position"] = {
-                                    ["$type"] = "Vector4",
-                                    ["X"] = 0,
-                                    ["Y"] = 0,
-                                    ["Z"] = 0,
-                                    ["W"] = 0
-                                },
-                                ["orientation"] = {
-                                    ["$type"] = "Quaternion",
-                                    ["i"] = 0,
-                                    ["j"] = 0,
-                                    ["k"] = 0,
-                                    ["r"] = 1
-                                }
-                            }
-                        }
-                    }
-                }
+    -- One mesh per entry, relative to the node transform. World Builder places a single
+    -- instance, so the array holds one identity transform.
+    data.data.instanceTransforms = {
+        {
+            ["$type"] = "Transform",
+            ["position"] = {
+                ["$type"] = "Vector4",
+                ["X"] = 0,
+                ["Y"] = 0,
+                ["Z"] = 0,
+                ["W"] = 0
+            },
+            ["orientation"] = {
+                ["$type"] = "Quaternion",
+                ["i"] = 0,
+                ["j"] = 0,
+                ["k"] = 0,
+                ["r"] = 1
             }
         }
     }
