@@ -2,7 +2,7 @@ local cache = require("modules/utils/game/cache")
 
 ---Lookups over the shipped audio metadata.
 ---
----Backed by three generated datasets in `data/audio/`, extracted from the game's own tables:
+---Backed by three generated datasets in `data/static/audio/`, extracted from the game's own tables:
 ---`base\sound\event\eventsmetadata.json` (the `audioAudioEventArray`) for per-event facts, and the
 ---base + EP1 `cooked_metadata.audio_metadata` files for the named presets. Everything here is a
 ---plain read of that data; nothing is guessed.

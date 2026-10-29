@@ -1,6 +1,6 @@
 // Imports an entitySpawner json export
 // @author keanuwheeze
-// @version 1.0.4
+// @version 1.0.6
 
 //////////////// Modify this //////////////////
 
@@ -10,11 +10,16 @@ const inputFilePathInRawFolder = "new_project_exported.json"
 
 import * as Logger from 'Logger.wscript';
 
-const version = "1.0.4"
+const version = "1.0.6"
+
+const DEFAULT_NODE_FLAGS = "FLAG_AllowForceStreamIn, FLAG_Building"
+const DEFAULT_STREAMING_PRIORITY = 50
+
 const header = {
   "Header": {
     "WolvenKitVersion": "8.14.1",
-    "WKitJsonVersion": "0.0.8",
+    "WKitJsonVersion": "0.0.9",
+	"GameVersion": 2500,
     "DataType": "CR2W",
   },
   "Data": {
@@ -35,7 +40,7 @@ const createNewFile = (type) => {
 
 const getNewSector = () => {
 	let data = createNewFile("worldStreamingSector")
-	data.Data.RootChunk.nodeData.Type = "WolvenKit.RED4.Archive.Buffer.worldNodeDataBuffer, WolvenKit.RED4, Version=8.13.0.0, Culture=neutral, PublicKeyToken=null"
+	data.Data.RootChunk.nodeData.Type = "WolvenKit.RED4.Archive.Buffer.worldNodeDataBuffer, WolvenKit.RED4, Version=10.0.0.0, Culture=neutral, PublicKeyToken=null"
 	data.Data.RootChunk.nodeData.Data = []
 	return data
 }
@@ -70,7 +75,33 @@ const getNewBlock = () => {
 }
 
 const getNewWorldNodeData = () => {
-	let data = { "Id": "0", "NodeIndex": 0, "Position": { "$type": "Vector4", "W": 0, "X": 0, "Y": 0, "Z": 0 }, "Orientation": { "$type": "Quaternion", "i": 0, "j": 0, "k": 0, "r": 1 }, "Scale": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 }, "Pivot": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 }, "Bounds": { "$type": "Box", "Max": { "$type": "Vector4", "W": 0, "X": 0, "Y": 0, "Z": 0 }, "Min": { "$type": "Vector4", "W": 0, "X": 0, "Y": 0, "Z": 0 } }, "QuestPrefabRefHash": { "$type": "NodeRef", "$storage": "uint64", "$value": "0" }, "UkHash1": { "$type": "NodeRef", "$storage": "uint64", "$value": "0" }, "CookedPrefabData": { "DepotPath": { "$type": "ResourcePath", "$storage": "uint64", "$value": "0" }, "Flags": "Default" }, "MaxStreamingDistance": 0, "UkFloat1": 0, "Uk10": 0, "Uk11": 0, "Uk12": 0, "Uk13": "0", "Uk14": "0" }
+	let data = {
+		"$type": "worldCompiledNodeInstanceSetupInfo",
+		"dataGroup": "Base",
+		"externalInplaceResourceHash": {
+			"DepotPath": { "$type": "ResourcePath", "$storage": "uint64", "$value": "0" },
+			"Flags": "Default"
+		},
+		"globalNodeId": { "$type": "worldGlobalNodeID", "hash": "0" },
+		"instanceIndex": 4294967295,
+		"nodeFlags": "FLAG_AllowForceStreamIn, FLAG_Building",
+		"nodeIdx": "0",
+		"patchedNode": { "$type": "NodeRef", "$storage": "uint64", "$value": "0" },
+		"preboostStreamingRefPoint": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 },
+		"proxyMeshId": { "$type": "worldGlobalNodeID", "hash": "0" },
+		"scale": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 },
+		"secondaryRefPointDistance": 0,
+		"secondaryRefPointPosition": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 },
+		"streamingDistance": 0,
+		"streamingPriority": "1",
+		"streamingRefPoint": { "$type": "Vector3", "X": 0, "Y": 0, "Z": 0 },
+		"todvisMask": "0",
+		"transform": {
+			"$type": "Transform",
+			"orientation": { "$type": "Quaternion", "i": 0, "j": 0, "k": 0, "r": 1 },
+			"position": { "$type": "Vector4", "W": 0, "X": 0, "Y": 0, "Z": 0 }
+		}
+	}
     return JSON.parse(JSON.stringify(data))
 }
 
@@ -87,65 +118,88 @@ const deepCopy = (origin, target) => {
     }
 }
 
+function fnv1a64NodeRef(value) {
+	value = value.replace(/#/g, "");
+
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        const byte = code <= 0x7f ? code : 0x3f;
+        hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * prime);
+    }
+
+    return hash;
+}
+
 const insertNode = (sector, node) => {
 	let nodeData = getNewWorldNodeData()
 	let streamingRefPoint = node.streamingRefPoint || node.position
 
-	nodeData.NodeIndex = sector.Data.RootChunk.nodes.length
+	nodeData.nodeIdx = sector.Data.RootChunk.nodes.length.toString()
 	
 	// Position
-	nodeData.Position.X = node.position.x
-	nodeData.Position.Y = node.position.y
-	nodeData.Position.Z = node.position.z
+	nodeData.transform.position.X = node.position.x
+	nodeData.transform.position.Y = node.position.y
+	nodeData.transform.position.Z = node.position.z
 	
 	// Streaming values
-	nodeData.MaxStreamingDistance = node.secondaryRange
-	nodeData.UkFloat1 = node.primaryRange
-	nodeData.Uk10 = node.uk10
-	nodeData.Uk11 = node.uk11
-	
-	// Pivot
-	nodeData.Pivot.X = streamingRefPoint.x
-	nodeData.Pivot.Y = streamingRefPoint.y
-	nodeData.Pivot.Z = streamingRefPoint.z
+	nodeData.secondaryRefPointDistance = node.secondaryRange
+	nodeData.streamingDistance = node.primaryRange
 
-	// Bounds
-	nodeData.Bounds.Max.X = node.position.x
-	nodeData.Bounds.Max.Y = node.position.y
-	nodeData.Bounds.Max.Z = node.position.z
+	// Flags and priority
+	nodeData.nodeFlags = node.nodeFlags ?? DEFAULT_NODE_FLAGS
+	nodeData.streamingPriority = node.streamingPriority ?? DEFAULT_STREAMING_PRIORITY
 
-	nodeData.Bounds.Min.X = streamingRefPoint.x
-	nodeData.Bounds.Min.Y = streamingRefPoint.y
-	nodeData.Bounds.Min.Z = streamingRefPoint.z
+	// Streaming reference points
+	nodeData.secondaryRefPointPosition.X = streamingRefPoint.x
+	nodeData.secondaryRefPointPosition.Y = streamingRefPoint.y
+	nodeData.secondaryRefPointPosition.Z = streamingRefPoint.z
+
+	nodeData.streamingRefPoint.X = streamingRefPoint.x
+	nodeData.streamingRefPoint.Y = streamingRefPoint.y
+	nodeData.streamingRefPoint.Z = streamingRefPoint.z
+
+	nodeData.preboostStreamingRefPoint.X = node.position.x
+	nodeData.preboostStreamingRefPoint.Y = node.position.y
+	nodeData.preboostStreamingRefPoint.Z = node.position.z
 
 	// Scale
-	nodeData.Scale.X = node.scale.x
-	nodeData.Scale.Y = node.scale.y
-	nodeData.Scale.Z = node.scale.z
+	nodeData.scale.X = node.scale.x
+	nodeData.scale.Y = node.scale.y
+	nodeData.scale.Z = node.scale.z
 	
 	// Rotation
-	nodeData.Orientation.i = node.rotation.i
-	nodeData.Orientation.j = node.rotation.j
-	nodeData.Orientation.k = node.rotation.k
-	nodeData.Orientation.r = node.rotation.r
+	nodeData.transform.orientation.i = node.rotation.i
+	nodeData.transform.orientation.j = node.rotation.j
+	nodeData.transform.orientation.k = node.rotation.k
+	nodeData.transform.orientation.r = node.rotation.r
 	
-	// NodeRef
+	// NodeRef/global node ID
 	if (node.nodeRef !== undefined && node.nodeRef !== "") {
-		nodeData.QuestPrefabRefHash.$storage = "string"
-		nodeData.QuestPrefabRefHash.$value = node.nodeRef
+		nodeData.globalNodeId.hash = fnv1a64NodeRef(node.nodeRef).toString()
 		sector.Data.RootChunk.nodeRefs.push({
 			"$type": "NodeRef",
 			"$storage": "string",
 			"$value": node.nodeRef
 		})
 	} else {
-		nodeData.QuestPrefabRefHash.$value = wkit.HashString(JSON.stringify(nodeData), "fnv1a64").toString()
+		nodeData.globalNodeId.hash = wkit.HashString(JSON.stringify(nodeData), "fnv1a64").toString()
 	}
 
 	sector.Data.RootChunk.nodeData.Data.push(nodeData)
 	
 	let worldNode = JSON.parse(wkit.CreateInstanceAsJSON(node.type))
-	
+
+	// WolvenKit 10 templates pre-create some handles (filterData, Settings) with HandleId "0", which
+	// resolves to the sector's first node instead of a new object
+	for (const value of Object.values(worldNode)) {
+		if (value !== null && typeof value === "object" && "HandleId" in value) {
+			delete value.HandleId
+		}
+	}
+
 	sortInstanceData(node.data)
 	deepCopy(node.data, worldNode)
 
@@ -160,7 +214,8 @@ const createSectorFromData = (data) => {
 	sector.Data.RootChunk.category = data.category
 	sector.Data.RootChunk.level = data.level
 	sector.Data.RootChunk.variantIndices = [0]
-	sector.Data.RootChunk.version = 62
+	sector.Data.RootChunk.version = 68
+	sector.Data.RootChunk.cookingPlatform = "PLATFORM_PC"
 
 	if (data.variantIndices !== undefined) {
 		sector.Data.RootChunk.variantIndices = data.variantIndices

@@ -1,4 +1,4 @@
-"""Regenerates the audio datasets under `data/audio/` from the game's own audio tables.
+"""Regenerates the audio datasets under `data/static/audio/` from the game's own audio tables.
 
 Run this after a game update, or whenever the source tables change.
 
@@ -20,17 +20,18 @@ Step 2 - run this script:
 
 What it writes:
 
-  data/audio/soundEvents.json         every audio event the game knows, with the facts that decide
-                                      how it behaves: `attenuation` (Wwise radius in metres, 0 means
-                                      not positional), `looping`, `duration`. Events the Sounds
-                                      browser offers also carry `tags`, the filter vocabulary.
-                                      The full set is needed because the instance-data editor
-                                      annotates audio fields on any component, not only emitters.
-  data/audio/emitterMetadata.json     every valid `emitterMetadataName`, i.e. every entry deriving
-                                      from `audioEmitterMetadata`, base and EP1 merged.
-  data/audio/audioVocabularies.json   the closed name sets behind Reverb, Metadata Parent,
-                                      Parameters, and the radio tables.
-  data/spawnables/audio/sounds/...    the Sounds browser list, regenerated from the same set.
+  data/static/audio/soundEvents.json         every audio event the game knows, with the facts that
+                                             decide how it behaves: `attenuation` (Wwise radius in
+                                             metres, 0 means not positional), `looping`, `duration`.
+                                             Events the Sounds browser offers also carry `tags`, the
+                                             filter vocabulary. The full set is needed because the
+                                             instance-data editor annotates audio fields on any
+                                             component, not only emitters.
+  data/static/audio/emitterMetadata.json     every valid `emitterMetadataName`, i.e. every entry
+                                             deriving from `audioEmitterMetadata`, base and EP1 merged.
+  data/static/audio/audioVocabularies.json   the closed name sets behind Reverb, Metadata Parent,
+                                             Parameters, and the radio tables.
+  data/spawnables/audio/sounds/...           the Sounds browser list, regenerated from the same set.
 
 Nothing already listed is dropped: the event list is the union of what the metadata says is valid
 and whatever the previous list held, so an event CDPR placed but the tables disagree with survives.
@@ -43,7 +44,7 @@ import sys
 
 # Repo root, two levels up from script/audio/.
 MOD = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-AUDIO = os.path.join(MOD, "data", "audio")
+AUDIO = os.path.join(MOD, "data", "static", "audio")
 SOUND_LIST = os.path.join(MOD, "data", "spawnables", "audio", "sounds", "sounds.txt")
 
 # A tag must describe at least this many listed events to be offered as a browser filter, which

@@ -252,23 +252,23 @@ end
 ---Loads static audio datasets and bended-rig defaults into `cache.staticData`.
 ---Also normalizes and indexes default bended rig matrix definitions by mesh path.
 function cache.loadStaticData()
-    cache.staticData.ambientData = config.loadFile("data/audio/ambientDataFull.json")
-    cache.staticData.staticData = config.loadFile("data/audio/staticDataFull.json")
-    cache.staticData.ambientQuad = config.loadFile("data/audio/ambientQuadFull.json")
-    cache.staticData.ambientMetadata = config.loadFile("data/audio/ambientMetadataFull.json")
-    cache.staticData.staticMetadata = config.loadFile("data/audio/staticMetadataFull.json")
-    cache.staticData.ambientMetadataAll = config.loadFile("data/audio/ambientMetadataAll.json")
-    cache.staticData.staticMetadataAll = config.loadFile("data/audio/staticMetadataAll.json")
-    cache.staticData.signposts = config.loadFile("data/audio/signpostsData.json")
+    cache.staticData.ambientData = config.loadFile("data/static/audio/ambientDataFull.json")
+    cache.staticData.staticData = config.loadFile("data/static/audio/staticDataFull.json")
+    cache.staticData.ambientQuad = config.loadFile("data/static/audio/ambientQuadFull.json")
+    cache.staticData.ambientMetadata = config.loadFile("data/static/audio/ambientMetadataFull.json")
+    cache.staticData.staticMetadata = config.loadFile("data/static/audio/staticMetadataFull.json")
+    cache.staticData.ambientMetadataAll = config.loadFile("data/static/audio/ambientMetadataAll.json")
+    cache.staticData.staticMetadataAll = config.loadFile("data/static/audio/staticMetadataAll.json")
+    cache.staticData.signposts = config.loadFile("data/static/audio/signpostsData.json")
 
     -- Extracted from the game's own audio tables rather than harvested from placed nodes, so these
     -- cover every event and preset the engine knows, not only the ones CDPR happened to use.
     -- See `modules/utils/data/audioData.lua` for what the fields mean.
-    local soundEvents = config.loadFile("data/audio/soundEvents.json")
+    local soundEvents = config.loadFile("data/static/audio/soundEvents.json")
     cache.staticData.soundEvents = soundEvents.events or {}
     cache.staticData.soundEventTags = soundEvents.tags or {}
-    cache.staticData.emitterMetadata = config.loadFile("data/audio/emitterMetadata.json")
-    cache.staticData.audioVocabularies = config.loadFile("data/audio/audioVocabularies.json")
+    cache.staticData.emitterMetadata = config.loadFile("data/static/audio/emitterMetadata.json")
+    cache.staticData.audioVocabularies = config.loadFile("data/static/audio/audioVocabularies.json")
 
     cache.staticData.spawnSets = cache.staticData.spawnSets or {}
     cache.staticData.bendedRigMatrices = cache.staticData.bendedRigMatrices or {}
@@ -679,19 +679,19 @@ function cache.generateAudioFiles()
         return data
     end
 
-    local signposts = loadSource("data/audio/signposts.json")
+    local signposts = loadSource("data/static/audio/signposts.json")
     if signposts then
-        config.saveFile("data/audio/signpostsData.json", {
+        config.saveFile("data/static/audio/signpostsData.json", {
             enter = removeDuplicatesTable(signposts.enter or {}),
             exit = removeDuplicatesTable(signposts.exit or {})
         })
     end
 
-    local ambientData = loadSource("data/audio/ambientData.json")
+    local ambientData = loadSource("data/static/audio/ambientData.json")
     if ambientData then
         -- Keyed by the `audioAmbientAreaSettings` field names, because that is what `ambientArea`
         -- looks the lists up by when it draws one event group per field.
-        config.saveFile("data/audio/ambientDataFull.json", {
+        config.saveFile("data/static/audio/ambientDataFull.json", {
             EventsOnEnter = removeDuplicatesTable(ambientData.onEnter or {}),
             EventsOnActive = removeDuplicatesTable(ambientData.onActive or {}),
             EventsOnExit = removeDuplicatesTable(ambientData.onExit or {}),
@@ -700,9 +700,9 @@ function cache.generateAudioFiles()
         })
     end
 
-    local staticData = loadSource("data/audio/staticData.json")
+    local staticData = loadSource("data/static/audio/staticData.json")
     if staticData then
-        config.saveFile("data/audio/staticDataFull.json", {
+        config.saveFile("data/static/audio/staticDataFull.json", {
             onEnter = removeDuplicatesTable(staticData.onEnter or {}),
             onActive = removeDuplicatesTable(staticData.onActive or {}),
             onExit = removeDuplicatesTable(staticData.onExit or {}),
@@ -711,7 +711,7 @@ function cache.generateAudioFiles()
         })
     end
 
-    local ambientQuad = loadSource("data/audio/ambientQuad.json")
+    local ambientQuad = loadSource("data/static/audio/ambientQuad.json")
     if ambientQuad then
         local quads = {}
         for _, entry in pairs(ambientQuad) do
@@ -719,21 +719,21 @@ function cache.generateAudioFiles()
                 quads[entry.events[1]] = entry.events
             end
         end
-        config.saveFile("data/audio/ambientQuadFull.json", quads)
+        config.saveFile("data/static/audio/ambientQuadFull.json", quads)
     end
 
-    local ambientMetadata = loadSource("data/audio/ambientMetadata.json")
+    local ambientMetadata = loadSource("data/static/audio/ambientMetadata.json")
     if ambientMetadata then
         local amb, ambAll = extractMetadata(ambientMetadata)
-        config.saveFile("data/audio/ambientMetadataFull.json", amb)
-        config.saveFile("data/audio/ambientMetadataAll.json", ambAll)
+        config.saveFile("data/static/audio/ambientMetadataFull.json", amb)
+        config.saveFile("data/static/audio/ambientMetadataAll.json", ambAll)
     end
 
-    local staticMetadata = loadSource("data/audio/staticMetadata.json")
+    local staticMetadata = loadSource("data/static/audio/staticMetadata.json")
     if staticMetadata then
         local stat, statAll = extractMetadata(staticMetadata)
-        config.saveFile("data/audio/staticMetadataFull.json", stat)
-        config.saveFile("data/audio/staticMetadataAll.json", statAll)
+        config.saveFile("data/static/audio/staticMetadataFull.json", stat)
+        config.saveFile("data/static/audio/staticMetadataAll.json", statAll)
     end
 
     -- `soundEvents.json`, `emitterMetadata.json`, `audioVocabularies.json` and the Sounds browser
