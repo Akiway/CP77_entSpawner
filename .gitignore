@@ -60,7 +60,7 @@ __pycache__
 
 # dll external resources
 raw/**/vendor
-raw/red4ext/WorldBuilderTools/build/.*
-raw/red4ext/WorldBuilderTools/build/*ninja*
-raw/red4ext/WorldBuilderTools/**/*cmake*
-raw/red4ext/WorldBuilderTools/**/*cache*
+raw/red4ext/WorldBuilder/build/.*
+raw/red4ext/WorldBuilder/build/*ninja*
+raw/red4ext/WorldBuilder/**/*cmake*
+raw/red4ext/WorldBuilder/**/*cache*

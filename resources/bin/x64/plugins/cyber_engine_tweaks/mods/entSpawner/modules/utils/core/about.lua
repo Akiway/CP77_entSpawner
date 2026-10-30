@@ -207,7 +207,7 @@ about.dependencies = {
         required = true,
         blocking = true,
         missingIssue = "Redscript part of the mod is not installed",
-        provides = "Registers the EntityBuilder service from r6\\scripts\\entSpawner, which reports when spawned entities are assembled and attached, and when their resources have finished loading.",
+        provides = "Registers the EntityBuilder service from r6\\scripts\\WorldBuilder, which reports when spawned entities are assembled and attached, and when their resources have finished loading.",
         url = "https://www.nexusmods.com/cyberpunk2077/mods/1511",
         check = function()
             -- The service is registered by the mod's own .reds file, which only gets compiled
